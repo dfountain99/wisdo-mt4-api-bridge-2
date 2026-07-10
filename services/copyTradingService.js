@@ -497,7 +497,7 @@ export class CopyTradingService {
         if (
           follower.masterUserId === masterUserId &&
           follower.status === 'active' &&
-          follower.paused !== true
+          (signal.action === 'close' || follower.paused !== true)
         ) {
           followers.push(follower);
         }
@@ -505,7 +505,13 @@ export class CopyTradingService {
     }
 
     for (const follower of followers) {
-      if (!symbolAllowed(signal.symbol, follower.symbolFilter)) {
+      const isClose = signal.action === 'close';
+
+      // Entry filters are allowed to block new risk, but they must never trap
+      // a follower in a position after the leader has closed. A paused route,
+      // symbol-filter change, spread cap, or max-open-trades setting therefore
+      // applies only to COPY_OPEN_TRADE.
+      if (!isClose && !symbolAllowed(signal.symbol, follower.symbolFilter)) {
         this.appendAudit(data, 'copy_trade.skipped', {
           masterUserId,
           followerUserId: follower.followerUserId,
@@ -516,6 +522,22 @@ export class CopyTradingService {
       }
 
       const command = this.buildCopyCommandForFollower(signal, follower);
+
+      if (isClose) {
+        const followerAccountId = follower.followerAccountId || null;
+        const sourceTicket = signal.sourceTicket ? String(signal.sourceTicket) : '';
+        const binding = followerAccountId && sourceTicket
+          ? data.ticketMapByFollowerAccountId?.[followerAccountId]?.[sourceTicket]
+          : null;
+
+        command.payload.followerTicket = binding?.followerTicket || null;
+        command.payload.copyKey = sourceTicket || signal.signalId;
+        command.payload.leaderTicket = sourceTicket || null;
+        command.payload.sourceTicket = sourceTicket || null;
+        if (binding?.symbol) command.payload.symbol = binding.symbol;
+        command.priority = 300;
+        command.immediate = true;
+      }
 
       if (command.status === 'skipped') {
         const logId = `copy_log_${randomUUID()}`;
@@ -555,7 +577,10 @@ export class CopyTradingService {
   }
 
   buildCopyCommandForFollower(signal, follower) {
-    const riskDecision = calculateCopyRiskDecision(signal, follower);
+    const isClose = signal.action === 'close';
+    const riskDecision = isClose
+      ? { allowed: true, reason: 'close_authority', lots: 0, risk: normalizeCopyRisk({ ...follower, ...(follower.risk || {}) }) }
+      : calculateCopyRiskDecision(signal, follower);
     const lots = riskDecision.lots;
 
     return {
@@ -571,6 +596,9 @@ export class CopyTradingService {
       payload: {
         signalId: signal.signalId,
         sourceTicket: signal.sourceTicket,
+        leaderTicket: signal.sourceTicket,
+        copyKey: signal.sourceTicket || signal.signalId,
+        followerTicket: null,
         symbol: signal.symbol,
         side: signal.side,
         lots,
@@ -584,6 +612,8 @@ export class CopyTradingService {
         followerAccountId: follower.followerAccountId || null,
         paperMode: Boolean(follower.paperMode),
       },
+      priority: isClose ? 300 : 150,
+      immediate: true,
       createdAt: new Date().toISOString(),
     };
   }
@@ -620,14 +650,16 @@ export class CopyTradingService {
     if (!command) command = (data.copyCommandsByUserId[followerUserId] || []).find((item) => item.id === commandId);
 
     if (command) {
-      command.status = 'completed';
-      command.completedAt = new Date().toISOString();
+      const succeeded = result?.success !== false;
+      command.status = succeeded ? 'completed' : 'failed';
+      if (succeeded) command.completedAt = new Date().toISOString();
+      else command.failedAt = new Date().toISOString();
       command.result = result;
 
       const followerAccountId = accountId || command.followerAccountId || command.payload?.followerAccountId || null;
       const sourceTicket = command.payload?.sourceTicket || command.payload?.leaderTicket || null;
       const followerTicket = result?.ticket || result?.followerTicket || null;
-      if (followerAccountId && sourceTicket) {
+      if (succeeded && followerAccountId && sourceTicket) {
         data.ticketMapByFollowerAccountId ||= {};
         data.ticketMapByFollowerAccountId[followerAccountId] ||= {};
         const key = String(sourceTicket);

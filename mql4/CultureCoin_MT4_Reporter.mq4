@@ -1,10 +1,13 @@
 #property strict
-#property version   "1.53"
-#property description "Culture Coin MT4 Reporter - WISDO copy/manual/profit/adaptive registry dashboard"
+#property version   "1.55"
+#property description "Culture Coin MT4 Reporter - WISDO close-authority copy/manual/profit dashboard"
 
 input string PairingCode = "";
 input string SyncUrl = "";
-input int ExportEverySeconds = 10;
+input int ExportEverySeconds = 3;
+input int CommandPollEverySeconds = 1;
+input int CommandsPerPollTick = 3;
+input bool PollCommandsBeforeSnapshot = true;
 input int MagicNumberFilter = 0;
 input string SymbolFilter = "";
 input bool IncludeAllTrades = true;
@@ -86,6 +89,8 @@ string g_lastCopyMessage = "";
 int g_lastCopyTicket = -1;
 datetime g_lastSendAt = 0;
 datetime g_lastCommandPollAt = 0;
+datetime g_lastSnapshotAt = 0;
+datetime g_lastFastPollAt = 0;
 
 string EscapeJson(string value)
 {
@@ -284,7 +289,7 @@ string BuildCemAdaptiveRegistryJson()
    output += "]";
    return output;
 }
-}
+
 
 void AddUniqueString(string &items, string value)
 {
@@ -671,7 +676,7 @@ void UpdateWisdoDashboard()
    color pnlColor = floatingPL >= 0.0 ? DashboardGoodColor : DashboardBadColor;
    color copiedPnlColor = copiedPL >= 0.0 ? DashboardGoodColor : DashboardBadColor;
 
-   SetDashboardLine(0,  "CEM CULTURE / WISDO PRO MANAGER DASHBOARD  v1.51", DashboardTitleColor);
+   SetDashboardLine(0,  "CEM CULTURE / WISDO PRO MANAGER DASHBOARD  v1.55", DashboardTitleColor);
    SetDashboardLine(1,  "Status: " + g_lastStatus + " | Terminal: " + terminal + " | Last Sync: " + syncTime, statusColor);
    SetDashboardLine(2,  "Pairing: " + MaskPairingCode() + " | Account: " + IntegerToString(AccountNumber()) + " | Server: " + Shorten(AccountServer(), 28), DashboardTextColor);
    SetDashboardLine(3,  "Mode: " + copyMode + " | AutoTrading: " + autoTrading + " | Poll: " + pollTime, autoColor);
@@ -874,10 +879,24 @@ bool JsonGetBool(string json, string key, bool fallback = false)
 
 string BuildCopyMarker(string sourceTicket)
 {
-   string marker = "WISDO_COPY:" + sourceTicket;
+   string clean = sourceTicket;
+   StringTrimLeft(clean);
+   StringTrimRight(clean);
+   string marker = "WISDO_COPY:" + clean;
    if(StringLen(marker) > 31)
       marker = StringSubstr(marker, 0, 31);
    return marker;
+}
+
+bool IsSelectedWisdoCopyTrade()
+{
+   if(OrderCloseTime() != 0)
+      return false;
+   if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+      return false;
+   if(OrderMagicNumber() == CopyMagicNumber)
+      return true;
+   return StringFind(OrderComment(), "WISDO_COPY:") >= 0;
 }
 
 bool IsCopyTradeAlreadyOpen(string sourceTicket)
@@ -890,7 +909,7 @@ bool IsCopyTradeAlreadyOpen(string sourceTicket)
    {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
-      if(OrderMagicNumber() != CopyMagicNumber)
+      if(!IsSelectedWisdoCopyTrade())
          continue;
       if(StringFind(OrderComment(), marker) >= 0)
          return true;
@@ -908,12 +927,66 @@ int FindCopiedTradeTicket(string sourceTicket)
    {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
-      if(OrderMagicNumber() != CopyMagicNumber)
+      if(!IsSelectedWisdoCopyTrade())
          continue;
       if(StringFind(OrderComment(), marker) >= 0)
          return OrderTicket();
    }
    return -1;
+}
+
+int FindExplicitFollowerTicket(string commandJson)
+{
+   int followerTicket = JsonGetInt(commandJson, "followerTicket", -1);
+   if(followerTicket <= 0)
+      followerTicket = JsonGetInt(commandJson, "copyTicket", -1);
+   if(followerTicket <= 0)
+      followerTicket = JsonGetInt(commandJson, "mirrorTicket", -1);
+   if(followerTicket <= 0)
+      return -1;
+
+   if(!OrderSelect(followerTicket, SELECT_BY_TICKET, MODE_TRADES))
+      return -1;
+   if(!IsSelectedWisdoCopyTrade())
+      return -1;
+   return followerTicket;
+}
+
+int FindUniqueCopiedTradeByContext(string commandJson)
+{
+   string requestedSymbol = JsonGetString(commandJson, "followerSymbol", "");
+   if(StringLen(requestedSymbol) == 0)
+      requestedSymbol = JsonGetString(commandJson, "symbol", "");
+   string resolvedSymbol = StringLen(requestedSymbol) > 0 ? ResolveTradeSymbol(requestedSymbol) : "";
+
+   string side = JsonGetString(commandJson, "side", "");
+   if(StringLen(side) == 0)
+      side = JsonGetString(commandJson, "direction", "");
+   StringToLower(side);
+
+   int expectedType = -1;
+   if(StringFind(side, "buy") >= 0 || side == "long") expectedType = OP_BUY;
+   if(StringFind(side, "sell") >= 0 || side == "short") expectedType = OP_SELL;
+
+   int foundTicket = -1;
+   int foundCount = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(!IsSelectedWisdoCopyTrade())
+         continue;
+      if(StringLen(resolvedSymbol) > 0 && OrderSymbol() != resolvedSymbol)
+         continue;
+      if(expectedType >= 0 && OrderType() != expectedType)
+         continue;
+      foundTicket = OrderTicket();
+      foundCount++;
+   }
+
+   // Never guess among multiple copied positions. The fallback is only safe
+   // when the command context identifies exactly one WISDO copy position.
+   return foundCount == 1 ? foundTicket : -1;
 }
 
 double NormalizeCopyLots(string symbol, double requestedLots)
@@ -1450,19 +1523,19 @@ bool ExecuteCopyOpenTrade(string commandJson, string &message, int &ticket)
       return false;
    }
 
-   string requestedSymbol = JsonGetString(commandJson, "symbol", Symbol());
+   string requestedSymbol = JsonGetString(commandJson, "followerSymbol", "");
+   if(StringLen(requestedSymbol) == 0)
+      requestedSymbol = JsonGetString(commandJson, "symbol", Symbol());
    string symbol = ResolveTradeSymbol(requestedSymbol);
    string side = JsonGetString(commandJson, "side", "");
-   if(StringLen(side) == 0)
-      side = JsonGetString(commandJson, "direction", "");
    if(StringLen(side) == 0)
       side = JsonGetString(commandJson, "type", "");
    StringToLower(side);
 
    int orderType = -1;
-   if(StringFind(side, "buy") >= 0 || side == "long")
+   if(StringFind(side, "buy") >= 0)
       orderType = OP_BUY;
-   if(StringFind(side, "sell") >= 0 || side == "short")
+   if(StringFind(side, "sell") >= 0)
       orderType = OP_SELL;
 
    if(orderType != OP_BUY && orderType != OP_SELL)
@@ -1498,13 +1571,19 @@ bool ExecuteCopyOpenTrade(string commandJson, string &message, int &ticket)
 
    string sourceTicket = JsonGetString(commandJson, "sourceTicket", "");
    if(StringLen(sourceTicket) == 0)
+      sourceTicket = JsonGetString(commandJson, "leaderTicket", "");
+   if(StringLen(sourceTicket) == 0)
+      sourceTicket = JsonGetString(commandJson, "masterTicket", "");
+   if(StringLen(sourceTicket) == 0)
+      sourceTicket = JsonGetString(commandJson, "copyKey", "");
+   if(StringLen(sourceTicket) == 0)
       sourceTicket = JsonGetString(commandJson, "signalId", "");
    if(StringLen(sourceTicket) == 0)
       sourceTicket = JsonGetString(commandJson, "commandId", JsonGetString(commandJson, "id", ""));
 
    if(StringLen(sourceTicket) == 0)
    {
-      message = "Copy command missing sourceTicket/signalId/commandId";
+      message = "Copy command missing sourceTicket/leaderTicket/copyKey";
       return false;
    }
 
@@ -1514,11 +1593,7 @@ bool ExecuteCopyOpenTrade(string commandJson, string &message, int &ticket)
       return true;
    }
 
-   double requestedLots = JsonGetDouble(commandJson, "lots", 0.0);
-   if(requestedLots <= 0.0)
-      requestedLots = JsonGetDouble(commandJson, "lot", 0.0);
-   if(requestedLots <= 0.0)
-      requestedLots = JsonGetDouble(commandJson, "volume", CopyFixedLotFallback);
+   double requestedLots = JsonGetDouble(commandJson, "lots", CopyFixedLotFallback);
    double lots = NormalizeCopyLots(symbol, requestedLots);
    double price = (orderType == OP_BUY) ? MarketInfo(symbol, MODE_ASK) : MarketInfo(symbol, MODE_BID);
    int digits = GetPriceDigits(symbol);
@@ -1529,11 +1604,7 @@ bool ExecuteCopyOpenTrade(string commandJson, string &message, int &ticket)
    if(CopyUseSLTP)
    {
       sl = JsonGetDouble(commandJson, "stopLoss", 0.0);
-      if(sl <= 0.0)
-         sl = JsonGetDouble(commandJson, "sl", 0.0);
       tp = JsonGetDouble(commandJson, "takeProfit", 0.0);
-      if(tp <= 0.0)
-         tp = JsonGetDouble(commandJson, "tp", 0.0);
       if(sl > 0.0) sl = NormalizeDouble(sl, digits);
       if(tp > 0.0) tp = NormalizeDouble(tp, digits);
    }
@@ -1569,15 +1640,40 @@ bool ExecuteCopyCloseTrade(string commandJson, string &message, int &ticket)
       return false;
    }
 
+   if(CopyRequireAutoTrading && !IsExpertEnabled())
+   {
+      message = "MT4 AutoTrading / Expert execution is disabled";
+      return false;
+   }
+
    string sourceTicket = JsonGetString(commandJson, "sourceTicket", "");
+   if(StringLen(sourceTicket) == 0)
+      sourceTicket = JsonGetString(commandJson, "leaderTicket", "");
+   if(StringLen(sourceTicket) == 0)
+      sourceTicket = JsonGetString(commandJson, "masterTicket", "");
+   if(StringLen(sourceTicket) == 0)
+      sourceTicket = JsonGetString(commandJson, "copyKey", "");
    if(StringLen(sourceTicket) == 0)
       sourceTicket = JsonGetString(commandJson, "signalId", "");
 
-   ticket = FindCopiedTradeTicket(sourceTicket);
+   // Strongest match first: the server-recorded follower ticket returned by
+   // OrderSend. This also closes legacy positions whose MT4 comment used an
+   // older command-id marker.
+   ticket = FindExplicitFollowerTicket(commandJson);
+
+   // Stable leader/source ticket marker used by Reporter v1.55+.
+   if(ticket <= 0 && StringLen(sourceTicket) > 0)
+      ticket = FindCopiedTradeTicket(sourceTicket);
+
+   // Safe legacy recovery: only close when symbol/side resolves to exactly
+   // one WISDO copied position. Never choose one position from several.
+   if(ticket <= 0)
+      ticket = FindUniqueCopiedTradeByContext(commandJson);
+
    if(ticket <= 0)
    {
-      message = "No copied trade found for source " + sourceTicket;
-      return true;
+      message = "Close not executed: no unique copied trade matched source " + sourceTicket + ". Expected followerTicket or stable leader ticket.";
+      return false;
    }
 
    if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
@@ -1587,6 +1683,11 @@ bool ExecuteCopyCloseTrade(string commandJson, string &message, int &ticket)
    }
 
    int type = OrderType();
+   if(type != OP_BUY && type != OP_SELL)
+   {
+      message = "Matched ticket is not a market position";
+      return false;
+   }
    double closePrice = (type == OP_BUY) ? MarketInfo(OrderSymbol(), MODE_BID) : MarketInfo(OrderSymbol(), MODE_ASK);
    closePrice = NormalizeDouble(closePrice, GetPriceDigits(OrderSymbol()));
 
@@ -1817,6 +1918,125 @@ bool ExecuteCemSetGlobalsCommand(string commandJson, string &message, int &ticke
 }
 // ======================= END CEM ADAPTIVE GLOBAL VARIABLE EXECUTION =======================
 
+// ========================= WISDO WAKE WORD DECIPHER + CONTROL COMMANDS =========================
+bool TextHas(string text, string token)
+{
+   string a = text;
+   string b = token;
+   StringToLower(a);
+   StringToLower(b);
+   return StringFind(a, b) >= 0;
+}
+
+string JsonGetCommandText(string commandJson)
+{
+   string text = JsonGetString(commandJson, "rawText", "");
+   if(StringLen(text) == 0) text = JsonGetString(commandJson, "rawCommand", "");
+   if(StringLen(text) == 0) text = JsonGetString(commandJson, "text", "");
+   if(StringLen(text) == 0) text = JsonGetString(commandJson, "message", "");
+   if(StringLen(text) == 0) text = JsonGetString(commandJson, "prompt", "");
+   return text;
+}
+
+string ResolveWakeCommand(string command, string commandJson)
+{
+   string c = command;
+   StringToUpper(c);
+   if(c != "WISDO_TEXT_COMMAND" && c != "WAKE_CALL" && c != "WAKE_WORD" && c != "VOICE_COMMAND" && c != "COACH_COMMAND")
+      return c;
+
+   string text = JsonGetCommandText(commandJson);
+   StringToLower(text);
+
+   // Wake words are intentionally broad: hey coach, coach, wisdo, deadshot, culture coin, command center.
+   // The system does not need 500k hard-coded phrases; it uses intent families that can cover hundreds of thousands of natural sentence variations.
+   if((TextHas(text, "close") || TextHas(text, "collect") || TextHas(text, "secure") || TextHas(text, "grab") || TextHas(text, "take")) &&
+      (TextHas(text, "profit") || TextHas(text, "profitable") || TextHas(text, "winner") || TextHas(text, "winning")))
+      return "CLOSE_ALL_PROFITS";
+
+   if((TextHas(text, "trim") || TextHas(text, "partial") || TextHas(text, "half") || TextHas(text, "50%")) && TextHas(text, "profit"))
+      return "TRIM_PROFITS";
+
+   if((TextHas(text, "emergency") || TextHas(text, "panic") || TextHas(text, "hard stop")) && (TextHas(text, "close") || TextHas(text, "flatten") || TextHas(text, "kill")))
+      return "EMERGENCY_CLOSE_ALL";
+
+   if(TextHas(text, "close all") || TextHas(text, "close everything") || TextHas(text, "flatten account") || TextHas(text, "kill all trades"))
+      return "CLOSE_ALL_TRADES";
+
+   if(TextHas(text, "close") && (TextHas(text, "loss") || TextHas(text, "losses") || TextHas(text, "loser") || TextHas(text, "losers") || TextHas(text, "losing")))
+      return "CLOSE_ALL_LOSERS";
+
+   if((TextHas(text, "pause") || TextHas(text, "stop trading") || TextHas(text, "stop entries") || TextHas(text, "freeze")) && !TextHas(text, "resume"))
+      return TextHas(text, "copier") ? "PAUSE_COPIER" : "PAUSE_TRADING";
+
+   if(TextHas(text, "resume") || TextHas(text, "start trading") || TextHas(text, "start entries") || TextHas(text, "unpause"))
+      return TextHas(text, "copier") ? "RESUME_COPIER" : "RESUME_TRADING";
+
+   if(TextHas(text, "walk away") || TextHas(text, "walkaway"))
+      return "WALK_AWAY_MODE";
+
+   if(TextHas(text, "lock profit") || TextHas(text, "equity floor") || TextHas(text, "protect profit"))
+      return "LOCK_PROFIT";
+
+   if(TextHas(text, "buy") || TextHas(text, "sell"))
+      return "MARKET_ORDER";
+
+   return "CEM_SET_GLOBALS";
+}
+
+bool ExecuteWisdoControlCommand(string command, string commandJson, string &message, int &ticket)
+{
+   ticket = -1;
+   string c = command;
+   StringToUpper(c);
+   if(c == "PAUSE_TRADING" || c == "EMERGENCY_STOP" || c == "STOP_ENTRIES")
+   {
+      GlobalVariableSet("WISDO_TRADING_PAUSED", 1);
+      GlobalVariableSet("WISDO_LAST_CONTROL_AT", TimeCurrent());
+      message = "WISDO trading pause flag set in MT4 Global Variables. Bots must read WISDO_TRADING_PAUSED to stop entries.";
+      return true;
+   }
+   if(c == "RESUME_TRADING" || c == "START_ENTRIES")
+   {
+      GlobalVariableSet("WISDO_TRADING_PAUSED", 0);
+      GlobalVariableSet("WISDO_LAST_CONTROL_AT", TimeCurrent());
+      message = "WISDO trading pause flag cleared in MT4 Global Variables.";
+      return true;
+   }
+   if(c == "PAUSE_COPIER")
+   {
+      GlobalVariableSet("WISDO_COPIER_PAUSED", 1);
+      GlobalVariableSet("WISDO_LAST_CONTROL_AT", TimeCurrent());
+      message = "WISDO copier pause flag set in MT4 Global Variables.";
+      return true;
+   }
+   if(c == "RESUME_COPIER")
+   {
+      GlobalVariableSet("WISDO_COPIER_PAUSED", 0);
+      GlobalVariableSet("WISDO_LAST_CONTROL_AT", TimeCurrent());
+      message = "WISDO copier pause flag cleared in MT4 Global Variables.";
+      return true;
+   }
+   if(c == "SET_BOT_MODE" || c == "SET_RISK_MODE")
+   {
+      string mode = JsonGetString(commandJson, "mode", JsonGetString(commandJson, "botMode", JsonGetString(commandJson, "riskMode", "")));
+      double modeCode = 0;
+      string m = mode; StringToLower(m);
+      if(TextHas(m, "conservative")) modeCode = 1;
+      else if(TextHas(m, "aggressive")) modeCode = 2;
+      else if(TextHas(m, "protect")) modeCode = 3;
+      else if(TextHas(m, "manual")) modeCode = 4;
+      else if(TextHas(m, "consolidation")) modeCode = 5;
+      GlobalVariableSet("WISDO_MODE_CODE", modeCode);
+      GlobalVariableSet("WISDO_LAST_CONTROL_AT", TimeCurrent());
+      message = "WISDO mode code updated to " + DoubleToString(modeCode, 0) + " from text mode '" + mode + "'.";
+      return true;
+   }
+   message = "Unsupported WISDO control command: " + command;
+   return false;
+}
+// ======================= END WISDO WAKE WORD DECIPHER + CONTROL COMMANDS =======================
+
 void PollAndExecuteCommands()
 {
    if(!ValidateInputs())
@@ -1855,11 +2075,8 @@ void PollAndExecuteCommands()
    string response = CharArrayToString(result);
    if(httpCode < 200 || httpCode >= 300)
    {
-      string serverError = JsonGetString(response, "error", "");
       g_lastStatus = "Error";
       g_lastError = "Cmd Poll HTTP " + IntegerToString(httpCode);
-      if(StringLen(serverError) > 0)
-         g_lastError += " " + TruncateText(serverError, 70);
       Print("CultureCoin Reporter command poll HTTP ", httpCode, ". Response: ", response);
       UpdateStatusLabel();
       return;
@@ -1870,6 +2087,8 @@ void PollAndExecuteCommands()
       return;
 
    string command = JsonGetString(response, "command", "");
+   string originalCommand = command;
+   command = ResolveWakeCommand(command, response);
    string commandId = JsonGetString(response, "commandId", JsonGetString(response, "id", ""));
    string message = "";
    int ticket = -1;
@@ -1889,6 +2108,8 @@ void PollAndExecuteCommands()
       success = ExecuteManualCloseTrade(response, message, ticket);
    else if(command == "CLOSE_ALL_PROFITS" || command == "CLOSE_ALL_WINNERS" || command == "TRIM_PROFITS" || command == "PARTIAL_CLOSE_WINNERS" || command == "PARTIAL_CLOSE_BASKET" || command == "CLOSE_ALL_LOSERS" || command == "CLOSE_ALL_TRADES" || command == "EMERGENCY_CLOSE_ALL" || command == "CLOSE_BY_SYMBOL" || command == "CLOSE_BY_MAGIC" || command == "CLOSE_BASKET" || command == "CLOSE_BY_BOT" || command == "SET_EQUITY_FLOOR" || command == "LOCK_PROFIT" || command == "WALK_AWAY_MODE")
       success = ExecuteProfitManagerCommand(command, response, message, ticket);
+   else if(command == "PAUSE_TRADING" || command == "RESUME_TRADING" || command == "PAUSE_COPIER" || command == "RESUME_COPIER" || command == "EMERGENCY_STOP" || command == "STOP_ENTRIES" || command == "START_ENTRIES" || command == "SET_BOT_MODE" || command == "SET_RISK_MODE")
+      success = ExecuteWisdoControlCommand(command, response, message, ticket);
    else if(command == "CEM_SET_GLOBALS")
       success = ExecuteCemSetGlobalsCommand(response, message, ticket);
    else
@@ -1901,7 +2122,7 @@ void PollAndExecuteCommands()
    g_lastCopyTicket = ticket;
 
    string completeResult = SendCommandComplete(commandId, success, message, ticket);
-   Print("CultureCoin command ", command, " -> ", message, " | ", completeResult);
+   Print("CultureCoin command ", originalCommand, " resolved ", command, " -> ", message, " | ", completeResult);
    g_lastStatus = success ? "Connected" : "Error";
    g_lastError = success ? "" : message;
    UpdateStatusLabel();
@@ -1951,13 +2172,10 @@ void SendSnapshot()
    else
    {
       string responseText = CharArrayToString(result);
-      string serverError = JsonGetString(responseText, "error", "");
       g_lastStatus = "Error";
       g_lastError = "HTTP " + IntegerToString(httpCode);
-      if(StringLen(serverError) > 0)
-         g_lastError += " " + TruncateText(serverError, 70);
-      else if(StringLen(responseText) > 0)
-         g_lastError += " " + TruncateText(responseText, 70);
+      if(StringLen(responseText) > 0)
+         g_lastError += " " + TruncateText(responseText, 40);
       Print("CultureCoin Reporter received HTTP ", httpCode, ". Response: ", responseText);
    }
 
@@ -1966,9 +2184,9 @@ void SendSnapshot()
 
 int OnInit()
 {
-   int exportInterval = ExportEverySeconds;
-   if(exportInterval < 1)
-      exportInterval = 1;
+   int exportInterval = CommandPollEverySeconds;
+   if(exportInterval < 1) exportInterval = 1;
+   if(ExportEverySeconds > 0 && ExportEverySeconds < exportInterval) exportInterval = ExportEverySeconds;
 
    EventSetTimer(exportInterval);
    g_lastStatus = "Waiting";
@@ -1979,7 +2197,7 @@ int OnInit()
    g_lastCopyTicket = -1;
    UpdateStatusLabel();
 
-   Print("CultureCoin Reporter V1.53 initialized with WISDO copy/manual/profit/adaptive Global Variable dashboard.");
+   Print("CultureCoin Reporter V1.55 initialized with close-authority ticket binding, fast polling, wake-word decipher, WISDO copy/manual/profit/adaptive control dashboard.");
    Print("Copy trading execution: ", EnableCopyTrading ? "ENABLED" : "DISABLED");
    Print("Sync URL: ", SyncUrl);
    Print("Command poll URL: ", ResolveCommandPollUrl());
@@ -1995,7 +2213,29 @@ void OnDeinit(const int reason)
 
 void OnTimer()
 {
-   SendSnapshot();
-   PollAndExecuteCommands();
+   datetime now = TimeCurrent();
+
+   if(PollCommandsBeforeSnapshot && (g_lastFastPollAt == 0 || now - g_lastFastPollAt >= CommandPollEverySeconds))
+   {
+      int loops = CommandsPerPollTick;
+      if(loops < 1) loops = 1;
+      if(loops > 10) loops = 10;
+      for(int i = 0; i < loops; i++)
+         PollAndExecuteCommands();
+      g_lastFastPollAt = now;
+   }
+
+   if(g_lastSnapshotAt == 0 || now - g_lastSnapshotAt >= ExportEverySeconds)
+   {
+      SendSnapshot();
+      g_lastSnapshotAt = now;
+   }
+
+   if(!PollCommandsBeforeSnapshot && (g_lastFastPollAt == 0 || now - g_lastFastPollAt >= CommandPollEverySeconds))
+   {
+      PollAndExecuteCommands();
+      g_lastFastPollAt = now;
+   }
+
    UpdateStatusLabel();
 }

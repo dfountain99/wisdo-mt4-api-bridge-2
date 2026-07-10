@@ -1,8 +1,8 @@
-WISDO MEMBER EXPERIENCE UNIFICATION V5.1.0
+WISDO CAPABILITY + ADAPTIVE ACADEMY V5.2.0
 Source: wisdo-member-app-product-pass(1).zip
 Source SHA-256: df2143c9aee5039bf4ff547256d68bca84bd54b1ddbd1db99e30bcd7f4d1f7ce
-Base release: V5.0.1 MT4 storage concurrency hotfix
-Version: 5.1.0
+Base release: V5.1.1 Copier Close Authority
+Version: 5.2.0
 Build command: npm ci --omit=dev --no-audit --no-fund
 Start command: npm start
 Web-only smoke: npm run start:web
@@ -10,6 +10,10 @@ Validation: npm run check
 Primary migration: migrations/2026-07-10-wisdo-major-production-v5.sql
 Live symbol execution automatch default: false
 Member shell: /app/*
+Unified copier options: /api/copier/options
 Unified Academy: /app/education
-Legacy education redirect: /member/education -> /app/education
-Analyzer product name: WISDO Insight Engine
+Course catalog: 6,500 structured courses
+Private strategy source: not included in public assets or repository
+TradingView private layout env: WISDO_DF_SAUCE_TRADINGVIEW_URL
+Reporter: CultureCoin Reporter v1.55 close authority
+Tests: 12 passed, 0 failed

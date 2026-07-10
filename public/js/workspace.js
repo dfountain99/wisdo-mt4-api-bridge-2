@@ -5,12 +5,14 @@
   const RISK_TYPES = ['fixed_lot', 'multiplier', 'equity_ratio', 'balance_ratio'];
   const THEMES = ['midnight', 'cobalt', 'emerald', 'violet', 'gold', 'ember', 'light'];
   const BACKGROUNDS = ['mesh', 'terminal', 'motion-a', 'motion-b', 'solid'];
+  const DESK_ROLES = ['private', 'lead', 'receiver', 'dual'];
+  const SHARING_MODES = ['private', 'shared', 'community'];
   let accounts = [];
-  let currentPage = window.WISDO_PAGE || 'dashboard';
+  let currentPage = window.WISDO_PAGE || 'command-center';
   let accountPoll = null;
   let activeRequest = null;
   const launchParams = new URLSearchParams(location.search);
-  const dashboardBootRequested = currentPage === 'dashboard' && (
+  const dashboardBootRequested = ['command-center', 'dashboard'].includes(currentPage) && (
     launchParams.has('launch') ||
     sessionStorage.getItem('wisdo.dashboardLaunch') === '1' ||
     sessionStorage.getItem('deadshotLaunch') === '1' ||
@@ -144,10 +146,30 @@
     return Date.now() - new Date(account.last_sync_at).getTime() < 5 * 60 * 1000;
   }
 
+  function deskRole(account = {}) {
+    const role = String(account.desk_role || account.role || 'private').toLowerCase();
+    if (['master', 'leader', 'culture_lead', 'lead'].includes(role)) return 'lead';
+    if (['slave', 'follower', 'mirror_receiver', 'receiver'].includes(role)) return 'receiver';
+    if (['dual', 'both'].includes(role)) return 'dual';
+    return 'private';
+  }
+
+  function roleLabel(account = {}) {
+    return ({ private: 'Private Desk', lead: 'Culture Lead', receiver: 'Mirror Receiver', dual: 'Lead + Receiver' })[deskRole(account)] || 'Private Desk';
+  }
+
+  function accountCanLead(account = {}) { return ['lead', 'dual'].includes(deskRole(account)) || account.can_lead === true; }
+  function accountCanReceive(account = {}) { return ['receiver', 'dual'].includes(deskRole(account)) || account.can_receive === true; }
+
+  function sharingLabel(account = {}) {
+    const mode = String(account.sharing_mode || (account.community_visible ? 'community' : 'private')).toLowerCase();
+    return ({ private: 'Private', shared: 'Shared by approval', community: 'Community discoverable' })[mode] || 'Private';
+  }
+
   function accountLabel(account) {
     const base = account.nickname || account.broker || account.platform || 'Trading account';
     const status = account.reporter_connected || reporterFresh(account) ? 'LIVE' : account.status === 'awaiting_reporter' ? 'PAIR' : String(account.status || '').toUpperCase();
-    return `${base} · ${account.account_number || account.id} · ${status}`;
+    return `${base} · ${account.account_number || account.id} · ${roleLabel(account)} · ${status}`;
   }
 
   async function refreshAccounts(preserveSelection = true, silent = false) {
@@ -174,8 +196,8 @@
     return accounts;
   }
 
-  function accountOptions(role = 'any') {
-    return accounts.filter((account) => role === 'any' || account.role === role)
+  function accountOptions(capability = 'any', source = accounts) {
+    return source.filter((account) => capability === 'any' || (capability === 'lead' ? accountCanLead(account) : capability === 'receiver' ? accountCanReceive(account) : deskRole(account) === capability))
       .map((account) => `<option value="${html(account.id)}">${html(accountLabel(account))}</option>`).join('');
   }
 
@@ -186,6 +208,44 @@
       <div><span class="eyebrow">Selected account</span><h3>${html(account.nickname || account.broker || account.platform)} · ${html(account.account_number)}</h3><p class="muted">${html(account.server || 'server pending')} · ${html(account.role)} · ${freshness ? 'Reporter live' : html(account.status || 'waiting')}</p></div>
       <div class="mini-metrics"><div><small>Balance</small><strong>${money(account.balance)}</strong></div><div><small>Equity</small><strong>${money(account.equity)}</strong></div><div><small>Floating</small><strong class="${Number(account.floating_pl || 0) >= 0 ? 'green' : 'red'}">${money(account.floating_pl)}</strong></div><div><small>Open</small><strong>${Number(account.open_trades || 0)}</strong></div></div>
     </section>`;
+  }
+
+
+  async function drawCommandCenter() {
+    const active = selectedAccount();
+    const accountId = active?.id || '';
+    const stats = await api(`/api/v2/analyzer/portfolio?period=month${accountId ? `&account_id=${encodeURIComponent(accountId)}` : ''}`).catch(() => ({}));
+    const liveAccounts = accounts.filter((account) => account.reporter_connected || reporterFresh(account));
+    root().innerHTML = `
+      <div class="workspace-heading"><div><span class="eyebrow">WISDO operating system</span><h1>Command Center</h1><p class="muted">The central launch screen for accounts, relay execution, risk, analytics, education, signals, AI, and support.</p></div><div class="live-chip">${liveAccounts.length}/${accounts.length} Reporter accounts live</div></div>
+      ${accountMetrics(active)}
+      <div class="command-hub">
+        <section class="card"><div class="card-head"><div><span class="eyebrow">System map</span><h3>Choose an operating lane</h3></div><a class="btn ghost" href="/app/dashboard?launch=1">Open live dashboard</a></div>
+          <div class="command-map">
+            <a class="command-module" href="/app/accounts"><strong>Account Desk</strong><small>Pair, sync, switch, and diagnose Reporter-backed accounts.</small></a>
+            <a class="command-module" href="/app/copier-engine"><strong>Culture Relay</strong><small>Build lead-to-follower lanes and govern close authority.</small></a>
+            <a class="command-module" href="/app/trades"><strong>Trade Control</strong><small>Review open positions, history, and account-specific close actions.</small></a>
+            <a class="command-module" href="/app/analyzer"><strong>Insight Engine</strong><small>ROI, drawdown, win rate, equity curves, and performance heatmaps.</small></a>
+            <a class="command-module" href="/app/education"><strong>Adaptive Academy</strong><small>6,500 structured courses, interactive labs, and an AI tutor.</small></a>
+            <a class="command-module" href="/app/alerts"><strong>Alerts and Health</strong><small>Relay, risk, billing, and platform notifications.</small></a>
+            <a class="command-module" href="/member/signal-grid"><strong>Signal Grid</strong><small>Review and route controlled community trade opportunities.</small></a>
+            <a class="command-module" href="/member/simulator"><strong>Simulator</strong><small>Practice without placing live-money orders.</small></a>
+            <a class="command-module" href="/member/ai"><strong>WISDO AI</strong><small>Ask account-aware education and operating questions.</small></a>
+            <a class="command-module" href="/app/settings"><strong>Appearance and Settings</strong><small>Choose the color scheme, motion background, and profile controls.</small></a>
+            <a class="command-module" href="/app/affiliate"><strong>Affiliate Desk</strong><small>Referral links, activation, commissions, and payout readiness.</small></a>
+            <a class="command-module" href="/member/support/tickets"><strong>Support Desk</strong><small>Open a ticket with account and command context.</small></a>
+          </div>
+        </section>
+        <aside class="card"><span class="eyebrow">Desk pulse</span><h3>${active ? html(active.nickname || active.broker || active.account_number) : 'Portfolio overview'}</h3>
+          <div class="path-list">
+            <div class="path-item"><small class="muted">Reporter status</small><strong class="${active && (active.reporter_connected || reporterFresh(active)) ? 'green' : 'red'}">${active ? (active.reporter_connected || reporterFresh(active) ? 'Live' : 'Needs heartbeat') : `${liveAccounts.length} live accounts`}</strong></div>
+            <div class="path-item"><small class="muted">Monthly ROI view</small><strong>${Number(stats.roi || 0).toFixed(2)}%</strong></div>
+            <div class="path-item"><small class="muted">Maximum drawdown</small><strong class="${Number(stats.maxDrawdown || 0) > 10 ? 'red' : ''}">${Number(stats.maxDrawdown || 0).toFixed(2)}%</strong></div>
+            <div class="path-item"><small class="muted">Open positions</small><strong>${Number(active?.open_trades || 0)}</strong></div>
+          </div>
+          <div class="actions"><a class="btn primary" href="/app/copier-engine">Open relay controls</a><a class="btn ghost" href="/app/education">Continue learning</a></div>
+        </aside>
+      </div>`;
   }
 
   async function drawDashboard() {
@@ -212,24 +272,32 @@
   }
 
   function drawAccounts() {
+    const roleOptions = (selected) => DESK_ROLES.map((role) => `<option value="${role}" ${role === selected ? 'selected' : ''}>${({ private: 'Private Desk', lead: 'Culture Lead', receiver: 'Mirror Receiver', dual: 'Lead + Receiver' })[role]}</option>`).join('');
+    const sharingOptions = (selected) => SHARING_MODES.map((mode) => `<option value="${mode}" ${mode === selected ? 'selected' : ''}>${({ private: 'Private', shared: 'Shared by approval', community: 'Community discoverable' })[mode]}</option>`).join('');
     root().innerHTML = `
-      <div class="workspace-heading"><div><span class="eyebrow">Connections</span><h1>Trading Accounts</h1><p class="muted">Accounts are matched to the MT4 Reporter using account number + broker server. Saving login information does not bypass Reporter pairing.</p></div><button class="btn primary" id="add-account">Add account</button></div>
-      <div class="grid3">${accounts.length ? accounts.map((account) => `
-        <article class="card account-card">
+      <div class="workspace-heading"><div><span class="eyebrow">Connections</span><h1>Trading Accounts</h1><p class="muted">Every app screen and copier dropdown uses the same Reporter-backed account identity. Assign explicit capabilities instead of relying on legacy master/slave labels.</p></div><button class="btn primary" id="add-account">Add account</button></div>
+      <div class="grid3">${accounts.length ? accounts.map((account) => {
+        const warnings = account.capabilityWarnings || [];
+        return `<article class="card account-card">
           <div class="card-head"><span class="status-pill ${account.reporter_connected || reporterFresh(account) ? 'connected' : 'waiting'}">${account.reporter_connected || reporterFresh(account) ? 'Reporter live' : html(account.status || 'waiting')}</span><span class="muted">${html(String(account.platform || 'mt4').toUpperCase())}</span></div>
           <h3>${html(account.nickname || account.broker || account.platform)} · ${html(account.account_number)}</h3>
-          <p>${html(account.role)} · ${html(account.server || 'server pending')}</p>
+          <p>${html(roleLabel(account))} · ${html(account.server || 'server pending')}</p>
+          <div class="capability-row"><span class="status-pill ${account.canLead ? 'connected' : 'waiting'}">Lead ${account.canLead ? '✓' : '—'}</span><span class="status-pill ${account.canReceive ? 'connected' : 'waiting'}">Receive ${account.canReceive ? '✓' : '—'}</span><span class="status-pill ${account.canExecute ? 'connected' : 'waiting'}">Execute ${account.canExecute ? '✓' : '—'}</span></div>
           <div class="metric">${money(account.equity)}</div>
           <small class="muted">Balance ${money(account.balance)} · Floating ${money(account.floating_pl)} · Open ${Number(account.open_trades || 0)}</small>
           <div class="account-heartbeat"><span>Last heartbeat</span><strong>${html(account.last_sync_at ? new Date(account.last_sync_at).toLocaleString() : 'Never')}</strong></div>
           ${account.pairing_code ? `<div class="pairing-code"><small>Pairing code</small><code>${html(account.pairing_code)}</code><button class="btn ghost" data-copy-code="${html(account.pairing_code)}">Copy</button></div>` : ''}
+          <form class="account-role-form" data-role-account="${html(account.id)}"><label>Desk capability<select class="input" name="desk_role">${roleOptions(deskRole(account))}</select></label><label>Visibility<select class="input" name="sharing_mode">${sharingOptions(String(account.sharing_mode || 'private'))}</select></label><label class="full">Community label<input class="input" name="community_name" value="${html(account.community_name || account.nickname || '')}" placeholder="Optional public lead name"></label><button class="btn ghost full" type="submit">Save account role</button></form>
+          ${warnings.length ? `<div class="setup-note"><strong>Readiness</strong><ul>${warnings.map((warning) => `<li>${html(warning)}</li>`).join('')}</ul></div>` : ''}
           <div class="actions"><button class="btn ghost" data-test="${html(account.id)}">Test</button><button class="btn ghost" data-sync="${html(account.id)}">Sync</button><button class="btn ghost" data-disconnect="${html(account.id)}">Disconnect</button><button class="btn danger" data-delete-account="${html(account.id)}">Delete</button></div>
-        </article>`).join('') : '<div class="card"><h3>No accounts connected</h3><p>Add an account. WISDO saves the identity, creates a Reporter-compatible account ID, and shows the pairing status instead of freezing.</p></div>'}</div>
+        </article>`;
+      }).join('') : '<div class="card"><h3>No accounts connected</h3><p>Add an account. WISDO saves the identity, creates a Reporter-compatible account ID, and shows pairing status instead of freezing.</p></div>'}</div>
       <dialog id="account-dialog"><form class="card dialog-form" id="account-form">
         <div class="card-head"><div><span class="eyebrow">Secure account onboarding</span><h3>Add trading account</h3></div><button class="dialog-x" type="button" id="cancel-account" aria-label="Close">×</button></div>
         <div class="setup-note"><strong>How connection works</strong><p>WISDO stores the account identity and optional encrypted credential vault. MT4/MT5 execution becomes live only after the Reporter sends a heartbeat with the same account number and server.</p></div>
         <div class="grid2"><label>Platform<select class="input" name="platform">${PLATFORMS.map((platform) => `<option value="${platform}">${platform.toUpperCase()}</option>`).join('')}</select></label>
-        <label>Role<select class="input" name="role"><option value="master">Culture Lead / Master</option><option value="slave">Mirror Receiver / Follower</option></select></label>
+        <label>Desk capability<select class="input" name="desk_role"><option value="private">Private Desk</option><option value="lead">Culture Lead</option><option value="receiver">Mirror Receiver</option><option value="dual">Lead + Receiver</option></select></label>
+        <label>Visibility<select class="input" name="sharing_mode"><option value="private">Private</option><option value="shared">Shared by approval</option><option value="community">Community discoverable</option></select></label>
         <label>Broker<input class="input" name="broker" required placeholder="Coinexx"></label>
         <label>Server<input class="input" name="server" required placeholder="Coinexx-Demo"></label>
         <label>Account number<input class="input" name="account_number" required inputmode="numeric"></label>
@@ -262,6 +330,13 @@
         status.className = 'form-status error'; status.textContent = error.message; toast(error.message, 'error', 7000);
       } finally { setBusy(button, false); }
     };
+    root().querySelectorAll('[data-role-account]').forEach((form) => form.onsubmit = async (event) => {
+      event.preventDefault(); const button = form.querySelector('button[type="submit"]'); const payload = Object.fromEntries(new FormData(form));
+      setBusy(button, true, 'Saving role…');
+      try { await api(`/api/v2/accounts/${encodeURIComponent(form.dataset.roleAccount)}/desk-role`, { method: 'PATCH', body: JSON.stringify(payload) }); toast('Account capabilities updated'); await refreshAccounts(true, true); drawAccounts(); }
+      catch (error) { toast(error.message, 'error', 7000); }
+      finally { setBusy(button, false); }
+    });
     root().querySelectorAll('[data-copy-code]').forEach((button) => button.onclick = async () => { await navigator.clipboard?.writeText(button.dataset.copyCode); toast('Pairing code copied'); });
     root().querySelectorAll('[data-test]').forEach((button) => button.onclick = async () => {
       setBusy(button, true, 'Testing…'); try { const result = await api(`/api/v2/accounts/${encodeURIComponent(button.dataset.test)}/test`, { method: 'POST' }); toast(result.message, result.connected ? 'ok' : 'warn', 6000); await refreshAccounts(true, true); drawAccounts(); } catch (error) { toast(error.message, 'error'); } finally { setBusy(button, false); }
@@ -277,14 +352,21 @@
   }
 
   async function drawRules() {
-    const [result, leadResult] = await Promise.all([api('/api/v2/copier-rules'), api('/api/v2/community/leads')]);
-    const rules = result.rules || []; const leaders = leadResult.leads || accounts.filter((account) => account.role === 'master');
-    const byId = Object.fromEntries([...accounts, ...leaders].map((account) => [account.id, account]));
+    const [ruleResult, options] = await Promise.all([api('/api/v2/copier-rules'), api('/api/copier/options')]);
+    const rules = ruleResult.rules || [];
+    const leaders = options.leads || [];
+    const receivers = options.receivers || [];
+    const allVisible = [...(options.accounts || []), ...leaders];
+    const byId = Object.fromEntries(allVisible.map((account) => [account.id, account]));
+    const diagnostics = options.diagnostics || [];
+    const noRouteReady = !leaders.length || !receivers.length;
     root().innerHTML = `
-      <div class="workspace-heading"><div><span class="eyebrow">Culture Relay Engine</span><h1>Copier Rules</h1><p class="muted">All account dropdowns use the same Reporter-backed account list as the dashboard.</p></div></div>${accountMetrics(selectedAccount())}
-      <section class="card"><form id="rule-form" class="grid2">
-        <label>Culture Lead<select class="input" name="master_id" required><option value="">Select master</option>${leaders.map((account) => `<option value="${html(account.id)}">${html(account.community_name || accountLabel(account))} · ${html(account.access || 'owned')}</option>`).join('')}</select></label>
-        <label>Mirror Receiver<select class="input" name="slave_id" required><option value="">Select follower</option>${accountOptions('any')}</select></label>
+      <div class="workspace-heading"><div><span class="eyebrow">Culture Relay Engine</span><h1>Copier Rules</h1><p class="muted">Lead and receiver dropdowns come from one Reporter-backed capability response, so they cannot disagree with Dashboard.</p></div><button class="btn ghost" id="refresh-copier-options">Refresh account roles</button></div>${accountMetrics(selectedAccount())}
+      <div class="grid4"><div class="card"><small>Owned accounts</small><div class="metric">${Number(options.summary?.owned || 0)}</div></div><div class="card"><small>Available leads</small><div class="metric">${Number(options.summary?.leads || 0)}</div></div><div class="card"><small>Receivers</small><div class="metric">${Number(options.summary?.receivers || 0)}</div></div><div class="card"><small>Live receivers</small><div class="metric green">${Number(options.summary?.executableReceivers || 0)}</div></div></div>
+      ${diagnostics.length ? `<section class="card" style="margin-top:18px"><span class="eyebrow">Copier diagnostics</span><div class="path-list">${diagnostics.map((item) => `<div class="path-item"><small>${html(item.code || item.severity || 'notice')}</small><strong>${html(item.message)}</strong>${item.accountId ? `<a href="/app/accounts">Fix account role</a>` : ''}</div>`).join('')}</div></section>` : ''}
+      <section class="card" style="margin-top:18px"><form id="rule-form" class="grid2">
+        <label>Culture Lead<select class="input" name="master_id" required><option value="">Select Culture Lead</option>${leaders.map((account) => `<option value="${html(account.id)}">${html(account.community_name || accountLabel(account))} · ${html(account.access || 'owned')}</option>`).join('')}</select></label>
+        <label>Mirror Receiver<select class="input" name="slave_id" required><option value="">Select owned receiver</option>${receivers.map((account) => `<option value="${html(account.id)}">${html(accountLabel(account))}${account.canExecute ? ' · LIVE' : ' · pairing needed'}</option>`).join('')}</select></label>
         <label>Risk type<select class="input" name="risk_type">${RISK_TYPES.map((type) => `<option value="${type}">${type.replaceAll('_', ' ')}</option>`).join('')}</select></label>
         <label>Risk value<input class="input" name="risk_value" type="number" min="0.01" max="100" step="0.01" value="1"></label>
         <label>Minimum lot<input class="input" name="min_lot" type="number" min="0.01" max="100" step="0.01" value="0.01"></label>
@@ -298,9 +380,10 @@
         <label class="full">Allowed symbols<input class="input" name="allowed_symbols" placeholder="XAUUSD, GBPJPY, NAS100"></label>
         <label class="full">Symbol mapping<textarea class="input" name="symbol_mapping" placeholder='{"GOLD":"XAUUSD","USTEC":"NAS100"}'></textarea></label>
         <label><input type="checkbox" name="auto_match_symbols" checked> Auto-match preview</label><label><input type="checkbox" name="copy_sl_tp" checked> Copy SL/TP</label><label><input type="checkbox" name="copy_pending_orders" checked> Copy pending orders</label><label><input type="checkbox" name="reverse_signals"> Reverse signals</label>
-        <div id="rule-status" class="form-status full">Ready.</div><button class="btn primary full" id="save-rule" type="submit">Save Culture Lane</button>
+        <div id="rule-status" class="form-status full">${noRouteReady ? 'Assign at least one Culture Lead and one owned Mirror Receiver on the Accounts page.' : 'Ready.'}</div><button class="btn primary full" id="save-rule" type="submit" ${noRouteReady ? 'disabled' : ''}>Save Culture Lane</button>
       </form></section>
-      <section class="grid2" style="margin-top:18px">${rules.length ? rules.map((rule) => { const master = byId[rule.master_id]; const follower = byId[rule.slave_id]; return `<article class="card"><span class="status-pill ${rule.is_active ? 'connected' : 'waiting'}">${rule.is_active ? 'active' : 'paused'}</span><h3>${html(master?.nickname || master?.account_number || rule.master_id)} → ${html(follower?.nickname || follower?.account_number || rule.slave_id)}</h3><p>${html(rule.risk_type)} · ${html(rule.risk_value)}</p><p class="muted">${html((rule.allowed_symbols || []).join(', ') || 'All symbols')}</p><div class="actions"><button class="btn ghost" data-toggle="${html(rule.id)}">${rule.is_active ? 'Pause' : 'Resume'}</button><button class="btn danger" data-delete-rule="${html(rule.id)}">Delete</button></div></article>`; }).join('') : '<div class="card"><h3>No Culture Lanes yet</h3><p>Choose a lead and receiver above, then save the route.</p></div>'}</section>`;
+      <section class="grid2" style="margin-top:18px">${rules.length ? rules.map((rule) => { const master = byId[rule.master_id]; const follower = byId[rule.slave_id]; return `<article class="card"><span class="status-pill ${rule.is_active ? 'connected' : 'waiting'}">${rule.is_active ? 'active' : 'paused'}</span><h3>${html(master?.nickname || master?.account_number || rule.master_id)} → ${html(follower?.nickname || follower?.account_number || rule.slave_id)}</h3><p>${html(rule.risk_type)} · ${html(rule.risk_value)}</p><p class="muted">${html((rule.allowed_symbols || []).join(', ') || 'All symbols')}</p><div class="actions"><button class="btn ghost" data-toggle="${html(rule.id)}">${rule.is_active ? 'Pause' : 'Resume'}</button><button class="btn danger" data-delete-rule="${html(rule.id)}">Delete</button></div></article>`; }).join('') : '<div class="card"><h3>No Culture Lanes yet</h3><p>Assign explicit capabilities on Accounts, then choose a lead and receiver here.</p></div>'}</section>`;
+    document.querySelector('#refresh-copier-options').onclick = async () => { await refreshAccounts(true, true); drawRules(); };
     document.querySelector('#rule-form').onsubmit = async (event) => {
       event.preventDefault(); const form = new FormData(event.target); const payload = Object.fromEntries(form); const button = document.querySelector('#save-rule'); const status = document.querySelector('#rule-status');
       payload.allowed_symbols = String(payload.allowed_symbols || '').split(/[;,\s]+/).filter(Boolean); payload.copy_sl_tp = form.has('copy_sl_tp'); payload.copy_pending_orders = form.has('copy_pending_orders'); payload.reverse_signals = form.has('reverse_signals'); payload.auto_match_symbols = form.has('auto_match_symbols');
@@ -332,9 +415,13 @@
   }
 
   async function drawEducation() {
-    const tracks = await api('/api/v2/academy/tracks').catch(() => ({ tracks: [], progress: {} }));
-    root().innerHTML = `<div class="workspace-heading"><div><span class="eyebrow">WISDO Academy</span><h1>Interactive Trading School</h1><p class="muted">Chart replay, guided video checkpoints, DF Sauce bot-brain decisions, TradingView watch room, and Pine explanation lab—all inside the member command center.</p></div><div class="academy-progress"><strong>${Number(tracks.progress?.score || 0)}</strong><span>academy points</span></div></div><div id="df-academy"></div><section class="card" style="margin-top:18px"><h3>Learning tracks</h3><div class="grid4">${(tracks.tracks || []).map((track) => `<div class="track-card"><span class="eyebrow">${html(track.id)}</span><h3>${html(track.title)}</h3><p>${track.lessons.length} lessons</p></div>`).join('')}</div></section>`;
-    window.DFSauceAcademy?.mount(document.querySelector('#df-academy'), { bot: new URLSearchParams(location.search).get('bot') || '' });
+    const academy = await api('/api/v2/academy/tracks').catch(() => ({ tracks: [], progress: {}, summary: { courseCount: 6500, domainCount: 65 } }));
+    root().innerHTML = `<div class="workspace-heading"><div><span class="eyebrow">WISDO Adaptive Academy</span><h1>Learn from first candle to professional systems.</h1><p class="muted">A personalized curriculum spanning trading, investing, risk, money management, global markets, research, psychology, technology, and WISDO operations. Proprietary DF Sauce source code is never displayed or downloaded here.</p></div><div class="academy-progress"><strong>${Number(academy.progress?.score || 0)}</strong><span>academy points</span></div></div><div id="df-academy" class="academy-shell"></div>`;
+    window.DFSauceAcademy?.mount(document.querySelector('#df-academy'), {
+      bot: new URLSearchParams(location.search).get('bot') || '',
+      bootstrap: academy,
+      selectedAccountId: selectedAccountId(),
+    });
   }
 
   async function drawAffiliate() {
@@ -361,7 +448,8 @@
 
   async function renderCurrentPage() {
     if (activeRequest) activeRequest.abort?.();
-    if (currentPage === 'dashboard') await drawDashboard();
+    if (currentPage === 'command-center') await drawCommandCenter();
+    else if (currentPage === 'dashboard') await drawDashboard();
     else if (currentPage === 'accounts') drawAccounts();
     else if (currentPage === 'copier-engine') await drawRules();
     else if (currentPage === 'trades') await drawTrades();
@@ -389,7 +477,7 @@
       accountPoll = setInterval(async () => {
         if (document.querySelector('dialog[open]') || document.visibilityState !== 'visible') return;
         const previous = JSON.stringify(accounts.map((a) => [a.id, a.status, a.equity, a.last_sync_at]));
-        try { await refreshAccounts(true, true); const next = JSON.stringify(accounts.map((a) => [a.id, a.status, a.equity, a.last_sync_at])); if (next !== previous && ['dashboard', 'analyzer', 'trades'].includes(currentPage)) await renderCurrentPage(); } catch {}
+        try { await refreshAccounts(true, true); const next = JSON.stringify(accounts.map((a) => [a.id, a.status, a.equity, a.last_sync_at])); if (next !== previous && ['command-center', 'dashboard', 'analyzer', 'trades'].includes(currentPage)) await renderCurrentPage(); } catch {}
       }, 15000);
     } catch (error) {
       await finishDashboardBoot(false, 'Workspace recovery mode');

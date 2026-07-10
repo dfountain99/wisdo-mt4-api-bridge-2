@@ -4,12 +4,25 @@ import webpush from 'web-push';
 
 import { computePrice } from './majorUpgradeRoutes.js';
 import { getSessionUser } from './security.js';
+import {
+  ACADEMY_COURSE_COUNT,
+  ACADEMY_DOMAINS,
+  ACADEMY_LEVELS,
+  buildFallbackTutorReply,
+  buildPersonalizedPath,
+  getAcademyCourse,
+  getAcademySummary,
+  getDfSauceScenario,
+  searchAcademyCourses,
+} from '../services/academyCatalogService.js';
 
 const ACADEMY_TRACKS = [
-  { id: 'foundation', title: 'Trading Foundation', lessons: ['market-structure', 'orders-and-risk', 'account-health'] },
-  { id: 'df-sauce', title: 'DF Sauce', lessons: ['launch-zones', 'flowspine', 'un-reversal', 'campaign-character'] },
-  { id: 'bot-flight-school', title: 'Bot Flight School', lessons: ['reporter-pairing', 'culture-lanes', 'mobile-controls', 'relay-logs'] },
-  { id: 'copier-masterclass', title: 'Copier Masterclass', lessons: ['risk-modes', 'symbol-mapping', 'equity-protection', 'close-authority'] },
+  { id: 'foundation', title: 'Trading and Investing Foundations', lessons: ['candlesticks-price-bars', 'market-structure', 'order-types-execution', 'position-sizing', 'trading-plan'] },
+  { id: 'risk-money', title: 'Risk, Money, and Wealth Management', lessons: ['drawdown-risk-of-ruin', 'portfolio-risk', 'cash-flow-budgeting', 'saving-compounding', 'retirement-investing'] },
+  { id: 'markets', title: 'Global Markets and Asset Classes', lessons: ['forex-foundations', 'equities-foundations', 'futures-foundations', 'options-foundations', 'bonds-rates', 'commodities', 'crypto-digital-assets'] },
+  { id: 'strategies', title: 'Trading Strategies and Research', lessons: ['day-trading', 'swing-trading', 'momentum-trend-following', 'mean-reversion', 'backtesting-validation', 'statistics-probability'] },
+  { id: 'professional', title: 'Professional Trading Practice', lessons: ['journaling-review', 'performance-routines', 'tax-recordkeeping', 'regulation-ethics', 'business-of-trading'] },
+  { id: 'wisdo', title: 'WISDO Systems and DF Sauce', lessons: ['wisdo-command-center', 'copy-trading', 'wisdo-copier-operations', 'wisdo-account-health', 'df-sauce-campaign-character'] },
 ];
 
 function nowIso() { return new Date().toISOString(); }
@@ -34,6 +47,8 @@ function ensure(state = {}) {
   state.alerts ||= {};
   state.pushSubscriptions ||= {};
   state.academyProgress ||= {};
+  state.learnerProfiles ||= {};
+  state.academyTutorThreads ||= {};
   state.supportTickets ||= {};
   state.firms ||= {};
   state.affiliates ||= {};
@@ -96,20 +111,24 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
   app.get('/api/v2/community/leads', requireUser, async (req, res) => {
     const state = ensure(await loadEcosystemState());
     const shares = new Set(Object.values(state.accountShares).filter((share) => String(share.shared_with_user_id) === String(req.wisdoUser.id) && share.status !== 'revoked').map((share) => share.account_id));
-    const leads = Object.values(state.tradingAccounts).filter((account) => account.role === 'master' && (String(account.user_id) === String(req.wisdoUser.id) || account.community_visible || shares.has(account.id))).map((account) => ({ ...account, encrypted_credentials: undefined, access: String(account.user_id) === String(req.wisdoUser.id) ? 'owned' : shares.has(account.id) ? 'shared' : 'community' }));
+    const leads = Object.values(state.tradingAccounts).filter((account) => ['lead','dual'].includes(String(account.desk_role || (account.role === 'master' ? 'lead' : '')).toLowerCase()) && (String(account.user_id) === String(req.wisdoUser.id) || account.sharing_mode === 'community' || account.community_visible || shares.has(account.id))).map((account) => ({ ...account, encrypted_credentials: undefined, access: String(account.user_id) === String(req.wisdoUser.id) ? 'owned' : shares.has(account.id) ? 'shared' : 'community' }));
     res.json({ ok: true, leads });
   });
   app.patch('/api/v2/accounts/:id/community', requireUser, async (req, res) => {
     const account = await mutate(loadEcosystemState, saveEcosystemState, (state) => {
       const row = state.tradingAccounts[req.params.id];
       if (!row || String(row.user_id) !== String(req.wisdoUser.id)) return null;
-      row.community_visible = bool(req.body?.community_visible);
+      const canLead = ['lead','dual'].includes(String(row.desk_role || (row.role === 'master' ? 'lead' : '')).toLowerCase());
+      if (!canLead && bool(req.body?.community_visible)) return { validationError: 'Assign this account as Culture Lead or Dual Role before listing it in the community.' };
+      row.community_visible = canLead && bool(req.body?.community_visible);
+      row.sharing_mode = row.community_visible ? 'community' : 'private';
       row.community_name = String(req.body?.community_name || row.community_name || row.nickname || row.broker || '').trim();
       row.updated_at = nowIso();
       audit(state, req.wisdoUser.id, 'account.community_visibility', 'TradingAccount', row.id, { community_visible: row.community_visible });
       return { ...row, encrypted_credentials: undefined };
     });
     if (!account) return res.status(404).json({ ok: false, error: 'Account not found.' });
+    if (account.validationError) return res.status(400).json({ ok: false, error: account.validationError });
     res.json({ ok: true, account });
   });
   app.post('/api/v2/account-shares', requireUser, async (req, res) => {
@@ -280,8 +299,155 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
   app.get('/api/v2/academy/tracks', requireUser, async (req, res) => {
     const state = ensure(await loadEcosystemState());
     const progress = state.academyProgress[req.wisdoUser.id] || { completed_lessons: [], score: 0, badges: [] };
-    res.json({ ok: true, tracks: ACADEMY_TRACKS, progress });
+    const learnerProfile = state.learnerProfiles[req.wisdoUser.id] || null;
+    res.json({ ok: true, tracks: ACADEMY_TRACKS, progress, learnerProfile, summary: getAcademySummary() });
   });
+
+  app.get('/api/v2/academy/catalog', requireUser, (req, res) => {
+    const result = searchAcademyCourses({
+      query: req.query.query,
+      category: req.query.category,
+      domainId: req.query.domainId,
+      level: req.query.level,
+      page: req.query.page,
+      limit: req.query.limit,
+    });
+    res.json({ ok: true, ...result, summary: getAcademySummary() });
+  });
+
+  app.get('/api/v2/academy/courses/:courseId', requireUser, (req, res) => {
+    const course = getAcademyCourse(req.params.courseId);
+    if (!course) return res.status(404).json({ ok: false, error: 'Academy course not found.' });
+    res.json({ ok: true, course });
+  });
+
+  app.get('/api/v2/academy/profile', requireUser, async (req, res) => {
+    const state = ensure(await loadEcosystemState());
+    const profile = state.learnerProfiles[req.wisdoUser.id] || {
+      userId: req.wisdoUser.id,
+      experience: 'starter', goals: [], markets: [], interests: [], weeklyMinutes: 180, learningStyle: 'interactive',
+    };
+    res.json({ ok: true, profile });
+  });
+
+  app.patch('/api/v2/academy/profile', requireUser, async (req, res) => {
+    const profile = await mutate(loadEcosystemState, saveEcosystemState, (state) => {
+      const levels = new Set(ACADEMY_LEVELS.map((level) => level.id));
+      const list = (value) => Array.isArray(value) ? value.map(String).filter(Boolean).slice(0, 30) : String(value || '').split(',').map((item) => item.trim()).filter(Boolean).slice(0, 30);
+      const previous = state.learnerProfiles[req.wisdoUser.id] || {};
+      const next = {
+        ...previous,
+        userId: req.wisdoUser.id,
+        experience: levels.has(req.body?.experience) ? req.body.experience : (previous.experience || 'starter'),
+        goals: list(req.body?.goals ?? previous.goals),
+        markets: list(req.body?.markets ?? previous.markets),
+        interests: list(req.body?.interests ?? previous.interests),
+        weeklyMinutes: Math.max(30, Math.min(1200, Number(req.body?.weeklyMinutes ?? previous.weeklyMinutes ?? 180) || 180)),
+        learningStyle: ['interactive', 'visual', 'reading', 'audio', 'mixed'].includes(req.body?.learningStyle) ? req.body.learningStyle : (previous.learningStyle || 'interactive'),
+        updatedAt: nowIso(),
+        createdAt: previous.createdAt || nowIso(),
+      };
+      state.learnerProfiles[req.wisdoUser.id] = next;
+      audit(state, req.wisdoUser.id, 'academy.profile.updated', 'LearnerProfile', req.wisdoUser.id, { experience: next.experience, markets: next.markets });
+      return next;
+    });
+    res.json({ ok: true, profile, path: buildPersonalizedPath(profile) });
+  });
+
+  app.post('/api/v2/academy/path', requireUser, async (req, res) => {
+    const state = ensure(await loadEcosystemState());
+    const profile = { ...(state.learnerProfiles[req.wisdoUser.id] || {}), ...(req.body || {}) };
+    res.json({ ok: true, ...buildPersonalizedPath(profile) });
+  });
+
+  app.get('/api/v2/academy/df-sauce/scenarios/:scenarioId', requireUser, (req, res) => {
+    res.json({ ok: true, scenario: getDfSauceScenario(req.params.scenarioId) });
+  });
+
+  app.get('/api/v2/academy/tradingview-config', requireUser, (req, res) => {
+    const privateUrl = String(process.env.WISDO_DF_SAUCE_TRADINGVIEW_URL || '').trim();
+    res.json({
+      ok: true,
+      privateChartConfigured: Boolean(privateUrl),
+      genericWatchRoomUrl: 'https://s.tradingview.com/widgetembed/?frameElementId=wisdo_tv&symbol=OANDA%3AXAUUSD&interval=15&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=0b1420&studies=%5B%5D&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hideideas=1',
+    });
+  });
+
+  app.get('/api/v2/academy/tradingview', requireUser, (req, res) => {
+    const privateUrl = String(process.env.WISDO_DF_SAUCE_TRADINGVIEW_URL || '').trim();
+    const fallback = 'https://www.tradingview.com/chart/?symbol=OANDA%3AXAUUSD';
+    res.redirect(privateUrl || fallback);
+  });
+
+  app.get('/api/v2/academy/tutor/history', requireUser, async (req, res) => {
+    const state = ensure(await loadEcosystemState());
+    res.json({ ok: true, messages: (state.academyTutorThreads[req.wisdoUser.id] || []).slice(-50) });
+  });
+
+  app.delete('/api/v2/academy/tutor/history', requireUser, async (req, res) => {
+    await mutate(loadEcosystemState, saveEcosystemState, (state) => {
+      state.academyTutorThreads[req.wisdoUser.id] = [];
+      audit(state, req.wisdoUser.id, 'academy.tutor.cleared', 'AcademyTutorThread', req.wisdoUser.id);
+      return true;
+    });
+    res.json({ ok: true });
+  });
+
+  app.post('/api/v2/academy/tutor', requireUser, async (req, res) => {
+    const state = ensure(await loadEcosystemState());
+    const profile = state.learnerProfiles[req.wisdoUser.id] || { experience: 'starter', goals: [], markets: [], interests: [] };
+    const course = req.body?.courseId ? getAcademyCourse(req.body.courseId) : null;
+    const message = String(req.body?.message || '').slice(0, 8000).trim();
+    if (!message) return res.status(400).json({ ok: false, error: 'Ask WISDO a trading, investing, finance, or platform question.' });
+    const selectedAccountId = String(req.body?.selectedAccountId || '');
+    const selectedAccount = selectedAccountId && String(state.tradingAccounts?.[selectedAccountId]?.user_id) === String(req.wisdoUser.id)
+      ? state.tradingAccounts[selectedAccountId]
+      : null;
+    const accountContext = selectedAccount ? {
+      platform: selectedAccount.platform,
+      broker: selectedAccount.broker,
+      accountNumber: selectedAccount.account_number,
+      status: selectedAccount.status,
+      balance: Number(selectedAccount.balance || 0),
+      equity: Number(selectedAccount.equity || 0),
+      floatingPL: Number(selectedAccount.floating_pl || 0),
+      openTrades: Number(selectedAccount.open_trades || 0),
+      reporterConnected: Boolean(selectedAccount.reporter_connected),
+    } : null;
+    const history = (state.academyTutorThreads[req.wisdoUser.id] || []).slice(-10);
+    const system = `You are WISDO Academy Tutor, an adaptive trading, investing, personal-finance, and money-management educator. Match the learner's experience, goals, learning style, and selected market. Explain concepts in ordered steps, define unfamiliar terms, ask one useful diagnostic question, and recommend chart replay, simulation, journaling, or paper-practice. Never promise profits, issue personalized buy/sell instructions, or replace a licensed financial, tax, or legal professional. When account metrics are supplied, explain educational risk implications without directing a live trade. Do not reveal, reproduce, infer, request, or reconstruct proprietary DF Sauce source code, exact private indicator parameters, private alerts, or hidden implementation details. Learner profile: ${JSON.stringify(profile)}. Course context: ${JSON.stringify(course ? { title: course.title, summary: course.summary, objectives: course.objectives } : null)}. Selected account context: ${JSON.stringify(accountContext)}.`;
+    let answer = '';
+    let provider = 'adaptive_fallback';
+    if (process.env.OPENAI_API_KEY) {
+      try {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'content-type': 'application/json' },
+          body: JSON.stringify({
+            model: process.env.WISDO_AI_MODEL || 'gpt-4.1-mini',
+            messages: [{ role: 'system', content: system }, ...history.map((row) => ({ role: row.role === 'assistant' ? 'assistant' : 'user', content: String(row.content || '').slice(0, 4000) })), { role: 'user', content: message }],
+            temperature: 0.25,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) { answer = payload.choices?.[0]?.message?.content || ''; provider = 'openai'; }
+        else logger?.warn?.('Academy tutor provider rejected request', { status: response.status, message: payload.error?.message });
+      } catch (error) { logger?.warn?.('Academy tutor fallback', { message: error.message }); }
+    }
+    if (!answer) answer = buildFallbackTutorReply({ message, profile, course, accountContext });
+    const keyword = message.toLowerCase().match(/candlestick|risk|money|forex|stock|futures|options|crypto|psychology|backtest|copier|drawdown|portfolio|retirement|budget|order|trend|range/)?.[0] || '';
+    const recommendations = keyword ? searchAcademyCourses({ query: keyword, level: profile.experience || 'starter', limit: 4 }).courses.map((item) => ({ id: item.id, title: item.title, level: item.level, category: item.category })) : [];
+    await mutate(loadEcosystemState, saveEcosystemState, (nextState) => {
+      const thread = nextState.academyTutorThreads[req.wisdoUser.id] ||= [];
+      thread.push({ id: id('academy_msg'), role: 'user', content: message, courseId: course?.id || null, selectedAccountId: selectedAccount?.id || null, createdAt: nowIso() });
+      thread.push({ id: id('academy_msg'), role: 'assistant', content: answer, provider, courseId: course?.id || null, createdAt: nowIso() });
+      nextState.academyTutorThreads[req.wisdoUser.id] = thread.slice(-100);
+      audit(nextState, req.wisdoUser.id, 'academy.tutor.answered', 'AcademyTutorThread', req.wisdoUser.id, { provider, courseId: course?.id || null, selectedAccountId: selectedAccount?.id || null });
+      return true;
+    });
+    res.json({ ok: true, provider, answer, profile, course, accountContext, recommendations });
+  });
+
   app.post('/api/v2/academy/lessons/:lessonId/complete', requireUser, async (req, res) => {
     const progress = await mutate(loadEcosystemState, saveEcosystemState, (state) => {
       const row = state.academyProgress[req.wisdoUser.id] ||= { user_id: req.wisdoUser.id, completed_lessons: [], quiz_scores: {}, badges: [], score: 0, updated_at: nowIso() };
@@ -290,6 +456,7 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
       row.score = Object.values(row.quiz_scores).reduce((sum, value) => sum + Number(value || 0), 0);
       if (row.completed_lessons.length >= 4 && !row.badges.includes('WISDO Foundation')) row.badges.push('WISDO Foundation');
       if (row.completed_lessons.includes('close-authority') && !row.badges.includes('Copier Certified')) row.badges.push('Copier Certified');
+      if (row.completed_lessons.length >= 25 && !row.badges.includes('Academy Pathfinder')) row.badges.push('Academy Pathfinder');
       row.updated_at = nowIso();
       return row;
     });

@@ -1,18 +1,33 @@
-# WISDO Member App — Unified Member Experience V5.1.0
+# WISDO Member App — Capability + Adaptive Academy V5.2.0
 
 WISDO is a multi-account trading command center that combines a premium public product site, account linking, MT4/Discord relay execution, Culture Lanes, risk governance, analytics, education, affiliate operations, billing, alerts, and administrative controls.
 
 This release was rebuilt directly from the user-provided `wisdo-member-app-product-pass(1).zip`. Its root application is the only production source of truth. Historical copied source trees were removed so Render, local development, Discord command registration, and the web-only server all execute the same code.
 
 
-## V5.1 member experience
+## V5.2 capability and Academy release
 
 - Xbox-inspired WISDO dashboard startup sequence tied to real account hydration
 - Reporter-backed account list shared across every authenticated screen
 - Non-freezing broker account onboarding with timeout, visible status, and immediate pairing code
 - Unified `/app/education` Academy shell with legacy redirect preservation
-- Interactive DF Sauce chart replay, decision grading, video checkpoints, TradingView Watch Room, and full Pine v6 lab
+- Protected DF Sauce chart replay, decision grading, video checkpoints, and a TradingView Watch Room without shipping proprietary Pine source
 - WISDO Insight Engine naming plus member-selectable color and background themes
+
+
+### V5.2 additions
+
+- One authoritative `/api/copier/options` response for Dashboard, Accounts, and Copier Engine
+- Explicit account capabilities: `canLead`, `canReceive`, `canExecute`, `isShared`, and `isCommunity`
+- Account-role editor for Private Desk, Culture Lead, Mirror Receiver, and Dual Role
+- Copier diagnostics for missing roles, stale Reporter heartbeats, offline terminals, and disabled AutoTrading
+- Receiver dropdown restricted to owned accounts explicitly allowed to receive
+- Shared and community leads displayed with their access type and permission
+- 6,500 structured Academy courses across 65 knowledge domains and five levels
+- Adaptive learner profile, personalized 36-course path, searchable catalog, course assessments, progress, and badges
+- Account-aware AI tutor with persistent history and course recommendations
+- Proprietary DF Sauce Pine source removed from all public assets and blocked from Git commits
+- Private TradingView layout handoff through `WISDO_DF_SAUCE_TRADINGVIEW_URL`
 
 ## Production entry order
 
@@ -115,6 +130,7 @@ BROKER_WEBHOOK_SECRET=<long random secret>
 CRON_SECRET=<long random secret>
 DATA_DIR=/var/data/wisdo
 WISDO_STORAGE_PATH=/var/data/wisdo
+WISDO_DF_SAUCE_TRADINGVIEW_URL=https://www.tradingview.com/chart/YOUR_PRIVATE_LAYOUT
 ```
 
 Discord and MT4 add `DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID`, `MT4_SYNC_API_KEY`, and related role/channel IDs. Stripe, Resend, market providers, AI, Google OAuth, VAPID, and PostgreSQL are provider integrations and stay unavailable until their real production credentials are configured.
@@ -151,8 +167,24 @@ The spin-wheel UI and preview/save mapping can remain enabled while execution su
 - `docs/SUPABASE_MIGRATION_V5.md`
 - `docs/PRODUCTION_LAUNCH_CHECKLIST_V5.md`
 - `docs/RELEASE_NOTES_V5.md`
+- `docs/RELEASE_NOTES_V5_2_0.md`
 - `docs/legacy-source-notes/` contains archived product-pass notes that are not production entrypoints.
 
 ## Risk notice
 
 Trading and copy trading involve substantial risk of loss. Risk controls reduce operational exposure but cannot eliminate market, broker, connectivity, slippage, liquidity, or execution risk. No feature in this repository guarantees profitability.
+
+## V5.1.1 copier close authority
+
+V5.1.1 repairs the full lead-close path. Opening filters such as symbol allowlists, route pause, spread limits, drawdown gates, and max-open-trades apply only to new entries. A leader close remains authoritative for an existing mirrored position.
+
+The server now sends and persists all close identities:
+
+- stable `sourceTicket` / `leaderTicket`
+- route-scoped `copyKey`
+- actual `followerTicket` returned by MT4 `OrderSend`
+- follower account ID and resolved follower symbol
+
+Reporter v1.55 closes by the stored follower ticket first, then the stable source marker, then a safe unique symbol/side recovery. It never reports success when no position was closed.
+
+**Follower terminal upgrade is mandatory:** compile `mql4/CultureCoin_MT4_Reporter.mq4` in MetaEditor and replace the older Reporter EX4. The legacy compiled binary is archived and is not delivered as the active Reporter.

@@ -1,217 +1,339 @@
 (() => {
   'use strict';
 
-  const clamp = (value, min, max) => Math.max(min, Math.min(max, Number(value || 0)));
-  const money = (value) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value || 0));
+  const html = (value = '') => String(value)
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
 
-  function ema(values, length) {
-    const alpha = 2 / (length + 1);
-    const out = [];
-    let previous = Number(values[0] || 0);
-    values.forEach((value, index) => {
-      previous = index === 0 ? Number(value || 0) : (Number(value || 0) * alpha) + (previous * (1 - alpha));
-      out.push(previous);
-    });
-    return out;
-  }
-
-  function seededCandles(kind = 'bull-launch', count = 180) {
-    let seed = [...kind].reduce((sum, char) => sum + char.charCodeAt(0), 991);
-    const random = () => {
-      seed = (seed * 9301 + 49297) % 233280;
-      return seed / 233280;
-    };
-    const rows = [];
-    let close = kind.includes('bear') ? 2428 : 2310;
-    for (let i = 0; i < count; i += 1) {
-      const phase = i / count;
-      let drift = 0;
-      if (kind === 'bull-launch') drift = phase < .38 ? .08 : phase < .55 ? -.03 : phase < .72 ? .34 : .15;
-      else if (kind === 'bear-hunt') drift = phase < .35 ? -.07 : phase < .52 ? .04 : phase < .74 ? -.32 : -.13;
-      else if (kind === 'fakeout') drift = phase < .42 ? .08 : phase < .52 ? .72 : phase < .68 ? -.62 : -.08;
-      else drift = Math.sin(i / 7) * .04;
-      const noise = (random() - .5) * .72;
-      const open = close;
-      close = Math.max(20, open + drift + noise);
-      const high = Math.max(open, close) + random() * .62;
-      const low = Math.min(open, close) - random() * .62;
-      rows.push({ open, high, low, close, time: i });
-    }
-    return rows;
-  }
-
-  function analyze(candles, index) {
-    const visible = candles.slice(0, index + 1);
-    const closes = visible.map((row) => row.close);
-    const fast = ema(closes, 25);
-    const mid = ema(closes, 50);
-    const slow = ema(closes, 200);
-    const last = visible.at(-1);
-    const f = fast.at(-1); const m = mid.at(-1); const s = slow.at(-1);
-    const bullBias = last.close > m && f > m && m > s;
-    const bearBias = last.close < m && f < m && m < s;
-    const pivotLen = 6;
-    let lastHigh = null; let previousHigh = null; let lastLow = null; let previousLow = null;
-    for (let i = pivotLen; i < visible.length - pivotLen; i += 1) {
-      const window = visible.slice(i - pivotLen, i + pivotLen + 1);
-      const high = Math.max(...window.map((row) => row.high));
-      const low = Math.min(...window.map((row) => row.low));
-      if (visible[i].high === high) { previousHigh = lastHigh; lastHigh = visible[i].high; }
-      if (visible[i].low === low) { previousLow = lastLow; lastLow = visible[i].low; }
-    }
-    const highTag = lastHigh == null || previousHigh == null ? '' : (lastHigh > previousHigh ? 'HH' : 'LH');
-    const lowTag = lastLow == null || previousLow == null ? '' : (lastLow >= previousLow ? 'HL' : 'LL');
-    const bullStructure = ['', 'HH'].includes(highTag) && ['', 'HL'].includes(lowTag);
-    const bearStructure = ['', 'LH'].includes(highTag) && ['', 'LL'].includes(lowTag);
-    const previous = visible.at(-2) || last;
-    const bullBos = lastHigh != null && previous.close <= lastHigh && last.close > lastHigh;
-    const bearBos = lastLow != null && previous.close >= lastLow && last.close < lastLow;
-    const buySetup = bullBias && bullStructure && bullBos && last.close > Math.max(f, m);
-    const sellSetup = bearBias && bearStructure && bearBos && last.close < Math.min(f, m);
-    const direction = buySetup || (bullBias && bullStructure) ? 1 : sellSetup || (bearBias && bearStructure) ? -1 : 0;
-    const anchor = direction === 1 ? (lastLow ?? Math.min(...visible.map((row) => row.low))) : direction === -1 ? (lastHigh ?? Math.max(...visible.map((row) => row.high))) : last.close;
-    const range = Math.abs(last.close - anchor);
-    const hold = direction === 1 ? anchor + range * .9 : direction === -1 ? anchor - range * .9 : last.close;
-    const target2 = direction === 1 ? anchor + range * 2 : direction === -1 ? anchor - range * 2 : null;
-    const target3 = direction === 1 ? anchor + range * 3 : direction === -1 ? anchor - range * 3 : null;
-    const launchConfirmed = direction === 1 ? last.close >= hold : direction === -1 ? last.close <= hold : false;
-    const cloudBreak = direction === 1 ? last.close < Math.min(f, m) : direction === -1 ? last.close > Math.max(f, m) : false;
-    return {
-      fast, mid, slow, bullBias, bearBias, bullStructure, bearStructure, bullBos, bearBos,
-      buySetup, sellSetup, direction, anchor, hold, target2, target3, launchConfirmed, cloudBreak,
-      highTag, lowTag, character: direction === 1 ? (launchConfirmed ? 'BULL LAUNCH MODE' : 'BULL MARCH MODE') : direction === -1 ? (launchConfirmed ? 'BEAR LAUNCH MODE' : 'BEAR HUNT MODE') : 'SCOUT MODE',
-    };
-  }
-
-  function drawChart(canvas, candles, index, analysis) {
-    const ratio = window.devicePixelRatio || 1;
-    const width = canvas.clientWidth || 900;
-    const height = canvas.clientHeight || 420;
-    canvas.width = width * ratio; canvas.height = height * ratio;
-    const ctx = canvas.getContext('2d'); ctx.scale(ratio, ratio); ctx.clearRect(0, 0, width, height);
-    const start = Math.max(0, index - 80); const rows = candles.slice(start, index + 1);
-    const values = rows.flatMap((row) => [row.high, row.low]);
-    const minimum = Math.min(...values) - 1; const maximum = Math.max(...values) + 1;
-    const y = (price) => height - 25 - ((price - minimum) / Math.max(.0001, maximum - minimum)) * (height - 50);
-    const step = width / Math.max(1, rows.length); const bodyWidth = Math.max(3, step * .55);
-    ctx.strokeStyle = 'rgba(148,169,187,.12)'; ctx.lineWidth = 1;
-    for (let grid = 1; grid < 6; grid += 1) { const gy = grid * height / 6; ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(width, gy); ctx.stroke(); }
-    rows.forEach((row, localIndex) => {
-      const x = localIndex * step + step / 2; const up = row.close >= row.open;
-      ctx.strokeStyle = up ? '#68f7c4' : '#ff6f82'; ctx.fillStyle = up ? '#68f7c4' : '#ff6f82';
-      ctx.beginPath(); ctx.moveTo(x, y(row.high)); ctx.lineTo(x, y(row.low)); ctx.stroke();
-      const top = y(Math.max(row.open, row.close)); const bottom = y(Math.min(row.open, row.close));
-      ctx.fillRect(x - bodyWidth / 2, top, bodyWidth, Math.max(2, bottom - top));
-    });
-    const closes = candles.slice(0, index + 1).map((row) => row.close);
-    const lines = [[ema(closes, 25), '#ffcc74'], [ema(closes, 50), '#59a8ff'], [ema(closes, 200), '#9b7bff']];
-    lines.forEach(([series, color]) => {
-      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
-      series.slice(start).forEach((value, localIndex) => { const x = localIndex * step + step / 2; if (localIndex === 0) ctx.moveTo(x, y(value)); else ctx.lineTo(x, y(value)); }); ctx.stroke();
-    });
-    [[analysis.hold, '#68f7c4', '0.90 HOLD'], [analysis.target2, '#59a8ff', '2.0'], [analysis.target3, '#9b7bff', '3.0']].forEach(([price, color, label]) => {
-      if (!Number.isFinite(price)) return; const lineY = y(price); ctx.setLineDash([8, 7]); ctx.strokeStyle = color; ctx.beginPath(); ctx.moveTo(0, lineY); ctx.lineTo(width, lineY); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = color; ctx.font = '12px system-ui'; ctx.fillText(label, 8, lineY - 5);
-    });
-  }
-
-  function tradingViewUrl(symbol) {
-    const safe = encodeURIComponent(symbol || 'OANDA:XAUUSD');
-    return `https://s.tradingview.com/widgetembed/?frameElementId=wisdo-tv&symbol=${safe}&interval=15&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=0b1420&studies=[]&theme=dark&style=1&timezone=America%2FNew_York&withdateranges=1&hideideas=1`;
-  }
-
-  async function completeLesson(lessonId, score) {
+  async function api(path, options = {}, timeoutMs = 20000) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      await fetch(`/api/v2/academy/lessons/${encodeURIComponent(lessonId)}/complete`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ score }),
+      const response = await fetch(path, {
+        ...options,
+        signal: controller.signal,
+        headers: { 'content-type': 'application/json', ...(options.headers || {}) },
       });
-    } catch {}
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
+      return payload;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  function speak(text, enabled) {
+    if (!enabled || !('speechSynthesis' in window)) return;
+    speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(String(text || '').slice(0, 1200));
+    utterance.rate = 0.94;
+    utterance.pitch = 0.96;
+    speechSynthesis.speak(utterance);
+  }
+
+  function drawScenario(canvas, scenario, visibleCount) {
+    if (!canvas || !scenario?.candles?.length) return;
+    const ratio = window.devicePixelRatio || 1;
+    const width = Math.max(500, canvas.clientWidth || 900);
+    const height = Math.max(300, canvas.clientHeight || 460);
+    canvas.width = Math.floor(width * ratio);
+    canvas.height = Math.floor(height * ratio);
+    const ctx = canvas.getContext('2d');
+    ctx.scale(ratio, ratio);
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = '#03070d';
+    ctx.fillRect(0, 0, width, height);
+
+    const candles = scenario.candles.slice(0, Math.max(1, visibleCount));
+    const values = candles.flatMap((bar) => [bar.high, bar.low]);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = Math.max(0.001, max - min);
+    const left = 48;
+    const top = 22;
+    const chartWidth = width - 72;
+    const chartHeight = height - 54;
+    const y = (price) => top + ((max - price) / range) * chartHeight;
+
+    ctx.strokeStyle = 'rgba(255,255,255,.06)';
+    ctx.lineWidth = 1;
+    for (let index = 0; index <= 5; index += 1) {
+      const rowY = top + chartHeight * (index / 5);
+      ctx.beginPath(); ctx.moveTo(left, rowY); ctx.lineTo(width - 20, rowY); ctx.stroke();
+      const value = max - range * (index / 5);
+      ctx.fillStyle = 'rgba(190,210,225,.7)';
+      ctx.font = '11px system-ui';
+      ctx.fillText(value.toFixed(2), 3, rowY + 4);
+    }
+
+    const step = chartWidth / Math.max(1, candles.length);
+    const bodyWidth = Math.max(3, Math.min(12, step * 0.58));
+    candles.forEach((bar, index) => {
+      const x = left + index * step + step / 2;
+      const up = bar.close >= bar.open;
+      ctx.strokeStyle = up ? '#68f7c4' : '#ff6f82';
+      ctx.fillStyle = up ? '#68f7c4' : '#ff6f82';
+      ctx.beginPath(); ctx.moveTo(x, y(bar.high)); ctx.lineTo(x, y(bar.low)); ctx.stroke();
+      const bodyTop = Math.min(y(bar.open), y(bar.close));
+      const bodyHeight = Math.max(2, Math.abs(y(bar.open) - y(bar.close)));
+      ctx.fillRect(x - bodyWidth / 2, bodyTop, bodyWidth, bodyHeight);
+    });
+
+    for (const checkpoint of scenario.checkpoints || []) {
+      if (checkpoint.index >= candles.length) continue;
+      const x = left + checkpoint.index * step + step / 2;
+      ctx.strokeStyle = 'rgba(255,204,116,.72)';
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, height - 24); ctx.stroke();
+      ctx.setLineDash([]);
+    }
   }
 
   function mount(container, options = {}) {
     if (!container) return;
-    const scenarioNames = { 'bull-launch': 'Bull Launch', 'bear-hunt': 'Bear Hunt', fakeout: 'Fakeout / Trap', range: 'Range / Scout' };
+    const bootstrap = options.bootstrap || {};
+    const summary = bootstrap.summary || { courseCount: 6500, domainCount: 65, levelCount: 5, categories: [] };
+    const tracks = bootstrap.tracks || [];
+    let profile = bootstrap.learnerProfile || { experience: 'starter', goals: [], markets: [], interests: [], weeklyMinutes: 180, learningStyle: 'interactive' };
+    let selectedCourseId = '';
+    let scenario = null;
+    let visibleBars = 1;
+    let replayTimer = null;
+    let currentCheckpoint = 0;
+    let voiceEnabled = false;
+    let catalogPage = 1;
+
     container.innerHTML = `
-      <section class="academy-hero card">
-        <div><span class="eyebrow">DF Sauce Campaign Character</span><h1>Watch it form. Make the call. See the bot brain.</h1><p class="muted">Interactive training based on the supplied Pine v6 logic: EMA cloud, market structure, BOS, campaign anchors, scale-ins, 0.90 hold confirmation, fib targets, and cloud-break exits.</p><div class="actions"><button class="btn primary" data-academy-tab="replay">Chart Replay</button><button class="btn ghost" data-academy-tab="video">Interactive Video</button><button class="btn ghost" data-academy-tab="watch">TradingView Watch Room</button><button class="btn ghost" data-academy-tab="pine">Pine Lab</button></div></div>
-        <div class="academy-score"><small>Lesson score</small><strong id="academy-score">0</strong><span>/100</span><p id="academy-badge">Scout Mode</p></div>
+      <section class="card academy-hero">
+        <div><span class="eyebrow">Adaptive education operating system</span><h1>Build knowledge around the trader—not the other way around.</h1><p class="muted">Start with what a candlestick is, then progress through execution, strategies, global markets, personal finance, money management, psychology, research, technology, and professional trading operations.</p></div>
+        <div class="academy-score"><small>Course universe</small><strong>${Number(summary.courseCount || 6500).toLocaleString()}</strong><span>structured courses</span><p>${Number(summary.domainCount || 65)} knowledge domains</p></div>
       </section>
-      <section class="academy-panel" data-panel="replay">
-        <div class="academy-replay-grid">
-          <div class="card chart-card"><div class="academy-toolbar"><select class="input" id="scenario-select">${Object.entries(scenarioNames).map(([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select><button class="btn primary" id="replay-play">Play</button><button class="btn ghost" id="replay-step">Step</button><button class="btn ghost" id="replay-reset">Reset</button><select class="input" id="replay-speed"><option value="650">1×</option><option value="320">2×</option><option value="150">4×</option></select></div><canvas id="df-chart"></canvas><div class="replay-progress"><span id="replay-progress"></span></div></div>
-          <aside class="card bot-brain"><span class="eyebrow">Live lesson state</span><h3 id="character">SCOUT MODE</h3><div class="brain-grid"><div><small>Bias</small><strong id="bias">Neutral</strong></div><div><small>Structure</small><strong id="structure">Mixed</strong></div><div><small>BOS</small><strong id="bos">Waiting</strong></div><div><small>Launch hold</small><strong id="hold">Waiting</strong></div></div><div class="decision-box"><h3>Your decision</h3><p>What should the bot do at this candle?</p><div class="actions"><button class="btn decision" data-decision="buy">BUY</button><button class="btn decision" data-decision="sell">SELL</button><button class="btn decision" data-decision="wait">WAIT</button><button class="btn decision" data-decision="close">CLOSE</button></div><p id="decision-feedback" class="muted">Pause at any candle and make a decision.</p></div><div class="card mini"><h3>Campaign map</h3><p id="campaign-map">Waiting for structure.</p></div></aside>
+      <section class="card">
+        <div class="academy-stat-grid">
+          <div class="academy-stat"><small class="muted">Courses</small><strong>${Number(summary.courseCount || 6500).toLocaleString()}</strong><span>searchable curriculum</span></div>
+          <div class="academy-stat"><small class="muted">Domains</small><strong>${Number(summary.domainCount || 65)}</strong><span>trading, finance, and systems</span></div>
+          <div class="academy-stat"><small class="muted">Levels</small><strong>${Number(summary.levelCount || 5)}</strong><span>starter to professional</span></div>
+          <div class="academy-stat"><small class="muted">Learning modes</small><strong>5</strong><span>visual, interactive, reading, audio, mixed</span></div>
         </div>
       </section>
-      <section class="academy-panel" data-panel="video" hidden>
-        <div class="academy-video-grid"><div class="card video-stage"><video id="lesson-video" controls muted playsinline preload="metadata"><source src="/media/14683743_3840_2160_30fps.mp4" type="video/mp4"></video><div id="video-prompt" class="video-prompt"><span class="eyebrow">Chapter 1</span><h3>Read the cloud before the signal.</h3><p>Fast above mid and mid above slow establishes bullish permission—not an automatic entry.</p></div></div><aside class="card"><h3>Interactive chapters</h3><button class="chapter active" data-time="0" data-title="Cloud permission">1. Trend / Cloud</button><button class="chapter" data-time="4" data-title="Structure tags">2. HH / HL / LH / LL</button><button class="chapter" data-time="8" data-title="Break of structure">3. BOS paired line</button><button class="chapter" data-time="12" data-title="Campaign anchor">4. Anchor and scale-in</button><button class="chapter" data-time="16" data-title="Launch confirmation">5. 0.90 hold and targets</button><button class="chapter" data-time="20" data-title="Cloud-break exit">6. Campaign over</button><div class="decision-box"><p id="video-question">Choose a chapter to begin.</p><button class="btn primary" id="video-check">Complete this checkpoint</button></div></aside></div>
-      </section>
-      <section class="academy-panel" data-panel="watch" hidden>
-        <div class="card"><div class="academy-toolbar"><select class="input" id="tv-symbol"><option value="OANDA:XAUUSD">XAUUSD</option><option value="OANDA:EURUSD">EURUSD</option><option value="OANDA:GBPJPY">GBPJPY</option><option value="CAPITALCOM:US100">NAS100</option><option value="TVC:USOIL">USOIL</option></select><button class="btn primary" id="tv-load">Load chart</button><a class="btn ghost" href="https://www.tradingview.com/chart/" target="_blank" rel="noopener">Open TradingView</a></div><iframe id="wisdo-tv" class="tv-frame" title="TradingView Watch Room" loading="lazy"></iframe><p class="muted">Use the live chart for visual study. The Pine script runs in TradingView; WISDO’s simulator explains and rehearses the strategy state.</p></div>
-      </section>
-      <section class="academy-panel" data-panel="pine" hidden>
-        <div class="grid2"><section class="card"><span class="eyebrow">Pine v6 explanation lab</span><h3>DF Sauce Campaign Character</h3><textarea id="pine-code" class="pine-code" spellcheck="false">Loading supplied Pine script…</textarea><div class="actions"><button class="btn primary" id="copy-pine">Copy script</button><a class="btn ghost" href="/academy/df-sauce-campaign-character.pine" download>Download .pine</a></div></section><aside class="card"><h3>Logic map</h3><ol class="lesson-map"><li><strong>Trend permission:</strong> EMA 25 / 50 / 200 alignment.</li><li><strong>Structure:</strong> pivot-based HH, HL, LH, LL.</li><li><strong>Trigger:</strong> valid BOS close outside the cloud.</li><li><strong>Campaign:</strong> first valid setup anchors; later setups scale.</li><li><strong>Launch:</strong> price holds the 0.90 level for the required bars.</li><li><strong>Targets:</strong> 2.0, 3.0, and extended campaign fibs.</li><li><strong>Exit:</strong> campaign ends on the configured cloud break.</li></ol><button class="btn primary" id="pine-complete">Mark Pine lesson complete</button></aside></div>
-      </section>`;
+      <nav class="academy-tabs card" aria-label="Academy sections">
+        <button class="btn active" data-academy-tab="path">My Learning Path</button>
+        <button class="btn" data-academy-tab="catalog">Course Universe</button>
+        <button class="btn" data-academy-tab="tutor">Ask WISDO Tutor</button>
+        <button class="btn" data-academy-tab="scenario">DF Sauce Scenario Lab</button>
+        <button class="btn" data-academy-tab="watch">TradingView Watch Room</button>
+      </nav>
+      <div data-academy-panel="path"></div>
+      <div data-academy-panel="catalog" hidden></div>
+      <div data-academy-panel="tutor" hidden></div>
+      <div data-academy-panel="scenario" hidden></div>
+      <div data-academy-panel="watch" hidden></div>
+    `;
 
-    const panels = [...container.querySelectorAll('[data-panel]')];
-    container.querySelectorAll('[data-academy-tab]').forEach((button) => button.addEventListener('click', () => {
-      const target = button.dataset.academyTab;
-      panels.forEach((panel) => { panel.hidden = panel.dataset.panel !== target; });
-      container.querySelectorAll('[data-academy-tab]').forEach((item) => item.classList.toggle('primary', item === button));
-      if (target === 'watch') loadTv();
-    }));
-
-    let scenario = 'bull-launch'; let candles = seededCandles(scenario); let index = 45; let timer = null; let score = 0;
-    const canvas = container.querySelector('#df-chart');
-    const setScore = (next) => { score = clamp(next, 0, 100); container.querySelector('#academy-score').textContent = Math.round(score); container.querySelector('#academy-badge').textContent = score >= 85 ? 'Campaign Reader' : score >= 60 ? 'Structure Scout' : 'Scout Mode'; };
-    const render = () => {
-      const state = analyze(candles, index); drawChart(canvas, candles, index, state);
-      container.querySelector('#character').textContent = state.character;
-      container.querySelector('#bias').textContent = state.bullBias ? 'Bullish' : state.bearBias ? 'Bearish' : 'Neutral';
-      container.querySelector('#structure').textContent = state.bullStructure ? `${state.highTag || 'HH'} / ${state.lowTag || 'HL'}` : state.bearStructure ? `${state.highTag || 'LH'} / ${state.lowTag || 'LL'}` : 'Mixed';
-      container.querySelector('#bos').textContent = state.bullBos ? 'Bull BOS' : state.bearBos ? 'Bear BOS' : 'Waiting';
-      container.querySelector('#hold').textContent = state.launchConfirmed ? 'Confirmed' : 'Not confirmed';
-      container.querySelector('#campaign-map').textContent = state.direction === 0 ? 'Scout mode: wait for aligned bias, structure, and BOS.' : `${state.direction === 1 ? 'Buy' : 'Sell'} campaign · anchor ${state.anchor.toFixed(2)} · hold ${state.hold.toFixed(2)} · 2.0 ${state.target2.toFixed(2)} · 3.0 ${state.target3.toFixed(2)}.`;
-      container.querySelector('#replay-progress').style.width = `${(index + 1) / candles.length * 100}%`;
-      container.dataset.correctDecision = state.cloudBreak ? 'close' : state.buySetup ? 'buy' : state.sellSetup ? 'sell' : 'wait';
+    const panel = (name) => container.querySelector(`[data-academy-panel="${name}"]`);
+    const switchTab = (name) => {
+      container.querySelectorAll('[data-academy-panel]').forEach((node) => { node.hidden = node.dataset.academyPanel !== name; });
+      container.querySelectorAll('[data-academy-tab]').forEach((button) => button.classList.toggle('active', button.dataset.academyTab === name));
+      if (name === 'catalog') loadCatalog();
+      if (name === 'scenario') loadScenario(container.querySelector('#scenario-select')?.value || 'bull-campaign');
+      if (name === 'watch') loadWatchRoom();
     };
-    const stop = () => { if (timer) clearInterval(timer); timer = null; container.querySelector('#replay-play').textContent = 'Play'; };
-    const play = () => { if (timer) return stop(); container.querySelector('#replay-play').textContent = 'Pause'; timer = setInterval(() => { if (index >= candles.length - 1) return stop(); index += 1; render(); }, Number(container.querySelector('#replay-speed').value)); };
-    container.querySelector('#replay-play').onclick = play;
-    container.querySelector('#replay-step').onclick = () => { stop(); index = Math.min(candles.length - 1, index + 1); render(); };
-    container.querySelector('#replay-reset').onclick = () => { stop(); index = 45; setScore(0); render(); };
-    container.querySelector('#replay-speed').onchange = () => { if (timer) { stop(); play(); } };
-    container.querySelector('#scenario-select').onchange = (event) => { stop(); scenario = event.target.value; candles = seededCandles(scenario); index = 45; setScore(0); render(); };
-    container.querySelectorAll('[data-decision]').forEach((button) => button.onclick = () => {
-      const chosen = button.dataset.decision; const correct = container.dataset.correctDecision;
-      const good = chosen === correct; setScore(score + (good ? 18 : -4));
-      container.querySelector('#decision-feedback').textContent = good ? `Correct: ${correct.toUpperCase()} matches the current DF Sauce state.` : `Not yet. The current state calls for ${correct.toUpperCase()}. Recheck bias, structure, BOS, and cloud position.`;
-      if (score >= 80) completeLesson('campaign-character', score);
-    });
-    window.addEventListener('resize', render);
+    container.querySelectorAll('[data-academy-tab]').forEach((button) => { button.onclick = () => switchTab(button.dataset.academyTab); });
 
-    const video = container.querySelector('#lesson-video');
-    const chapterText = {
-      'Cloud permission': 'EMA alignment grants directional permission, but structure and BOS still have to prove the setup.',
-      'Structure tags': 'HH/HL supports bull campaigns. LH/LL supports bear campaigns. Mixed structure stays in Scout Mode.',
-      'Break of structure': 'A BOS candle must close beyond the paired pivot line. A wick alone is not enough.',
-      'Campaign anchor': 'The first valid setup becomes the anchor. Additional valid setups in the same direction become scale-ins.',
-      'Launch confirmation': 'The 0.90 hold level must survive the configured number of bars before Launch Mode is confirmed.',
-      'Cloud-break exit': 'A close through the opposite edge of the cloud ends the active campaign when cloud-break exits are enabled.',
-    };
-    container.querySelectorAll('.chapter').forEach((button, chapterIndex) => button.onclick = () => {
-      container.querySelectorAll('.chapter').forEach((item) => item.classList.toggle('active', item === button));
-      video.currentTime = Number(button.dataset.time || 0); video.play().catch(() => {});
-      container.querySelector('#video-prompt').innerHTML = `<span class="eyebrow">Chapter ${chapterIndex + 1}</span><h3>${button.dataset.title}</h3><p>${chapterText[button.dataset.title]}</p>`;
-      container.querySelector('#video-question').textContent = `Checkpoint: explain ${button.dataset.title.toLowerCase()} before moving on.`;
-    });
-    container.querySelector('#video-check').onclick = () => { setScore(score + 12); completeLesson('df-sauce-video', score); container.querySelector('#video-question').textContent = 'Checkpoint recorded. Continue to the next chapter.'; };
+    async function loadPath() {
+      const response = await api('/api/v2/academy/path', { method: 'POST', body: JSON.stringify(profile) });
+      const path = response.path || [];
+      panel('path').innerHTML = `
+        <div class="academy-layout">
+          <section class="card"><div class="card-head"><div><span class="eyebrow">Adaptive profile</span><h3>Tell WISDO what you know and what you want to learn.</h3></div></div>
+            <form id="academy-profile-form" class="academy-profile-grid">
+              <label>Experience<select class="input" name="experience"><option value="starter">Starter</option><option value="foundation">Foundation</option><option value="intermediate">Intermediate</option><option value="advanced">Advanced</option><option value="professional">Professional</option></select></label>
+              <label>Learning style<select class="input" name="learningStyle"><option value="interactive">Interactive</option><option value="visual">Visual</option><option value="reading">Reading</option><option value="audio">Audio</option><option value="mixed">Mixed</option></select></label>
+              <label>Minutes per week<input class="input" name="weeklyMinutes" type="number" min="30" max="1200" value="${Number(profile.weeklyMinutes || 180)}"></label>
+              <label class="full">Goals<input class="input" name="goals" value="${html((profile.goals || []).join(', '))}" placeholder="Example: learn forex, protect capital, build a retirement plan"></label>
+              <label class="full">Markets<input class="input" name="markets" value="${html((profile.markets || []).join(', '))}" placeholder="Forex, stocks, futures, options, crypto, bonds"></label>
+              <label class="full">Interests<input class="input" name="interests" value="${html((profile.interests || []).join(', '))}" placeholder="Candlesticks, swing trading, money management, automation"></label>
+              <button class="btn primary full" type="submit">Rebuild my learning path</button>
+            </form>
+          </section>
+          <aside class="card"><span class="eyebrow">Why this path</span><h3>Risk and understanding come first.</h3><p>${html(response.explanation || '')}</p><div class="private-strategy-notice"><strong>Protected strategy policy</strong><br>WISDO teaches DF Sauce through decisions, scenarios, and private TradingView access. Proprietary source code and exact hidden implementation details are not delivered to the browser.</div></aside>
+        </div>
+        <section class="card"><div class="card-head"><div><span class="eyebrow">Recommended sequence</span><h3>Your next 36 courses</h3></div><button class="btn ghost" data-open-catalog>Search all ${Number(summary.courseCount || 6500).toLocaleString()}</button></div><div class="academy-course-grid">${path.slice(0, 18).map(courseCard).join('')}</div></section>
+        <section class="card"><span class="eyebrow">Curriculum tracks</span><h3>Broad coverage, one connected system.</h3><div class="grid3">${tracks.map((track) => `<div class="track-card"><strong>${html(track.title)}</strong><p>${track.lessons.length} core domains</p></div>`).join('')}</div></section>`;
+      const form = container.querySelector('#academy-profile-form');
+      form.elements.experience.value = profile.experience || 'starter';
+      form.elements.learningStyle.value = profile.learningStyle || 'interactive';
+      form.onsubmit = async (event) => {
+        event.preventDefault();
+        const values = Object.fromEntries(new FormData(form));
+        const result = await api('/api/v2/academy/profile', { method: 'PATCH', body: JSON.stringify(values) });
+        profile = result.profile;
+        await loadPath();
+      };
+      container.querySelector('[data-open-catalog]').onclick = () => switchTab('catalog');
+      bindCourseButtons(panel('path'));
+    }
 
-    function loadTv() { const frame = container.querySelector('#wisdo-tv'); if (frame && !frame.src) frame.src = tradingViewUrl(container.querySelector('#tv-symbol').value); }
-    container.querySelector('#tv-load').onclick = () => { container.querySelector('#wisdo-tv').src = tradingViewUrl(container.querySelector('#tv-symbol').value); };
-    fetch('/academy/df-sauce-campaign-character.pine').then((response) => response.text()).then((text) => { container.querySelector('#pine-code').value = text; }).catch(() => { container.querySelector('#pine-code').value = 'The Pine lesson file could not be loaded.'; });
-    container.querySelector('#copy-pine').onclick = () => navigator.clipboard?.writeText(container.querySelector('#pine-code').value);
-    container.querySelector('#pine-complete').onclick = () => { setScore(Math.max(score, 85)); completeLesson('pine-explanation-lab', Math.max(score, 85)); };
-    if (options.bot === 'df-sauce-final-ai') container.querySelector('[data-academy-tab="replay"]').click();
-    render();
+    function courseCard(course) {
+      return `<button class="course-tile" data-course-id="${html(course.id)}"><span class="eyebrow">${html(course.category)}</span><h3>${html(course.title)}</h3><p>${html(course.summary)}</p><div class="course-meta"><span>${html(course.levelTitle)}</span><span>${Number(course.durationMinutes)} min</span></div></button>`;
+    }
+
+    function bindCourseButtons(scope) {
+      scope.querySelectorAll('[data-course-id]').forEach((button) => {
+        button.onclick = () => openCourse(button.dataset.courseId);
+      });
+    }
+
+    async function openCourse(courseId) {
+      const result = await api(`/api/v2/academy/courses/${encodeURIComponent(courseId)}`);
+      const course = result.course;
+      selectedCourseId = course.id;
+      const host = panel('catalog');
+      host.innerHTML = `<section class="card"><button class="btn ghost" data-course-back>← Back to course search</button><span class="eyebrow">${html(course.category)} · ${html(course.levelTitle)}</span><h2>${html(course.title)}</h2><p class="lead">${html(course.summary)}</p><div class="grid2"><div><h3>Learning objectives</h3><ol class="lesson-map">${course.objectives.map((item) => `<li>${html(item)}</li>`).join('')}</ol></div><div><h3>Practice sequence</h3><ol class="lesson-map">${course.practice.map((item) => `<li>${html(item)}</li>`).join('')}</ol></div></div><div class="grid3">${course.modules.map((module) => `<article class="track-card"><span class="eyebrow">Module</span><h3>${html(module.title)}</h3><p>${html(module.body)}</p></article>`).join('')}</div><div class="private-strategy-notice">${html(course.riskNotice)}</div><div class="actions"><button class="btn primary" data-course-complete>Complete course</button><button class="btn ghost" data-ask-course>Ask WISDO about this course</button></div></section>`;
+      host.querySelector('[data-course-back]').onclick = () => loadCatalog();
+      host.querySelector('[data-course-complete]').onclick = async () => {
+        await api(`/api/v2/academy/lessons/${encodeURIComponent(course.id)}/complete`, { method: 'POST', body: JSON.stringify({ score: 100 }) });
+        host.querySelector('[data-course-complete]').textContent = 'Completed ✓';
+      };
+      host.querySelector('[data-ask-course]').onclick = () => { switchTab('tutor'); container.querySelector('#tutor-input').value = `Teach me ${course.title} at my current level. Start with the most important idea and a practice question.`; };
+    }
+
+    async function loadCatalog(page = catalogPage) {
+      catalogPage = page;
+      const current = panel('catalog');
+      const previousQuery = current.querySelector('#course-query')?.value || '';
+      const previousCategory = current.querySelector('#course-category')?.value || '';
+      const previousLevel = current.querySelector('#course-level')?.value || '';
+      const params = new URLSearchParams({ query: previousQuery, category: previousCategory, level: previousLevel, page: String(page), limit: '24' });
+      const result = await api(`/api/v2/academy/catalog?${params}`);
+      const categories = result.summary?.categories || summary.categories || [];
+      current.innerHTML = `<section class="card"><div class="card-head"><div><span class="eyebrow">Course universe</span><h3>${Number(result.total || 0).toLocaleString()} matching courses</h3></div><span class="muted">Page ${result.page} of ${result.pages}</span></div><form id="catalog-filter" class="academy-filter"><input class="input" id="course-query" name="query" value="${html(previousQuery)}" placeholder="Search candlesticks, risk, forex, budgeting, options…"><select class="input" id="course-category" name="category"><option value="">All categories</option>${categories.map((item) => `<option value="${html(item)}" ${item === previousCategory ? 'selected' : ''}>${html(item)}</option>`).join('')}</select><select class="input" id="course-level" name="level"><option value="">All levels</option><option value="starter">Starter</option><option value="foundation">Foundation</option><option value="intermediate">Intermediate</option><option value="advanced">Advanced</option><option value="professional">Professional</option></select><button class="btn primary" type="submit">Search</button></form><div class="academy-course-grid">${(result.courses || []).map(courseCard).join('')}</div><div class="actions"><button class="btn ghost" data-page-prev ${result.page <= 1 ? 'disabled' : ''}>Previous</button><button class="btn ghost" data-page-next ${result.page >= result.pages ? 'disabled' : ''}>Next</button></div></section>`;
+      current.querySelector('#course-level').value = previousLevel;
+      current.querySelector('#catalog-filter').onsubmit = (event) => { event.preventDefault(); loadCatalog(1); };
+      current.querySelector('[data-page-prev]').onclick = () => loadCatalog(Math.max(1, result.page - 1));
+      current.querySelector('[data-page-next]').onclick = () => loadCatalog(Math.min(result.pages, result.page + 1));
+      bindCourseButtons(current);
+    }
+
+    function renderTutor() {
+      panel('tutor').innerHTML = `<div class="academy-layout"><section class="card"><div class="card-head"><div><span class="eyebrow">Adaptive AI tutor</span><h3>Ask about trading, investing, money management, or the WISDO system.</h3></div><button class="btn ghost" id="clear-tutor-history">Clear history</button></div><div class="tutor-thread" id="tutor-thread"><div class="tutor-message assistant">Tell me what you already know, what market you care about, and what you are trying to accomplish. I will adjust the explanation and recommend a course path.</div></div><form class="tutor-compose" id="tutor-form"><textarea class="input" id="tutor-input" rows="3" placeholder="Example: I am new. Explain candlesticks and how much money I should risk while practicing."></textarea><button class="btn primary" type="submit">Ask WISDO</button></form></section><aside class="card"><span class="eyebrow">Tutor context</span><h3>Your learning profile</h3><div class="path-list"><div class="path-item"><small>Experience</small><strong>${html(profile.experience || 'starter')}</strong></div><div class="path-item"><small>Markets</small><strong>${html((profile.markets || []).join(', ') || 'not selected')}</strong></div><div class="path-item"><small>Goals</small><strong>${html((profile.goals || []).join(', ') || 'not selected')}</strong></div><div class="path-item"><small>Selected account</small><strong>${html(options.selectedAccountId || 'portfolio education')}</strong></div></div><p class="muted">The tutor is educational. It should not promise returns, reveal protected strategy code, or replace a licensed financial professional.</p></aside></div>`;
+      const thread = panel('tutor').querySelector('#tutor-thread');
+      api('/api/v2/academy/tutor/history').then((result) => {
+        const messages = result.messages || [];
+        if (!messages.length) return;
+        thread.innerHTML = messages.map((message) => `<div class="tutor-message ${message.role === 'assistant' ? 'assistant' : 'user'}">${html(message.content || '')}</div>`).join('');
+        thread.scrollTop = thread.scrollHeight;
+      }).catch(() => null);
+      panel('tutor').querySelector('#clear-tutor-history').onclick = async () => {
+        await api('/api/v2/academy/tutor/history', { method: 'DELETE' });
+        thread.innerHTML = '<div class="tutor-message assistant">Tutor history cleared. Tell me what you want to learn next.</div>';
+      };
+      panel('tutor').querySelector('#tutor-form').onsubmit = async (event) => {
+        event.preventDefault();
+        const input = panel('tutor').querySelector('#tutor-input');
+        const message = input.value.trim();
+        if (!message) return;
+        thread.insertAdjacentHTML('beforeend', `<div class="tutor-message user">${html(message)}</div>`);
+        input.value = '';
+        const pending = document.createElement('div'); pending.className = 'tutor-message assistant'; pending.textContent = 'WISDO is building the explanation…'; thread.append(pending); thread.scrollTop = thread.scrollHeight;
+        try {
+          const result = await api('/api/v2/academy/tutor', { method: 'POST', body: JSON.stringify({ message, courseId: selectedCourseId || undefined, selectedAccountId: options.selectedAccountId || undefined }) }, 45000);
+          pending.textContent = result.answer || 'No answer returned.';
+          if (result.recommendations?.length) {
+            const recommendations = document.createElement('div');
+            recommendations.className = 'tutor-recommendations';
+            recommendations.innerHTML = `<small>Recommended next courses</small>${result.recommendations.map((course) => `<button class="btn ghost" data-tutor-course="${html(course.id)}">${html(course.title)}</button>`).join('')}`;
+            pending.append(recommendations);
+            recommendations.querySelectorAll('[data-tutor-course]').forEach((button) => button.onclick = () => { switchTab('catalog'); openCourse(button.dataset.tutorCourse); });
+          }
+          speak(result.answer, voiceEnabled);
+        } catch (error) { pending.textContent = error.message; }
+        thread.scrollTop = thread.scrollHeight;
+      };
+    }
+
+    function renderScenarioShell() {
+      panel('scenario').innerHTML = `<section class="card"><div class="card-head"><div><span class="eyebrow">Protected DF Sauce training</span><h3>Read campaign character without exposing proprietary source.</h3></div><label class="voice-toggle"><input id="academy-voice" type="checkbox"> Voice coach</label></div><div class="private-strategy-notice">The private indicator belongs on your TradingView layout. This lab receives educational candle scenarios and decision checkpoints only; it does not contain downloadable strategy source or exact private implementation parameters.</div><div class="academy-toolbar"><select class="input" id="scenario-select"><option value="bull-campaign">Bull campaign formation</option><option value="bear-campaign">Bear campaign formation</option><option value="false-break">False break and recovery</option><option value="range-day">Range-day character</option><option value="campaign-exit">Campaign invalidation</option><option value="news-volatility">News-volatility expansion</option></select><button class="btn primary" id="scenario-play">Play live lesson</button><button class="btn ghost" id="scenario-step">Step</button><button class="btn ghost" id="scenario-reset">Reset</button></div><div class="scenario-stage"><div><canvas class="scenario-chart" id="scenario-chart"></canvas><div class="replay-progress"><span id="scenario-progress"></span></div><div class="scenario-actions"><button class="btn ghost" data-decision="buy">Buy</button><button class="btn ghost" data-decision="sell">Sell</button><button class="btn primary" data-decision="wait">Wait</button><button class="btn ghost" data-decision="close">Close</button></div></div><aside><div id="scenario-coach" class="decision-box"><span class="eyebrow">Live coach</span><h3>Load a scenario to begin.</h3><p>WISDO will pause at decision checkpoints and ask you to explain the safest action.</p></div><div id="checkpoint-list" class="path-list"></div></aside></div></section>`;
+      const scope = panel('scenario');
+      scope.querySelector('#academy-voice').onchange = (event) => { voiceEnabled = event.target.checked; };
+      scope.querySelector('#scenario-select').onchange = (event) => loadScenario(event.target.value);
+      scope.querySelector('#scenario-play').onclick = toggleReplay;
+      scope.querySelector('#scenario-step').onclick = stepReplay;
+      scope.querySelector('#scenario-reset').onclick = () => resetScenario();
+      scope.querySelectorAll('[data-decision]').forEach((button) => { button.onclick = () => gradeDecision(button.dataset.decision); });
+    }
+
+    async function loadScenario(id) {
+      if (!panel('scenario').querySelector('#scenario-chart')) renderScenarioShell();
+      const result = await api(`/api/v2/academy/df-sauce/scenarios/${encodeURIComponent(id)}`);
+      scenario = result.scenario;
+      resetScenario();
+      const list = panel('scenario').querySelector('#checkpoint-list');
+      list.innerHTML = scenario.checkpoints.map((item, index) => `<div class="checkpoint ${index === 0 ? 'current' : ''}" data-checkpoint="${index}"><small>${html(item.state)}</small><strong>${html(item.title)}</strong></div>`).join('');
+      updateCoach();
+    }
+
+    function resetScenario() {
+      clearInterval(replayTimer); replayTimer = null; visibleBars = 1; currentCheckpoint = 0;
+      const button = panel('scenario').querySelector('#scenario-play'); if (button) button.textContent = 'Play live lesson';
+      drawScenario(panel('scenario').querySelector('#scenario-chart'), scenario, visibleBars);
+      const progress = panel('scenario').querySelector('#scenario-progress'); if (progress) progress.style.width = '1%';
+      updateCoach();
+    }
+
+    function toggleReplay() {
+      if (replayTimer) { clearInterval(replayTimer); replayTimer = null; panel('scenario').querySelector('#scenario-play').textContent = 'Resume live lesson'; return; }
+      panel('scenario').querySelector('#scenario-play').textContent = 'Pause';
+      replayTimer = setInterval(stepReplay, 280);
+    }
+
+    function stepReplay() {
+      if (!scenario) return;
+      visibleBars = Math.min(scenario.candles.length, visibleBars + 1);
+      const nextCheckpoint = scenario.checkpoints[currentCheckpoint];
+      if (nextCheckpoint && visibleBars - 1 >= nextCheckpoint.index) {
+        clearInterval(replayTimer); replayTimer = null;
+        panel('scenario').querySelector('#scenario-play').textContent = 'Continue';
+        updateCoach();
+        speak(`${nextCheckpoint.title}. ${nextCheckpoint.prompt}`, voiceEnabled);
+      }
+      drawScenario(panel('scenario').querySelector('#scenario-chart'), scenario, visibleBars);
+      panel('scenario').querySelector('#scenario-progress').style.width = `${(visibleBars / scenario.candles.length) * 100}%`;
+      if (visibleBars >= scenario.candles.length) { clearInterval(replayTimer); replayTimer = null; }
+    }
+
+    function updateCoach(feedback = '') {
+      if (!scenario) return;
+      const checkpoint = scenario.checkpoints[currentCheckpoint] || scenario.checkpoints.at(-1);
+      const coach = panel('scenario').querySelector('#scenario-coach');
+      coach.innerHTML = `<span class="eyebrow">${html(scenario.label)}</span><h3>${html(checkpoint.title)}</h3><p>${html(feedback || checkpoint.prompt)}</p><small class="muted">${html(scenario.coachNotes?.[2] || '')}</small>`;
+      panel('scenario').querySelectorAll('[data-checkpoint]').forEach((node, index) => node.classList.toggle('current', index === currentCheckpoint));
+    }
+
+    async function gradeDecision(decision) {
+      if (!scenario) return;
+      const checkpoint = scenario.checkpoints[currentCheckpoint] || scenario.checkpoints.at(-1);
+      const correct = decision === checkpoint.correctDecision;
+      updateCoach(correct ? `Good process. “${decision}” matches the safest decision for this checkpoint. Explain the invalidation before moving on.` : `Not yet. “${decision}” adds more assumption than the visible evidence supports. The safer answer here is “${checkpoint.correctDecision}.”`);
+      speak(correct ? 'Good process. Define your invalidation before moving on.' : `The safer answer is ${checkpoint.correctDecision}. Review the evidence and risk.`, voiceEnabled);
+      if (correct) {
+        currentCheckpoint = Math.min(scenario.checkpoints.length - 1, currentCheckpoint + 1);
+        await api(`/api/v2/academy/lessons/df-sauce-${encodeURIComponent(scenario.id)}-${currentCheckpoint}/complete`, { method: 'POST', body: JSON.stringify({ score: 100 }) }).catch(() => null);
+      }
+    }
+
+    async function loadWatchRoom() {
+      const host = panel('watch');
+      if (host.dataset.loaded === '1') return;
+      const config = await api('/api/v2/academy/tradingview-config');
+      host.dataset.loaded = '1';
+      host.innerHTML = `<section class="card"><div class="card-head"><div><span class="eyebrow">TradingView Watch Room</span><h3>Study the live market with your private DF Sauce layout.</h3></div><a class="btn primary" href="/api/v2/academy/tradingview" target="_blank" rel="noopener">${config.privateChartConfigured ? 'Open private DF Sauce chart' : 'Open TradingView chart'}</a></div><iframe id="wisdo-tv" class="tv-frame" title="TradingView Watch Room" loading="lazy" src="${html(config.genericWatchRoomUrl)}"></iframe><div class="tv-status"><div><strong>${config.privateChartConfigured ? 'Private chart link configured' : 'Private chart link not configured yet'}</strong><p class="muted">${config.privateChartConfigured ? 'The private indicator remains hosted in your TradingView layout and is not sent to the WISDO browser.' : 'Set WISDO_DF_SAUCE_TRADINGVIEW_URL in Render to the saved TradingView layout where your private indicator is installed.'}</p></div><span class="status-pill ${config.privateChartConfigured ? 'connected' : 'waiting'}">${config.privateChartConfigured ? 'Protected' : 'Setup needed'}</span></div></section>`;
+    }
+
+    renderTutor();
+    renderScenarioShell();
+    loadPath().catch((error) => { panel('path').innerHTML = `<section class="card"><h3>Academy could not load</h3><p class="red">${html(error.message)}</p></section>`; });
+    if (options.bot === 'df-sauce-final-ai') switchTab('scenario');
   }
 
   window.DFSauceAcademy = { mount };

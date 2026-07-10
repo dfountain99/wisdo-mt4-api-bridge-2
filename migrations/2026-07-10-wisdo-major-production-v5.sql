@@ -70,6 +70,20 @@ create table if not exists public.trading_accounts (
 create index if not exists trading_accounts_user_status_idx on public.trading_accounts(user_id,status);
 create index if not exists trading_accounts_reporter_seen_idx on public.trading_accounts(reporter_last_seen_at desc);
 
+-- V5.2 explicit account capabilities and Reporter readiness.
+alter table public.trading_accounts add column if not exists desk_role text not null default 'private';
+alter table public.trading_accounts add column if not exists sharing_mode text not null default 'private';
+alter table public.trading_accounts add column if not exists community_visible boolean not null default false;
+alter table public.trading_accounts add column if not exists community_name text;
+alter table public.trading_accounts add column if not exists reporter_connected boolean not null default false;
+alter table public.trading_accounts add column if not exists terminal_connected boolean not null default false;
+alter table public.trading_accounts add column if not exists expert_enabled boolean not null default false;
+alter table public.trading_accounts add column if not exists floating_pl numeric(18,2) default 0;
+alter table public.trading_accounts add column if not exists open_trades integer default 0;
+alter table public.trading_accounts add column if not exists reporter_account_id text;
+create index if not exists trading_accounts_desk_role_idx on public.trading_accounts(user_id,desk_role);
+create index if not exists trading_accounts_community_idx on public.trading_accounts(community_visible,desk_role) where community_visible=true;
+
 create table if not exists public.account_shares (
   id uuid primary key default gen_random_uuid(),
   account_id uuid references public.trading_accounts(id) on delete cascade not null,
@@ -278,6 +292,21 @@ create table if not exists public.academy_progress (
   updated_at timestamptz default now(), unique(user_id,lesson_id)
 );
 
+create table if not exists public.academy_learner_profiles (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  experience text not null default 'starter', goals text[] default '{}', markets text[] default '{}',
+  interests text[] default '{}', weekly_minutes integer default 180, learning_style text default 'interactive',
+  created_at timestamptz default now(), updated_at timestamptz default now()
+);
+
+create table if not exists public.academy_tutor_messages (
+  id uuid primary key default gen_random_uuid(), user_id uuid references auth.users(id) on delete cascade not null,
+  role text not null check(role in ('user','assistant')), content text not null,
+  provider text, course_id text, selected_account_id uuid references public.trading_accounts(id) on delete set null,
+  created_at timestamptz default now()
+);
+create index if not exists academy_tutor_messages_user_time_idx on public.academy_tutor_messages(user_id,created_at desc);
+
 create table if not exists public.support_tickets (
   id uuid primary key default gen_random_uuid(), user_id uuid references auth.users(id) on delete set null,
   subject text not null, body text not null, status text default 'open', priority text default 'normal',
@@ -323,6 +352,8 @@ alter table public.affiliate_conversions enable row level security;
 alter table public.academy_tracks enable row level security;
 alter table public.academy_lessons enable row level security;
 alter table public.academy_progress enable row level security;
+alter table public.academy_learner_profiles enable row level security;
+alter table public.academy_tutor_messages enable row level security;
 alter table public.support_tickets enable row level security;
 alter table public.audit_logs enable row level security;
 
@@ -346,6 +377,8 @@ DO $$ BEGIN CREATE POLICY conversions_own_read ON public.affiliate_conversions F
 DO $$ BEGIN CREATE POLICY academy_tracks_public ON public.academy_tracks FOR SELECT TO authenticated USING(published OR public.has_role(auth.uid(),'admin')); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE POLICY academy_lessons_public ON public.academy_lessons FOR SELECT TO authenticated USING(published OR public.has_role(auth.uid(),'admin')); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE POLICY academy_progress_own ON public.academy_progress FOR ALL TO authenticated USING(auth.uid()=user_id) WITH CHECK(auth.uid()=user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY academy_profiles_own ON public.academy_learner_profiles FOR ALL TO authenticated USING(auth.uid()=user_id) WITH CHECK(auth.uid()=user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY academy_tutor_own ON public.academy_tutor_messages FOR ALL TO authenticated USING(auth.uid()=user_id) WITH CHECK(auth.uid()=user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE POLICY tickets_own_read ON public.support_tickets FOR SELECT TO authenticated USING(auth.uid()=user_id OR public.has_role(auth.uid(),'admin')); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE POLICY tickets_own_insert ON public.support_tickets FOR INSERT TO authenticated WITH CHECK(auth.uid()=user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE POLICY audit_admin_read ON public.audit_logs FOR SELECT TO authenticated USING(public.has_role(auth.uid(),'admin')); EXCEPTION WHEN duplicate_object THEN NULL; END $$;

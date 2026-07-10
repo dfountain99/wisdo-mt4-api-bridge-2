@@ -8,9 +8,12 @@ import express from 'express';
 
 import { computePrice, registerMajorUpgradeRoutes } from '../server/majorUpgradeRoutes.js';
 import { registerExtendedProductRoutes } from '../server/extendedProductRoutes.js';
+import { reconcileCopiedTradeCompletion } from '../server/apiServer.js';
 import { decodeSignedSession, encodeSignedSession, encryptCredential, decryptCredential, verifyHmacSha256 } from '../server/security.js';
 import { Mt4CommandService } from '../services/mt4CommandService.js';
+import { CopyTradingService } from '../services/copyTradingService.js';
 import { ChartRenderService } from '../services/chartRenderService.js';
+import { ACADEMY_COURSE_COUNT, getAcademyCourse, searchAcademyCourses } from '../services/academyCatalogService.js';
 
 process.env.NODE_ENV = 'test';
 process.env.WISDO_ALLOW_TEST_IDENTITY = 'true';
@@ -136,6 +139,56 @@ test('concurrent MT4 command writes are serialized without losing commands or te
   assert.equal(files.some((name) => name.includes('mt4-commands.json.') && name.endsWith('.tmp')), false);
 });
 
+test('lead closes bypass pause and entry filters and carry the original follower ticket', async () => {
+  const config = await tempConfig();
+  const service = new CopyTradingService(config);
+  await service.registerMaster({ discordUserId: 'lead-1', accountNumber: '10001', displayName: 'Lead' });
+  await service.followMaster({
+    followerUserId: 'follower-1',
+    masterUserId: 'lead-1',
+    followerAccountNumber: '20002',
+    followerAccountId: 'acct-follower',
+    symbolFilter: ['EURUSD'],
+    maxOpenTrades: 1,
+  });
+
+  const open = await service.queueMasterSignal({
+    masterUserId: 'lead-1',
+    masterAccountNumber: '10001',
+    sourceTicket: 'LEAD-77',
+    symbol: 'EURUSD',
+    side: 'buy',
+    lots: 0.1,
+    action: 'open',
+  });
+  const openCommand = await service.getPendingCopyCommand('follower-1', 'acct-follower');
+  assert.ok(openCommand);
+  await service.markCopyCommandCompleted('follower-1', openCommand.id, { success: true, ticket: 90077 }, 'acct-follower');
+
+  const data = await service.load();
+  data.followersByUserId['follower-1'][0].paused = true;
+  data.followersByUserId['follower-1'][0].symbolFilter = ['GBPUSD'];
+  data.followersByUserId['follower-1'][0].openTrades = 99;
+  await service.save(data);
+
+  const close = await service.queueMasterSignal({
+    masterUserId: 'lead-1',
+    masterAccountNumber: '10001',
+    sourceTicket: 'LEAD-77',
+    symbol: 'BROKER_ALIAS_CHANGED',
+    side: 'buy',
+    lots: 0.1,
+    action: 'close',
+    signalId: open.signal.signalId,
+  });
+  assert.equal(close.followerCount, 1);
+  const closeCommand = await service.getPendingCopyCommand('follower-1', 'acct-follower');
+  assert.equal(closeCommand.command, 'COPY_CLOSE_TRADE');
+  assert.equal(closeCommand.payload.sourceTicket, 'LEAD-77');
+  assert.equal(closeCommand.payload.followerTicket, '90077');
+  assert.equal(closeCommand.riskDecision.reason, 'close_authority');
+});
+
 test('portable chart renderer produces a valid PNG without native canvas dependencies', async () => {
   const config = await tempConfig();
   const renderer = new ChartRenderService(config);
@@ -149,6 +202,41 @@ test('portable chart renderer produces a valid PNG without native canvas depende
   const bytes = await fs.readFile(result.filePath);
   assert.deepEqual([...bytes.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
   assert.ok(bytes.length > 1000);
+});
+
+test('Reporter v1.55 closes by follower ticket first and never reports a missing close as success', async () => {
+  const reporter = await fs.readFile(new URL('../mql4/CultureCoin_MT4_Reporter.mq4', import.meta.url), 'utf8');
+  assert.match(reporter, /#property version\s+"1\.55"/);
+  assert.match(reporter, /JsonGetInt\(commandJson, "followerTicket", -1\)/);
+  assert.match(reporter, /JsonGetString\(commandJson, "leaderTicket", ""\)/);
+  assert.match(reporter, /FindUniqueCopiedTradeByContext/);
+  assert.match(reporter, /Close not executed: no unique copied trade matched/);
+  assert.doesNotMatch(reporter, /No copied trade found for source " \+ sourceTicket;\s*return true;/);
+});
+
+test('copy command completion stores follower tickets and only marks a mirrored trade closed after MT4 success', async () => {
+  let state = {
+    trades: {
+      master_1: { id: 'master_1', account_id: 'lead-account', external_ticket: 'T100', copier_rule_id: null, status: 'closed' },
+      copy_1: { id: 'copy_1', account_id: 'follower-account', copier_rule_id: 'rule-1', source_trade_id: 'master_1', external_ticket: null, status: 'closing' },
+    },
+  };
+  const load = async () => structuredClone(state);
+  const save = async (next) => { state = structuredClone(next); };
+  const openCommand = {
+    id: 'open-command',
+    command: 'COPY_OPEN_TRADE',
+    accountId: 'follower-account',
+    payload: { routeId: 'rule-1', leaderAccountId: 'lead-account', followerAccountId: 'follower-account', sourceTicket: 'T100' },
+  };
+  await reconcileCopiedTradeCompletion(load, save, openCommand, { success: true, ticket: 77100 });
+  assert.equal(state.trades.copy_1.external_ticket, '77100');
+  assert.equal(state.trades.copy_1.status, 'open');
+
+  const closeCommand = { ...openCommand, id: 'close-command', command: 'COPY_CLOSE_TRADE' };
+  await reconcileCopiedTradeCompletion(load, save, closeCommand, { success: true, ticket: 77100 });
+  assert.equal(state.trades.copy_1.status, 'closed');
+  assert.equal(state.trades.copy_1.close_command_id, 'close-command');
 });
 
 
@@ -219,13 +307,24 @@ test('member experience unifies Reporter accounts, account onboarding, Academy r
   assert.equal(legacyEducation.status, 302);
   assert.equal(legacyEducation.headers.get('location'), '/app/education?bot=df-sauce-final-ai');
 
-  const pine = await fetch(`${fixture.base}/academy/df-sauce-campaign-character.pine`);
-  assert.equal(pine.status, 200);
-  const pineText = await pine.text();
-  assert.match(pineText, /DF Sauce Campaign Character/);
-  assert.match(pineText, /holdBarsNeeded/);
-  assert.match(pineText, /campaignFlipped/);
-  assert.ok(pineText.split('\n').length > 300);
+  const commandCenter = await fetch(`${fixture.base}/app/command-center`, { headers: { ...headers, accept: 'text/html' } });
+  const commandCenterHtml = await commandCenter.text();
+  assert.equal(commandCenter.status, 200);
+  assert.match(commandCenterHtml, /Command Center/);
+  assert.match(commandCenterHtml, /window\.WISDO_PAGE="command-center"/);
+
+  const appRoot = await fetch(`${fixture.base}/app`, { headers: { ...headers, accept: 'text/html' }, redirect: 'manual' });
+  assert.equal(appRoot.status, 302);
+  assert.equal(appRoot.headers.get('location'), '/app/command-center');
+
+  const legacyCenter = await fetch(`${fixture.base}/member/command-center`, { headers: { ...headers, accept: 'text/html' }, redirect: 'manual' });
+  assert.equal(legacyCenter.status, 302);
+  assert.equal(legacyCenter.headers.get('location'), '/app/command-center');
+
+  const protectedSource = await fetch(`${fixture.base}/academy/df-sauce-campaign-character.pine`);
+  assert.equal(protectedSource.status, 404);
+  await assert.rejects(fs.access(new URL('../public/academy/df-sauce-campaign-character.pine', import.meta.url)));
+
 
   const profile = await jsonFetch(`${fixture.base}/api/v2/profile`, { method: 'PATCH', headers, body: JSON.stringify({ full_name: 'Operator Live', theme: 'violet', background: 'motion-b' }) });
   assert.equal(profile.payload.profile.theme, 'violet');
@@ -234,6 +333,93 @@ test('member experience unifies Reporter accounts, account onboarding, Academy r
   const me = await jsonFetch(`${fixture.base}/api/v2/me`, { headers });
   assert.equal(me.payload.profile.theme, 'violet');
   assert.equal(me.payload.profile.background, 'motion-b');
+});
+
+test('adaptive Academy exposes 6,500 protected courses, personalized paths, tutor replies, and scenario labs', async (t) => {
+  assert.ok(ACADEMY_COURSE_COUNT >= 5000);
+  const sample = searchAcademyCourses({ query: 'candlestick', level: 'starter', limit: 10 });
+  assert.ok(sample.total >= 20);
+  assert.ok(sample.courses.every((course) => course.level === 'starter'));
+  assert.ok(getAcademyCourse(sample.courses[0].id)?.modules?.length >= 5);
+
+  const fixture = await createTestServer({});
+  t.after(() => fixture.server.close());
+  const headers = { 'content-type': 'application/json', 'x-wisdo-test-user': 'academy-user' };
+
+  const catalog = await jsonFetch(`${fixture.base}/api/v2/academy/catalog?query=risk&level=starter&limit=12`, { headers });
+  assert.equal(catalog.response.status, 200);
+  assert.ok(catalog.payload.summary.courseCount >= 5000);
+  assert.ok(catalog.payload.courses.length > 0);
+
+  const profile = await jsonFetch(`${fixture.base}/api/v2/academy/profile`, {
+    method: 'PATCH', headers, body: JSON.stringify({ experience: 'starter', goals: 'learn forex, protect capital', markets: 'forex, gold', interests: 'candlesticks, money management', weeklyMinutes: 240, learningStyle: 'interactive' }),
+  });
+  assert.equal(profile.response.status, 200);
+  assert.equal(profile.payload.profile.experience, 'starter');
+  assert.equal(profile.payload.path.path.length, 36);
+
+  const tutor = await jsonFetch(`${fixture.base}/api/v2/academy/tutor`, { method: 'POST', headers, body: JSON.stringify({ message: 'What is a candlestick and how should I manage risk while practicing?' }) });
+  assert.equal(tutor.response.status, 200);
+  assert.match(tutor.payload.answer, /open, high, low, and close|risk/i);
+  assert.doesNotMatch(tutor.payload.answer, /holdBarsNeeded|emaFastLen|campaignFlipped/);
+  assert.ok(Array.isArray(tutor.payload.recommendations));
+  const tutorHistory = await jsonFetch(`${fixture.base}/api/v2/academy/tutor/history`, { headers });
+  assert.equal(tutorHistory.response.status, 200);
+  assert.equal(tutorHistory.payload.messages.length, 2);
+  const clearTutorHistory = await jsonFetch(`${fixture.base}/api/v2/academy/tutor/history`, { method: 'DELETE', headers });
+  assert.equal(clearTutorHistory.payload.ok, true);
+
+  const scenario = await jsonFetch(`${fixture.base}/api/v2/academy/df-sauce/scenarios/campaign-exit`, { headers });
+  assert.equal(scenario.response.status, 200);
+  assert.equal(scenario.payload.scenario.candles.length, 72);
+  assert.ok(scenario.payload.scenario.checkpoints.length >= 4);
+  assert.match(scenario.payload.scenario.coachNotes.join(' '), /does not expose proprietary/i);
+
+  const tv = await jsonFetch(`${fixture.base}/api/v2/academy/tradingview-config`, { headers });
+  assert.equal(tv.response.status, 200);
+  assert.equal(tv.payload.privateChartConfigured, false);
+
+  const academyClient = await fs.readFile(new URL('../public/js/df-sauce-academy.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(academyClient, /holdBarsNeeded|emaFastLen|campaignFlipped|copy-pine|\.pine/);
+  assert.match(academyClient, /6,500|6500/);
+  assert.match(academyClient, /Ask WISDO Tutor/);
+});
+
+test('copier options use explicit capabilities from one Reporter-backed response', async (t) => {
+  const fixture = await createTestServer({
+    tradingAccounts: {
+      private_1: { id: 'private_1', user_id: 'operator-cap', platform: 'mt4', account_number: '100', server: 'Demo', desk_role: 'private', sharing_mode: 'private', status: 'connected', reporter_connected: true },
+      lead_1: { id: 'lead_1', user_id: 'operator-cap', platform: 'mt4', account_number: '101', server: 'Demo', desk_role: 'lead', sharing_mode: 'private', status: 'connected', reporter_connected: true },
+      receiver_1: { id: 'receiver_1', user_id: 'operator-cap', platform: 'mt4', account_number: '102', server: 'Demo', desk_role: 'receiver', sharing_mode: 'private', status: 'connected', reporter_connected: true, terminal_connected: true, expert_enabled: true },
+      community_1: { id: 'community_1', user_id: 'other-user', platform: 'mt4', account_number: '103', server: 'Demo', desk_role: 'lead', sharing_mode: 'community', community_visible: true, status: 'connected', reporter_connected: true },
+    },
+  });
+  t.after(() => fixture.server.close());
+  const headers = { 'content-type': 'application/json', 'x-wisdo-test-user': 'operator-cap' };
+  const options = await jsonFetch(`${fixture.base}/api/copier/options`, { headers });
+  assert.equal(options.response.status, 200);
+  assert.equal(options.payload.source, 'reporter-backed-account-registry');
+  assert.equal(options.payload.summary.owned, 3);
+  assert.equal(options.payload.summary.leads, 2);
+  assert.equal(options.payload.summary.receivers, 1);
+  assert.equal(options.payload.summary.privateDesks, 1);
+  assert.equal(options.payload.summary.executableReceivers, 1);
+  assert.equal(options.payload.receivers[0].canReceive, true);
+  assert.equal(options.payload.receivers[0].canExecute, true);
+  assert.equal(options.payload.leads.some((account) => account.access === 'community' && account.isCommunity), true);
+  assert.equal(options.payload.privateDesks[0].capabilityWarnings.length > 0, true);
+
+  const legacyAlias = await jsonFetch(`${fixture.base}/api/v2/copier/options`, { headers });
+  assert.equal(legacyAlias.response.status, 200);
+  assert.equal(legacyAlias.payload.generatedAt.length > 0, true);
+  const directAlias = await jsonFetch(`${fixture.base}/copier/options`, { headers });
+  assert.equal(directAlias.response.status, 200);
+  assert.equal(directAlias.payload.source, 'reporter-backed-account-registry');
+
+  const workspace = await fs.readFile(new URL('../public/js/workspace.js', import.meta.url), 'utf8');
+  assert.match(workspace, /api\/copier\/options/);
+  assert.match(workspace, /account\.canExecute/);
+  assert.doesNotMatch(workspace.slice(workspace.indexOf('async function drawRules'), workspace.indexOf('async function drawTrades')), /api\/v2\/community\/leads/);
 });
 
 test('major product routes persist accounts and lanes, preserve auth state, and relay idempotent open/close webhooks', async (t) => {
@@ -280,6 +466,10 @@ test('major product routes persist accounts and lanes, preserve auth state, and 
   assert.equal(open.payload.queued[0].followerSymbol, 'XAUUSD.A');
   assert.ok(open.payload.queued[0].commandId);
   assert.equal(fixture.getState().alerts['operator-1'][0].type, 'trade_opened');
+  const queuedOpenCommand = (await fixture.commands.load()).commandQueue.find((command) => command.id === open.payload.queued[0].commandId);
+  assert.equal(queuedOpenCommand.payload.sourceTicket, 'T100');
+  assert.equal(queuedOpenCommand.payload.leaderTicket, 'T100');
+  await fixture.commands.markCommandCompleted('operator-1', queuedOpenCommand.id, { success: true, ticket: 77100 }, follower.payload.account.id);
 
   const duplicate = await jsonFetch(`${fixture.base}/api/public/webhooks/broker-trade`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-wisdo-signature': openBody.signature }, body: openBody.raw });
   assert.equal(duplicate.payload.queued[0].skipped, 'duplicate_open');
@@ -288,10 +478,13 @@ test('major product routes persist accounts and lanes, preserve auth state, and 
   const close = await jsonFetch(`${fixture.base}/api/public/webhooks/broker-trade`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-wisdo-signature': closeBody.signature }, body: closeBody.raw });
   assert.equal(close.response.status, 200);
   assert.equal(close.payload.queued[0].followerSymbol, 'XAUUSD.A');
+  const queuedCloseCommand = (await fixture.commands.load()).commandQueue.find((command) => command.id === close.payload.queued[0].commandId);
+  assert.equal(queuedCloseCommand.payload.sourceTicket, 'T100');
+  assert.equal(queuedCloseCommand.payload.followerTicket, '77100');
   const finalState = fixture.getState();
   const copies = Object.values(finalState.trades).filter((trade) => trade.copier_rule_id === rule.payload.rule.id);
   assert.equal(copies.length, 1);
-  assert.equal(copies[0].status, 'closed');
+  assert.equal(copies[0].status, 'closing');
 
   const badWebhook = await fetch(`${fixture.base}/api/public/webhooks/broker-trade`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-wisdo-signature': 'bad' }, body: openBody.raw });
   assert.equal(badWebhook.status, 401);

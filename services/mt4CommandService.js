@@ -400,6 +400,7 @@ export class Mt4CommandService {
           status: 'failed',
           failedAt: nowIso(),
           errorMessage,
+          result: { success: false, message: String(errorMessage || 'MT4 command failed') },
         });
       }
       return command ? this.findCommand(data, userId, commandId, accountId) : null;

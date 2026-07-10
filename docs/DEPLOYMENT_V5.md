@@ -78,3 +78,20 @@ Start in JSON mode unless the database migration and backup/restore plan have be
 - snapshot `/var/data/wisdo` before migration
 - do not downgrade state formats without restoring the matching snapshot
 - keep symbol execution automatch disabled during rollback testing
+
+## V5.2 private strategy and repository requirement
+
+The deployment repository should be private because the product may include proprietary compiled bot files. Pine source must never be committed. The build check fails when `.pine`, `.mq4`, or `.mq5` files appear under `public/`.
+
+Configure the protected TradingView layout with:
+
+```env
+WISDO_DF_SAUCE_TRADINGVIEW_URL=https://www.tradingview.com/chart/YOUR_PRIVATE_LAYOUT
+```
+
+This URL should point to the saved TradingView layout where the private indicator is already installed. WISDO redirects authenticated members to that layout; it does not ship or reconstruct Pine source.
+
+
+## V5.2 private repository requirement
+
+This release intentionally retains compiled products under `private-downloads/mt4-bots` for the member delivery library. Keep the GitHub repository private, or move those binaries to authenticated object storage before making the source repository public. Pine/private strategy source is not included in the deployable package.

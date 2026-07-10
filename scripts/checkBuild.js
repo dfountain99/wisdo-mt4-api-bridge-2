@@ -10,6 +10,7 @@ const required = [
   'server/majorUpgradeRoutes.js',
   'server/extendedProductRoutes.js',
   'server/security.js',
+  'services/academyCatalogService.js',
   'public/js/workspace.js',
   'public/service-worker.js',
   'migrations/2026-07-10-wisdo-major-production-v5.sql',
@@ -19,6 +20,18 @@ const required = [
 for (const relative of required) {
   await fs.access(path.join(root, relative));
 }
+
+const publicRoot = path.join(root, 'public');
+async function assertNoPublicStrategySource(directory) {
+  for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+    const file = path.join(directory, entry.name);
+    if (entry.isDirectory()) await assertNoPublicStrategySource(file);
+    else if (entry.isFile() && /\.(pine|mq4|mq5)$/i.test(entry.name)) {
+      throw new Error(`Protected strategy source must not be public: ${path.relative(root, file)}`);
+    }
+  }
+}
+await assertNoPublicStrategySource(publicRoot);
 
 const files = [];
 async function walk(directory) {
@@ -37,4 +50,4 @@ for (const file of files) {
     process.exit(1);
   }
 }
-console.log(`Build check passed: ${files.length} JavaScript files and ${required.length} required production assets.`);
+console.log(`Build check passed: ${files.length} JavaScript files, ${required.length} required production assets, and no public strategy source.`);

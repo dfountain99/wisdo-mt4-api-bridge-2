@@ -104,3 +104,34 @@ Broker credentials are encrypted at rest and never returned by account APIs.
 - `/admin/health`
 
 Administrator and owner checks are enforced server-side.
+
+## V5.2 copier capability routes
+
+### GET `/copier/options`
+
+Authenticated aliases: `/api/copier/options` and `/api/v2/copier/options`.
+
+Returns one Reporter-backed payload containing:
+
+- `accounts`: owned accounts used by Dashboard and account switchers
+- `leads`: owned, shared, and community accounts with `canLead=true`
+- `receivers`: owned accounts with `canReceive=true`
+- `privateDesks`: owned accounts that need an explicit role
+- `diagnostics`: missing-role and execution-readiness messages
+- `summary`: lead, receiver, live, shared, and community counts
+
+Each account includes `canLead`, `canReceive`, `canExecute`, `isShared`, `isCommunity`, `access`, `capabilities`, and `capabilityWarnings`.
+
+## V5.2 Academy routes
+
+- `GET /api/v2/academy/catalog`
+- `GET /api/v2/academy/courses/:courseId`
+- `GET|PATCH /api/v2/academy/profile`
+- `POST /api/v2/academy/path`
+- `GET /api/v2/academy/df-sauce/scenarios/:scenarioId`
+- `GET /api/v2/academy/tradingview-config`
+- `GET /api/v2/academy/tradingview`
+- `POST /api/v2/academy/tutor`
+- `GET|DELETE /api/v2/academy/tutor/history`
+
+The Academy does not expose Pine or MQL strategy source.

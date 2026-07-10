@@ -2,4 +2,7 @@ node_modules/
 .env
 data/
 *.log
--
+
+*.pine
+private-strategies/
+public/academy/*.pine

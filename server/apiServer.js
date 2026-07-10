@@ -1074,10 +1074,69 @@ async function findMt4QueuedCommand(mt4CommandService, userIds = [], scope = {})
 
 async function markMt4CommandCompleteForAnyOwner(mt4CommandService, userIds = [], commandId, result = {}, accountId = null) {
   for (const userId of uniqueMt4DeliveryIds(userIds)) {
-    const command = await mt4CommandService.markCommandCompleted(userId, commandId, result, accountId);
+    const command = result?.success === false
+      ? await mt4CommandService.markCommandFailed(userId, commandId, result?.message || 'MT4 command failed', accountId)
+      : await mt4CommandService.markCommandCompleted(userId, commandId, result, accountId);
     if (command) return { userId, command };
   }
   return { userId: '', command: null };
+}
+
+export async function reconcileCopiedTradeCompletion(loadEcosystemState, saveEcosystemState, command, result = {}) {
+  if (!command || !['COPY_OPEN_TRADE', 'COPY_CLOSE_TRADE'].includes(String(command.command || '').toUpperCase())) return;
+  const payload = command.payload || {};
+  const routeId = String(payload.routeId || '');
+  const followerAccountId = String(payload.followerAccountId || command.accountId || '');
+  const leaderTicket = String(payload.sourceTicket || payload.leaderTicket || payload.masterTicket || '');
+  if (!routeId || !followerAccountId || !leaderTicket) return;
+
+  try {
+    const state = await loadEcosystemState();
+    state.trades ||= {};
+    const masterTrade = Object.values(state.trades).find((trade) =>
+      !trade?.copier_rule_id &&
+      String(trade.account_id || '') === String(payload.leaderAccountId || '') &&
+      String(trade.external_ticket || trade.id || '') === leaderTicket
+    ) || Object.values(state.trades).find((trade) =>
+      !trade?.copier_rule_id && String(trade.external_ticket || '') === leaderTicket
+    );
+    if (!masterTrade) return;
+
+    const copiedTrade = Object.values(state.trades).find((trade) =>
+      String(trade.copier_rule_id || '') === routeId &&
+      String(trade.source_trade_id || '') === String(masterTrade.id || '') &&
+      String(trade.account_id || '') === followerAccountId
+    );
+    if (!copiedTrade) return;
+
+    const succeeded = result?.success !== false;
+    if (String(command.command).toUpperCase() === 'COPY_OPEN_TRADE') {
+      if (succeeded && (result?.ticket || result?.followerTicket)) {
+        copiedTrade.external_ticket = String(result.ticket || result.followerTicket);
+        copiedTrade.status = 'open';
+        copiedTrade.open_confirmed_at = new Date().toISOString();
+        copiedTrade.open_command_id = command.id;
+      } else if (!succeeded) {
+        copiedTrade.status = 'error';
+        copiedTrade.execution_error = String(result?.message || 'Follower open failed');
+      }
+    } else if (succeeded) {
+      copiedTrade.status = 'closed';
+      copiedTrade.closed_at ||= new Date().toISOString();
+      copiedTrade.close_confirmed_at = new Date().toISOString();
+      copiedTrade.close_command_id = command.id;
+      if (result?.ticket || result?.followerTicket) copiedTrade.external_ticket = String(result.ticket || result.followerTicket);
+      delete copiedTrade.execution_error;
+    } else {
+      copiedTrade.status = 'open';
+      copiedTrade.close_failed_at = new Date().toISOString();
+      copiedTrade.execution_error = String(result?.message || 'Follower close failed');
+    }
+    await saveEcosystemState(state);
+  } catch {
+    // Command completion must still be acknowledged even if optional analytics
+    // reconciliation cannot be written during a transient storage error.
+  }
 }
 
 const SPECIAL_UPGRADES = [
@@ -5755,6 +5814,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
           if (command) { commandOwnerId = candidateUserId; break; }
         }
       }
+      await reconcileCopiedTradeCompletion(loadEcosystemState, saveEcosystemState, command, req.body?.result || {});
       try {
         const state = await loadEcosystemState();
         state.notification_events ||= [];
