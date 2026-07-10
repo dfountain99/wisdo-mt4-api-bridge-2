@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { atomicWriteJson } from '../storage/atomicJsonFile.js';
+
 const RANKS = [
   { key: 'UNRANKED', name: 'Unranked', emoji: '🌱', minGrowth: 0 },
   { key: 'BRONZE', name: 'Bronze Trader', emoji: '🥉', minGrowth: 5 },
@@ -40,11 +42,7 @@ export class RankService {
   }
 
   async save(data) {
-    await fs.mkdir(this.dataDir, { recursive: true });
-
-    const tmp = `${this.filePath}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(data, null, 2));
-    await fs.rename(tmp, this.filePath);
+    await atomicWriteJson(this.filePath, data);
   }
 
   async processSnapshot(discordUserId) {

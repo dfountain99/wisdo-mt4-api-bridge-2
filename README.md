@@ -1,8 +1,18 @@
-# WISDO Member App — Major All-Upgrades V5
+# WISDO Member App — Unified Member Experience V5.1.0
 
 WISDO is a multi-account trading command center that combines a premium public product site, account linking, MT4/Discord relay execution, Culture Lanes, risk governance, analytics, education, affiliate operations, billing, alerts, and administrative controls.
 
 This release was rebuilt directly from the user-provided `wisdo-member-app-product-pass(1).zip`. Its root application is the only production source of truth. Historical copied source trees were removed so Render, local development, Discord command registration, and the web-only server all execute the same code.
+
+
+## V5.1 member experience
+
+- Xbox-inspired WISDO dashboard startup sequence tied to real account hydration
+- Reporter-backed account list shared across every authenticated screen
+- Non-freezing broker account onboarding with timeout, visible status, and immediate pairing code
+- Unified `/app/education` Academy shell with legacy redirect preservation
+- Interactive DF Sauce chart replay, decision grading, video checkpoints, TradingView Watch Room, and full Pine v6 lab
+- WISDO Insight Engine naming plus member-selectable color and background themes
 
 ## Production entry order
 

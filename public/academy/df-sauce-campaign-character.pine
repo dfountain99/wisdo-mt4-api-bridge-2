@@ -1,0 +1,474 @@
+//@version=6
+indicator("DF Sauce Campaign Character", overlay=true, max_bars_back=3000, max_lines_count=500, max_labels_count=500, max_boxes_count=200)
+
+// =====================================================================
+// INPUTS
+// =====================================================================
+grpTrend = "Trend / Cloud"
+emaFastLen  = input.int(25, "EMA Fast", minval=1, group=grpTrend)
+emaMidLen   = input.int(50, "EMA Mid", minval=1, group=grpTrend)
+emaSlowLen  = input.int(200, "EMA Slow", minval=1, group=grpTrend)
+useSlowBias = input.bool(true, "Require EMA Mid vs EMA Slow alignment", group=grpTrend)
+
+grpStructure = "Structure / BOS"
+pivotLen      = input.int(6, "Pivot Length", minval=1, group=grpStructure)
+showSwingTags = input.bool(true, "Show HH/HL/LH/LL", group=grpStructure)
+showBOSLines  = input.bool(true, "Show Paired BOS Lines", group=grpStructure)
+lineExtendBars = input.int(120, "Paired Line Extend Bars", minval=10, group=grpStructure)
+
+grpFib = "Fib / Launch"
+showFibSet       = input.bool(true, "Show Fib Set", group=grpFib)
+fibHoldLevel     = input.float(0.90, "Launch Hold Level", step=0.05, group=grpFib)
+fibTarget1       = input.float(2.0, "Target 2.0", step=0.1, group=grpFib)
+fibTarget2       = input.float(3.0, "Target 3.0", step=0.1, group=grpFib)
+fibTarget3       = input.float(10.0, "Target 10.0", step=0.1, group=grpFib)
+holdBarsNeeded   = input.int(2, "Bars Needed To Confirm Launch", minval=1, group=grpFib)
+
+grpPulse = "Pulse / Visuals"
+enablePulse      = input.bool(true, "Pulse Valid Candle / Line", group=grpPulse)
+pulseSpeed       = input.int(6, "Pulse Speed", minval=1, maxval=20, group=grpPulse)
+redDotLen        = input.int(9, "Red Dot Length", minval=1, group=grpPulse)
+redTrailLen      = input.int(200, "Red Dot Trail Length", minval=10, group=grpPulse)
+
+grpCampaign = "Campaign"
+showCampaignBG   = input.bool(true, "Show Campaign Background", group=grpCampaign)
+bgTransparency   = input.int(90, "Background Transparency", minval=0, maxval=100, group=grpCampaign)
+showAnchorScaleLabels = input.bool(true, "Show Anchor / Scale Labels", group=grpCampaign)
+endOnCloudBreak  = input.bool(true, "End Campaign On Cloud Break", group=grpCampaign)
+
+grpDistance = "Distance Reader"
+showDistanceBar  = input.bool(true, "Show Distance Reader", group=grpDistance)
+distanceATRMult  = input.float(3.0, "Distance Full Scale (ATR x)", step=0.25, group=grpDistance)
+
+grpDisplay = "Display"
+showDashboard    = input.bool(true, "Show Dashboard", group=grpDisplay)
+dashboardOffset  = input.int(8, "Dashboard Offset Bars", minval=1, group=grpDisplay)
+paintBars        = input.bool(true, "Paint Bars", group=grpDisplay)
+showSignalLabels = input.bool(true, "Show Buy / Sell Labels", group=grpDisplay)
+
+// =====================================================================
+// HELPERS
+// =====================================================================
+atr = ta.atr(14)
+tickSize = syminfo.mintick
+
+f_pips(_dist) =>
+    _dist / tickSize
+
+f_cycleColor(_idx) =>
+    int m = math.abs(_idx % 7)
+    color c = m == 0 ? color.red : m == 1 ? color.orange : m == 2 ? color.yellow : m == 3 ? color.lime : m == 4 ? color.aqua : m == 5 ? color.blue : color.fuchsia
+    c
+
+f_drawLine(line _line, int _x1, float _y, color _col, int _width, _style) =>
+    line.delete(_line)
+    line.new(x1=_x1, y1=_y, x2=_x1 + lineExtendBars, y2=_y, color=_col, width=_width, style=_style)
+
+pulseIndex = int(math.floor(bar_index / pulseSpeed))
+pulseColor = f_cycleColor(pulseIndex)
+
+// =====================================================================
+// TREND / CLOUD
+// =====================================================================
+emaFast = ta.ema(close, emaFastLen)
+emaMid  = ta.ema(close, emaMidLen)
+emaSlow = ta.ema(close, emaSlowLen)
+
+pFast = plot(emaFast, "EMA Fast", color=color.yellow, linewidth=2)
+pMid  = plot(emaMid,  "EMA Mid",  color=color.black, linewidth=2)
+plot(emaSlow, "EMA Slow", color=color.maroon, linewidth=2)
+
+color fillColor = emaFast > emaMid ? color.new(color.navy, 82) : color.new(color.maroon, 82)
+fill(pFast, pMid, fillColor)
+
+float cloudTop = math.max(emaFast, emaMid)
+float cloudBottom = math.min(emaFast, emaMid)
+
+bool bullBias = close > emaMid and emaFast > emaMid and (not useSlowBias or emaMid > emaSlow)
+bool bearBias = close < emaMid and emaFast < emaMid and (not useSlowBias or emaMid < emaSlow)
+
+// =====================================================================
+// RED DOT + TRAIL
+// =====================================================================
+float redDot = ta.ema(close, redDotLen)
+plot(redDot, "Red Dot Trail", color=color.new(color.red, 65), linewidth=1)
+plot(redDot, "Red Dot", color=color.red, linewidth=2, style=plot.style_circles)
+
+// =====================================================================
+// PIVOTS / STRUCTURE
+// =====================================================================
+float ph = ta.pivothigh(high, pivotLen, pivotLen)
+float pl = ta.pivotlow(low, pivotLen, pivotLen)
+
+var float lastPivotHigh = na
+var float prevPivotHigh = na
+var int   lastPivotHighBar = na
+
+var float lastPivotLow = na
+var float prevPivotLow = na
+var int   lastPivotLowBar = na
+
+var string lastHighTag = ""
+var string lastLowTag  = ""
+
+if not na(ph)
+    prevPivotHigh := lastPivotHigh
+    lastPivotHigh := ph
+    lastPivotHighBar := bar_index - pivotLen
+    bool isHH = not na(prevPivotHigh) and lastPivotHigh > prevPivotHigh
+    lastHighTag := isHH ? "HH" : "LH"
+    if showSwingTags and not na(prevPivotHigh)
+        label.new(lastPivotHighBar, lastPivotHigh, lastHighTag, style=label.style_label_down, color=isHH ? color.lime : color.white, textcolor=color.black, size=size.small)
+
+if not na(pl)
+    prevPivotLow := lastPivotLow
+    lastPivotLow := pl
+    lastPivotLowBar := bar_index - pivotLen
+    bool isHL = not na(prevPivotLow) and lastPivotLow >= prevPivotLow
+    lastLowTag := isHL ? "HL" : "LL"
+    if showSwingTags and not na(prevPivotLow)
+        label.new(lastPivotLowBar, lastPivotLow, lastLowTag, style=label.style_label_up, color=isHL ? color.blue : color.red, textcolor=color.black, size=size.small)
+
+bool bullStructure = (lastHighTag == "HH" or lastHighTag == "") and (lastLowTag == "HL" or lastLowTag == "")
+bool bearStructure = (lastHighTag == "LH" or lastHighTag == "") and (lastLowTag == "LL" or lastLowTag == "")
+
+// =====================================================================
+// BOS + PAIRED LINE
+// =====================================================================
+float bullCrossLevel = nz(lastPivotHigh, close)
+float bearCrossLevel = nz(lastPivotLow, close)
+
+bool bullCross = ta.crossover(close, bullCrossLevel)
+bool bearCross = ta.crossunder(close, bearCrossLevel)
+
+bool bullBOS = not na(lastPivotHigh) and bullCross
+bool bearBOS = not na(lastPivotLow) and bearCross
+
+var line activeBullBosLine = na
+var line activeBearBosLine = na
+var float activeBullBosLevel = na
+var float activeBearBosLevel = na
+
+bool bullBosCandle = bullBOS
+bool bearBosCandle = bearBOS
+
+if bullBOS
+    activeBullBosLevel := lastPivotHigh
+    if showBOSLines
+        activeBullBosLine := f_drawLine(activeBullBosLine, bar_index, activeBullBosLevel, color.blue, 2, line.style_solid)
+
+if bearBOS
+    activeBearBosLevel := lastPivotLow
+    if showBOSLines
+        activeBearBosLine := f_drawLine(activeBearBosLine, bar_index, activeBearBosLevel, color.black, 2, line.style_solid)
+
+// =====================================================================
+// VALID SETUPS
+// =====================================================================
+bool bullValidClose = bullBosCandle and not na(activeBullBosLevel) and close > activeBullBosLevel
+bool bearValidClose = bearBosCandle and not na(activeBearBosLevel) and close < activeBearBosLevel
+
+bool buySetup = bullBias and bullStructure and bullValidClose and close > cloudTop and redDot > emaMid
+bool sellSetup = bearBias and bearStructure and bearValidClose and close < cloudBottom and redDot < emaMid
+
+// pulse paired line on valid setup
+if enablePulse
+    if not na(activeBullBosLine)
+        line.set_color(activeBullBosLine, buySetup ? pulseColor : color.blue)
+        line.set_width(activeBullBosLine, buySetup ? 3 : 2)
+    if not na(activeBearBosLine)
+        line.set_color(activeBearBosLine, sellSetup ? pulseColor : color.black)
+        line.set_width(activeBearBosLine, sellSetup ? 3 : 2)
+
+// =====================================================================
+// CAMPAIGN ENGINE
+//  1 = buy, -1 = sell, 0 = wait
+// =====================================================================
+var int campaignDir = 0
+var int campaignSetupCount = 0
+var float campaignEntry = na
+var int campaignAnchorBar = na
+var float campaignPairedLine = na
+var string campaignStateText = "WAIT"
+
+bool cloudBreakBuy = campaignDir == 1 and endOnCloudBreak and close < cloudBottom
+bool cloudBreakSell = campaignDir == -1 and endOnCloudBreak and close > cloudTop
+
+bool newBuyAnchor = false
+bool newSellAnchor = false
+bool newBuyScaleIn = false
+bool newSellScaleIn = false
+bool campaignEndedByCloud = false
+bool campaignFlipped = false
+
+newBuyAnchor := false
+newSellAnchor := false
+newBuyScaleIn := false
+newSellScaleIn := false
+campaignEndedByCloud := false
+campaignFlipped := false
+
+// first handle cloud failure
+if cloudBreakBuy
+    campaignDir := 0
+    campaignSetupCount := 0
+    campaignEntry := na
+    campaignAnchorBar := na
+    campaignPairedLine := na
+    campaignStateText := "BUY CAMPAIGN OVER"
+    campaignEndedByCloud := true
+
+if cloudBreakSell
+    campaignDir := 0
+    campaignSetupCount := 0
+    campaignEntry := na
+    campaignAnchorBar := na
+    campaignPairedLine := na
+    campaignStateText := "SELL CAMPAIGN OVER"
+    campaignEndedByCloud := true
+
+// then handle valid setups
+if buySetup
+    if campaignDir == 0
+        campaignDir := 1
+        campaignSetupCount := 1
+        campaignEntry := close
+        campaignAnchorBar := bar_index
+        campaignPairedLine := activeBullBosLevel
+        campaignStateText := "BUY ANCHOR"
+        newBuyAnchor := true
+    else if campaignDir == 1
+        campaignSetupCount += 1
+        campaignStateText := "BUY SCALE IN " + str.tostring(campaignSetupCount)
+        newBuyScaleIn := true
+    else if campaignDir == -1
+        campaignFlipped := true
+        campaignDir := 1
+        campaignSetupCount := 1
+        campaignEntry := close
+        campaignAnchorBar := bar_index
+        campaignPairedLine := activeBullBosLevel
+        campaignStateText := "BUY ANCHOR"
+        newBuyAnchor := true
+
+if sellSetup
+    if campaignDir == 0
+        campaignDir := -1
+        campaignSetupCount := 1
+        campaignEntry := close
+        campaignAnchorBar := bar_index
+        campaignPairedLine := activeBearBosLevel
+        campaignStateText := "SELL ANCHOR"
+        newSellAnchor := true
+    else if campaignDir == -1
+        campaignSetupCount += 1
+        campaignStateText := "SELL SCALE IN " + str.tostring(campaignSetupCount)
+        newSellScaleIn := true
+    else if campaignDir == 1
+        campaignFlipped := true
+        campaignDir := -1
+        campaignSetupCount := 1
+        campaignEntry := close
+        campaignAnchorBar := bar_index
+        campaignPairedLine := activeBearBosLevel
+        campaignStateText := "SELL ANCHOR"
+        newSellAnchor := true
+
+if campaignDir == 0 and not campaignEndedByCloud and not buySetup and not sellSetup
+    campaignStateText := "WAIT"
+
+// =====================================================================
+// FIB ENGINE
+// buy = recent LL to valid buy close
+// sell = recent HH to valid sell close
+// =====================================================================
+var float fibAnchor = na
+var float fibClose = na
+
+if buySetup and not na(lastPivotLow)
+    fibAnchor := lastPivotLow
+    fibClose := close
+
+if sellSetup and not na(lastPivotHigh)
+    fibAnchor := lastPivotHigh
+    fibClose := close
+
+float bullRange = campaignDir == 1 and not na(fibAnchor) and not na(fibClose) ? (fibClose - fibAnchor) : na
+float bearRange = campaignDir == -1 and not na(fibAnchor) and not na(fibClose) ? (fibAnchor - fibClose) : na
+
+float bullFib090 = campaignDir == 1 and not na(bullRange) ? fibAnchor + bullRange * fibHoldLevel : na
+float bullFib200 = campaignDir == 1 and not na(bullRange) ? fibAnchor + bullRange * fibTarget1 : na
+float bullFib300 = campaignDir == 1 and not na(bullRange) ? fibAnchor + bullRange * fibTarget2 : na
+float bullFibX   = campaignDir == 1 and not na(bullRange) ? fibAnchor + bullRange * fibTarget3 : na
+
+float bearFib090 = campaignDir == -1 and not na(bearRange) ? fibAnchor - bearRange * fibHoldLevel : na
+float bearFib200 = campaignDir == -1 and not na(bearRange) ? fibAnchor - bearRange * fibTarget1 : na
+float bearFib300 = campaignDir == -1 and not na(bearRange) ? fibAnchor - bearRange * fibTarget2 : na
+float bearFibX   = campaignDir == -1 and not na(bearRange) ? fibAnchor - bearRange * fibTarget3 : na
+
+var line fib090Line = na
+var line fib200Line = na
+var line fib300Line = na
+var line fibXLine   = na
+
+if showFibSet and campaignDir == 1 and buySetup and not na(bullRange) and bullRange > 0
+    fib090Line := f_drawLine(fib090Line, bar_index, bullFib090, color.green, 1, line.style_dashed)
+    fib200Line := f_drawLine(fib200Line, bar_index, bullFib200, color.blue, 1, line.style_dashed)
+    fib300Line := f_drawLine(fib300Line, bar_index, bullFib300, color.purple, 1, line.style_dashed)
+    fibXLine   := f_drawLine(fibXLine,   bar_index, bullFibX,   color.orange, 1, line.style_dashed)
+
+if showFibSet and campaignDir == -1 and sellSetup and not na(bearRange) and bearRange > 0
+    fib090Line := f_drawLine(fib090Line, bar_index, bearFib090, color.red, 1, line.style_dashed)
+    fib200Line := f_drawLine(fib200Line, bar_index, bearFib200, color.black, 1, line.style_dashed)
+    fib300Line := f_drawLine(fib300Line, bar_index, bearFib300, color.maroon, 1, line.style_dashed)
+    fibXLine   := f_drawLine(fibXLine,   bar_index, bearFibX,   color.orange, 1, line.style_dashed)
+
+// =====================================================================
+// LAUNCH CONFIRMATION
+// =====================================================================
+var int holdCount = 0
+if campaignDir == 1 and not na(bullFib090)
+    holdCount := close >= bullFib090 ? holdCount + 1 : 0
+else if campaignDir == -1 and not na(bearFib090)
+    holdCount := close <= bearFib090 ? holdCount + 1 : 0
+else
+    holdCount := 0
+
+bool launchConfirmed = holdCount >= holdBarsNeeded
+
+// =====================================================================
+// DISTANCE FROM ENTRY READER
+// =====================================================================
+float entryDist = campaignDir == 1 and not na(campaignEntry) ? close - campaignEntry : campaignDir == -1 and not na(campaignEntry) ? campaignEntry - close : na
+float entryPips = not na(entryDist) ? f_pips(entryDist) : na
+float fullScale = atr * distanceATRMult
+float progress = not na(entryDist) and fullScale > 0 ? math.max(math.min(entryDist / fullScale, 1.0), -1.0) : na
+
+int filledBars = not na(progress) ? int(math.round(math.abs(progress) * 10)) : 0
+filledBars := math.max(math.min(filledBars, 10), 0)
+
+string barString = ""
+for i = 0 to 9
+    barString := barString + (i < filledBars ? "█" : "░")
+
+// =====================================================================
+// CAMPAIGN BACKGROUND
+// =====================================================================
+color bgCol = campaignDir == 1 ? color.new(color.green, bgTransparency) : campaignDir == -1 ? color.new(color.red, bgTransparency) : na
+bgcolor(showCampaignBG ? bgCol : na)
+
+// =====================================================================
+// BAR COLOR / SHAPES / LABELS
+// =====================================================================
+color validPulseColor = enablePulse and (buySetup or sellSetup) ? pulseColor : color.yellow
+
+color barCol = na
+if paintBars
+    barCol := buySetup or sellSetup ? validPulseColor : campaignDir == 1 ? color.new(color.lime, 80) : campaignDir == -1 ? color.new(color.red, 80) : na
+barcolor(barCol)
+
+plotshape(bullBosCandle, title="Bull BOS", style=shape.circle, location=location.belowbar, color=buySetup and enablePulse ? pulseColor : color.yellow, size=size.small, text="BOS")
+plotshape(bearBosCandle, title="Bear BOS", style=shape.circle, location=location.abovebar, color=sellSetup and enablePulse ? pulseColor : color.yellow, size=size.small, text="BOS")
+
+if showSignalLabels and buySetup
+    label.new(bar_index, low, campaignDir == 1 and campaignSetupCount > 1 ? "BUY SCALE " + str.tostring(campaignSetupCount) : "BUY", style=label.style_label_up, color=color.new(color.green, 0), textcolor=color.white)
+
+if showSignalLabels and sellSetup
+    label.new(bar_index, high, campaignDir == -1 and campaignSetupCount > 1 ? "SELL SCALE " + str.tostring(campaignSetupCount) : "SELL", style=label.style_label_down, color=color.new(color.red, 0), textcolor=color.white)
+
+if showAnchorScaleLabels and newBuyAnchor
+    label.new(bar_index, low, "BUY ANCHOR", style=label.style_label_up, color=color.green, textcolor=color.white)
+
+if showAnchorScaleLabels and newSellAnchor
+    label.new(bar_index, high, "SELL ANCHOR", style=label.style_label_down, color=color.red, textcolor=color.white)
+
+if showAnchorScaleLabels and newBuyScaleIn
+    label.new(bar_index, low, "BUY SCALE IN " + str.tostring(campaignSetupCount), style=label.style_label_up, color=color.new(color.green, 0), textcolor=color.white)
+
+if showAnchorScaleLabels and newSellScaleIn
+    label.new(bar_index, high, "SELL SCALE IN " + str.tostring(campaignSetupCount), style=label.style_label_down, color=color.new(color.red, 0), textcolor=color.white)
+
+if campaignEndedByCloud and showAnchorScaleLabels
+    label.new(bar_index, close, "CAMPAIGN OVER\nCloud Break", style=label.style_label_left, color=color.new(color.gray, 0), textcolor=color.white)
+
+// =====================================================================
+// TARGET HITS
+// =====================================================================
+bool bullHit2 = campaignDir == 1 and not na(bullFib200) and high >= bullFib200
+bool bullHit3 = campaignDir == 1 and not na(bullFib300) and high >= bullFib300
+bool bullHitX = campaignDir == 1 and not na(bullFibX)   and high >= bullFibX
+
+bool bearHit2 = campaignDir == -1 and not na(bearFib200) and low <= bearFib200
+bool bearHit3 = campaignDir == -1 and not na(bearFib300) and low <= bearFib300
+bool bearHitX = campaignDir == -1 and not na(bearFibX)   and low <= bearFibX
+
+// =====================================================================
+// CHARACTER / FLAVOR
+// =====================================================================
+string characterText = campaignDir == 1 ? (launchConfirmed ? "BULL LAUNCH MODE" : "BULL MARCH MODE") : campaignDir == -1 ? (launchConfirmed ? "BEAR LAUNCH MODE" : "BEAR HUNT MODE") : "SCOUT MODE"
+
+// =====================================================================
+// ALERTS
+// =====================================================================
+alertcondition(newBuyAnchor, "Turn Bot On Buy", "DF Sauce Campaign Character: BUY ANCHOR confirmed. Turn bot ON in BUY direction.")
+alertcondition(newSellAnchor, "Turn Bot On Sell", "DF Sauce Campaign Character: SELL ANCHOR confirmed. Turn bot ON in SELL direction.")
+
+alertcondition(newBuyScaleIn, "Buy Scale In", "DF Sauce Campaign Character: BUY SCALE IN confirmed.")
+alertcondition(newSellScaleIn, "Sell Scale In", "DF Sauce Campaign Character: SELL SCALE IN confirmed.")
+
+alertcondition(bullHit2, "Bull Fib 2.0 Hit", "DF Sauce Campaign Character: BUY campaign hit 2.0 fib.")
+alertcondition(bearHit2, "Bear Fib 2.0 Hit", "DF Sauce Campaign Character: SELL campaign hit 2.0 fib.")
+alertcondition(bullHit3, "Bull Fib 3.0 Hit", "DF Sauce Campaign Character: BUY campaign hit 3.0 fib.")
+alertcondition(bearHit3, "Bear Fib 3.0 Hit", "DF Sauce Campaign Character: SELL campaign hit 3.0 fib.")
+alertcondition(bullHitX, "Bull Fib 10.0 Hit", "DF Sauce Campaign Character: BUY campaign hit 10.0 fib.")
+alertcondition(bearHitX, "Bear Fib 10.0 Hit", "DF Sauce Campaign Character: SELL campaign hit 10.0 fib.")
+
+alertcondition(campaignEndedByCloud and campaignStateText == "BUY CAMPAIGN OVER", "Buy Campaign Over", "DF Sauce Campaign Character: BUY campaign ended because price closed below the cloud.")
+alertcondition(campaignEndedByCloud and campaignStateText == "SELL CAMPAIGN OVER", "Sell Campaign Over", "DF Sauce Campaign Character: SELL campaign ended because price closed above the cloud.")
+
+alertcondition(campaignFlipped and newBuyAnchor, "Flip To Buy", "DF Sauce Campaign Character: SELL campaign ended. New BUY anchor confirmed.")
+alertcondition(campaignFlipped and newSellAnchor, "Flip To Sell", "DF Sauce Campaign Character: BUY campaign ended. New SELL anchor confirmed.")
+
+// =====================================================================
+// DASHBOARD
+// =====================================================================
+if showDashboard and barstate.islast
+    var label dash = na
+    label.delete(dash)
+
+    string trendText = bullBias ? "Bullish Bias" : bearBias ? "Bearish Bias" : "Neutral Bias"
+    string structureText = bullStructure and not bearStructure ? "Bull Structure" : bearStructure and not bullStructure ? "Bear Structure" : "Mixed Structure"
+    string campaignText = campaignDir == 1 ? (launchConfirmed ? "BUY LAUNCH CAMPAIGN" : "BUY CAMPAIGN") : campaignDir == -1 ? (launchConfirmed ? "SELL LAUNCH CAMPAIGN" : "SELL CAMPAIGN") : "WAIT"
+    string setupText = "Setups: " + str.tostring(campaignSetupCount)
+    string botText = campaignDir == 1 ? "BOT: BUY ONLY" : campaignDir == -1 ? "BOT: SELL ONLY" : "BOT: OFF"
+    string entryText = not na(campaignEntry) ? "Anchor Dist: " + str.tostring(entryPips, format.mintick) + " ticks" : "Anchor Dist: n/a"
+    string distanceText = showDistanceBar and not na(progress) ? "Distance: " + barString : "Distance: ░░░░░░░░░░"
+    string cloudText = campaignDir == 1 ? "Cloud Exit: close < cloud" : campaignDir == -1 ? "Cloud Exit: close > cloud" : "Cloud Exit: waiting"
+    string fibText = campaignDir == 1 and not na(bullFib200) ? "Fib 2.0=" + str.tostring(bullFib200, format.mintick) + " | 3.0=" + str.tostring(bullFib300, format.mintick) : campaignDir == -1 and not na(bearFib200) ? "Fib 2.0=" + str.tostring(bearFib200, format.mintick) + " | 3.0=" + str.tostring(bearFib300, format.mintick) : "Fib map waiting"
+    string pairedLineText = campaignDir == 1 and not na(campaignPairedLine) ? "Paired Line: " + str.tostring(campaignPairedLine, format.mintick) : campaignDir == -1 and not na(campaignPairedLine) ? "Paired Line: " + str.tostring(campaignPairedLine, format.mintick) : "Paired Line: n/a"
+
+    string txt =
+         "DF Sauce Campaign Character\n" +
+         "---------------------------------\n" +
+         "Character: " + characterText + "\n" +
+         "Campaign: " + campaignText + "\n" +
+         "Trend: " + trendText + "\n" +
+         "Structure: " + structureText + "\n" +
+         setupText + "\n" +
+         botText + "\n" +
+         pairedLineText + "\n" +
+         entryText + "\n" +
+         distanceText + "\n" +
+         cloudText + "\n" +
+         fibText
+
+    color dashColor = campaignDir == 1 ? color.new(color.green, 0) : campaignDir == -1 ? color.new(color.red, 0) : color.new(color.gray, 0)
+
+    dash := label.new(
+         x=bar_index + dashboardOffset,
+         y=high,
+         text=txt,
+         style=label.style_label_left,
+         color=dashColor,
+         textcolor=color.white,
+         size=size.normal)

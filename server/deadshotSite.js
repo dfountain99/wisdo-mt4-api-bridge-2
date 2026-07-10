@@ -1238,7 +1238,7 @@ function tcLandingPage() {
 function tcProductPage(kind) {
   const map = {
     copier: ['TC Copier','Connect. Copy. Control.','Mirror trades across accounts with account selectors, mobile close-all controls, symbol mapping, confirmation prompts, and active-member gates.',['Master → follower mapping','Risk by multiplier, fixed lot, equity ratio, balance ratio','Mobile account dropdown and close all','Confirmation-required emergency commands','MT4 reporter poll + command completion status']],
-    analyzer: ['TC Analyzer','Know the health of every account.','Track equity, drawdown, open exposure, symbols, session behavior, and command history from one dashboard.',['Portfolio ROI and equity curve','Win rate, drawdown, open risk','Symbol heatmap and session heatmap','Per-account health states: red, orange, blue, green, gold','Exportable trade logs']],
+    analyzer: ['WISDO Insight Engine','Know the health of every account.','Track equity, drawdown, open exposure, symbols, session behavior, and command history from one dashboard.',['Portfolio ROI and equity curve','Win rate, drawdown, open risk','Symbol heatmap and session heatmap','Per-account health states: red, orange, blue, green, gold','Exportable trade logs']],
     compare: ['TC Compare','Choose the right trading environment.','Compare brokers, prop rules, supported platforms, drawdown limits, payout rules, and copier compatibility.',['Broker and prop firm comparison','Supported platform filters','Drawdown and payout tables','Refund and rule notes','Best-fit account environment checklist']],
   };
   const [label,title,copy,features] = map[kind] || map.copier;

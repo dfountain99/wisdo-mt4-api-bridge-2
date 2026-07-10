@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { atomicWriteJson } from '../storage/atomicJsonFile.js';
+
 function clean(value = '') {
   return String(value || '').trim();
 }
@@ -38,10 +40,7 @@ export class BotRegistryService {
   }
 
   async save(data) {
-    await fs.mkdir(this.dataDir, { recursive: true });
-    const tmp = `${this.filePath}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(data, null, 2));
-    await fs.rename(tmp, this.filePath);
+    await atomicWriteJson(this.filePath, data);
   }
 
   normalizeLane(input = {}) {

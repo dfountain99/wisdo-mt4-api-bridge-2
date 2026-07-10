@@ -1,5 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+
+import { atomicWriteJson } from '../storage/atomicJsonFile.js';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { SignalCardService } from './signalCardService.js';
 
@@ -156,10 +158,7 @@ export class TradeSignalService {
   }
 
   async save(data) {
-    await fs.mkdir(this.dataDir, { recursive: true });
-    const tmp = `${this.filePath}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(data, null, 2));
-    await fs.rename(tmp, this.filePath);
+    await atomicWriteJson(this.filePath, data);
   }
 
   async createSignal({ leaderUserId, leaderAccountId, leaderAccountNumber, leaderServer, leaderChannelId, eaName, eaVersion, trade, snapshot }) {

@@ -29,7 +29,7 @@ async function tempConfig() {
   };
 }
 
-async function createTestServer(seed = {}) {
+async function createTestServer(seed = {}, options = {}) {
   const config = await tempConfig();
   const commands = new Mt4CommandService(config);
   let state = structuredClone(seed);
@@ -40,7 +40,7 @@ async function createTestServer(seed = {}) {
     config,
     loadEcosystemState: async () => structuredClone(state),
     saveEcosystemState: async (next) => { state = structuredClone(next); },
-    mt4SyncService: { repository: { getMt4State: async () => ({ connectionsByAccountId: {} }) } },
+    mt4SyncService: options.mt4SyncService || { repository: { getMt4State: async () => ({ connectionsByAccountId: {} }), getMt4AccountId: (accountNumber, server = '') => `${accountNumber}:${server || 'server'}` } },
     mt4CommandService: commands,
     copyTradingService: {},
     logger: { info() {}, warn() {}, error() {} },
@@ -119,6 +119,23 @@ test('account command copies remain synchronized and ticket closes require confi
   assert.ok(copies.every((copy) => copy.status === 'delivered'));
 });
 
+test('concurrent MT4 command writes are serialized without losing commands or temp-file rename failures', async () => {
+  const config = await tempConfig();
+  const service = new Mt4CommandService(config);
+  const total = 40;
+  await Promise.all(Array.from({ length: total }, (_, sequence) => service.queueCommandForAccount(
+    'user-race',
+    'acct-race',
+    'SYNC_ACCOUNT',
+    { accountId: 'acct-race', sequence },
+  )));
+  const data = await service.load();
+  assert.equal(data.commandQueue.length, total);
+  assert.equal(new Set(data.commandQueue.map((command) => command.payload.sequence)).size, total);
+  const files = await fs.readdir(config.dataDir);
+  assert.equal(files.some((name) => name.includes('mt4-commands.json.') && name.endsWith('.tmp')), false);
+});
+
 test('portable chart renderer produces a valid PNG without native canvas dependencies', async () => {
   const config = await tempConfig();
   const renderer = new ChartRenderService(config);
@@ -132,6 +149,91 @@ test('portable chart renderer produces a valid PNG without native canvas depende
   const bytes = await fs.readFile(result.filePath);
   assert.deepEqual([...bytes.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
   assert.ok(bytes.length > 1000);
+});
+
+
+test('member experience unifies Reporter accounts, account onboarding, Academy routing, and appearance settings', async (t) => {
+  const reporterAccount = {
+    accountId: '5301063:Coinexx-Demo',
+    accountNumber: '5301063',
+    server: 'Coinexx-Demo',
+    brokerServer: 'Coinexx-Demo',
+    nickname: 'Live follower',
+    accountRole: 'follower',
+    balance: 24000,
+    equity: 24350,
+    floatingPL: 350,
+    openTrades: 2,
+    lastSyncAt: new Date().toISOString(),
+    terminalConnected: true,
+    expertEnabled: true,
+    isPrimary: true,
+  };
+  let pairingSequence = 0;
+  const mt4SyncService = {
+    repository: {
+      getMt4AccountId: (accountNumber, server = '') => `${accountNumber}:${server || 'server'}`,
+      getAccessibleMt4Accounts: async () => [reporterAccount],
+      getMt4State: async () => ({ connectionsByAccountId: { [reporterAccount.accountId]: reporterAccount } }),
+    },
+    issuePairingCode: async () => ({ pairingCode: `PAIR-${++pairingSequence}`, status: 'pending' }),
+  };
+  const fixture = await createTestServer({}, { mt4SyncService });
+  t.after(() => fixture.server.close());
+  const headers = { 'content-type': 'application/json', 'x-wisdo-test-user': 'operator-live' };
+
+  const accounts = await jsonFetch(`${fixture.base}/api/v2/accounts?includeReporter=1`, { headers });
+  assert.equal(accounts.response.status, 200);
+  assert.equal(accounts.payload.accounts.length, 1);
+  assert.equal(accounts.payload.accounts[0].id, reporterAccount.accountId);
+  assert.equal(accounts.payload.accounts[0].reporter_connected, true);
+  assert.equal(accounts.payload.accounts[0].equity, 24350);
+
+  const created = await jsonFetch(`${fixture.base}/api/v2/accounts`, { method: 'POST', headers, body: JSON.stringify({ platform: 'mt4', broker: 'Coinexx', account_number: '990011', server: 'Coinexx-Live', role: 'master' }) });
+  assert.equal(created.response.status, 201);
+  assert.equal(created.payload.account.id, '990011:Coinexx-Live');
+  assert.equal(created.payload.account.status, 'awaiting_reporter');
+  assert.equal(created.payload.account.pairing_code, 'PAIR-1');
+  assert.match(created.payload.message, /Paste the pairing code/i);
+
+  const dashboard = await fetch(`${fixture.base}/app/dashboard?launch=1`, { headers: { ...headers, accept: 'text/html' } });
+  const dashboardHtml = await dashboard.text();
+  assert.equal(dashboard.status, 200);
+  assert.match(dashboardHtml, /id="wisdo-boot"/);
+  assert.match(dashboardHtml, /Command Center Startup/);
+  assert.match(dashboardHtml, /data-wisdo-dashboard-launch/);
+
+  const workspaceCode = await fs.readFile(new URL('../public/js/workspace.js', import.meta.url), 'utf8');
+  assert.match(workspaceCode, /Waking WISDO Core/);
+  assert.match(workspaceCode, /Synchronizing connected Reporter accounts/);
+  assert.match(workspaceCode, /Command Center Online/);
+
+  const education = await fetch(`${fixture.base}/app/education?bot=df-sauce-final-ai`, { headers: { ...headers, accept: 'text/html' } });
+  const educationHtml = await education.text();
+  assert.equal(education.status, 200);
+  assert.match(educationHtml, /df-sauce-academy\.js/);
+  assert.match(educationHtml, /workspace\.js/);
+  assert.doesNotMatch(educationHtml, /Legacy Command Center/);
+
+  const legacyEducation = await fetch(`${fixture.base}/member/education?bot=df-sauce-final-ai`, { headers: { ...headers, accept: 'text/html' }, redirect: 'manual' });
+  assert.equal(legacyEducation.status, 302);
+  assert.equal(legacyEducation.headers.get('location'), '/app/education?bot=df-sauce-final-ai');
+
+  const pine = await fetch(`${fixture.base}/academy/df-sauce-campaign-character.pine`);
+  assert.equal(pine.status, 200);
+  const pineText = await pine.text();
+  assert.match(pineText, /DF Sauce Campaign Character/);
+  assert.match(pineText, /holdBarsNeeded/);
+  assert.match(pineText, /campaignFlipped/);
+  assert.ok(pineText.split('\n').length > 300);
+
+  const profile = await jsonFetch(`${fixture.base}/api/v2/profile`, { method: 'PATCH', headers, body: JSON.stringify({ full_name: 'Operator Live', theme: 'violet', background: 'motion-b' }) });
+  assert.equal(profile.payload.profile.theme, 'violet');
+  assert.equal(profile.payload.profile.background, 'motion-b');
+
+  const me = await jsonFetch(`${fixture.base}/api/v2/me`, { headers });
+  assert.equal(me.payload.profile.theme, 'violet');
+  assert.equal(me.payload.profile.background, 'motion-b');
 });
 
 test('major product routes persist accounts and lanes, preserve auth state, and relay idempotent open/close webhooks', async (t) => {

@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { atomicWriteJson } from '../storage/atomicJsonFile.js';
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -49,10 +51,7 @@ export class WisdoMemoryService {
   }
 
   async save(data) {
-    await fs.mkdir(this.dataDir, { recursive: true });
-    const tmp = `${this.filePath}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(normalizeState(data), null, 2));
-    await fs.rename(tmp, this.filePath);
+    await atomicWriteJson(this.filePath, normalizeState(data));
   }
 
   async update(updater) {

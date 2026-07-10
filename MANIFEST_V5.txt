@@ -1,10 +1,15 @@
-WISDO MEMBER APP MAJOR ALL-UPGRADES V5
+WISDO MEMBER EXPERIENCE UNIFICATION V5.1.0
 Source: wisdo-member-app-product-pass(1).zip
 Source SHA-256: df2143c9aee5039bf4ff547256d68bca84bd54b1ddbd1db99e30bcd7f4d1f7ce
-Version: 5.0.0
+Base release: V5.0.1 MT4 storage concurrency hotfix
+Version: 5.1.0
 Build command: npm ci --omit=dev --no-audit --no-fund
 Start command: npm start
 Web-only smoke: npm run start:web
 Validation: npm run check
 Primary migration: migrations/2026-07-10-wisdo-major-production-v5.sql
 Live symbol execution automatch default: false
+Member shell: /app/*
+Unified Academy: /app/education
+Legacy education redirect: /member/education -> /app/education
+Analyzer product name: WISDO Insight Engine

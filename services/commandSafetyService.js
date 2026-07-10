@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { atomicWriteJson } from '../storage/atomicJsonFile.js';
+
 function nowIso() { return new Date().toISOString(); }
 function addSeconds(s) { const d = new Date(); d.setSeconds(d.getSeconds() + Number(s || 60)); return d.toISOString(); }
 function normalize(value) { return String(value || '').trim().toLowerCase(); }
@@ -20,10 +22,7 @@ export class CommandSafetyService {
   }
 
   async save(data) {
-    await fs.mkdir(this.dataDir, { recursive: true });
-    const tmp = `${this.filePath}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(data, null, 2));
-    await fs.rename(tmp, this.filePath);
+    await atomicWriteJson(this.filePath, data);
   }
 
   classify(command, payload = {}) {

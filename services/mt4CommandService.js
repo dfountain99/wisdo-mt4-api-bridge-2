@@ -2,6 +2,19 @@ import { randomUUID } from 'node:crypto';
 
 import { createPersistenceAdapter } from './persistenceAdapter.js';
 
+const commandMutationQueues = new Map();
+
+async function runCommandMutation(key, task) {
+  const previous = commandMutationQueues.get(key) || Promise.resolve();
+  const current = previous.catch(() => undefined).then(task);
+  commandMutationQueues.set(key, current);
+  try {
+    return await current;
+  } finally {
+    if (commandMutationQueues.get(key) === current) commandMutationQueues.delete(key);
+  }
+}
+
 function nowIso() { return new Date().toISOString(); }
 function addMinutes(minutes) { const d = new Date(); d.setMinutes(d.getMinutes() + minutes); return d.toISOString(); }
 function isExpired(record) { return record?.expiresAt && new Date(record.expiresAt).getTime() < Date.now(); }
@@ -68,6 +81,16 @@ export class Mt4CommandService {
     this.persistence = createPersistenceAdapter(config, {
       fileName: 'mt4-commands.json',
       defaultState: () => ({}),
+    });
+    this.mutationKey = this.persistence.filePath || `mt4-commands:${this.dataDir}`;
+  }
+
+  async mutate(mutator) {
+    return runCommandMutation(this.mutationKey, async () => {
+      const data = await this.load();
+      const result = await mutator(data);
+      await this.save(data);
+      return result;
     });
   }
 
@@ -222,33 +245,33 @@ export class Mt4CommandService {
       error.validation = validation;
       throw error;
     }
-    const data = await this.load();
-    const record = {
-      ...this.buildRecord(userId, validation.accountId, validation.command, payload),
-      validation,
-      requiresConfirmation: validation.dangerous,
-      confirmationRequired: validation.dangerous,
-      confirmedAt: validation.dangerous && (payload?.confirmation === 'confirmed') ? nowIso() : null,
-    };
-    this.addRecord(data, record);
-    await this.save(data);
-    return record;
+    return this.mutate(async (data) => {
+      const record = {
+        ...this.buildRecord(userId, validation.accountId, validation.command, payload),
+        validation,
+        requiresConfirmation: validation.dangerous,
+        confirmationRequired: validation.dangerous,
+        confirmedAt: validation.dangerous && (payload?.confirmation === 'confirmed') ? nowIso() : null,
+      };
+      this.addRecord(data, record);
+      return record;
+    });
   }
 
   async queueCommand(userId, command = null, payload = {}) {
     if (typeof userId === 'object' && userId?.command) {
-      const data = await this.load();
-      const record = {
-        ...userId,
-        id: userId.id || `wisdo_${Date.now()}_${randomUUID().slice(0, 8)}`,
-        status: userId.status || 'pending',
-        attempts: Number(userId.attempts || 0),
-        createdAt: userId.createdAt || nowIso(),
-        expiresAt: userId.expiresAt || addMinutes(Number(userId.ttlMinutes || userId.ttl || 15)),
-      };
-      this.addRecord(data, record);
-      await this.save(data);
-      return record;
+      return this.mutate(async (data) => {
+        const record = {
+          ...userId,
+          id: userId.id || `wisdo_${Date.now()}_${randomUUID().slice(0, 8)}`,
+          status: userId.status || 'pending',
+          attempts: Number(userId.attempts || 0),
+          createdAt: userId.createdAt || nowIso(),
+          expiresAt: userId.expiresAt || addMinutes(Number(userId.ttlMinutes || userId.ttl || 15)),
+        };
+        this.addRecord(data, record);
+        return record;
+      });
     }
 
     if (payload?.accountId) return this.queueCommandForAccount(userId, payload.accountId, command, payload);
@@ -258,17 +281,17 @@ export class Mt4CommandService {
       error.validation = validation;
       throw error;
     }
-    const data = await this.load();
-    const record = {
-      ...this.buildRecord(userId, null, validation.command, payload),
-      validation,
-      requiresConfirmation: validation.dangerous,
-      confirmationRequired: validation.dangerous,
-      confirmedAt: validation.dangerous && (payload?.confirmation === 'confirmed') ? nowIso() : null,
-    };
-    this.addRecord(data, record);
-    await this.save(data);
-    return record;
+    return this.mutate(async (data) => {
+      const record = {
+        ...this.buildRecord(userId, null, validation.command, payload),
+        validation,
+        requiresConfirmation: validation.dangerous,
+        confirmationRequired: validation.dangerous,
+        confirmedAt: validation.dangerous && (payload?.confirmation === 'confirmed') ? nowIso() : null,
+      };
+      this.addRecord(data, record);
+      return record;
+    });
   }
 
   commandMatches(command, { accountId = null, accountNumber = null, pairingCode = null } = {}) {
@@ -282,8 +305,10 @@ export class Mt4CommandService {
   }
 
   async expireStaleCommands(data = null) {
-    const owned = data || await this.load();
-    let changed = false;
+    if (!data) {
+      return this.mutate(async (owned) => this.expireStaleCommands(owned));
+    }
+    const owned = data;
     const expiredAt = nowIso();
     const expiredIds = new Set();
     for (const store of this.commandStores(owned)) {
@@ -295,36 +320,34 @@ export class Mt4CommandService {
     }
     for (const commandId of expiredIds) {
       this.syncCommandCopies(owned, commandId, { status: 'expired', expiredAt });
-      changed = true;
     }
-    if (!data && changed) await this.save(owned);
     return owned;
   }
 
   async getPendingCommand(userId, scope = {}) {
-    let data = await this.load();
-    data = await this.expireStaleCommands(data);
-    const accountId = scope?.accountId || null;
-    const accountNumber = scope?.accountNumber ? String(scope.accountNumber) : null;
-    const pairingCode = scope?.pairingCode ? String(scope.pairingCode) : null;
-    const queue = (data.commandQueue || []).filter((command) => String(command.userId) === String(userId));
-    const accountQueue = accountId ? (data.commandsByAccountId?.[accountId] || []) : [];
-    const commands = [...accountQueue, ...queue, ...(data.commandsByUserId?.[userId] || [])];
-    const seen = new Set();
-    const unique = commands.filter((command) => {
-      if (!command?.id || seen.has(command.id)) return false;
-      seen.add(command.id);
-      return true;
-    }).sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0) || new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
-    await this.save(data);
-    return unique.find((command) => this.commandMatches(command, { accountId, accountNumber, pairingCode })) || null;
+    return this.mutate(async (data) => {
+      await this.expireStaleCommands(data);
+      const accountId = scope?.accountId || null;
+      const accountNumber = scope?.accountNumber ? String(scope.accountNumber) : null;
+      const pairingCode = scope?.pairingCode ? String(scope.pairingCode) : null;
+      const queue = (data.commandQueue || []).filter((command) => String(command.userId) === String(userId));
+      const accountQueue = accountId ? (data.commandsByAccountId?.[accountId] || []) : [];
+      const commands = [...accountQueue, ...queue, ...(data.commandsByUserId?.[userId] || [])];
+      const seen = new Set();
+      const unique = commands.filter((command) => {
+        if (!command?.id || seen.has(command.id)) return false;
+        seen.add(command.id);
+        return true;
+      }).sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0) || new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+      return unique.find((command) => this.commandMatches(command, { accountId, accountNumber, pairingCode })) || null;
+    });
   }
 
   async getAllPendingCommands(userId) {
-    let data = await this.load();
-    data = await this.expireStaleCommands(data);
-    await this.save(data);
-    return (data.commandQueue || []).filter((command) => String(command.userId) === String(userId) && this.commandMatches(command));
+    return this.mutate(async (data) => {
+      await this.expireStaleCommands(data);
+      return (data.commandQueue || []).filter((command) => String(command.userId) === String(userId) && this.commandMatches(command));
+    });
   }
 
   findCommand(data, userId, commandId, accountId = null) {
@@ -342,97 +365,97 @@ export class Mt4CommandService {
   }
 
   async markCommandDelivered(userId, commandId, accountId = null) {
-    const data = await this.load();
-    const command = this.findCommand(data, userId, commandId, accountId);
-    if (command) {
-      this.syncCommandCopies(data, command.id, {
-        status: 'delivered',
-        deliveredAt: nowIso(),
-        attempts: Number(command.attempts || 0) + 1,
-      });
-    }
-    await this.save(data);
-    return command ? this.findCommand(data, userId, commandId, accountId) : null;
+    return this.mutate(async (data) => {
+      const command = this.findCommand(data, userId, commandId, accountId);
+      if (command) {
+        this.syncCommandCopies(data, command.id, {
+          status: 'delivered',
+          deliveredAt: nowIso(),
+          attempts: Number(command.attempts || 0) + 1,
+        });
+      }
+      return command ? this.findCommand(data, userId, commandId, accountId) : null;
+    });
   }
 
   async markCommandCompleted(userId, commandId, result = {}, accountId = null) {
-    const data = await this.load();
-    const command = this.findCommand(data, userId, commandId, accountId);
-    if (command) {
-      this.syncCommandCopies(data, command.id, {
-        status: 'completed',
-        completedAt: nowIso(),
-        result,
-      });
-    }
-    await this.save(data);
-    return command ? this.findCommand(data, userId, commandId, accountId) : null;
+    return this.mutate(async (data) => {
+      const command = this.findCommand(data, userId, commandId, accountId);
+      if (command) {
+        this.syncCommandCopies(data, command.id, {
+          status: 'completed',
+          completedAt: nowIso(),
+          result,
+        });
+      }
+      return command ? this.findCommand(data, userId, commandId, accountId) : null;
+    });
   }
 
   async markCommandFailed(userId, commandId, errorMessage, accountId = null) {
-    const data = await this.load();
-    const command = this.findCommand(data, userId, commandId, accountId);
-    if (command) {
-      this.syncCommandCopies(data, command.id, {
-        status: 'failed',
-        failedAt: nowIso(),
-        errorMessage,
-      });
-    }
-    await this.save(data);
-    return command ? this.findCommand(data, userId, commandId, accountId) : null;
+    return this.mutate(async (data) => {
+      const command = this.findCommand(data, userId, commandId, accountId);
+      if (command) {
+        this.syncCommandCopies(data, command.id, {
+          status: 'failed',
+          failedAt: nowIso(),
+          errorMessage,
+        });
+      }
+      return command ? this.findCommand(data, userId, commandId, accountId) : null;
+    });
   }
 
   async getCommandStatus(userId, commandId = null, accountId = null) {
-    let data = await this.load();
-    data = await this.expireStaleCommands(data);
-    await this.save(data);
-    const command = commandId === null
-      ? this.findCommand(data, null, userId, null)
-      : this.findCommand(data, userId, commandId, accountId);
-    return command || null;
+    return this.mutate(async (data) => {
+      await this.expireStaleCommands(data);
+      const command = commandId === null
+        ? this.findCommand(data, null, userId, null)
+        : this.findCommand(data, userId, commandId, accountId);
+      return command || null;
+    });
   }
 
   async listAccountCommands(userId, accountId, { limit = 50, status = null } = {}) {
-    let data = await this.load();
-    data = await this.expireStaleCommands(data);
-    await this.save(data);
-    const rows = [
-      ...(data.commandsByAccountId?.[accountId] || []),
-      ...(data.commandsByUserId?.[userId] || []),
-    ];
-    const seen = new Set();
-    return rows
-      .filter((command) => {
-        if (!command?.id || seen.has(command.id)) return false;
-        seen.add(command.id);
-        if (String(command.userId) !== String(userId)) return false;
-        if (accountId && command.accountId !== accountId) return false;
-        if (status && command.status !== status) return false;
-        return true;
-      })
-      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
-      .slice(0, Number(limit || 50));
+    return this.mutate(async (data) => {
+      await this.expireStaleCommands(data);
+      const rows = [
+        ...(data.commandsByAccountId?.[accountId] || []),
+        ...(data.commandsByUserId?.[userId] || []),
+      ];
+      const seen = new Set();
+      return rows
+        .filter((command) => {
+          if (!command?.id || seen.has(command.id)) return false;
+          seen.add(command.id);
+          if (String(command.userId) !== String(userId)) return false;
+          if (accountId && command.accountId !== accountId) return false;
+          if (status && command.status !== status) return false;
+          return true;
+        })
+        .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+        .slice(0, Number(limit || 50));
+    });
   }
 
   async getQueueStatus(userId, accountId = null) {
-    let data = await this.load();
-    data = await this.expireStaleCommands(data);
-    await this.save(data);
-    const rows = (data.commandQueue || []).filter((command) => {
-      if (String(command.userId) !== String(userId)) return false;
-      if (accountId && command.accountId !== accountId) return false;
-      return true;
+    return this.mutate(async (data) => {
+      await this.expireStaleCommands(data);
+      const rows = (data.commandQueue || []).filter((command) => {
+        if (String(command.userId) !== String(userId)) return false;
+        if (accountId && command.accountId !== accountId) return false;
+        return true;
+      });
+      return {
+        total: rows.length,
+        pending: rows.filter((c) => c.status === 'pending').length,
+        delivered: rows.filter((c) => c.status === 'delivered').length,
+        completed: rows.filter((c) => c.status === 'completed').length,
+        failed: rows.filter((c) => c.status === 'failed').length,
+        expired: rows.filter((c) => c.status === 'expired').length,
+        recent: rows.slice(-10).reverse(),
+      };
     });
-    return {
-      total: rows.length,
-      pending: rows.filter((c) => c.status === 'pending').length,
-      delivered: rows.filter((c) => c.status === 'delivered').length,
-      completed: rows.filter((c) => c.status === 'completed').length,
-      failed: rows.filter((c) => c.status === 'failed').length,
-      expired: rows.filter((c) => c.status === 'expired').length,
-      recent: rows.slice(-10).reverse(),
-    };
   }
 
   appendAudit(data, action, details = {}) {

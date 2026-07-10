@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { atomicWriteJson } from '../storage/atomicJsonFile.js';
+
 export class JsonFilePersistenceAdapter {
   constructor({ dataDir, fileName, defaultState = () => ({}) }) {
     this.dataDir = dataDir || 'data/operator-desks';
@@ -17,11 +19,7 @@ export class JsonFilePersistenceAdapter {
   }
 
   async save(data) {
-    await fs.mkdir(this.dataDir, { recursive: true });
-    const tmp = `${this.filePath}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(data, null, 2));
-    await fs.rename(tmp, this.filePath);
-    return data;
+    return atomicWriteJson(this.filePath, data);
   }
 }
 
