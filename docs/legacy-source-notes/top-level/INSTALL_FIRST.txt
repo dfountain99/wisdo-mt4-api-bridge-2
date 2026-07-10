@@ -1,0 +1,16 @@
+CEM WISDO Discord Response Fix
+
+This patch fixes Discord's 'The application did not respond' message for the new adaptive commands.
+
+What changed:
+1. /wisdo-adaptive-set, /wisdo-adaptive-defense, /wisdo-adaptive-normal, /wisdo-adaptive-lane, and /wisdo-command now defer immediately.
+2. If Discord has a command registered but the running bot code does not have it loaded, WISDO now replies with a clear redeploy/register message instead of timing out.
+
+Install:
+1. Upload this folder to Render/GitHub over the previous WISDO build.
+2. Run: npm install
+3. Run: npm run register-commands
+4. Redeploy/restart Render.
+5. In Discord, test first with: /wisdo-adaptive-lane
+
+If it still says application did not respond, Render is probably still running the old build or the bot crashed at startup. Check Render logs for Interaction handler failure or startup errors.

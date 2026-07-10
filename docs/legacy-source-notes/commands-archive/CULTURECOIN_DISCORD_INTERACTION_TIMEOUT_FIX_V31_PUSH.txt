@@ -1,0 +1,7 @@
+cd /d "C:\Users\jaque\Documents\Codex\2026-04-24\build-a-discord-bot-feature-for"
+
+git add commands/mt4.js src/commands/mt4.js services/operatorDeskService.js src/services/operatorDeskService.js CULTURECOIN_DISCORD_INTERACTION_TIMEOUT_FIX_V31.md
+
+git commit -m "Fix Discord slash command interaction timeouts"
+
+git push origin main

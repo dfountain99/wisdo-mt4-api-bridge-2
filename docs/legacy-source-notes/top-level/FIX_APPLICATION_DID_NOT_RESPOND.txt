@@ -1,0 +1,39 @@
+CEM WISDO FULL LANE PATCH
+
+This patch fixes the broad Global Variable issue.
+
+OLD WRONG OUTPUT:
+CEM.DEADSHOT.InpMaxOpenTrades = 30
+
+NEW OUTPUT:
+CEM.DEADSHOT.__ACCOUNT__.XAUUSD.260408.InpMaxOpenTrades = 30
+
+The MT4 Reporter replaces __ACCOUNT__ with the live MT4 AccountNumber() before writing the variable, producing:
+CEM.DEADSHOT.5220807.XAUUSD.260408.InpMaxOpenTrades = 30
+
+What changed:
+1. /wisdo-adaptive-set, /wisdo-adaptive-defense, /wisdo-adaptive-normal now REQUIRE symbol and magic.
+2. account is optional. If blank, WISDO queues __ACCOUNT__ and the reporter fills the connected MT4 account number.
+3. /wisdo-adaptive-lane now previews the full lane.
+4. CultureCoin_MT4_Reporter.mq4 now expands __ACCOUNT__ and __SYMBOL__ placeholders before GlobalVariableSet().
+
+Install:
+1. Copy these files into your real wisdo-mt4-api-bridge repo, overwriting old files.
+2. Push to GitHub.
+3. In Render, deploy latest commit.
+4. Run/register commands:
+   npm install
+   npm run register-commands
+5. Recompile the patched CultureCoin_MT4_Reporter.mq4 in MetaEditor and attach it to MT4.
+
+First test:
+/wisdo-adaptive-lane bot:DEADSHOT setting:InpMaxOpenTrades symbol:XAUUSD magic:260408
+
+Then:
+/wisdo-adaptive-set bot:DEADSHOT setting:InpMaxOpenTrades value:30 symbol:XAUUSD magic:260408
+
+Expected Discord queue output:
+CEM.DEADSHOT.__ACCOUNT__.XAUUSD.260408.InpMaxOpenTrades = 30
+
+Expected MT4 Global Variable after reporter executes:
+CEM.DEADSHOT.<your-account-number>.XAUUSD.260408.InpMaxOpenTrades = 30

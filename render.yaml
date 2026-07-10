@@ -1,0 +1,185 @@
+services:
+  - type: web
+    name: culture-coin-operator-desks-bot
+    runtime: node
+    plan: starter
+    autoDeploy: true
+    buildCommand: npm ci --omit=dev --no-audit --no-fund
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: CLIENT_ID
+        sync: false
+      - key: GUILD_ID
+        sync: false
+      - key: CULTURE_COIN_ROLE_ID
+        sync: false
+      - key: COACH_ROLE_ID
+        sync: false
+      - key: OWNER_USER_ID
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: MT4_SYNC_PATH
+        value: /mt4-sync
+      - key: MT4_SYNC_API_KEY
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: BROKER_WEBHOOK_SECRET
+        generateValue: true
+      - key: CRON_SECRET
+        generateValue: true
+      - key: WISDO_SYMBOL_AUTOMATCH_ENABLED
+        value: "true"
+      - key: WISDO_SYMBOL_SPIN_WHEEL_ENABLED
+        value: "true"
+      - key: WISDO_SYMBOL_AUTOMATCH_EXECUTION_ENABLED
+        value: "false"
+      - key: MT4_PAIRING_CODE_TTL_HOURS
+        value: "24"
+      - key: MT4_REQUIRE_KNOWN_PAIRING
+        value: "true"
+      - key: MT4_MAX_PAYLOAD_KB
+        value: "256"
+      - key: AUTO_REGISTER_COMMANDS_ON_START
+        value: "true"
+      - key: DATA_DIR
+        value: /var/data/wisdo
+      - key: WISDO_STORAGE_PATH
+        value: /var/data/wisdo
+      - key: CREATE_PRIVATE_VOICE_CHANNELS
+        value: "false"
+      - key: WISDO_ENABLED
+        value: "true"
+      - key: WISDO_TONE
+        value: old_head_wizard
+      - key: WISDO_AUTO_ANALYZE_CLOCK_IN
+        value: "true"
+      - key: WISDO_AUTO_ANALYZE_EA_LOG
+        value: "true"
+      - key: WISDO_AUTO_ANALYZE_CLOCK_OUT
+        value: "true"
+      - key: WISDO_AUTO_ANALYZE_WEEKLY_REVIEW
+        value: "true"
+      - key: WISDO_MAX_SAFE_OPEN_TRADES
+        value: "5"
+      - key: WISDO_DRAWDOWN_WARN_PERCENT
+        value: "10"
+      - key: WISDO_DRAWDOWN_DANGER_PERCENT
+        value: "20"
+      - key: WISDO_PROFIT_PROTECT_PERCENT
+        value: "5"
+      - key: WISDO_ENABLE_STRONG_WARNINGS
+        value: "true"
+      - key: WISDO_MT4_STALE_MINUTES
+        value: "5"
+      - key: BOT_STORE_ENABLED
+        value: "true"
+      - key: BOT_DELIVERY_DIR
+        value: /var/data/wisdo/bot-deliveries
+      - key: BOT_SOURCE_DIRS
+        value: ./private-downloads/mt4-bots;./mql4
+      - key: BOT_AUTO_SYNC_ON_START
+        value: "true"
+      - key: BOT_BASE_PRICE
+        value: "500"
+      - key: CULTURE_COIN_BOT_PRICE
+        value: "400"
+      - key: BOT_NEGOTIATION_FLOOR
+        value: "350"
+      - key: BOT_BUY_3_GET_3_FREE
+        value: "true"
+      - key: CULTURE_COIN_FREE_BOT_ENABLED
+        value: "true"
+      - key: WELCOME_DM_ENABLED
+        value: "true"
+      - key: WELCOME_CHANNEL_ID
+        sync: false
+      - key: CULTURE_COIN_JOIN_URL
+        sync: false
+      - key: CULTURE_COIN_SUPPORT_CONTACT
+        sync: false
+      - key: BOT_STORE_CURRENCY
+        value: usd
+      - key: BOT_QUOTE_TTL_HOURS
+        value: "24"
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_WEBHOOK_PATH
+        value: /stripe/webhook
+      - key: STRIPE_SUCCESS_PATH
+        value: /checkout/success
+      - key: STRIPE_CANCEL_PATH
+        value: /checkout/cancel
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: FINNHUB_API_KEY
+        sync: false
+      - key: TRADING_ECONOMICS_API_KEY
+        sync: false
+      - key: FIRECRAWL_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GOOGLE_AI_API_KEY
+        sync: false
+      - key: WISDO_AI_MODEL
+        value: gpt-4.1-mini
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        value: mailto:support@wisdo.app
+      - key: DATABASE_URL
+        sync: false
+      - key: WISDO_PERSISTENCE_MODE
+        value: json
+      - key: WISDO_DB_SSL
+        value: "true"
+      - key: CLIENT_SECRET
+        sync: false
+      - key: DISCORD_CLIENT_SECRET
+        sync: false
+      - key: DISCORD_COMMAND_API_SECRET
+        sync: false
+      - key: DISCORD_NOTIFICATION_WEBHOOK_URL
+        sync: false
+      - key: WISDO_NOTIFICATION_WEBHOOK_URL
+        sync: false
+      - key: WISDO_WIN_GIF_URLS
+        sync: false
+      - key: SIGNAL_CHANNEL_ID
+        sync: false
+      - key: TRADE_SIGNAL_CHANNEL_ID
+        sync: false
+      - key: SIGNAL_BUTTON_TTL_SECONDS
+        value: "180"
+      - key: WISDO_SIGNALS_FROM_ALL_CONNECTED
+        value: "true"
+      - key: RANK_ANNOUNCEMENTS_ENABLED
+        value: "true"
+      - key: RANK_ANNOUNCEMENT_CHANNEL_ID
+        sync: false
+      - key: DISCORD_CONNECTION_CHANNEL_ID
+        sync: false
+
+    disk:
+      name: wisdo-persistent-data
+      mountPath: /var/data
+      sizeGB: 10

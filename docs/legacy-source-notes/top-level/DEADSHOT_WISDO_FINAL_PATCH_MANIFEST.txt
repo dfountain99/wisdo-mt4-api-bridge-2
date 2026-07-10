@@ -1,0 +1,36 @@
+Deadshot / Wisdo final audit package
+
+Primary changed files:
+- server/deadshotSite.js
+- server/apiServer.js
+- server/services/mt4CommandService.js
+- services/mt4CommandService.js
+- services/mt4SyncService.js
+- storage/operatorDeskRepository.js
+- config.js
+- DEADSHOT_WISDO_FINAL_ARCHITECTURE_BLUEPRINT.md
+- DEADSHOT_WISDO_AUDIT_PATCH_NOTES.md
+
+What changed:
+- Fixed MT4 command state sync so commandQueue, commandsByUserId, and commandsByAccountId do not drift apart.
+- Wired website command buttons, Wisdo console commands, pair controls, account configuration globals, Discord command events, command status checks, queue status checks, and pairing sync.
+- Renamed TraderConnect-style modules to Culture Coin / Deadshot names: Copier Engine, Copier Logs, Account Trades, Performance, Account Connection, Account Configuration, Wisdo Command Center, and Culture Coin Reporter.
+- Hardened legacy /member/wisdo and old member pages so action controls route to actual APIs, forms, or clear setup states.
+- Added the final architecture blueprint and audit patch notes directly into the project.
+
+Validation performed:
+- node --check passed for all JavaScript files.
+- MT4 command copy-sync test passed.
+- Active source scan found no old TraderConnect/TC labels.
+- Primary member portal scan found no dead href="#" links.
+
+Note:
+- Existing .ex4 files were preserved. The .mq4 source was not recompiled in this environment.
+
+Connection hotfix added after live issue report:
+- Discord /connect-mt4 no longer requires private desk context to generate a pairing code.
+- Discord commands auto-register on startup when AUTO_REGISTER_COMMANDS_ON_START=true.
+- Env examples corrected so PUBLIC_BASE_URL does not get overwritten by localhost.
+- Added /health/mt4 diagnostics.
+- Reporter dashboard now shows server JSON error text.
+- Bundled CultureCoin_MT4_Reporter_Package.zip in mql4 and server/mql4.

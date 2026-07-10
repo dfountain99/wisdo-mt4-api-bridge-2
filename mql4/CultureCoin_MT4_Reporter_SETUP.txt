@@ -1,0 +1,26 @@
+Culture Coin MT4 Reporter Setup
+
+Files in this package:
+- CultureCoin_MT4_Reporter.ex4
+- CultureCoin_MT4_Reporter.mq4
+
+Student setup:
+1. Copy CultureCoin_MT4_Reporter.ex4 into MT4 -> File -> Open Data Folder -> MQL4 -> Experts.
+2. Restart MT4 or right-click Navigator and choose Refresh.
+3. Attach CultureCoin_MT4_Reporter to any chart.
+4. In Discord, run /connect-mt4. This now works from any channel/DM; a private Operator Desk is optional.
+5. Paste the pairing code into PairingCode.
+6. Paste the SyncUrl from Discord into SyncUrl. It must look like https://your-live-site.com/mt4-sync, not localhost, unless MT4 is on the same computer as the server.
+7. If MT4_SYNC_API_KEY is set on the server, paste that same value into ApiKey. If it is blank on the server, leave ApiKey blank.
+8. In MT4, go to Tools -> Options -> Expert Advisors.
+9. Turn on Allow WebRequest for listed URL.
+10. Add the base URL shown in Discord only, for example https://your-live-site.com. Do not add /mt4-sync here.
+11. Turn AutoTrading on if you want Wisdo/website/Discord commands to close or manage trades.
+12. Run /mt4-status in Discord or open /health/mt4 on the website to confirm the bridge is live.
+
+Important:
+- Reporter mode sends snapshots so the website and Discord can see balance, equity, floating P/L, and open trades.
+- Command mode can execute approved queued commands such as close winners, close all, manual open/close, copy commands, and CEM global-variable updates.
+- Keep command permissions disabled in your own workflow unless the account is approved to be controlled.
+- You do not need to change your main EA.
+- You do not need to run Node on the MT4 computer when the server is already hosted online.
