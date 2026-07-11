@@ -5837,6 +5837,22 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
           createdAt: new Date().toISOString(),
         };
         state.notification_events.push(notice);
+        state.alerts ||= {};
+        state.alerts[websiteUserId] ||= [];
+        const alertType = success
+          ? (String(command?.command || '').toUpperCase() === 'COPY_OPEN_TRADE' ? 'trade_opened' : String(command?.command || '').toUpperCase() === 'COPY_CLOSE_TRADE' ? 'trade_closed' : 'system')
+          : 'system';
+        state.alerts[websiteUserId].unshift({
+          id: makeId('alert'),
+          user_id: String(websiteUserId),
+          type: alertType,
+          title: notice.title,
+          body: notice.message,
+          metadata: notice.metadata,
+          read_at: null,
+          created_at: notice.createdAt,
+        });
+        state.alerts[websiteUserId] = state.alerts[websiteUserId].slice(0, 1000);
         state.sync_events.push({ id: makeId('sync'), userId: websiteUserId, source: 'mt4_reporter', target: 'website_discord', action: 'command_complete', payload: notice, status: success ? 'completed' : 'failed', createdAt: new Date().toISOString() });
         await saveEcosystemState(state);
         const webhook = process.env.DISCORD_NOTIFICATION_WEBHOOK_URL || process.env.WISDO_NOTIFICATION_WEBHOOK_URL || '';

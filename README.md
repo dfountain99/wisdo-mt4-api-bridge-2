@@ -1,4 +1,4 @@
-# WISDO Member App — Capability + Adaptive Academy V5.2.0
+# WISDO Member App — Capability + Adaptive Academy V5.3.0
 
 WISDO is a multi-account trading command center that combines a premium public product site, account linking, MT4/Discord relay execution, Culture Lanes, risk governance, analytics, education, affiliate operations, billing, alerts, and administrative controls.
 
@@ -28,6 +28,17 @@ This release was rebuilt directly from the user-provided `wisdo-member-app-produ
 - Account-aware AI tutor with persistent history and course recommendations
 - Proprietary DF Sauce Pine source removed from all public assets and blocked from Git commits
 - Private TradingView layout handoff through `WISDO_DF_SAUCE_TRADINGVIEW_URL`
+
+## V5.3 connected intelligence and Education Hub
+
+- Reporter snapshots feed one authoritative trade/event ledger used by Trades, WISDO Insight Engine, Alerts, and Culture Lane lifecycle diagnostics.
+- Active Culture Lanes are synchronized into the lead snapshot detector before open/close comparison.
+- Education Hub has four pillars: Trading Academy, WISDO University, Resource Center, and Live Learning.
+- 6,500 adaptive courses remain searchable, while course sessions now open into worked explanations, vocabulary, context, risk, replay practice, checkpoints, and tutor engagement instead of static module paragraphs.
+- Resource Center generates 390 original WISDO study guides, checklists, worksheets, flash-card packs, journal templates, and cheat sheets with bookmarks.
+- Trading tools include position size, risk/reward, margin, pip value, P/L, drawdown, compounding, and risk-of-ruin scenarios.
+- Wisdo AI is a persistent assistant across public and member pages with page context, selected-account context, voice input, screenshot attachment, history, suggested questions, navigation links, membership usage limits, and visible confirmation boundaries for account actions.
+- Private DF Sauce and HIGHTOWER source remains excluded; the site teaches operating logic and opens the configured private TradingView layout.
 
 ## Production entry order
 
@@ -59,6 +70,7 @@ Use `npm run start:web` for an HTTP-only smoke environment without connecting th
 - `/compare` broker/prop comparison
 - `/pricing` interactive CFD/Futures configurator
 - `/academy` public Academy overview
+- `/resources` public Resource Center overview
 - `/blog` and `/blog/:slug`
 - `/login`, `/register`, `/forgot-password`, `/reset-password`
 - `/terms`, `/privacy`, `/risk-disclosure`, `/contact`
@@ -185,6 +197,17 @@ The server now sends and persists all close identities:
 - actual `followerTicket` returned by MT4 `OrderSend`
 - follower account ID and resolved follower symbol
 
-Reporter v1.55 closes by the stored follower ticket first, then the stable source marker, then a safe unique symbol/side recovery. It never reports success when no position was closed.
+Reporter v1.56 supports immediate account synchronization and closes by the stored follower ticket first, then the stable source marker, then a safe unique symbol/side recovery. It never reports success when no position was closed.
 
 **Follower terminal upgrade is mandatory:** compile `mql4/CultureCoin_MT4_Reporter.mq4` in MetaEditor and replace the older Reporter EX4. The legacy compiled binary is archived and is not delivered as the active Reporter.
+
+## Education provider settings
+
+```env
+WISDO_DF_SAUCE_TRADINGVIEW_URL=https://www.tradingview.com/chart/YOUR_PRIVATE_LAYOUT/
+WISDO_WEBINAR_PROVIDER_URL=https://your-live-learning-provider.example/room
+OPENAI_API_KEY=
+WISDO_AI_MODEL=gpt-4.1-mini
+```
+
+Without external AI or webinar credentials, the internal adaptive tutor, calculators, resource library, and scenario labs remain available; live provider links report setup-required rather than pretending to be live.

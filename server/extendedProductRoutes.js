@@ -9,12 +9,21 @@ import {
   ACADEMY_DOMAINS,
   ACADEMY_LEVELS,
   buildFallbackTutorReply,
+  buildInteractiveLesson,
   buildPersonalizedPath,
   getAcademyCourse,
   getAcademySummary,
   getDfSauceScenario,
   searchAcademyCourses,
 } from '../services/academyCatalogService.js';
+import {
+  calculateTradingTool,
+  getEducationHubSummary,
+  getLiveLearning,
+  getTradingTools,
+  searchEducationResources,
+  suggestedQuestionsForPage,
+} from '../services/educationHubService.js';
 
 const ACADEMY_TRACKS = [
   { id: 'foundation', title: 'Trading and Investing Foundations', lessons: ['candlesticks-price-bars', 'market-structure', 'order-types-execution', 'position-sizing', 'trading-plan'] },
@@ -49,6 +58,9 @@ function ensure(state = {}) {
   state.academyProgress ||= {};
   state.learnerProfiles ||= {};
   state.academyTutorThreads ||= {};
+  state.educationBookmarks ||= {};
+  state.wisdoAssistantThreads ||= {};
+  state.wisdoAssistantUsage ||= {};
   state.supportTickets ||= {};
   state.firms ||= {};
   state.affiliates ||= {};
@@ -296,6 +308,158 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
     res.json({ ok: true, id: payload.id });
   });
 
+
+  app.get('/api/v2/education/hub', requireUser, async (req, res) => {
+    const state = ensure(await loadEcosystemState());
+    const userId = String(req.wisdoUser.id);
+    res.json({
+      ok: true,
+      ...getEducationHubSummary(),
+      tools: getTradingTools(),
+      liveLearning: getLiveLearning(),
+      bookmarks: state.educationBookmarks[userId] || [],
+      learnerProfile: state.learnerProfiles[userId] || null,
+      progress: state.academyProgress[userId] || { completed_lessons: [], quiz_scores: {}, badges: [], score: 0 },
+    });
+  });
+
+  app.get('/api/v2/education/resources', requireUser, async (req, res) => {
+    const state = ensure(await loadEcosystemState());
+    const result = searchEducationResources(req.query || {});
+    const bookmarks = new Set(state.educationBookmarks[String(req.wisdoUser.id)] || []);
+    res.json({ ok: true, ...result, resources: result.resources.map((item) => ({ ...item, bookmarked: bookmarks.has(item.id) })) });
+  });
+
+  app.post('/api/v2/education/resources/:resourceId/bookmark', requireUser, async (req, res) => {
+    const userId = String(req.wisdoUser.id);
+    const bookmark = await mutate(loadEcosystemState, saveEcosystemState, (state) => {
+      const rows = new Set(state.educationBookmarks[userId] || []);
+      const enabled = req.body?.enabled !== false;
+      if (enabled) rows.add(req.params.resourceId); else rows.delete(req.params.resourceId);
+      state.educationBookmarks[userId] = [...rows].slice(0, 2000);
+      audit(state, userId, enabled ? 'education.resource.bookmarked' : 'education.resource.unbookmarked', 'EducationResource', req.params.resourceId);
+      return { enabled, bookmarks: state.educationBookmarks[userId] };
+    });
+    res.json({ ok: true, ...bookmark });
+  });
+
+  app.get('/api/v2/education/tools', requireUser, (req, res) => res.json({ ok: true, tools: getTradingTools() }));
+  app.post('/api/v2/education/tools/:toolId/calculate', requireUser, (req, res) => {
+    try { res.json({ ok: true, ...calculateTradingTool(req.params.toolId, req.body || {}) }); }
+    catch (error) { res.status(400).json({ ok: false, error: error.message }); }
+  });
+  app.get('/api/v2/education/live-learning', requireUser, (req, res) => res.json({ ok: true, sessions: getLiveLearning(), providerReady: Boolean(process.env.WISDO_WEBINAR_PROVIDER_URL), providerUrl: process.env.WISDO_WEBINAR_PROVIDER_URL || null }));
+
+  function assistantUserContext(state, user, page, selectedAccountId = '') {
+    const userId = String(user?.id || 'public');
+    const accounts = Object.values(state.tradingAccounts || {}).filter((row) => String(row.user_id) === userId);
+    const selected = accounts.find((row) => String(row.id) === String(selectedAccountId)) || accounts[0] || null;
+    const trades = Object.values(state.trades || {}).filter((row) => String(row.user_id) === userId);
+    const alerts = state.alerts?.[userId] || [];
+    const rules = Object.values(state.copierRules || {}).filter((row) => String(row.user_id) === userId);
+    const progress = state.academyProgress?.[userId] || { completed_lessons: [], badges: [], score: 0 };
+    const profile = state.learnerProfiles?.[userId] || null;
+    const issues = [];
+    if (selected && !selected.reporter_connected) issues.push('Reporter is not currently fresh.');
+    if (selected && selected.terminal_connected === false) issues.push('MT4 terminal reports disconnected.');
+    if (selected && selected.expert_enabled === false) issues.push('MT4 AutoTrading / Expert execution is disabled.');
+    if (rules.some((row) => row.status === 'active' && !row.last_relay_at)) issues.push('An active Culture Lane has not recorded a relay yet.');
+    return {
+      userId,
+      membershipTier: state.subscriptions?.[userId]?.plan || state.subscriptions?.[userId]?.status || 'basic',
+      currentPage: String(page || '/'),
+      selectedAccount: selected ? { id: selected.id, platform: selected.platform, broker: selected.broker, accountNumber: selected.account_number, status: selected.status, balance: Number(selected.balance || 0), equity: Number(selected.equity || 0), floatingPL: Number(selected.floating_pl || 0), openTrades: Number(selected.open_trades || 0), reporterConnected: Boolean(selected.reporter_connected), terminalConnected: selected.terminal_connected !== false, expertEnabled: selected.expert_enabled !== false } : null,
+      connectedAccounts: accounts.map((row) => ({ id: row.id, nickname: row.nickname, accountNumber: row.account_number, status: row.status, canLead: row.canLead, canReceive: row.canReceive, canExecute: row.canExecute })),
+      copierStatus: { activeRules: rules.filter((row) => row.status === 'active' || row.is_active).length, totalRules: rules.length },
+      activeTrades: trades.filter((row) => row.status === 'open').length,
+      closedTrades: trades.filter((row) => row.status === 'closed').length,
+      unreadAlerts: alerts.filter((row) => !row.read_at).length,
+      lessonProgress: { completed: progress.completed_lessons?.length || 0, badges: progress.badges || [], score: progress.score || 0, profile },
+      issues,
+      permissions: { explain: true, navigate: true, calculate: true, createSupportTicket: Boolean(user?.id), changeSettings: 'confirmation_required', closeTrades: 'confirmation_required', enableRelay: 'confirmation_required', payments: 'external_secure_checkout_only' },
+      suggestedQuestions: suggestedQuestionsForPage(page),
+    };
+  }
+
+  function fallbackAssistantReply(message, context) {
+    const text = String(message || '').toLowerCase();
+    const page = String(context.currentPage || '/');
+    if (text.includes('close') || text.includes('pause') || text.includes('enable') || text.includes('relay')) return 'I can explain the control and take you to the correct account screen, but I will not execute a trade or change a Culture Lane without a visible account-specific confirmation. Review the selected account, Reporter health, route, and command status first.';
+    if (text.includes('candlestick')) return 'A candlestick records open, high, low, and close for one interval. Start by reading body direction, wick exploration, body-to-range ratio, location inside structure, and volatility. Do not treat a candle name as a prediction. Open WISDO Academy and use the candle replay before studying named patterns.';
+    if (text.includes('risk') || text.includes('money')) return 'Define maximum acceptable loss before lot size. Then include stop distance, point value, spread, slippage, correlated open risk, daily loss limits, margin headroom, and household cash boundaries. The Position Size and Drawdown tools in the Education Hub can demonstrate the math.';
+    if (text.includes('copier') || page.includes('copier')) return `Your copier review order is: confirm lead capability, receiver capability, Reporter freshness, AutoTrading, route status, allowed symbols, open-event detection, command delivery, and MT4 completion. ${context.issues.length ? `Current issues: ${context.issues.join(' ')}` : 'No immediate account-health issue is visible in this context.'}`;
+    if (text.includes('lesson') || page.includes('education')) return 'Your lesson should begin with a diagnostic, a worked example, a replay decision, a money-risk exercise, and a checkpoint. WISDO can adjust the explanation to your experience, forex/metals focus, automation goals, and interactive learning preference.';
+    return `I can explain this page, diagnose visible account status, open the right learning or calculator screen, and prepare support details. ${context.issues.length ? `I can already see: ${context.issues.join(' ')}` : 'No immediate account-health warning is visible.'}`;
+  }
+
+  async function handleAssistantChat(req, res, authenticatedOnly = false) {
+    const user = currentUser(req);
+    if (authenticatedOnly && !user) return res.status(401).json({ ok: false, error: 'Authentication required.' });
+    const state = ensure(await loadEcosystemState());
+    const page = String(req.body?.currentPage || req.headers.referer || '/').slice(0, 500);
+    const context = assistantUserContext(state, user, page, req.body?.selectedAccountId);
+    const message = String(req.body?.message || '').trim().slice(0, 8000);
+    if (!message) return res.status(400).json({ ok: false, error: 'Ask WISDO a question.' });
+    const userId = String(user?.id || `public:${req.ip || 'unknown'}`);
+    const today = nowIso().slice(0, 10);
+    const usage = state.wisdoAssistantUsage[userId] || { day: today, count: 0 };
+    if (usage.day !== today) { usage.day = today; usage.count = 0; }
+    const premium = String(context.membershipTier).toLowerCase().includes('premium') || String(context.membershipTier).toLowerCase().includes('active');
+    const limit = user ? (premium ? 200 : 40) : 12;
+    if (usage.count >= limit) return res.status(429).json({ ok: false, error: 'Daily Wisdo AI limit reached for this membership tier.', usage: { ...usage, limit } });
+    let answer = '';
+    let provider = 'wisdo_fallback';
+    const history = (state.wisdoAssistantThreads[userId] || []).slice(-12);
+    if (process.env.OPENAI_API_KEY) {
+      try {
+        const system = `You are Wisdo AI, a page-aware assistant for a trading education and account-control platform. Use the supplied page and account context. Explain, teach, calculate, navigate, and troubleshoot. Never promise profit, provide individualized buy/sell instructions, expose private DF Sauce or HIGHTOWER source code, collect card details, or claim an account action occurred unless the platform confirms it. Closing trades, changing copier settings, enabling automation, or payments require a visible account-specific confirmation through the normal UI. Prefer ordered diagnosis and exact next-screen links. Context: ${JSON.stringify(context)}`;
+        const content = [{ type: 'text', text: message }];
+        if (String(req.body?.attachment?.dataUrl || '').startsWith('data:image/')) content.push({ type: 'image_url', image_url: { url: String(req.body.attachment.dataUrl).slice(0, 2_500_000) } });
+        const response = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: process.env.WISDO_AI_MODEL || 'gpt-4.1-mini', temperature: 0.2, messages: [{ role: 'system', content: system }, ...history.map((row) => ({ role: row.role, content: row.content })), { role: 'user', content }] }) });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) { answer = payload.choices?.[0]?.message?.content || ''; provider = 'openai'; }
+      } catch (error) { logger?.warn?.('Wisdo AI provider fallback', { message: error.message }); }
+    }
+    if (!answer) answer = fallbackAssistantReply(message, context);
+    const actionLinks = [
+      { id: 'education', label: 'Open Education Hub', href: '/app/education' },
+      { id: 'accounts', label: 'Open Accounts', href: '/app/accounts' },
+      { id: 'copier', label: 'Open Copier Engine', href: '/app/copier-engine' },
+      { id: 'support', label: 'Open Support', href: '/contact' },
+    ].filter((item) => message.toLowerCase().includes(item.id) || item.id === 'support' || item.id === 'education').slice(0, 3);
+    const riskyIntent = /(close|flatten|pause|resume|enable|disable|risk setting|copier setting|payment|checkout)/i.test(message);
+    await mutate(loadEcosystemState, saveEcosystemState, (nextState) => {
+      const thread = nextState.wisdoAssistantThreads[userId] ||= [];
+      thread.push({ id: id('wisdo_ai'), role: 'user', content: message, page, createdAt: nowIso() });
+      thread.push({ id: id('wisdo_ai'), role: 'assistant', content: answer, provider, page, createdAt: nowIso() });
+      nextState.wisdoAssistantThreads[userId] = thread.slice(-120);
+      nextState.wisdoAssistantUsage[userId] = { day: today, count: usage.count + 1 };
+      return true;
+    });
+    res.json({ ok: true, answer, provider, context, actionLinks, confirmationRequired: riskyIntent, confirmationMessage: riskyIntent ? 'Use the visible account-specific control and confirmation screen. Wisdo AI did not execute this action.' : null, usage: { day: today, count: usage.count + 1, limit } });
+  }
+
+  app.get('/api/v2/wisdo-ai/history', requireUser, async (req, res) => {
+    const state = ensure(await loadEcosystemState());
+    res.json({ ok: true, messages: (state.wisdoAssistantThreads[String(req.wisdoUser.id)] || []).slice(-60) });
+  });
+  app.delete('/api/v2/wisdo-ai/history', requireUser, async (req, res) => {
+    await mutate(loadEcosystemState, saveEcosystemState, (state) => {
+      state.wisdoAssistantThreads[String(req.wisdoUser.id)] = [];
+      audit(state, req.wisdoUser.id, 'wisdo.ai.history.cleared', 'WisdoAssistantThread', req.wisdoUser.id);
+      return true;
+    });
+    res.json({ ok: true });
+  });
+
+  app.get('/api/wisdo-ai/context', async (req, res) => {
+    const state = ensure(await loadEcosystemState());
+    const user = currentUser(req);
+    res.json({ ok: true, context: assistantUserContext(state, user, req.query.currentPage || req.headers.referer || '/', req.query.selectedAccountId) });
+  });
+  app.post('/api/wisdo-ai/chat', async (req, res) => handleAssistantChat(req, res, false));
+  app.post('/api/v2/wisdo-ai/chat', requireUser, async (req, res) => handleAssistantChat(req, res, true));
+
   app.get('/api/v2/academy/tracks', requireUser, async (req, res) => {
     const state = ensure(await loadEcosystemState());
     const progress = state.academyProgress[req.wisdoUser.id] || { completed_lessons: [], score: 0, badges: [] };
@@ -319,6 +483,15 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
     const course = getAcademyCourse(req.params.courseId);
     if (!course) return res.status(404).json({ ok: false, error: 'Academy course not found.' });
     res.json({ ok: true, course });
+  });
+
+  app.get('/api/v2/academy/courses/:courseId/session', requireUser, async (req, res) => {
+    const course = getAcademyCourse(req.params.courseId);
+    if (!course) return res.status(404).json({ ok: false, error: 'Academy course not found.' });
+    const state = ensure(await loadEcosystemState());
+    const profile = state.learnerProfiles[req.wisdoUser.id] || { experience: 'starter', goals: [], markets: [], interests: [], learningStyle: 'interactive' };
+    const lesson = buildInteractiveLesson(course, profile);
+    res.json({ ok: true, course, lesson, aiTutorReady: Boolean(process.env.OPENAI_API_KEY || process.env.GOOGLE_AI_API_KEY), tutorEndpoint: '/api/v2/academy/tutor' });
   });
 
   app.get('/api/v2/academy/profile', requireUser, async (req, res) => {
@@ -351,7 +524,8 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
       audit(state, req.wisdoUser.id, 'academy.profile.updated', 'LearnerProfile', req.wisdoUser.id, { experience: next.experience, markets: next.markets });
       return next;
     });
-    res.json({ ok: true, profile, path: buildPersonalizedPath(profile) });
+    const personalized = buildPersonalizedPath(profile);
+    res.json({ ok: true, ...personalized, profile });
   });
 
   app.post('/api/v2/academy/path', requireUser, async (req, res) => {

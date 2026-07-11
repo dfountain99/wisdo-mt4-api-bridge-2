@@ -1,0 +1,96 @@
+WISDO V5.3.0 DEPLOYMENT CHECKLIST
+
+SOURCE CONTROL
+[ ] GitHub repository is private because compiled bot products may be included.
+[ ] Replace the current project from the V5.3.0 ZIP; do not nest the ZIP inside the repository.
+[ ] package.json, index.js, and render.yaml are at repository root.
+[ ] Run npm ci.
+[ ] Run npm run check and confirm 16 passed, 0 failed.
+[ ] Push main branch.
+
+RENDER BUILD
+[ ] Build command: npm ci --omit=dev --no-audit --no-fund
+[ ] Start command: npm start
+[ ] Auto Deploy: On Commit
+[ ] Clear build cache for this release.
+[ ] Persistent disk mounted at /var/data.
+[ ] DATA_DIR=/var/data/wisdo
+[ ] WISDO_STORAGE_PATH=/var/data/wisdo
+[ ] WISDO_PERSISTENCE_MODE=json (or postgres after migration)
+
+SECURITY
+[ ] SESSION_SECRET is long and unique.
+[ ] ENCRYPTION_KEY is 32+ random characters.
+[ ] BROKER_WEBHOOK_SECRET is long and unique.
+[ ] CRON_SECRET is long and unique.
+[ ] MT4_SYNC_API_KEY is set.
+[ ] Repository contains no .env, runtime account JSON, logs, or node_modules.
+[ ] WISDO_SYMBOL_AUTOMATCH_EXECUTION_ENABLED=false until demo certification.
+
+MT4 REPORTER
+[ ] Compile CultureCoin Reporter v1.56 in MetaEditor with 0 errors.
+[ ] Remove older Reporter/MACD Sample EA from each follower chart.
+[ ] Attach v1.56.
+[ ] PairingCode is correct.
+[ ] SyncUrl ends in /mt4-sync or approved sync endpoint.
+[ ] EnableCopyTrading=true on receiver terminals.
+[ ] AutoTrading is ON.
+[ ] Reporter dashboard shows v1.56, terminal online, and current sync time.
+[ ] SYNC_ACCOUNT completes successfully.
+
+CULTURE LANE CERTIFICATION
+[ ] Lead account has canLead=true.
+[ ] Receiver account has canReceive=true and canExecute=true.
+[ ] /api/copier/options shows the same accounts as Dashboard.
+[ ] Create one demo route.
+[ ] Lead open creates a COPY_OPEN_TRADE command.
+[ ] Follower opens exactly one matching trade.
+[ ] MT4 completion stores follower ticket.
+[ ] Trades page records lead/follower lifecycle.
+[ ] Lead close queues high-priority COPY_CLOSE_TRADE.
+[ ] Follower closes the exact confirmed ticket.
+[ ] Paused route still closes existing copied positions.
+[ ] Duplicate open event does not duplicate the follower trade.
+
+DATA PAGES
+[ ] /app/trades shows Reporter open trades and closed history.
+[ ] /app/analyzer shows equity telemetry after snapshots arrive.
+[ ] Win rate and symbol heatmap appear after confirmed closed trades exist.
+[ ] /app/alerts shows trade, relay, account-health, and connection events.
+[ ] Empty states say what data is missing instead of showing fake statistics.
+
+EDUCATION HUB
+[ ] Rebuild learning path opens the first lesson automatically.
+[ ] First lesson shows five interactive stages and a knowledge check.
+[ ] Course catalog search returns courses.
+[ ] Resource Center search and bookmarks work.
+[ ] All eight calculators return results and educational warnings.
+[ ] Live Learning shows setup-ready until provider URL is configured.
+[ ] DF Sauce source is not visible or downloadable.
+[ ] Private TradingView layout opens only through configured URL.
+
+WISDO AI
+[ ] Floating assistant appears on public and authenticated pages.
+[ ] Assistant sees only the authenticated member's accounts.
+[ ] Selected account changes update assistant context.
+[ ] Page-specific suggested questions appear.
+[ ] Voice input works in a supported browser.
+[ ] Screenshot attachment rejects files over 2 MB.
+[ ] History persists and can be cleared.
+[ ] Public/basic/premium daily limits behave correctly.
+[ ] Close/pause/relay/payment requests produce confirmation warning and do not execute in chat.
+
+OPTIONAL PROVIDERS
+[ ] OPENAI_API_KEY and WISDO_AI_MODEL configured for live AI.
+[ ] WISDO_DF_SAUCE_TRADINGVIEW_URL configured to private layout.
+[ ] WISDO_WEBINAR_PROVIDER_URL configured for live room.
+[ ] Stripe keys and webhook configured.
+[ ] Resend configured.
+[ ] VAPID configured.
+[ ] Market providers configured.
+[ ] PostgreSQL/Supabase migration applied if using database mode.
+
+FINAL TEST
+[ ] Test with two demo MT4 accounts.
+[ ] Test open, modify, pending order, partial close, full close, reconnect, duplicate event, stale heartbeat, and paused-route close.
+[ ] Do not enable live symbol substitution or live-money relay until every demo test passes.

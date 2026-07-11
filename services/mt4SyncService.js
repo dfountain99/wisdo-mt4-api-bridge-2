@@ -150,6 +150,7 @@ export class Mt4SyncService {
     this.copyTradingService = copyTradingService;
     this.wisdoMemoryService = wisdoMemoryService;
     this.requestTimestamps = new Map();
+    this.productEventSink = null;
   }
 
   attachWisdoMemoryService(service) {
@@ -158,6 +159,10 @@ export class Mt4SyncService {
 
   attachCopyTradingService(service) {
     this.copyTradingService = service;
+  }
+
+  attachProductEventSink(sink) {
+    this.productEventSink = sink || null;
   }
 
   getPublicBaseUrl() {
@@ -495,14 +500,33 @@ export class Mt4SyncService {
           closed += 1;
           const signalId = tracking.tradeKeyToSignalId?.[oldKey] || null;
           const [, sourceTicket = ''] = String(oldKey).split('|');
+          const closedSymbol = String(oldKey).split('|')[3] || '';
+          const closedSide = String(oldKey).split('|')[4] || '';
+          if (this.tradeSignalService?.queueAutoCopyCloseRoutes && sourceTicket) {
+            try {
+              await this.tradeSignalService.queueAutoCopyCloseRoutes({
+                signalId,
+                leaderAccountId: accountId,
+                sourceTicket,
+                symbol: closedSymbol,
+                side: closedSide,
+              });
+            } catch (error) {
+              logger.warn('Culture Lane close command creation failed during MT4 sync.', {
+                accountId,
+                sourceTicket,
+                message: error.message,
+              });
+            }
+          }
           if (this.copyTradingService && sourceTicket) {
             try {
               await this.copyTradingService.queueMasterSignal({
                 masterUserId: connectionRecord.discordUserId,
                 masterAccountNumber: connectionRecord.accountNumber,
                 sourceTicket,
-                symbol: String(oldKey).split('|')[3] || '',
-                side: String(oldKey).split('|')[4] || '',
+                symbol: closedSymbol,
+                side: closedSide,
                 lots: 0.01,
                 action: 'close',
                 signalId,
@@ -543,6 +567,8 @@ export class Mt4SyncService {
       isDemo: toBoolean(payload.isDemo, false),
       eaName: String(payload.eaName || '').trim(),
       eaVersion: String(payload.eaVersion || '').trim(),
+      reporterVersion: String(payload.reporterVersion || '').trim(),
+      reporterCapabilities: toStringArray(payload.reporterCapabilities),
       magicNumberFilter: toInteger(payload.magicNumberFilter) || 0,
       symbolFilter: String(payload.symbolFilter || '').trim(),
       balance: toNumber(payload.balance),
@@ -748,6 +774,16 @@ export class Mt4SyncService {
       receivedAt,
     };
 
+    if (this.productEventSink?.prepareSnapshot) {
+      await this.productEventSink.prepareSnapshot({ connectionRecord, latestSnapshotRecord }).catch((error) => {
+        logger.warn('WISDO product relay preparation failed before MT4 signal processing.', {
+          discordUserId: pairingRecord.discordUserId,
+          accountId,
+          message: error.message,
+        });
+      });
+    }
+
     const signalSummary = await this.processTradeSignals({ connectionRecord, latestSnapshotRecord });
 
     const historyRecord = {
@@ -806,6 +842,16 @@ export class Mt4SyncService {
     if (this.wisdoMemoryService?.updateFromSnapshot) {
       await this.wisdoMemoryService.updateFromSnapshot({ connectionRecord, latestSnapshotRecord }).catch((error) => {
         logger.warn('WISDO memory update failed after MT4 sync.', {
+          discordUserId: pairingRecord.discordUserId,
+          accountId,
+          message: error.message,
+        });
+      });
+    }
+
+    if (this.productEventSink?.ingestSnapshot) {
+      await this.productEventSink.ingestSnapshot({ connectionRecord, latestSnapshotRecord, signalSummary }).catch((error) => {
+        logger.warn('WISDO product ledger update failed after MT4 sync.', {
           discordUserId: pairingRecord.discordUserId,
           accountId,
           message: error.message,
@@ -923,9 +969,9 @@ async resetUserAccount(discordUserId) {
       'Student setup:',
       '',
       '1. Open MT4.',
-      '2. Compile the attached CultureCoin_MT4_Reporter.mq4 in MetaEditor and install the resulting v1.55 EX4 into MQL4 -> Experts.',
+      '2. Compile the attached CultureCoin_MT4_Reporter.mq4 in MetaEditor and install the resulting v1.56 EX4 into MQL4 -> Experts.',
       '3. Remove the older Reporter from the follower chart, then restart MT4 or refresh Navigator.',
-      '4. Attach the newly compiled CultureCoin_MT4_Reporter v1.55 to any chart.',
+      '4. Attach the newly compiled CultureCoin_MT4_Reporter v1.56 to any chart.',
       '5. Paste this pairing code into the PairingCode input.',
       `6. Set SyncUrl to: ${syncUrl}`,
       apiKeyStep,

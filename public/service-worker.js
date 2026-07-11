@@ -1,7 +1,7 @@
-const CACHE_NAME = 'wisdo-shell-v5';
+const CACHE_NAME = 'wisdo-shell-v5.3';
 const SHELL = [
   '/', '/pricing', '/copier', '/analyzer', '/compare', '/academy',
-  '/js/workspace.js', '/media/wisdo-og.svg', '/platforms/mt4.svg',
+  '/js/workspace.js', '/js/wisdo-assistant.js', '/js/df-sauce-academy.js', '/media/wisdo-og.svg', '/platforms/mt4.svg',
   '/platforms/mt5.svg', '/platforms/ctrader.svg'
 ];
 

@@ -56,6 +56,7 @@ function normalizeCopyRisk(risk = {}) {
     maxDailyLossPercent: Number(next.maxDailyLossPercent ?? 0),
     maxDrawdownPercent: Number(next.maxDrawdownPercent ?? 0),
     allowedSymbols: Array.isArray(next.allowedSymbols) ? next.allowedSymbols.map((x) => String(x).toUpperCase()).filter(Boolean) : [],
+    symbolMapping: next.symbolMapping && typeof next.symbolMapping === 'object' ? { ...next.symbolMapping } : {},
     blockedSymbols: Array.isArray(next.blockedSymbols) ? next.blockedSymbols.map((x) => String(x).toUpperCase()).filter(Boolean) : [],
     copyBuys: next.copyBuys !== undefined ? Boolean(next.copyBuys) : true,
     copySells: next.copySells !== undefined ? Boolean(next.copySells) : true,
@@ -72,7 +73,7 @@ function normalizeCopyRisk(risk = {}) {
   if (!Number.isFinite(out.riskPercent) || out.riskPercent <= 0) out.riskPercent = 1;
   if (!Number.isFinite(out.maxLot) || out.maxLot <= 0) out.maxLot = 0.05;
   if (!Number.isFinite(out.maxOpenTrades) || out.maxOpenTrades <= 0) out.maxOpenTrades = 5;
-  if (!['fixed_lot', 'multiplier', 'same_lot', 'equity_ratio', 'risk_percent'].includes(out.mode)) out.mode = 'fixed_lot';
+  if (!['fixed_lot', 'multiplier', 'same_lot', 'equity_ratio', 'balance_ratio', 'risk_percent'].includes(out.mode)) out.mode = 'fixed_lot';
   return out;
 }
 
@@ -96,10 +97,11 @@ function calculateCopyLots({ signal, account = {}, riskMode = 'fixed_001', risk 
       lot = signalLot;
     } else if (settings.mode === 'multiplier') {
       lot = signalLot * Number(settings.multiplier || 1);
-    } else if (settings.mode === 'equity_ratio') {
-      const leaderEquity = Number(signal?.equity || 0);
-      const followerEquity = Number(account?.latestSnapshot?.snapshot?.equity || account?.equity || 0);
-      const ratio = leaderEquity > 0 && followerEquity > 0 ? followerEquity / leaderEquity : Number(settings.multiplier || 1);
+    } else if (settings.mode === 'equity_ratio' || settings.mode === 'balance_ratio') {
+      const useBalance = settings.mode === 'balance_ratio';
+      const leaderBase = Number(useBalance ? signal?.balance : signal?.equity || 0);
+      const followerBase = Number(useBalance ? (account?.latestSnapshot?.snapshot?.balance || account?.balance || 0) : (account?.latestSnapshot?.snapshot?.equity || account?.equity || 0));
+      const ratio = leaderBase > 0 && followerBase > 0 ? followerBase / leaderBase : Number(settings.multiplier || 1);
       lot = signalLot * ratio * Number(settings.multiplier || 1);
     } else if (settings.mode === 'risk_percent') {
       const leaderRisk = Number(signal?.leaderRiskPercent || settings.masterRiskPercent || 0);
@@ -413,6 +415,8 @@ export class TradeSignalService {
       const risk = normalizeCopyRisk(accountWithRisk.copyRisk || {});
       const lots = roundLot(calculateCopyLots({ signal, account: accountWithRisk, riskMode: 'website_auto', risk }));
       const side = risk.reverseCopy ? (signal.side === 'BUY' ? 'sell' : 'buy') : signal.side.toLowerCase();
+      const leaderSymbol = String(signal.symbol || '').toUpperCase();
+      const followerSymbol = String(risk.symbolMapping?.[leaderSymbol] || leaderSymbol).toUpperCase();
       const payload = {
         accountId: account.accountId,
         accountNumber: account.accountNumber,
@@ -424,7 +428,12 @@ export class TradeSignalService {
         leaderAccountId: signal.leaderAccountId,
         leaderAccountNumber: signal.leaderAccountNumber,
         sourceTicket: signal.sourceTicket,
-        symbol: signal.symbol,
+        leaderTicket: signal.sourceTicket,
+        masterTicket: signal.sourceTicket,
+        leaderSymbol,
+        masterSymbol: leaderSymbol,
+        followerSymbol,
+        symbol: followerSymbol,
         side,
         direction: side,
         lots,
@@ -440,7 +449,17 @@ export class TradeSignalService {
         copyRisk: risk,
       };
       const command = await this.mt4CommandService.queueCommandForAccount(route.ownerUserId, account.accountId, 'COPY_OPEN_TRADE', payload);
-      queued.push({ routeId: route.routeId, accountId: account.accountId, commandId: command.id, lots });
+      queued.push({
+        routeId: route.routeId,
+        ownerUserId: route.ownerUserId,
+        accountId: account.accountId,
+        commandId: command.id,
+        sourceTicket: signal.sourceTicket,
+        leaderAccountId: signal.leaderAccountId,
+        leaderSymbol,
+        followerSymbol,
+        lots,
+      });
     }
     if (queued.length) {
       const data = await this.load();
@@ -450,6 +469,91 @@ export class TradeSignalService {
         saved.autoTakes.push(...queued.map((item) => ({ ...item, queuedAt: new Date().toISOString() })));
         await this.save(data);
         await this.updateSignalMessage(signal.signalId).catch(() => null);
+      }
+    }
+    return queued;
+  }
+
+  async queueAutoCopyCloseRoutes({ signalId, leaderAccountId, sourceTicket, symbol = '', side = '' } = {}) {
+    if (!this.mt4CommandService?.queueCommandForAccount) return [];
+    const data = await this.load();
+    const signal = data.signalsById?.[signalId] || null;
+    const stableSourceTicket = String(sourceTicket || signal?.sourceTicket || '');
+    const stableLeaderAccountId = String(leaderAccountId || signal?.leaderAccountId || '');
+    let takes = Array.isArray(signal?.autoTakes) ? signal.autoTakes : [];
+
+    // Recovery for signals created before autoTakes were persisted.
+    if (!takes.length && stableLeaderAccountId && this.repository.getActiveCopyRoutesForLeader) {
+      const routes = await this.repository.getActiveCopyRoutesForLeader(stableLeaderAccountId);
+      takes = routes.map((route) => ({
+        routeId: route.routeId,
+        ownerUserId: route.ownerUserId,
+        accountId: route.followerAccountId,
+        sourceTicket: stableSourceTicket,
+      }));
+    }
+
+    const alreadyQueued = new Set((signal?.autoCloses || []).map((item) => `${item.routeId}:${item.accountId}:${item.sourceTicket}`));
+    const queued = [];
+    for (const take of takes) {
+      const routeKey = `${take.routeId}:${take.accountId}:${stableSourceTicket}`;
+      if (alreadyQueued.has(routeKey)) continue;
+      let openCommand = null;
+      if (take.commandId && this.mt4CommandService.getCommandStatus) {
+        openCommand = await this.mt4CommandService.getCommandStatus(take.ownerUserId, take.commandId, take.accountId).catch(() => null);
+      }
+      const followerTicket = String(
+        openCommand?.result?.ticket ??
+        openCommand?.result?.followerTicket ??
+        openCommand?.payload?.followerTicket ??
+        take.followerTicket ??
+        '',
+      );
+      const followerSymbol = String(
+        openCommand?.payload?.followerSymbol ||
+        openCommand?.payload?.symbol ||
+        take.followerSymbol ||
+        symbol ||
+        signal?.symbol ||
+        '',
+      ).toUpperCase();
+      const ownerUserId = String(take.ownerUserId || openCommand?.userId || '');
+      if (!ownerUserId || !take.accountId) {
+        this.logger?.warn?.('Auto-copy close skipped because route ownership is missing.', { signalId, routeId: take.routeId, accountId: take.accountId });
+        continue;
+      }
+      const payload = {
+        accountId: take.accountId,
+        signalId: signalId || signal?.signalId || '',
+        routeId: take.routeId,
+        source: 'website_auto_copy_route_close',
+        sourceTicket: stableSourceTicket,
+        leaderTicket: stableSourceTicket,
+        masterTicket: stableSourceTicket,
+        followerTicket: followerTicket || undefined,
+        leaderAccountId: stableLeaderAccountId,
+        followerAccountId: take.accountId,
+        leaderSymbol: String(signal?.symbol || symbol || '').toUpperCase(),
+        masterSymbol: String(signal?.symbol || symbol || '').toUpperCase(),
+        followerSymbol,
+        symbol: followerSymbol,
+        side: side || signal?.side || '',
+        confirmation: 'confirmed',
+        closeAuthority: true,
+      };
+      const command = await this.mt4CommandService.queueCommandForAccount(ownerUserId, take.accountId, 'COPY_CLOSE_TRADE', payload);
+      queued.push({ routeId: take.routeId, ownerUserId, accountId: take.accountId, commandId: command.id, sourceTicket: stableSourceTicket, followerTicket: followerTicket || null, followerSymbol });
+    }
+
+    if (signal && queued.length) {
+      const latest = await this.load();
+      const saved = latest.signalsById?.[signal.signalId];
+      if (saved) {
+        saved.autoCloses ||= [];
+        saved.autoCloses.push(...queued.map((item) => ({ ...item, queuedAt: new Date().toISOString() })));
+        saved.status = 'closing';
+        saved.updatedAt = new Date().toISOString();
+        await this.save(latest);
       }
     }
     return queued;

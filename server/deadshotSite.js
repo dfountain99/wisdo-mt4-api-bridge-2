@@ -1122,7 +1122,7 @@ function siteScript() {
     document.querySelectorAll('[data-cancel-broker]').forEach((b)=>b.addEventListener('click',async()=>{ const r=await fetch('/api/me/broker-link-requests/'+encodeURIComponent(b.dataset.cancelBroker),{method:'DELETE'}); alert(JSON.stringify(await r.json().catch(()=>({ok:false})),null,2)); location.reload(); }));
     document.querySelectorAll('[data-approve-request]').forEach((b)=>b.addEventListener('click',async()=>{ const r=await fetch('/api/me/access-requests/'+encodeURIComponent(b.dataset.approveRequest)+'/approve',{method:'POST'}); alert(JSON.stringify(await r.json().catch(()=>({ok:false})),null,2)); location.reload(); }));
     document.querySelectorAll('[data-reject-request]').forEach((b)=>b.addEventListener('click',async()=>{ const r=await fetch('/api/me/access-requests/'+encodeURIComponent(b.dataset.rejectRequest)+'/reject',{method:'POST'}); alert(JSON.stringify(await r.json().catch(()=>({ok:false})),null,2)); location.reload(); }));
-  </script>`;
+  </script><script src="/js/wisdo-assistant.js" defer></script>`;
 }
 
 function publicNavHtml(active = '/') {

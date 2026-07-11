@@ -1,12 +1,12 @@
-Culture Coin MT4 Reporter v1.55 — Close Authority Setup
+Culture Coin MT4 Reporter v1.56 — Sync Account + Close Authority Setup
 
 ACTIVE FILES
-- CultureCoin_MT4_Reporter.mq4  (v1.55 source — compile this in MetaEditor)
+- CultureCoin_MT4_Reporter.mq4  (v1.56 source — compile this in MetaEditor)
 - CultureCoin_MT4_Reporter_Package.zip
 
 IMPORTANT
 The older compiled EX4 from the previous package does NOT contain the lead-close repair.
-Every follower terminal must compile and install the v1.55 MQ4 source before testing.
+Every follower terminal must compile and install the v1.56 MQ4 source before testing.
 
 INSTALL / UPGRADE
 1. In MT4 choose File -> Open Data Folder.
@@ -21,7 +21,7 @@ INSTALL / UPGRADE
 10. Turn MT4 AutoTrading ON.
 11. In Tools -> Options -> Expert Advisors, allow WebRequest for the WISDO base URL only, for example:
     https://wisdo-mt4-api-bridge.onrender.com
-12. Confirm the Reporter dashboard displays v1.55 and FOLLOWER COPY ON.
+12. Confirm the Reporter dashboard displays v1.56 and FOLLOWER COPY ON.
 
 REQUIRED REPORTER URLS
 - Sync: <base-url>/mt4-sync
@@ -45,3 +45,9 @@ NASUSD=NAS100;US30=US30.cash;XAUUSD=XAUUSDm
 
 SAFETY
 Keep WISDO_SYMBOL_AUTOMATCH_EXECUTION_ENABLED=false until two demo accounts pass open, close, reconnect, duplicate-webhook, and stale-heartbeat tests.
+
+SYNC_ACCOUNT CERTIFICATION
+1. From WISDO Accounts click Sync / Refresh.
+2. Confirm MT4 logs: SYNC_ACCOUNT -> Account synchronized.
+3. Confirm Dashboard balance, equity, positions, terminal and Expert status update immediately.
+4. Confirm the command history is completed rather than unsupported.

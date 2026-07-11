@@ -112,6 +112,7 @@ function normalizeCopyRisk(input = {}, previous = {}) {
     maxDailyLossPercent: Number(src.maxDailyLossPercent ?? prev.maxDailyLossPercent ?? 0),
     maxDrawdownPercent: Number(src.maxDrawdownPercent ?? prev.maxDrawdownPercent ?? 0),
     allowedSymbols: Array.isArray(src.allowedSymbols) ? src.allowedSymbols.map(String).filter(Boolean) : (Array.isArray(prev.allowedSymbols) ? prev.allowedSymbols : []),
+    symbolMapping: src.symbolMapping && typeof src.symbolMapping === 'object' ? { ...src.symbolMapping } : (prev.symbolMapping && typeof prev.symbolMapping === 'object' ? { ...prev.symbolMapping } : {}),
     blockedSymbols: Array.isArray(src.blockedSymbols) ? src.blockedSymbols.map(String).filter(Boolean) : (Array.isArray(prev.blockedSymbols) ? prev.blockedSymbols : []),
     copyBuys: src.copyBuys !== undefined ? Boolean(src.copyBuys) : Boolean(prev.copyBuys ?? true),
     copySells: src.copySells !== undefined ? Boolean(src.copySells) : Boolean(prev.copySells ?? true),
@@ -128,7 +129,7 @@ function normalizeCopyRisk(input = {}, previous = {}) {
   if (!Number.isFinite(next.riskPercent) || next.riskPercent <= 0) next.riskPercent = 1;
   if (!Number.isFinite(next.maxLot) || next.maxLot <= 0) next.maxLot = 0.05;
   if (!Number.isFinite(next.maxOpenTrades) || next.maxOpenTrades < 1) next.maxOpenTrades = 5;
-  if (!['fixed_lot', 'multiplier', 'same_lot', 'equity_ratio', 'risk_percent'].includes(next.mode)) next.mode = 'fixed_lot';
+  if (!['fixed_lot', 'multiplier', 'same_lot', 'equity_ratio', 'balance_ratio', 'risk_percent'].includes(next.mode)) next.mode = 'fixed_lot';
   return next;
 }
 
@@ -885,10 +886,12 @@ export class OperatorDeskRepository {
       const follower = state.connectionsByAccountId?.[route.followerAccountId];
       if (!follower || String(follower.discordUserId) !== userId) return state;
       const leader = state.connectionsByAccountId?.[route.leaderAccountId];
+      const leaderSettings = state.accountSettingsByAccountId?.[route.leaderAccountId] || {};
       const hasSharedLeader = Object.values(state.accountSharesById || {}).some((share) =>
         String(share.targetUserId) === userId && String(share.accountId) === String(route.leaderAccountId) && ['copy_allowed','control_allowed','admin','signal_only'].includes(normalizePermission(share.permission)) && String(share.status || 'active') === 'active'
       );
-      if (!leader || (String(leader.discordUserId) !== userId && !hasSharedLeader)) return state;
+      const communityVisible = ['community','public','copy_allowed'].includes(String(leaderSettings.visibility || leaderSettings.copyPermission || leader.copyPermission || '').toLowerCase());
+      if (!leader || (String(leader.discordUserId) !== userId && !hasSharedLeader && !communityVisible)) return state;
       state.copyRoutesById ||= {};
       const previous = state.copyRoutesById[routeId] || {};
       saved = {

@@ -104,7 +104,7 @@ function getReporterDelivery() {
     notes.push('Reporter file is attached below: `CultureCoin_MT4_Reporter.ex4`.');
   } else if (existsSync(sourcePath)) {
     notes.push(
-      'Reporter v1.55 source is attached below: `CultureCoin_MT4_Reporter.mq4`. Compile it in MetaEditor, replace the older Reporter on every follower terminal, and confirm the chart dashboard says v1.55 before testing lead-close relay.',
+      'Reporter v1.56 source is attached below: `CultureCoin_MT4_Reporter.mq4`. Compile it in MetaEditor, replace the older Reporter on every follower terminal, and confirm the chart dashboard says v1.56 before testing lead-close relay.',
     );
   } else {
     notes.push('Reporter files are not bundled in this bot workspace yet, so ask staff for the MT4 reporter package.');
@@ -121,8 +121,8 @@ function buildNoSnapshotEmbed(status, mt4SyncService) {
   const setupWarnings = buildWarningSection(status);
   const setupSteps = [
     '1. Run /connect-mt4 if you still need a pairing code.',
-    '2. Compile the attached CultureCoin_MT4_Reporter.mq4 in MetaEditor and install the resulting v1.55 EX4 into MQL4 -> Experts.',
-    '3. Remove the older Reporter, then attach the newly compiled Reporter v1.55 to any chart.',
+    '2. Compile the attached CultureCoin_MT4_Reporter.mq4 in MetaEditor and install the resulting v1.56 EX4 into MQL4 -> Experts.',
+    '3. Remove the older Reporter, then attach the newly compiled Reporter v1.56 to any chart.',
     `4. Set SyncUrl to ${mt4SyncService.getSyncUrl()}.`,
   ];
 

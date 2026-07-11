@@ -307,6 +307,31 @@ create table if not exists public.academy_tutor_messages (
 );
 create index if not exists academy_tutor_messages_user_time_idx on public.academy_tutor_messages(user_id,created_at desc);
 
+create table if not exists public.education_resource_bookmarks (
+  id uuid primary key default gen_random_uuid(), user_id uuid references auth.users(id) on delete cascade not null,
+  resource_id text not null, created_at timestamptz default now(), unique(user_id,resource_id)
+);
+
+create table if not exists public.wisdo_ai_messages (
+  id uuid primary key default gen_random_uuid(), user_id uuid references auth.users(id) on delete cascade not null,
+  role text not null check(role in ('user','assistant')), content text not null, current_page text,
+  selected_account_id uuid references public.trading_accounts(id) on delete set null, provider text, metadata jsonb default '{}',
+  created_at timestamptz default now()
+);
+create index if not exists wisdo_ai_messages_user_time_idx on public.wisdo_ai_messages(user_id,created_at desc);
+
+create table if not exists public.wisdo_ai_usage (
+  user_id uuid references auth.users(id) on delete cascade not null, usage_date date not null default current_date,
+  request_count integer not null default 0, updated_at timestamptz default now(), primary key(user_id,usage_date)
+);
+
+create table if not exists public.live_learning_sessions (
+  id uuid primary key default gen_random_uuid(), title text not null, session_type text not null, description text,
+  difficulty text default 'starter', duration_minutes integer default 30, starts_at timestamptz, provider_url text,
+  status text default 'draft', recording_url text, published boolean default false,
+  created_at timestamptz default now(), updated_at timestamptz default now()
+);
+
 create table if not exists public.support_tickets (
   id uuid primary key default gen_random_uuid(), user_id uuid references auth.users(id) on delete set null,
   subject text not null, body text not null, status text default 'open', priority text default 'normal',
@@ -354,6 +379,10 @@ alter table public.academy_lessons enable row level security;
 alter table public.academy_progress enable row level security;
 alter table public.academy_learner_profiles enable row level security;
 alter table public.academy_tutor_messages enable row level security;
+alter table public.education_resource_bookmarks enable row level security;
+alter table public.wisdo_ai_messages enable row level security;
+alter table public.wisdo_ai_usage enable row level security;
+alter table public.live_learning_sessions enable row level security;
 alter table public.support_tickets enable row level security;
 alter table public.audit_logs enable row level security;
 
@@ -379,6 +408,11 @@ DO $$ BEGIN CREATE POLICY academy_lessons_public ON public.academy_lessons FOR S
 DO $$ BEGIN CREATE POLICY academy_progress_own ON public.academy_progress FOR ALL TO authenticated USING(auth.uid()=user_id) WITH CHECK(auth.uid()=user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE POLICY academy_profiles_own ON public.academy_learner_profiles FOR ALL TO authenticated USING(auth.uid()=user_id) WITH CHECK(auth.uid()=user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE POLICY academy_tutor_own ON public.academy_tutor_messages FOR ALL TO authenticated USING(auth.uid()=user_id) WITH CHECK(auth.uid()=user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY education_bookmarks_own ON public.education_resource_bookmarks FOR ALL TO authenticated USING(auth.uid()=user_id) WITH CHECK(auth.uid()=user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY wisdo_ai_messages_own ON public.wisdo_ai_messages FOR ALL TO authenticated USING(auth.uid()=user_id) WITH CHECK(auth.uid()=user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY wisdo_ai_usage_own ON public.wisdo_ai_usage FOR SELECT TO authenticated USING(auth.uid()=user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY live_learning_public ON public.live_learning_sessions FOR SELECT TO authenticated USING(published OR public.has_role(auth.uid(),'admin')); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY live_learning_admin_write ON public.live_learning_sessions FOR ALL TO authenticated USING(public.has_role(auth.uid(),'admin')) WITH CHECK(public.has_role(auth.uid(),'admin')); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE POLICY tickets_own_read ON public.support_tickets FOR SELECT TO authenticated USING(auth.uid()=user_id OR public.has_role(auth.uid(),'admin')); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE POLICY tickets_own_insert ON public.support_tickets FOR INSERT TO authenticated WITH CHECK(auth.uid()=user_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE POLICY audit_admin_read ON public.audit_logs FOR SELECT TO authenticated USING(public.has_role(auth.uid(),'admin')); EXCEPTION WHEN duplicate_object THEN NULL; END $$;

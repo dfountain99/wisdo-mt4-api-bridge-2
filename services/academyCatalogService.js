@@ -165,6 +165,124 @@ function buildCourse(domain, level, patternIndex) {
   };
 }
 
+
+function domainSpecificTeaching(domain, level) {
+  const tagText = domain.tags.join(', ');
+  if (domain.id === 'candlesticks-price-bars') {
+    return {
+      vocabulary: [
+        { term: 'Open', meaning: 'The first traded price in the selected time interval.' },
+        { term: 'High', meaning: 'The highest traded price during that interval.' },
+        { term: 'Low', meaning: 'The lowest traded price during that interval.' },
+        { term: 'Close', meaning: 'The final traded price when the interval ends.' },
+        { term: 'Body', meaning: 'The distance between open and close; it shows net movement, not certainty.' },
+        { term: 'Wick', meaning: 'Price explored beyond the body before the interval closed.' },
+      ],
+      workedExample: 'A candle opens at 100, trades to 106, falls to 98, and closes at 104. Its body is 4 points, upper wick is 2 points, and lower wick is 2 points. The candle shows the path inside one interval; it does not prove the next candle will rise.',
+      misconception: 'A candle pattern is not a standalone prediction. Location, market structure, volatility, liquidity, timeframe, and risk determine whether it has decision value.',
+      lab: 'Label the open, high, low, close, body, and wicks on three candles. Then compare the same candle shape at support, in the middle of a range, and after an extended trend.',
+    };
+  }
+  if (domain.id === 'algorithmic-trading' || domain.id === 'data-engineering' || domain.id === 'cybersecurity-operations') {
+    return {
+      vocabulary: [
+        { term: 'Signal', meaning: 'A defined condition that creates a proposed action.' },
+        { term: 'Execution', meaning: 'The process that converts an approved action into an order.' },
+        { term: 'State', meaning: 'The stored facts the system depends on, such as open tickets, account equity, and route status.' },
+        { term: 'Idempotency', meaning: 'Repeating the same event does not create duplicate trades or duplicate records.' },
+        { term: 'Fail-safe', meaning: 'A known recovery behavior when data, connectivity, or execution is unavailable.' },
+      ],
+      workedExample: 'A lead trade event should be detected once, validated against a Culture Lane, queued to one follower account, confirmed by the Reporter, stored in the trade ledger, and closed by the original follower ticket. Every stage needs a traceable status.',
+      misconception: 'High win rate does not make an unstable system safe. Reliability, loss size, slippage, drawdown, duplicate protection, and close authority are separate engineering requirements.',
+      lab: 'Draw the full event chain from lead snapshot to follower close. For every step, write the expected input, output, timeout, retry policy, and recovery state.',
+    };
+  }
+  if (domain.id === 'drawdown-risk-of-ruin' || domain.id === 'position-sizing' || domain.id === 'trade-management') {
+    return {
+      vocabulary: [
+        { term: 'Risk per trade', meaning: 'The amount of account value that can be lost if invalidation is reached.' },
+        { term: 'Drawdown', meaning: 'The decline from an account equity peak to a later low.' },
+        { term: 'Risk of ruin', meaning: 'The probability of losing enough capital that the strategy or account cannot continue normally.' },
+        { term: 'Expectancy', meaning: 'Average outcome per trade after wins, losses, costs, and frequency are included.' },
+      ],
+      workedExample: 'A system can win 80% of the time and still lose money if its average loss is much larger than its average win. Another system can win 40% and remain profitable when wins are sufficiently larger than losses and drawdown is controlled.',
+      misconception: 'Explosive wins should never be treated as a reason to remove loss limits. Positive skew is useful only when the account survives normal losing sequences.',
+      lab: 'Compare three position sizes across the same ten-trade losing sequence. Record ending equity, maximum drawdown, margin pressure, and the number of losses required to recover.',
+    };
+  }
+  return {
+    vocabulary: domain.tags.slice(0, 5).map((term) => ({ term, meaning: `A core ${level.title.toLowerCase()} concept used when studying ${domain.title}.` })),
+    workedExample: `Compare two examples of ${domain.title}: one where the evidence, invalidation, and risk are defined before action, and one where the decision is made after price has already moved. Identify which facts were available at decision time.`,
+    misconception: `${domain.title} should not be reduced to a single indicator, social-media rule, or guaranteed outcome. It must be evaluated inside market context and account-level risk.`,
+    lab: `Use replay or historical data to find five different examples of ${tagText}. Record the environment, evidence, invalidation, maximum loss, alternative action, and result without changing the original rules.`,
+  };
+}
+
+export function buildInteractiveLesson(course, profile = {}) {
+  if (!course) return null;
+  const domain = ACADEMY_DOMAINS.find((item) => item.id === course.domainId);
+  const level = LEVELS.find((item) => item.id === course.level) || LEVELS[0];
+  const teaching = domainSpecificTeaching(domain, level);
+  const learnerGoal = normalizeList(profile.goals).join(', ') || 'build repeatable skill while protecting capital';
+  const markets = normalizeList(profile.markets).join(', ') || 'multiple markets';
+  return {
+    id: `${course.id}-interactive-session`,
+    courseId: course.id,
+    title: course.title,
+    learnerContext: { experience: level.id, learningStyle: profile.learningStyle || 'interactive', goals: learnerGoal, markets },
+    scenes: [
+      {
+        id: 'diagnostic',
+        title: 'Start with what you already know',
+        explanation: `This lesson begins at the ${level.title} level. Before adding terminology, explain what you currently believe ${domain.title} means and where you have seen it in ${markets}.`,
+        demonstration: 'WISDO compares your explanation with the lesson vocabulary and adjusts the next reply through the AI tutor.',
+        activity: `Write one thing you know, one thing you are unsure about, and one result you want from this lesson. Your larger goal is: ${learnerGoal}.`,
+        checkpoint: { question: 'What should happen before a lesson increases in difficulty?', choices: ['Confirm current understanding', 'Assume expert knowledge', 'Skip risk', 'Place a live trade'], answer: 0 },
+      },
+      {
+        id: 'language',
+        title: 'Build the working language',
+        explanation: 'Terms matter because vague language creates vague rules. Learn each term, then explain it in your own words and point to an example.',
+        demonstration: teaching.workedExample,
+        activity: teaching.vocabulary.map((item) => `${item.term}: ${item.meaning}`).join('\n'),
+        vocabulary: teaching.vocabulary,
+        checkpoint: { question: `Which approach best demonstrates understanding of ${domain.title}?`, choices: ['Define it and identify it in context', 'Memorize a name only', 'Assume it predicts profit', 'Ignore invalidation'], answer: 0 },
+      },
+      {
+        id: 'context',
+        title: 'Read context before action',
+        explanation: teaching.misconception,
+        demonstration: `Study how ${domain.title} changes across trend, range, high volatility, low liquidity, news, and different timeframes. The same visible pattern can have different meaning in each environment.`,
+        activity: 'Create a two-column comparison: evidence that supports the idea and evidence that cancels it. Include a no-trade condition.',
+        checkpoint: { question: 'What gives an observation decision value?', choices: ['Context plus a defined rule', 'Its name alone', 'A recent win', 'A promise of high accuracy'], answer: 0 },
+      },
+      {
+        id: 'risk',
+        title: 'Connect the idea to money and survival',
+        explanation: 'Before execution, define invalidation, maximum acceptable loss, sizing method, correlated exposure, daily stop, and the condition that turns the system off.',
+        demonstration: 'A valid market idea can still be an invalid account decision when the lot size, margin usage, spread, slippage, or combined open risk is too large.',
+        activity: teaching.lab,
+        checkpoint: { question: 'What comes before calculating lot size?', choices: ['Maximum acceptable loss and invalidation distance', 'Desired profit', 'Excitement', 'Number of signals'], answer: 0 },
+      },
+      {
+        id: 'practice',
+        title: 'Practice, explain, and review',
+        explanation: 'Use replay, paper practice, or historical examples. Record the decision before revealing the next candle, then review process quality separately from profit or loss.',
+        demonstration: `Complete at least five examples of ${domain.title}. Ask WISDO to challenge your reasoning, generate a contrasting example, or explain the same concept visually, verbally, or step by step.`,
+        activity: 'Submit your thesis, invalidation, risk, decision, confidence, and review. Then ask the tutor which part of the reasoning is weakest.',
+        checkpoint: { question: 'What should be graded after practice?', choices: ['Decision process and rule adherence', 'Profit only', 'How confident you felt', 'Whether the market agreed immediately'], answer: 0 },
+      },
+    ],
+    finalChallenge: `Build a one-page operating checklist for ${domain.title} that works in ${markets}, includes failure conditions, and supports the goal to ${learnerGoal}.`,
+    aiPrompts: [
+      `Teach this course using a simple example from ${markets}.`,
+      'Ask me one question at a time and do not advance until I explain the answer.',
+      'Create a replay scenario, pause before the outcome, and grade my decision process.',
+      'Show me how this concept can fail and how risk controls protect the account.',
+    ],
+  };
+}
+
 export function getAcademyCourse(id) {
   const [domainId, levelId, number] = String(id || '').split('--');
   const domain = ACADEMY_DOMAINS.find((item) => item.id === domainId);
@@ -172,8 +290,10 @@ export function getAcademyCourse(id) {
   const patternIndex = Number(number) - 1;
   if (!domain || !level || patternIndex < 0 || patternIndex >= LESSON_PATTERNS.length) return null;
   const course = buildCourse(domain, level, patternIndex);
+  const teaching = domainSpecificTeaching(domain, level);
   return {
     ...course,
+    teachingPreview: teaching,
     modules: [
       { id: `${course.id}-orientation`, title: 'Orientation', body: course.summary },
       { id: `${course.id}-concepts`, title: 'Core concepts', body: `Learn the vocabulary, mechanics, participants, and common misconceptions connected to ${domain.title}.` },
@@ -231,18 +351,32 @@ export function buildPersonalizedPath(profile = {}) {
     return seedTerms && seedTerms.split(/\s+/).some((token) => token.length > 2 && haystack.includes(token));
   });
   const essentials = ['candlesticks-price-bars', 'order-types-execution', 'position-sizing', 'drawdown-risk-of-ruin', 'trading-plan', 'journaling-review', 'wisdo-command-center'];
+  const reliabilityGoals = /(crash|stable|stability|reliable|automation|bot|system|win rate|explosive|drawdown|money management)/i.test(seedTerms)
+    ? ['algorithmic-trading', 'data-engineering', 'cybersecurity-operations', 'backtesting-validation', 'statistics-probability', 'drawdown-risk-of-ruin', 'position-sizing', 'trade-management', 'performance-routines']
+    : [];
+  const marketGoals = [
+    ...(seedTerms.includes('forex') ? ['forex-foundations', 'macro-economics', 'central-banks'] : []),
+    ...(seedTerms.includes('metal') || seedTerms.includes('gold') ? ['commodities', 'macro-economics', 'news-event-risk'] : []),
+  ];
   const orderedDomains = [...new Map([
     ...essentials.map((id) => ACADEMY_DOMAINS.find((domain) => domain.id === id)),
+    ...reliabilityGoals.map((id) => ACADEMY_DOMAINS.find((domain) => domain.id === id)),
+    ...marketGoals.map((id) => ACADEMY_DOMAINS.find((domain) => domain.id === id)),
     ...preferred,
     ...ACADEMY_DOMAINS,
   ].filter(Boolean).map((domain) => [domain.id, domain])).values()];
   const levelIndex = LEVELS.findIndex((item) => item.id === experience);
   const levelIds = LEVELS.slice(Math.max(0, levelIndex - 1), Math.min(LEVELS.length, levelIndex + 2)).map((item) => item.id);
   const courses = [];
-  for (const domain of orderedDomains) {
-    for (const levelId of levelIds) {
-      for (const patternIndex of [0, 4, 5, 7, 8, 9, 16, 18, 19]) {
-        const level = LEVELS.find((item) => item.id === levelId);
+  const lessonOrder = [0, 4, 5, 7, 8, 9, 16, 18, 19];
+  // Round-robin across priority domains before adding deeper modules. This prevents
+  // the first few subjects from consuming the entire path and guarantees that a
+  // learner asking for automation, reliability, forex, metals, and money management
+  // receives all of those areas in the initial 36-course sequence.
+  for (const levelId of levelIds) {
+    const level = LEVELS.find((item) => item.id === levelId);
+    for (const patternIndex of lessonOrder) {
+      for (const domain of orderedDomains) {
         courses.push(buildCourse(domain, level, patternIndex));
         if (courses.length >= 36) break;
       }
@@ -260,7 +394,11 @@ export function buildPersonalizedPath(profile = {}) {
       learningStyle: String(profile.learningStyle || 'interactive'),
     },
     path: courses,
-    explanation: 'The path begins with market language, order mechanics, risk, money management, and command-center safety, then adds the markets and strategies selected by the learner.',
+    firstCourseId: courses[0]?.id || null,
+    autoOpenFirstLesson: Boolean(courses[0]),
+    explanation: reliabilityGoals.length
+      ? 'The path begins with market language and risk, then separates system reliability, data quality, backtesting, expectancy, drawdown control, and execution from the goal of finding high-upside opportunities. High win rate and explosive wins are treated as research goals, never guarantees.'
+      : 'The path begins with market language, order mechanics, risk, money management, and command-center safety, then adds the markets and strategies selected by the learner.',
   };
 }
 

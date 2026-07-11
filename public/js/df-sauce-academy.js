@@ -120,25 +120,37 @@
         <button class="btn active" data-academy-tab="path">My Learning Path</button>
         <button class="btn" data-academy-tab="catalog">Course Universe</button>
         <button class="btn" data-academy-tab="tutor">Ask WISDO Tutor</button>
+        <button class="btn" data-academy-tab="resources">Resource Center</button>
+        <button class="btn" data-academy-tab="tools">Trading Tools</button>
+        <button class="btn" data-academy-tab="live">Live Learning</button>
         <button class="btn" data-academy-tab="scenario">DF Sauce Scenario Lab</button>
         <button class="btn" data-academy-tab="watch">TradingView Watch Room</button>
       </nav>
       <div data-academy-panel="path"></div>
       <div data-academy-panel="catalog" hidden></div>
       <div data-academy-panel="tutor" hidden></div>
+      <div data-academy-panel="resources" hidden></div>
+      <div data-academy-panel="tools" hidden></div>
+      <div data-academy-panel="live" hidden></div>
       <div data-academy-panel="scenario" hidden></div>
       <div data-academy-panel="watch" hidden></div>
     `;
 
     const panel = (name) => container.querySelector(`[data-academy-panel="${name}"]`);
-    const switchTab = (name) => {
+    const showPanel = (name) => {
       container.querySelectorAll('[data-academy-panel]').forEach((node) => { node.hidden = node.dataset.academyPanel !== name; });
       container.querySelectorAll('[data-academy-tab]').forEach((button) => button.classList.toggle('active', button.dataset.academyTab === name));
-      if (name === 'catalog') loadCatalog();
-      if (name === 'scenario') loadScenario(container.querySelector('#scenario-select')?.value || 'bull-campaign');
-      if (name === 'watch') loadWatchRoom();
     };
-    container.querySelectorAll('[data-academy-tab]').forEach((button) => { button.onclick = () => switchTab(button.dataset.academyTab); });
+    const switchTab = async (name) => {
+      showPanel(name);
+      if (name === 'catalog') await loadCatalog();
+      if (name === 'resources') await loadResources();
+      if (name === 'tools') await loadTools();
+      if (name === 'live') await loadLiveLearning();
+      if (name === 'scenario') await loadScenario(container.querySelector('#scenario-select')?.value || 'bull-campaign');
+      if (name === 'watch') await loadWatchRoom();
+    };
+    container.querySelectorAll('[data-academy-tab]').forEach((button) => { button.onclick = () => { switchTab(button.dataset.academyTab).catch((error) => console.warn('Academy tab failed', error)); }; });
 
     async function loadPath() {
       const response = await api('/api/v2/academy/path', { method: 'POST', body: JSON.stringify(profile) });
@@ -166,9 +178,23 @@
       form.onsubmit = async (event) => {
         event.preventDefault();
         const values = Object.fromEntries(new FormData(form));
-        const result = await api('/api/v2/academy/profile', { method: 'PATCH', body: JSON.stringify(values) });
-        profile = result.profile;
-        await loadPath();
+        const submitButton = form.querySelector('button[type="submit"]');
+        const originalLabel = submitButton.textContent;
+        submitButton.disabled = true;
+        submitButton.textContent = 'Building your first lesson…';
+        try {
+          const result = await api('/api/v2/academy/profile', { method: 'PATCH', body: JSON.stringify(values) });
+          profile = result.profile;
+          await loadPath();
+          const firstCourseId = result.firstCourseId || result.path?.[0]?.id;
+          if (firstCourseId) {
+            showPanel('catalog');
+            await openCourse(firstCourseId, { autoStarted: true });
+          }
+        } finally {
+          submitButton.disabled = false;
+          submitButton.textContent = originalLabel;
+        }
       };
       container.querySelector('[data-open-catalog]').onclick = () => switchTab('catalog');
       bindCourseButtons(panel('path'));
@@ -184,18 +210,153 @@
       });
     }
 
-    async function openCourse(courseId) {
-      const result = await api(`/api/v2/academy/courses/${encodeURIComponent(courseId)}`);
+    async function openCourse(courseId, { autoStarted = false } = {}) {
+      const result = await api(`/api/v2/academy/courses/${encodeURIComponent(courseId)}/session`);
       const course = result.course;
+      const lesson = result.lesson;
       selectedCourseId = course.id;
       const host = panel('catalog');
-      host.innerHTML = `<section class="card"><button class="btn ghost" data-course-back>← Back to course search</button><span class="eyebrow">${html(course.category)} · ${html(course.levelTitle)}</span><h2>${html(course.title)}</h2><p class="lead">${html(course.summary)}</p><div class="grid2"><div><h3>Learning objectives</h3><ol class="lesson-map">${course.objectives.map((item) => `<li>${html(item)}</li>`).join('')}</ol></div><div><h3>Practice sequence</h3><ol class="lesson-map">${course.practice.map((item) => `<li>${html(item)}</li>`).join('')}</ol></div></div><div class="grid3">${course.modules.map((module) => `<article class="track-card"><span class="eyebrow">Module</span><h3>${html(module.title)}</h3><p>${html(module.body)}</p></article>`).join('')}</div><div class="private-strategy-notice">${html(course.riskNotice)}</div><div class="actions"><button class="btn primary" data-course-complete>Complete course</button><button class="btn ghost" data-ask-course>Ask WISDO about this course</button></div></section>`;
+      let sceneIndex = 0;
+      let correctAnswers = 0;
+      const answeredScenes = new Set();
+
+      const multiline = (value) => html(value || '').replaceAll('\n', '<br>');
+      const lessonScenes = lesson?.scenes || [];
+      host.innerHTML = `
+        <section class="card lesson-player">
+          <div class="card-head">
+            <div><span class="eyebrow">${html(course.category)} · ${html(course.levelTitle)}</span><h2>${html(course.title)}</h2></div>
+            <button class="btn ghost" data-course-back>← Course universe</button>
+          </div>
+          ${autoStarted ? '<div class="form-status success">Your new learning path is ready. WISDO opened the first lesson automatically.</div>' : ''}
+          <p class="lead">${html(course.summary)}</p>
+          <div class="lesson-context-grid">
+            <div><small>Experience</small><strong>${html(lesson?.learnerContext?.experience || profile.experience || 'starter')}</strong></div>
+            <div><small>Markets</small><strong>${html(lesson?.learnerContext?.markets || 'multiple markets')}</strong></div>
+            <div><small>Learning mode</small><strong>${html(lesson?.learnerContext?.learningStyle || profile.learningStyle || 'interactive')}</strong></div>
+            <div><small>AI teaching</small><strong>${result.aiTutorReady ? 'Live model configured' : 'Adaptive WISDO tutor'}</strong></div>
+          </div>
+          <div class="lesson-progress-nav" data-lesson-progress></div>
+          <div class="lesson-stage-grid">
+            <article class="lesson-scene" data-lesson-scene></article>
+            <aside class="lesson-coach">
+              <span class="eyebrow">WISDO lesson coach</span>
+              <h3>Ask about this exact step</h3>
+              <p class="muted">The tutor uses your experience, goals, markets, current course, and selected account context.</p>
+              <form data-scene-tutor>
+                <textarea class="input" rows="5" name="message" placeholder="Explain this another way, give me a forex example, or quiz me one question at a time."></textarea>
+                <button class="btn primary full" type="submit">Ask WISDO</button>
+              </form>
+              <div class="tutor-thread lesson-tutor-thread" data-scene-answer><div class="tutor-message assistant">Choose a lesson step, answer its checkpoint, or ask for a customized example.</div></div>
+            </aside>
+          </div>
+          <div class="private-strategy-notice">${html(course.riskNotice)}</div>
+          <div class="actions">
+            <button class="btn ghost" data-scene-prev>← Previous</button>
+            <button class="btn primary" data-scene-next>Next step →</button>
+            <button class="btn primary" data-course-complete>Complete course</button>
+          </div>
+        </section>`;
+
+      const sceneHost = host.querySelector('[data-lesson-scene]');
+      const progressHost = host.querySelector('[data-lesson-progress]');
+      const answerHost = host.querySelector('[data-scene-answer]');
+      const previousButton = host.querySelector('[data-scene-prev]');
+      const nextButton = host.querySelector('[data-scene-next]');
+      const completeButton = host.querySelector('[data-course-complete]');
+
+      function renderScene() {
+        const scene = lessonScenes[sceneIndex];
+        if (!scene) {
+          sceneHost.innerHTML = '<h3>Lesson content is unavailable.</h3><p>Ask WISDO Tutor to rebuild this lesson.</p>';
+          return;
+        }
+        progressHost.innerHTML = lessonScenes.map((item, index) => `<button class="lesson-step ${index === sceneIndex ? 'active' : ''} ${answeredScenes.has(index) ? 'complete' : ''}" data-scene-index="${index}"><span>${index + 1}</span><small>${html(item.title)}</small></button>`).join('');
+        progressHost.querySelectorAll('[data-scene-index]').forEach((button) => { button.onclick = () => { sceneIndex = Number(button.dataset.sceneIndex); renderScene(); }; });
+        const vocabulary = Array.isArray(scene.vocabulary) && scene.vocabulary.length
+          ? `<div class="lesson-vocabulary">${scene.vocabulary.map((item) => `<div><strong>${html(item.term)}</strong><span>${html(item.meaning)}</span></div>`).join('')}</div>`
+          : '';
+        const checkpoint = scene.checkpoint || {};
+        sceneHost.innerHTML = `
+          <span class="eyebrow">Step ${sceneIndex + 1} of ${lessonScenes.length}</span>
+          <h2>${html(scene.title)}</h2>
+          <section class="lesson-explanation"><h3>Teach</h3><p>${multiline(scene.explanation)}</p></section>
+          <section class="lesson-example"><h3>Worked example</h3><p>${multiline(scene.demonstration)}</p></section>
+          ${vocabulary}
+          <section class="lesson-activity"><h3>Your engagement</h3><p>${multiline(scene.activity)}</p><textarea class="input" rows="4" data-lesson-notes placeholder="Write your answer, rule, or observation before checking the knowledge question."></textarea></section>
+          <section class="lesson-checkpoint"><span class="eyebrow">Knowledge checkpoint</span><h3>${html(checkpoint.question || 'Explain what you learned in your own words.')}</h3><div class="lesson-choices">${(checkpoint.choices || []).map((choice, index) => `<button class="btn ghost" data-checkpoint-choice="${index}">${html(choice)}</button>`).join('')}</div><div class="form-status" data-checkpoint-feedback>Choose the best answer.</div></section>`;
+        sceneHost.querySelectorAll('[data-checkpoint-choice]').forEach((button) => {
+          button.onclick = () => {
+            const selected = Number(button.dataset.checkpointChoice);
+            const correct = selected === Number(checkpoint.answer);
+            const feedback = sceneHost.querySelector('[data-checkpoint-feedback]');
+            sceneHost.querySelectorAll('[data-checkpoint-choice]').forEach((choiceButton) => { choiceButton.disabled = true; });
+            if (correct) {
+              if (!answeredScenes.has(sceneIndex)) correctAnswers += 1;
+              answeredScenes.add(sceneIndex);
+              feedback.className = 'form-status success';
+              feedback.textContent = 'Correct. Explain why it is correct before advancing.';
+            } else {
+              feedback.className = 'form-status error';
+              feedback.textContent = `Not yet. Review the worked example, then ask WISDO why “${checkpoint.choices?.[selected] || 'that answer'}” is unsafe or incomplete.`;
+            }
+            renderProgressOnly();
+          };
+        });
+        previousButton.disabled = sceneIndex <= 0;
+        nextButton.textContent = sceneIndex >= lessonScenes.length - 1 ? 'Review final challenge →' : 'Next step →';
+      }
+
+      function renderProgressOnly() {
+        progressHost.querySelectorAll('[data-scene-index]').forEach((button) => {
+          const index = Number(button.dataset.sceneIndex);
+          button.classList.toggle('complete', answeredScenes.has(index));
+        });
+      }
+
       host.querySelector('[data-course-back]').onclick = () => loadCatalog();
-      host.querySelector('[data-course-complete]').onclick = async () => {
-        await api(`/api/v2/academy/lessons/${encodeURIComponent(course.id)}/complete`, { method: 'POST', body: JSON.stringify({ score: 100 }) });
-        host.querySelector('[data-course-complete]').textContent = 'Completed ✓';
+      previousButton.onclick = () => { sceneIndex = Math.max(0, sceneIndex - 1); renderScene(); };
+      nextButton.onclick = () => {
+        if (sceneIndex < lessonScenes.length - 1) {
+          sceneIndex += 1;
+          renderScene();
+          sceneHost.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          return;
+        }
+        answerHost.innerHTML = `<div class="tutor-message assistant"><strong>Final challenge</strong>\n${html(lesson?.finalChallenge || 'Build a repeatable checklist and review it with WISDO.')}</div>`;
       };
-      host.querySelector('[data-ask-course]').onclick = () => { switchTab('tutor'); container.querySelector('#tutor-input').value = `Teach me ${course.title} at my current level. Start with the most important idea and a practice question.`; };
+      completeButton.onclick = async () => {
+        const score = lessonScenes.length ? Math.round((correctAnswers / lessonScenes.length) * 100) : 100;
+        await api(`/api/v2/academy/lessons/${encodeURIComponent(course.id)}/complete`, { method: 'POST', body: JSON.stringify({ score }) });
+        completeButton.textContent = `Completed ✓ · ${score}%`;
+        completeButton.disabled = true;
+      };
+      host.querySelector('[data-scene-tutor]').onsubmit = async (event) => {
+        event.preventDefault();
+        const form = event.target;
+        const input = form.elements.message;
+        const scene = lessonScenes[sceneIndex];
+        const learnerText = input.value.trim();
+        const notes = sceneHost.querySelector('[data-lesson-notes]')?.value.trim() || '';
+        const message = learnerText || `Teach me step ${sceneIndex + 1}, “${scene?.title},” using a concrete ${lesson?.learnerContext?.markets || 'market'} example. Ask me one question before giving the answer.${notes ? ` My current notes are: ${notes}` : ''}`;
+        if (!message) return;
+        answerHost.insertAdjacentHTML('beforeend', `<div class="tutor-message user">${html(message)}</div>`);
+        input.value = '';
+        const pending = document.createElement('div');
+        pending.className = 'tutor-message assistant';
+        pending.textContent = 'WISDO is adapting the lesson to your profile…';
+        answerHost.append(pending);
+        answerHost.scrollTop = answerHost.scrollHeight;
+        try {
+          const tutorResult = await api(result.tutorEndpoint || '/api/v2/academy/tutor', { method: 'POST', body: JSON.stringify({ message, courseId: course.id, selectedAccountId: options.selectedAccountId || undefined }) }, 45000);
+          pending.textContent = tutorResult.answer || 'No answer returned.';
+          speak(tutorResult.answer, voiceEnabled);
+        } catch (error) {
+          pending.textContent = error.message;
+        }
+        answerHost.scrollTop = answerHost.scrollHeight;
+      };
+      renderScene();
     }
 
     async function loadCatalog(page = catalogPage) {
@@ -328,6 +489,48 @@
       const config = await api('/api/v2/academy/tradingview-config');
       host.dataset.loaded = '1';
       host.innerHTML = `<section class="card"><div class="card-head"><div><span class="eyebrow">TradingView Watch Room</span><h3>Study the live market with your private DF Sauce layout.</h3></div><a class="btn primary" href="/api/v2/academy/tradingview" target="_blank" rel="noopener">${config.privateChartConfigured ? 'Open private DF Sauce chart' : 'Open TradingView chart'}</a></div><iframe id="wisdo-tv" class="tv-frame" title="TradingView Watch Room" loading="lazy" src="${html(config.genericWatchRoomUrl)}"></iframe><div class="tv-status"><div><strong>${config.privateChartConfigured ? 'Private chart link configured' : 'Private chart link not configured yet'}</strong><p class="muted">${config.privateChartConfigured ? 'The private indicator remains hosted in your TradingView layout and is not sent to the WISDO browser.' : 'Set WISDO_DF_SAUCE_TRADINGVIEW_URL in Render to the saved TradingView layout where your private indicator is installed.'}</p></div><span class="status-pill ${config.privateChartConfigured ? 'connected' : 'waiting'}">${config.privateChartConfigured ? 'Protected' : 'Setup needed'}</span></div></section>`;
+    }
+
+
+    async function loadResources(page = 1, filters = {}) {
+      const host = panel('resources');
+      const queryParams = new URLSearchParams({ page: String(page), limit: '30', ...filters });
+      const result = await api(`/api/v2/education/resources?${queryParams}`);
+      host.innerHTML = `<section class="card"><div class="card-head"><div><span class="eyebrow">Resource Center</span><h3>Original study guides, checklists, worksheets, journals, flash cards, and cheat sheets.</h3></div><span class="status-pill connected">${Number(result.total || 0).toLocaleString()} resources</span></div><form id="resource-search" class="academy-filter"><input class="input" name="query" placeholder="Search liquidity, candlesticks, gold, margin…"><select class="input" name="type"><option value="">All types</option><option value="guide">Study guides</option><option value="checklist">Checklists</option><option value="worksheet">Worksheets</option><option value="flashcards">Flash cards</option><option value="journal">Journals</option><option value="cheat-sheet">Cheat sheets</option></select><select class="input" name="difficulty"><option value="">All levels</option><option value="starter">Starter</option><option value="foundation">Foundation</option><option value="intermediate">Intermediate</option></select><button class="btn primary">Search</button></form><div class="academy-course-grid" id="resource-grid">${(result.resources || []).map((item) => `<article class="course-tile"><span class="eyebrow">${html(item.type)}</span><h3>${html(item.title)}</h3><p>${html(item.description)}</p><div class="course-meta"><span>${html(item.difficulty)}</span><span>${Number(item.estimatedMinutes || 0)} min</span></div><button class="btn ghost" data-resource-bookmark="${html(item.id)}">${item.bookmarked ? 'Saved ✓' : 'Bookmark'}</button></article>`).join('')}</div></section>`;
+      host.querySelector('#resource-search').onsubmit = async (event) => {
+        event.preventDefault(); const values = Object.fromEntries(new FormData(event.target).entries()); const query = new URLSearchParams({ ...values, limit: '30' });
+        await loadResources(1, values);
+      };
+      host.querySelectorAll('[data-resource-bookmark]').forEach((button) => { button.onclick = async () => { const enabled = !button.textContent.includes('Saved'); await api(`/api/v2/education/resources/${encodeURIComponent(button.dataset.resourceBookmark)}/bookmark`, { method: 'POST', body: JSON.stringify({ enabled }) }); button.textContent = enabled ? 'Saved ✓' : 'Bookmark'; }; });
+    }
+
+    const toolFields = {
+      'position-size': [['accountBalance','Account balance'],['riskPercent','Risk %'],['stopDistance','Stop distance (pips/points)'],['valuePerPoint','Value per point per lot']],
+      'risk-reward': [['entry','Entry'],['stop','Stop'],['target','Target']],
+      margin: [['contractSize','Contract size'],['lots','Lots'],['price','Price'],['leverage','Leverage']],
+      'pip-value': [['lots','Lots'],['valuePerLot','Value per pip/point at 1 lot']],
+      'profit-loss': [['direction','Direction (buy/sell)'],['entry','Entry'],['exit','Exit'],['lots','Lots'],['contractSize','Contract size']],
+      drawdown: [['peakEquity','Peak equity'],['currentEquity','Current equity']],
+      compounding: [['principal','Starting amount'],['ratePercent','Rate % per period'],['periods','Periods'],['contribution','Contribution per period']],
+      'risk-of-ruin': [['winRate','Win rate %'],['averageWin','Average win units'],['averageLoss','Average loss units'],['riskPercent','Risk % per trade']],
+    };
+
+    async function loadTools() {
+      const host = panel('tools'); const result = await api('/api/v2/education/tools');
+      host.innerHTML = `<section class="card"><div class="card-head"><div><span class="eyebrow">Trading Tools</span><h3>Practice the math before touching a live account.</h3></div></div><div class="academy-course-grid">${(result.tools || []).map((tool) => `<button class="course-tile" data-tool="${html(tool.id)}"><span class="eyebrow">Calculator</span><h3>${html(tool.title)}</h3><p>${html(tool.description)}</p></button>`).join('')}</div></section><section class="card" id="tool-workbench"><h3>Select a calculator.</h3><p class="muted">Every result is educational and must be checked against broker contract specifications.</p></section>`;
+      host.querySelectorAll('[data-tool]').forEach((button) => { button.onclick = () => openTool(button.dataset.tool, result.tools.find((item) => item.id === button.dataset.tool)); });
+    }
+
+    function openTool(toolId, tool) {
+      const workbench = panel('tools').querySelector('#tool-workbench'); const fields = toolFields[toolId] || [];
+      workbench.innerHTML = `<span class="eyebrow">Interactive calculator</span><h3>${html(tool?.title || toolId)}</h3><p>${html(tool?.description || '')}</p><form id="tool-form" class="academy-profile-grid">${fields.map(([name,label]) => name === 'direction' ? `<label>${html(label)}<select class="input" name="direction"><option value="buy">Buy</option><option value="sell">Sell</option></select></label>` : `<label>${html(label)}<input class="input" name="${html(name)}" type="number" step="any" required></label>`).join('')}<button class="btn primary full">Calculate</button></form><pre id="tool-output" class="private-strategy-notice">Enter values to begin.</pre>`;
+      workbench.querySelector('#tool-form').onsubmit = async (event) => { event.preventDefault(); const body = Object.fromEntries(new FormData(event.target).entries()); const result = await api(`/api/v2/education/tools/${encodeURIComponent(toolId)}/calculate`, { method: 'POST', body: JSON.stringify(body) }); workbench.querySelector('#tool-output').textContent = `${JSON.stringify(result.result, null, 2)}\n\n${result.notice}`; };
+      workbench.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    async function loadLiveLearning() {
+      const host = panel('live'); const result = await api('/api/v2/education/live-learning');
+      host.innerHTML = `<section class="card"><div class="card-head"><div><span class="eyebrow">Live Learning</span><h3>Seminars, workshops, market breakdowns, and office hours.</h3></div><span class="status-pill ${result.providerReady ? 'connected' : 'waiting'}">${result.providerReady ? 'Provider connected' : 'Scheduling ready'}</span></div><div class="academy-course-grid">${(result.sessions || []).map((session) => `<article class="course-tile"><span class="eyebrow">${html(session.type)}</span><h3>${html(session.title)}</h3><p>${html(session.description)}</p><div class="course-meta"><span>${html(session.level)}</span><span>${Number(session.durationMinutes || 0)} min</span><span>${html(session.status)}</span></div>${result.providerUrl ? `<a class="btn primary" href="${html(result.providerUrl)}" target="_blank" rel="noopener">Open live room</a>` : '<button class="btn ghost" disabled>Provider setup required for live room</button>'}</article>`).join('')}</div></section>`;
     }
 
     renderTutor();

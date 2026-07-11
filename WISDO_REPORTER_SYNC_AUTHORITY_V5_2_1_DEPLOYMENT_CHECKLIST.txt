@@ -1,0 +1,23 @@
+WISDO REPORTER SYNC AUTHORITY V5.2.1
+
+SERVER
+[ ] Replace current project with V5.2.1.
+[ ] npm ci
+[ ] npm run check (12 pass, 0 fail)
+[ ] Commit and push main.
+[ ] Render clear-cache deploy.
+
+MT4 — EVERY CONNECTED TERMINAL
+[ ] Copy CultureCoin_MT4_Reporter.mq4 v1.56 into MQL4/Experts.
+[ ] Compile in MetaEditor with 0 errors.
+[ ] Remove the old Reporter from the chart.
+[ ] Attach v1.56 and restore PairingCode, SyncUrl, ApiKey and follower settings.
+[ ] Allow the WISDO base URL under Tools/Options/Expert Advisors/WebRequest.
+[ ] Confirm the chart dashboard displays v1.56.
+
+CERTIFICATION
+[ ] Click Sync/Refresh in WISDO Accounts.
+[ ] MT4 log says SYNC_ACCOUNT -> Account synchronized.
+[ ] Dashboard balance/equity/open trades refresh.
+[ ] Command history shows completed, not unsupported.
+[ ] Test lead open and lead close after the Reporter replacement.

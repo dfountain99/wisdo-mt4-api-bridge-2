@@ -1,6 +1,6 @@
 #property strict
-#property version   "1.55"
-#property description "Culture Coin MT4 Reporter - WISDO close-authority copy/manual/profit dashboard"
+#property version   "1.56"
+#property description "Culture Coin MT4 Reporter - WISDO sync-account + close-authority copy/manual/profit dashboard"
 
 input string PairingCode = "";
 input string SyncUrl = "";
@@ -79,6 +79,7 @@ input color DashboardWarnColor = clrOrange;
 input color DashboardBadColor = clrTomato;
 input color DashboardTextColor = clrSilver;
 
+string REPORTER_VERSION = "1.56";
 string STATUS_LABEL = "CultureCoinReporterStatus";
 string DASH_PREFIX = "CEM_WISDO_DASH_";
 string g_lastStatus = "Waiting";
@@ -541,6 +542,8 @@ string BuildPayload()
 
    string payload = "{";
    payload += "\"pairingCode\":\"" + EscapeJson(PairingCode) + "\",";
+   payload += "\"reporterVersion\":\"" + EscapeJson(REPORTER_VERSION) + "\",";
+   payload += "\"reporterCapabilities\":[\"sync_account\",\"copy_open\",\"copy_close\",\"manual_trade\",\"profit_manager\",\"cem_globals\"],";
    payload += "\"accountNumber\":" + IntegerToString(AccountNumber()) + ",";
    payload += "\"accountName\":\"" + EscapeJson(AccountName()) + "\",";
    payload += "\"brokerServer\":\"" + EscapeJson(AccountServer()) + "\",";
@@ -676,7 +679,7 @@ void UpdateWisdoDashboard()
    color pnlColor = floatingPL >= 0.0 ? DashboardGoodColor : DashboardBadColor;
    color copiedPnlColor = copiedPL >= 0.0 ? DashboardGoodColor : DashboardBadColor;
 
-   SetDashboardLine(0,  "CEM CULTURE / WISDO PRO MANAGER DASHBOARD  v1.55", DashboardTitleColor);
+   SetDashboardLine(0,  "CEM CULTURE / WISDO PRO MANAGER DASHBOARD  v" + REPORTER_VERSION, DashboardTitleColor);
    SetDashboardLine(1,  "Status: " + g_lastStatus + " | Terminal: " + terminal + " | Last Sync: " + syncTime, statusColor);
    SetDashboardLine(2,  "Pairing: " + MaskPairingCode() + " | Account: " + IntegerToString(AccountNumber()) + " | Server: " + Shorten(AccountServer(), 28), DashboardTextColor);
    SetDashboardLine(3,  "Mode: " + copyMode + " | AutoTrading: " + autoTrading + " | Poll: " + pollTime, autoColor);
@@ -2037,6 +2040,30 @@ bool ExecuteWisdoControlCommand(string command, string commandJson, string &mess
 }
 // ======================= END WISDO WAKE WORD DECIPHER + CONTROL COMMANDS =======================
 
+// Forward declaration used by account-refresh commands.
+void SendSnapshot();
+
+bool ExecuteSyncAccountCommand(string commandJson, string &message, int &ticket)
+{
+   ticket = -1;
+   SendSnapshot();
+   g_lastSnapshotAt = TimeCurrent();
+
+   if(g_lastStatus == "Connected")
+   {
+      message = "Account synchronized: " + IntegerToString(AccountNumber()) +
+                " | Balance " + DoubleToString(AccountBalance(), 2) +
+                " | Equity " + DoubleToString(AccountEquity(), 2) +
+                " | Open trades " + IntegerToString(OrdersTotal());
+      return true;
+   }
+
+   message = "Account synchronization failed";
+   if(StringLen(g_lastError) > 0)
+      message += ": " + g_lastError;
+   return false;
+}
+
 void PollAndExecuteCommands()
 {
    if(!ValidateInputs())
@@ -2098,7 +2125,9 @@ void PollAndExecuteCommands()
    g_lastCommand = command;
    g_lastCommandId = commandId;
 
-   if(command == "COPY_OPEN_TRADE")
+   if(command == "SYNC_ACCOUNT" || command == "ACCOUNT_SYNC" || command == "REFRESH_ACCOUNT" || command == "REQUEST_SNAPSHOT" || command == "SYNC_NOW")
+      success = ExecuteSyncAccountCommand(response, message, ticket);
+   else if(command == "COPY_OPEN_TRADE")
       success = ExecuteCopyOpenTrade(response, message, ticket);
    else if(command == "COPY_CLOSE_TRADE")
       success = ExecuteCopyCloseTrade(response, message, ticket);
@@ -2197,7 +2226,7 @@ int OnInit()
    g_lastCopyTicket = -1;
    UpdateStatusLabel();
 
-   Print("CultureCoin Reporter V1.55 initialized with close-authority ticket binding, fast polling, wake-word decipher, WISDO copy/manual/profit/adaptive control dashboard.");
+   Print("CultureCoin Reporter V" + REPORTER_VERSION + " initialized with immediate account sync, close-authority ticket binding, fast polling, wake-word decipher, and WISDO control dashboard.");
    Print("Copy trading execution: ", EnableCopyTrading ? "ENABLED" : "DISABLED");
    Print("Sync URL: ", SyncUrl);
    Print("Command poll URL: ", ResolveCommandPollUrl());
