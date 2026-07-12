@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-export const AI_WEBINAR_VERSION = '1.1.0';
+export const AI_WEBINAR_VERSION = '1.2.0';
 export const AI_WEBINAR_DISCLAIMER = 'WISDO AI Webinar lessons are educational only. Trading involves risk, results are not guaranteed, and the lesson is not individualized financial advice.';
 
 const LEVELS = new Set(['starter', 'foundation', 'intermediate', 'advanced', 'professional']);
@@ -23,18 +23,6 @@ function clamp(value, min, max, fallback = min) { const number = Number(value); 
 function sentence(value = '', fallback = '') { const text = clean(value, 1200) || fallback; return /[.!?]$/.test(text) ? text : `${text}.`; }
 function round(value, digits = 2) { const factor = 10 ** digits; return Math.round(Number(value) * factor) / factor; }
 
-function hashSeed(value = '') {
-  let hash = 2166136261;
-  for (const character of String(value)) { hash ^= character.charCodeAt(0); hash = Math.imul(hash, 16777619); }
-  return hash >>> 0;
-}
-function seededRandom(seedValue = 1) {
-  let state = seedValue >>> 0 || 1;
-  return () => {
-    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
-    return state / 4294967296;
-  };
-}
 function normalizeChartInterval(value = '') {
   const raw = clean(value, 20).toUpperCase().replace(/MINUTES?|MINS?/g, '').replace(/HOURS?|HRS?/g, 'H').trim();
   const aliases = { '1H': '60', '2H': '120', '3H': '180', '4H': '240', '1D': 'D', 'DAILY': 'D', '1W': 'W', 'WEEKLY': 'W', '1M': 'M', 'MONTHLY': 'M' };
@@ -43,7 +31,7 @@ function normalizeChartInterval(value = '') {
 }
 function normalizeTradingViewSymbol(value = '', fallbackMarket = '') {
   const raw = clean(value || fallbackMarket, 80).toUpperCase().replace(/\s+/g, '');
-  if (/^[A-Z0-9._-]{1,24}:[A-Z0-9._-]{1,36}$/.test(raw)) return raw;
+  if (/^[A-Z0-9._-]{1,24}:[A-Z0-9._!-]{1,36}$/.test(raw)) return raw;
   const compact = raw.replace(/[^A-Z0-9]/g, '');
   const aliases = {
     GOLD: 'OANDA:XAUUSD', XAU: 'OANDA:XAUUSD', XAUUSD: 'OANDA:XAUUSD',
@@ -54,24 +42,12 @@ function normalizeTradingViewSymbol(value = '', fallbackMarket = '') {
   };
   return aliases[compact] || 'OANDA:XAUUSD';
 }
-function chartBase(symbol = '') {
-  const compact = String(symbol).split(':').at(-1) || '';
-  if (compact.includes('BTC')) return { price: 65000, step: 160, digits: 0 };
-  if (compact.includes('ETH')) return { price: 3500, step: 16, digits: 1 };
-  if (compact.includes('XAU')) return { price: 2350, step: 2.4, digits: 2 };
-  if (compact.includes('JPY')) return { price: 156, step: 0.18, digits: 3 };
-  if (compact.includes('EUR') || compact.includes('GBP')) return { price: compact.includes('GBP') ? 1.28 : 1.08, step: 0.0012, digits: 5 };
-  if (compact.includes('US30')) return { price: 39000, step: 85, digits: 0 };
-  if (compact.includes('NAS') || compact.includes('NQ')) return { price: 20000, step: 48, digits: 1 };
-  if (compact.includes('SPX') || compact.includes('ES')) return { price: 5600, step: 11, digits: 1 };
-  return { price: 100, step: 0.8, digits: 2 };
-}
 function inferScenario(value = '') {
   const text = clean(value, 1000).toLowerCase();
   if (/breakout|break out|neck break/.test(text)) return 'breakout';
   if (/pullback|retracement|retest/.test(text)) return 'pullback';
   if (/range|consolidation|sideways/.test(text)) return 'range';
-  if (/invalid|stop|failed setup/.test(text)) return 'invalidation';
+  if (/invalid|stop|failed setup|fakeout|false break/.test(text)) return 'invalidation';
   if (/risk.?reward|target|take profit/.test(text)) return 'risk-reward';
   return 'reversal';
 }
@@ -82,76 +58,204 @@ function inferDirection(value = '') {
   return 'bullish';
 }
 
-export function buildTeachingChart({ symbol, market, interval, scenarioType, direction, title, seed, notes = [] } = {}) {
+function average(values = []) {
+  return values.length ? values.reduce((sum, value) => sum + Number(value || 0), 0) / values.length : 0;
+}
+function candleAtr(candles = []) {
+  const ranges = candles.map((bar, index) => {
+    const previousClose = index ? candles[index - 1].close : bar.open;
+    return Math.max(bar.high - bar.low, Math.abs(bar.high - previousClose), Math.abs(bar.low - previousClose));
+  }).filter((value) => Number.isFinite(value) && value > 0);
+  return average(ranges) || Math.max(0.00001, Math.abs((candles.at(-1)?.close || 1) - (candles[0]?.open || 1)) / Math.max(1, candles.length));
+}
+function scenarioScore(window = [], scenario = 'reversal', direction = 'bullish') {
+  if (window.length < 48) return -Infinity;
+  const sign = direction === 'bearish' ? -1 : 1;
+  const atr = candleAtr(window);
+  const close = (index) => Number(window[Math.max(0, Math.min(window.length - 1, index))]?.close || 0);
+  const firstLeg = (close(24) - close(4)) * sign / atr;
+  const middleLeg = (close(40) - close(24)) * sign / atr;
+  const finalLeg = (close(window.length - 3) - close(40)) * sign / atr;
+  const before = window.slice(5, 36);
+  const after = window.slice(36);
+  const beforeHigh = Math.max(...before.map((bar) => bar.high));
+  const beforeLow = Math.min(...before.map((bar) => bar.low));
+  const afterHigh = Math.max(...after.map((bar) => bar.high));
+  const afterLow = Math.min(...after.map((bar) => bar.low));
+  const beforeRange = Math.max(atr, beforeHigh - beforeLow);
+  if (scenario === 'breakout') {
+    const breakDistance = sign > 0 ? afterHigh - beforeHigh : beforeLow - afterLow;
+    const compression = atr / beforeRange;
+    return breakDistance / atr + compression * 8 + finalLeg * 0.35;
+  }
+  if (scenario === 'pullback') return firstLeg - middleLeg + finalLeg;
+  if (scenario === 'range') {
+    const net = Math.abs(close(window.length - 3) - close(4));
+    const touches = window.filter((bar) => Math.abs(bar.high - beforeHigh) <= atr * 0.5 || Math.abs(bar.low - beforeLow) <= atr * 0.5).length;
+    return touches * 0.4 + beforeRange / atr - net / atr * 1.5;
+  }
+  if (scenario === 'invalidation') {
+    const falseBreak = sign > 0 ? Math.max(0, afterHigh - beforeHigh) : Math.max(0, beforeLow - afterLow);
+    const reversal = sign > 0 ? Math.max(0, beforeHigh - close(window.length - 3)) : Math.max(0, close(window.length - 3) - beforeLow);
+    return falseBreak / atr + reversal / atr;
+  }
+  if (scenario === 'risk-reward') return Math.abs(finalLeg) + Math.abs(firstLeg) * 0.35;
+  return -firstLeg + finalLeg * 1.25;
+}
+function selectHistoricalWindow(candles = [], scenario = 'reversal', direction = 'bullish', count = 64) {
+  if (candles.length <= count) return candles.map((bar, index) => ({ ...bar, index }));
+  let best = candles.slice(-count);
+  let bestScore = -Infinity;
+  const step = Math.max(1, Math.floor((candles.length - count) / 80));
+  for (let start = 0; start <= candles.length - count; start += step) {
+    const window = candles.slice(start, start + count);
+    const score = scenarioScore(window, scenario, direction);
+    if (score > bestScore) { bestScore = score; best = window; }
+  }
+  return best.map((bar, index) => ({ ...bar, index, label: bar.label || bar.time || `Bar ${index + 1}` }));
+}
+function precisionFor(candles = []) {
+  const price = Math.abs(Number(candles.at(-1)?.close || 0));
+  if (price >= 10000) return 1;
+  if (price >= 100) return 2;
+  if (price >= 10) return 3;
+  return 5;
+}
+function findConfirmationIndex(candles, scenario, direction, atr) {
+  const sign = direction === 'bearish' ? -1 : 1;
+  if (scenario === 'breakout' || scenario === 'invalidation') {
+    const base = candles.slice(5, 36);
+    const high = Math.max(...base.map((bar) => bar.high));
+    const low = Math.min(...base.map((bar) => bar.low));
+    const found = candles.findIndex((bar, index) => index >= 36 && (sign > 0 ? bar.close > high + atr * 0.1 : bar.close < low - atr * 0.1));
+    return found >= 0 ? found : 38;
+  }
+  const search = candles.slice(20, 46);
+  const pivotOffset = direction === 'bearish'
+    ? search.reduce((best, bar, index) => bar.high > search[best].high ? index : best, 0)
+    : search.reduce((best, bar, index) => bar.low < search[best].low ? index : best, 0);
+  const pivot = 20 + pivotOffset;
+  for (let index = pivot + 1; index < Math.min(candles.length - 6, pivot + 12); index += 1) {
+    const move = (candles[index].close - candles[pivot].close) * sign;
+    if (move >= atr * 0.8) return index;
+  }
+  return Math.min(candles.length - 8, pivot + 5);
+}
+
+export function buildTeachingChart({ symbol, market, interval, scenarioType, direction, title, notes = [] } = {}) {
   const tradingViewSymbol = normalizeTradingViewSymbol(symbol, market);
   const safeInterval = normalizeChartInterval(interval);
   const safeScenario = CHART_SCENARIOS.has(clean(scenarioType, 30).toLowerCase()) ? clean(scenarioType, 30).toLowerCase() : inferScenario(title);
   const safeDirection = CHART_DIRECTIONS.has(clean(direction, 30).toLowerCase()) ? clean(direction, 30).toLowerCase() : inferDirection(title);
-  const directionSign = safeDirection === 'bearish' ? -1 : 1;
-  const { price: startingPrice, step, digits } = chartBase(tradingViewSymbol);
-  const random = seededRandom(hashSeed(`${seed || title || safeScenario}:${tradingViewSymbol}:${safeInterval}`));
-  const candles = [];
-  let previousClose = startingPrice;
-  const count = 64;
-  for (let index = 0; index < count; index += 1) {
-    let phaseDrift = 0;
-    if (safeScenario === 'range') phaseDrift = Math.sin(index / 3.2) * step * 0.42;
-    else if (safeScenario === 'breakout') phaseDrift = index < 35 ? Math.sin(index / 3) * step * 0.2 : directionSign * step * (index === 35 ? 1.6 : 0.42);
-    else if (safeScenario === 'pullback') phaseDrift = index < 25 ? directionSign * step * 0.30 : index < 39 ? -directionSign * step * 0.34 : directionSign * step * 0.45;
-    else if (safeScenario === 'invalidation') phaseDrift = index < 31 ? -directionSign * step * 0.22 : index < 42 ? directionSign * step * 0.28 : -directionSign * step * 0.55;
-    else if (safeScenario === 'risk-reward') phaseDrift = index < 28 ? -directionSign * step * 0.20 : directionSign * step * 0.38;
-    else phaseDrift = index < 27 ? -directionSign * step * 0.24 : index < 34 ? -directionSign * step * 0.05 : directionSign * step * 0.42;
-    const noise = (random() - 0.5) * step * 0.42;
-    const open = previousClose;
-    const close = Math.max(step * 2, open + phaseDrift + noise);
-    const wick = step * (0.28 + random() * 0.45);
-    const high = Math.max(open, close) + wick;
-    const low = Math.max(step, Math.min(open, close) - wick * (0.8 + random() * 0.45));
-    previousClose = close;
-    candles.push({ index, label: `Bar ${index + 1}`, open: round(open, digits), high: round(high, digits), low: round(low, digits), close: round(close, digits) });
-  }
-  const extremeWindow = candles.slice(20, 38);
-  const extremeLow = Math.min(...extremeWindow.map((bar) => bar.low));
-  const extremeHigh = Math.max(...extremeWindow.map((bar) => bar.high));
-  const confirmationIndex = safeScenario === 'breakout' ? 36 : safeScenario === 'pullback' ? 40 : 35;
-  const entryIndex = Math.min(count - 12, confirmationIndex + 3);
-  const entry = candles[entryIndex].close;
-  const stop = safeDirection === 'bearish' ? extremeHigh + step * 0.55 : extremeLow - step * 0.55;
-  const risk = Math.max(step, Math.abs(entry - stop));
-  const target = entry + directionSign * risk * 2;
-  const zoneLow = safeDirection === 'bearish' ? extremeHigh - step * 1.7 : extremeLow - step * 0.15;
-  const zoneHigh = safeDirection === 'bearish' ? extremeHigh + step * 0.15 : extremeLow + step * 1.7;
-  const price = (value) => round(value, digits);
-  const scenarioLabel = safeScenario.replace('-', ' ');
   return {
-    provider: 'tradingview_dual_mode',
-    simulated: true,
+    provider: 'real_historical_required',
+    simulated: false,
+    historical: true,
+    dataStatus: 'pending',
     symbol: tradingViewSymbol,
     interval: safeInterval,
-    title: clean(title, 180) || `${scenarioLabel} chart example`,
+    title: clean(title, 180) || `${safeScenario.replace('-', ' ')} historical chart example`,
     scenarioType: safeScenario,
     direction: safeDirection,
-    notice: 'The AI markup uses simulated teaching candles. The TradingView tab opens the real market chart for visual comparison; it is not a live trade signal.',
-    candles,
-    zones: [{ fromIndex: 20, toIndex: 39, low: price(Math.min(zoneLow, zoneHigh)), high: price(Math.max(zoneLow, zoneHigh)), label: safeDirection === 'bearish' ? 'Example supply area' : 'Example demand area' }],
-    levels: [
-      { role: 'entry', price: price(entry), label: 'Example entry after confirmation' },
-      { role: 'stop', price: price(stop), label: 'Example invalidation' },
-      { role: 'target', price: price(target), label: 'Example 2R objective' },
-    ],
-    markers: [
-      { index: Math.max(0, confirmationIndex - 5), role: 'context', label: 'Context forms' },
-      { index: confirmationIndex, role: 'confirmation', label: 'Confirmation' },
-      { index: entryIndex, role: 'entry', label: 'Practice entry' },
-    ],
-    steps: [
-      { stepId: 'context', title: '1. Read context', fromIndex: 4, toIndex: 39, narration: `Zoom out first. Identify the ${scenarioLabel} context and the area where price may require confirmation.` },
-      { stepId: 'confirmation', title: '2. Zoom into confirmation', fromIndex: 22, toIndex: 46, narration: 'Now zoom in. Study the candles around the marked area and wait for the lesson confirmation instead of reacting to the first touch.' },
-      { stepId: 'risk', title: '3. Map entry and invalidation', fromIndex: 28, toIndex: 55, narration: 'Compare the educational entry, invalidation, and objective. The trade idea must be defined before size or execution is considered.' },
-      { stepId: 'review', title: '4. Review follow-through', fromIndex: 18, toIndex: 64, narration: 'Zoom back out and review what happened after confirmation. Judge the process, not only the outcome.' },
-    ],
+    notice: 'WISDO is waiting for verified historical OHLC candles. It will not generate a fake chart.',
+    candles: [],
+    zones: [],
+    levels: [],
+    markers: [],
+    steps: [],
     notes: list(notes, 6, 300),
   };
+}
+
+export function buildHistoricalTeachingChart(plan = {}, marketData = {}) {
+  const safeScenario = CHART_SCENARIOS.has(clean(plan.scenarioType, 30).toLowerCase()) ? clean(plan.scenarioType, 30).toLowerCase() : 'reversal';
+  const safeDirection = CHART_DIRECTIONS.has(clean(plan.direction, 30).toLowerCase()) ? clean(plan.direction, 30).toLowerCase() : 'bullish';
+  const candles = selectHistoricalWindow(marketData.candles || [], safeScenario, safeDirection, 64);
+  if (candles.length < 32) throw new Error('At least 32 verified historical candles are required for an AI chart lesson.');
+  const atr = candleAtr(candles);
+  const digits = precisionFor(candles);
+  const price = (value) => round(value, digits);
+  const sign = safeDirection === 'bearish' ? -1 : 1;
+  const confirmationIndex = findConfirmationIndex(candles, safeScenario, safeDirection, atr);
+  const entryIndex = Math.min(candles.length - 6, confirmationIndex + 2);
+  const contextStart = Math.max(0, confirmationIndex - 18);
+  const contextEnd = Math.min(candles.length - 1, confirmationIndex + 2);
+  const context = candles.slice(contextStart, contextEnd + 1);
+  const extremeLow = Math.min(...context.map((bar) => bar.low));
+  const extremeHigh = Math.max(...context.map((bar) => bar.high));
+  const entry = candles[entryIndex].close;
+  const stop = safeDirection === 'bearish' ? extremeHigh + atr * 0.25 : extremeLow - atr * 0.25;
+  const risk = Math.max(atr * 0.5, Math.abs(entry - stop));
+  const target = entry + sign * risk * 2;
+  const zoneLow = safeDirection === 'bearish' ? extremeHigh - atr * 1.2 : extremeLow - atr * 0.15;
+  const zoneHigh = safeDirection === 'bearish' ? extremeHigh + atr * 0.15 : extremeLow + atr * 1.2;
+  const rangeStart = candles[0].time || candles[0].label;
+  const rangeEnd = candles.at(-1).time || candles.at(-1).label;
+  const scenarioLabel = safeScenario.replace('-', ' ');
+  return {
+    ...plan,
+    provider: marketData.provider || 'historical_market_data',
+    simulated: false,
+    historical: true,
+    dataStatus: 'ready',
+    sourceName: marketData.sourceName || marketData.provider || 'Historical market data',
+    sourceUrl: marketData.sourceUrl || null,
+    providerSymbol: marketData.providerSymbol || plan.symbol,
+    exchange: marketData.exchange || null,
+    timezone: marketData.timezone || 'UTC',
+    fetchedAt: marketData.fetchedAt || nowIso(),
+    rangeStart,
+    rangeEnd,
+    notice: `Real historical example from ${marketData.sourceName || marketData.provider || 'the configured market-data provider'} covering ${rangeStart} through ${rangeEnd}. WISDO annotations are educational observations, not a live signal.`,
+    candles,
+    zones: [{ fromIndex: contextStart, toIndex: contextEnd, low: price(Math.min(zoneLow, zoneHigh)), high: price(Math.max(zoneLow, zoneHigh)), label: safeDirection === 'bearish' ? 'Observed historical supply area' : 'Observed historical demand area' }],
+    levels: [
+      { role: 'entry', price: price(entry), label: 'Educational confirmation entry' },
+      { role: 'stop', price: price(stop), label: 'Historical-example invalidation' },
+      { role: 'target', price: price(target), label: 'Educational 2R projection' },
+    ],
+    markers: [
+      { index: Math.max(0, confirmationIndex - 5), role: 'context', label: 'Historical context' },
+      { index: confirmationIndex, role: 'confirmation', label: 'Observed confirmation' },
+      { index: entryIndex, role: 'entry', label: 'Educational decision point' },
+    ],
+    steps: [
+      { stepId: 'context', title: '1. Read the real context', fromIndex: Math.max(0, confirmationIndex - 30), toIndex: Math.min(candles.length, confirmationIndex + 3), narration: `Zoom out first. This is a real historical ${scenarioLabel} window. Identify structure before studying the marked area.` },
+      { stepId: 'confirmation', title: '2. Zoom into the observed confirmation', fromIndex: Math.max(0, confirmationIndex - 12), toIndex: Math.min(candles.length, confirmationIndex + 10), narration: 'Zoom in on the actual candles around the marked area. Explain what changed and what evidence was still missing before confirmation.' },
+      { stepId: 'risk', title: '3. Map invalidation and risk', fromIndex: Math.max(0, entryIndex - 10), toIndex: Math.min(candles.length, entryIndex + 16), narration: 'Use the historical candles to define an educational entry, invalidation, and 2R projection. These levels explain process; they are not a recommendation.' },
+      { stepId: 'review', title: '4. Reveal the historical follow-through', fromIndex: Math.max(0, confirmationIndex - 20), toIndex: candles.length, narration: 'Zoom back out and review what actually happened after the decision point. Separate process quality from whether this single example won or lost.' },
+    ],
+  };
+}
+
+export async function hydrateWebinarCharts(webinar = {}, marketDataService) {
+  const scenes = Array.isArray(webinar.scenes) ? webinar.scenes : [];
+  const cache = new Map();
+  for (const scene of scenes) {
+    if (!scene.chart) continue;
+    const chart = scene.chart;
+    const key = `${chart.symbol}|${chart.interval}`;
+    try {
+      let data = cache.get(key);
+      if (!data) {
+        data = await marketDataService.getCandles({ symbol: chart.symbol, interval: chart.interval, outputSize: 320 });
+        cache.set(key, data);
+      }
+      scene.chart = buildHistoricalTeachingChart(chart, data);
+    } catch (error) {
+      scene.chart = {
+        ...chart,
+        provider: 'real_historical_unavailable',
+        simulated: false,
+        historical: true,
+        dataStatus: 'unavailable',
+        dataError: clean(error.message, 1000),
+        candles: [], zones: [], levels: [], markers: [], steps: [],
+        notice: `${clean(error.message, 700)} Open the Live TradingView view to study the current market. AI Markup stays disabled because WISDO will not invent candles.`,
+      };
+    }
+  }
+  return webinar;
 }
 
 function normalizeChartPlan(input = {}, context = {}) {
@@ -163,7 +267,6 @@ function normalizeChartPlan(input = {}, context = {}) {
     scenarioType: input.scenarioType || context.scenarioType,
     direction: input.direction || context.direction,
     title: input.title || context.title,
-    seed: input.seed || context.seed,
     notes: input.notes || context.notes,
   });
 }
@@ -304,7 +407,7 @@ export function buildWebinarPrompt({ question, topic, level, durationMinutes, st
     requiredDisclaimer: strategy.requiredDisclaimer,
   } : null;
   return {
-    system: `You are WISDO AI Webinar Director. Create an on-demand educational webinar as strict JSON. Teach clearly for the learner level. Use only the supplied approved strategy knowledge when a strategy is present. Never invent missing strategy rules, reveal protected source code, promise returns, or give personalized live buy/sell instructions. Include risk, invalidation, common mistakes, at least one on-chart worked example, and a quiz. For a chart-example scene, provide only a safe chart plan; WISDO generates simulated teaching candles and opens the matching real TradingView chart.`,
+    system: `You are WISDO AI Webinar Director. Create an on-demand educational webinar as strict JSON. Teach clearly for the learner level. Use only the supplied approved strategy knowledge when a strategy is present. Never invent missing strategy rules, reveal protected source code, promise returns, or give personalized live buy/sell instructions. Include risk, invalidation, common mistakes, at least one on-chart worked example, and a quiz. For a chart-example scene, provide only a safe chart plan; WISDO loads verified historical OHLC candles from the configured market-data provider and opens the matching TradingView chart. If real candles are unavailable, WISDO must leave AI Markup disabled instead of inventing data.`,
     user: JSON.stringify({
       requestedQuestion: clean(question, 4000),
       topic: clean(topic, 500),
@@ -386,7 +489,7 @@ export function createWebinarSession({ userId, request = {}, webinar, provider =
     },
     webinar,
     provider,
-    mediaMode: 'interactive_ai_video_with_chart_teacher',
+    mediaMode: 'interactive_ai_video_with_real_historical_chart_teacher',
     externalVideo: null,
     progress: { sceneIndex: 0, completed: false, watchedSeconds: 0, quizScore: null, updatedAt: nowIso() },
     questions: [],

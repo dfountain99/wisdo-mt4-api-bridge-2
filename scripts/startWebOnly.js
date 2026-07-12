@@ -22,7 +22,7 @@ operatorDeskService.attachMt4SyncService?.(mt4SyncService);
 const noop = {};
 const paymentService = {
   isConfigured() {
-    return Boolean(config.store.stripeSecretKey && config.api.publicBaseUrl);
+    return Boolean(config.store.squareAccessToken && config.store.squareLocationId && config.api.publicBaseUrl);
   },
 };
 

@@ -5,7 +5,7 @@
 1. Create or update the service from `render.yaml`.
 2. Confirm the persistent disk is mounted at `/var/data`.
 3. Set `PUBLIC_BASE_URL` to the final HTTPS origin.
-4. Add Discord, OAuth, MT4, Stripe, Resend, AI, market, and push credentials as needed.
+4. Add Discord, OAuth, MT4, Square, Resend, AI, market, and push credentials as needed.
 5. Deploy with `npm ci --omit=dev --no-audit --no-fund` and `npm start`.
 6. Verify `/health`, `/api/public/health`, and `/api/runtime-audit`.
 
@@ -30,12 +30,12 @@ https://YOUR_DOMAIN/auth/google/callback
 
 Configure both callback URLs at the providers and set the matching client IDs/secrets.
 
-## Stripe webhook
+## Square webhook
 
 Canonical route:
 
 ```text
-POST https://YOUR_DOMAIN/api/public/webhooks/stripe
+POST https://YOUR_DOMAIN/api/public/webhooks/square
 ```
 
 Subscribe to at least:
@@ -46,7 +46,7 @@ Subscribe to at least:
 - `invoice.paid`
 - `invoice.payment_failed`
 
-The legacy `/stripe/webhook` path remains for compatibility with the original product pass.
+The legacy `/square/webhook` path remains for compatibility with the original product pass.
 
 ## Broker webhook signature
 

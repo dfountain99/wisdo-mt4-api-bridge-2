@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { registerDeadshotWebhookRoutes, registerDeadshotCommandCenterRoutes } from './deadshotSite.js';
+import { registerDeadshotCommandCenterRoutes } from './deadshotSite.js';
 import { registerMajorUpgradeRoutes } from './majorUpgradeRoutes.js';
 import { registerExtendedProductRoutes } from './extendedProductRoutes.js';
 import { encodeSignedSession, decodeSignedSession } from './security.js';
@@ -2650,8 +2650,8 @@ function botsPage(config) {
   const categoryTags = categories.map((cat) => `<span class="tag">${esc(cat)}</span>`).join('');
   return `${sectionHero('Bot Arena Marketplace', 'Every Expert Advisor found in your uploaded folders is listed as its own product card with a skill-based price, checkout action, WISDO compatibility, and Copier Engine connection path.', '<a class="btn primary" href="#all-bots">Shop All Bots</a><a class="btn" href="/member/copy-pro">View Copier Engine</a>')}
   <section class="card bot-banner full"><div class="row" style="justify-content:space-between;align-items:center"><div><img class="logo-hero" src="/media/white_logo_transparent_background.png" alt="CEM Culture"><h3>Recommended Today</h3><div class="title" style="font-size:34px">${esc(recommended.name)}</div><p>${esc(recommended.description)}</p><div>${recommended.tags.map((x) => `<span class="tag">${esc(x)}</span>`).join('')}</div></div><div><div class="metric green">${money(botPrice(recommended, config))}</div><p class="muted">Top bot recommendation. This is the flagship product card, not a generic EA-pack download.</p><button class="btn primary buy-bot" data-bot="${esc(recommended.name)}" data-price="${botPrice(recommended, config)}" data-slug="${slugify(recommended.name)}">Buy DF SAUCE FINAL AI</button><a class="btn" href="/member/bots/${slugify(recommended.name)}">View Details</a><div id="checkout-${slugify(recommended.name)}" class="checkout-result" style="display:none;white-space:pre-wrap;background:#06111d;border:1px solid rgba(255,255,255,.1);padding:12px;border-radius:12px;margin-top:12px"></div></div></div></section>
-  <div class="grid3" style="margin-top:16px"><section class="card"><h3>Bots Listed</h3><div class="metric">${EA_CATALOG.length}</div><p>Each uploaded EA is now displayed as a marketplace product.</p></section><section class="card"><h3>Paid Products</h3><div class="metric">${paidBots.length}</div><p>Products can create Stripe checkout or manual quotes.</p></section><section class="card"><h3>Top Price</h3><div class="metric green">${money(botPrice(recommended, config))}</div><p>DF SAUCE FINAL AI flagship price.</p></section><section class="card full"><h3>Bot Categories</h3>${categoryTags}</section><section class="card full"><h3>What Buyer Gets</h3><span class="tag">EA delivery after purchase</span><span class="tag">Install guide</span><span class="tag">WISDO link-account flow</span><span class="tag">Copier Engine visibility</span><span class="tag">Support desk record</span><span class="tag">Risk disclaimer</span></section></div>
-  <div id="all-bots" class="grid3" style="margin-top:16px">${cards}</div><script>document.querySelectorAll('.buy-bot').forEach(btn=>btn.addEventListener('click',async()=>{const slug=btn.dataset.slug;const out=document.getElementById('checkout-'+slug);out.style.display='block';out.textContent='Creating checkout...';const res=await fetch('/api/bot-checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({botName:btn.dataset.bot,priceUsd:Number(btn.dataset.price||0)})});const json=await res.json();if(json.checkoutUrl){out.innerHTML='Checkout ready: <a class="btn primary" href="'+json.checkoutUrl+'">Open Stripe Checkout</a>'; } else if(json.ok){out.textContent='Manual quote created for '+json.botName+' at $'+json.priceUsd+'. Add STRIPE_SECRET_KEY on Render to turn this into live checkout.';} else {out.textContent='Checkout error: '+(json.error||'Unknown error');}}));</script>`;
+  <div class="grid3" style="margin-top:16px"><section class="card"><h3>Bots Listed</h3><div class="metric">${EA_CATALOG.length}</div><p>Each uploaded EA is now displayed as a marketplace product.</p></section><section class="card"><h3>Paid Products</h3><div class="metric">${paidBots.length}</div><p>Products can create Square checkout or manual quotes.</p></section><section class="card"><h3>Top Price</h3><div class="metric green">${money(botPrice(recommended, config))}</div><p>DF SAUCE FINAL AI flagship price.</p></section><section class="card full"><h3>Bot Categories</h3>${categoryTags}</section><section class="card full"><h3>What Buyer Gets</h3><span class="tag">EA delivery after purchase</span><span class="tag">Install guide</span><span class="tag">WISDO link-account flow</span><span class="tag">Copier Engine visibility</span><span class="tag">Support desk record</span><span class="tag">Risk disclaimer</span></section></div>
+  <div id="all-bots" class="grid3" style="margin-top:16px">${cards}</div><script>document.querySelectorAll('.buy-bot').forEach(btn=>btn.addEventListener('click',async()=>{const slug=btn.dataset.slug;const out=document.getElementById('checkout-'+slug);out.style.display='block';out.textContent='Creating checkout...';const res=await fetch('/api/bot-checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({botName:btn.dataset.bot,priceUsd:Number(btn.dataset.price||0)})});const json=await res.json();if(json.checkoutUrl){out.innerHTML='Checkout ready: <a class="btn primary" href="'+json.checkoutUrl+'">Open Square Checkout</a>'; } else if(json.ok){out.textContent='Manual quote created for '+json.botName+' at $'+json.priceUsd+'. Add SQUARE_ACCESS_TOKEN on Render to turn this into live checkout.';} else {out.textContent='Checkout error: '+(json.error||'Unknown error');}}));</script>`;
 }
 function devicesPage() {
   return `${sectionHero('Device Forge', 'The hardware roadmap for MT4 tablets and handheld WISDO devices. Start with tablets, then move into dedicated voice devices once the software is stable.')}
@@ -3028,7 +3028,7 @@ function botDetailPage(slug, config) {
   const bot = EA_CATALOG.find((item) => slugify(item.name) === slug) || EA_CATALOG[0];
   const price = botPrice(bot, config);
   return `${sectionHero(bot.name, bot.description || 'CultureCoin approved trading bot.', '<a class="btn primary" href="/member/install/'+slugify(bot.name)+'">Setup Free</a><a class="btn" href="#checkout">Checkout</a><a class="btn" href="/member/link-account?selectedBot='+encodeURIComponent(bot.name)+'">Link MT4</a><a class="btn" href="/member/copy-pro?bot='+encodeURIComponent(bot.name)+'">Copy Live Account Running This Bot</a>')}
-  <div class="grid2"><section class="card"><h3>Strategy</h3><p>${esc(bot.strategy || 'EA strategy details, setup guide, and risk notes.')}</p><span class="tag">${esc(bot.bestMarket || 'XAUUSD')}</span><span class="tag">${esc(bot.platform || 'MT4')}</span><span class="tag">WISDO Compatible</span><span class="tag">${esc(bot.category)}</span><span class="tag">${esc(bot.tier || bot.status)}</span></section><section class="card"><h3>Marketplace Price</h3><div class="metric">${price > 0 ? money(price) : 'Free Utility'}</div><p>${price > 0 ? 'Checkout creates a bot purchase quote and can open Stripe when Stripe is configured.' : 'Utility is part of the connection/support stack.'}</p><p class="muted">Delivery file after purchase: ${esc(bot.file || '')}</p></section></div>
+  <div class="grid2"><section class="card"><h3>Strategy</h3><p>${esc(bot.strategy || 'EA strategy details, setup guide, and risk notes.')}</p><span class="tag">${esc(bot.bestMarket || 'XAUUSD')}</span><span class="tag">${esc(bot.platform || 'MT4')}</span><span class="tag">WISDO Compatible</span><span class="tag">${esc(bot.category)}</span><span class="tag">${esc(bot.tier || bot.status)}</span></section><section class="card"><h3>Marketplace Price</h3><div class="metric">${price > 0 ? money(price) : 'Free Utility'}</div><p>${price > 0 ? 'Checkout creates a bot purchase quote and opens Square hosted checkout when Square is configured.' : 'Utility is part of the connection/support stack.'}</p><p class="muted">Delivery file after purchase: ${esc(bot.file || '')}</p></section></div>
   <section class="card full"><h3>Bot Details</h3><p>${esc(bot.risk)}</p>${(bot.tags || []).map((x)=>`<span class="tag">${esc(x)}</span>`).join('')}<div style="margin-top:12px"><span class="tag">Overview</span><span class="tag">Strategy Explanation</span><span class="tag">Performance Chart</span><span class="tag">Risk Notes</span><span class="tag">Setup Instructions</span><span class="tag">Compatible Commands</span><span class="tag">User Reviews</span><span class="tag">Download After Purchase</span></div></section>
   <section id="checkout" class="card full"><h3>Checkout Options</h3><p class="muted">Choose how to access this bot. Payment plans and rentals use CultureCoin VPS until ownership is complete.</p><div class="grid3"><section class="card ok"><h3>Pay in Full</h3><div class="metric">${money(price)}</div><p>Lifetime access. Download unlocks immediately after payment clears.</p><button class="btn primary finance-checkout" data-plan="paid_in_full" data-bot="${esc(bot.name)}" data-price="${price}" data-slug="${slugify(bot.name)}">Pay in Full</button></section><section class="card"><h3>Pay Monthly Until Owned</h3><div class="metric">${money(Math.ceil(price/6))}/mo</div><p>6-month plan. VPS required until paid in full. Download unlocks after final payment.</p><button class="btn primary finance-checkout" data-plan="payment_plan" data-bot="${esc(bot.name)}" data-price="${price}" data-slug="${slugify(bot.name)}">Start Payment Plan</button></section><section class="card"><h3>Rent Monthly</h3><div class="metric">${money(bot.recommended ? 497 : Math.max(97, Math.round(price*.16)))}/mo</div><p>VPS-only access. Download remains locked while renting.</p><button class="btn primary finance-checkout" data-plan="rental" data-bot="${esc(bot.name)}" data-price="${price}" data-slug="${slugify(bot.name)}">Rent Monthly</button></section><section class="card bot-banner full"><h3>VPS Bundle</h3><div class="metric">${money(bot.recommended ? 597 : Math.max(147, Math.round(price*.2)))}/mo</div><p>Bot access + Operator VPS + monitoring support. Best for monthly users and copy trading.</p><button class="btn primary finance-checkout" data-plan="vps_bundle" data-bot="${esc(bot.name)}" data-price="${price}" data-slug="${slugify(bot.name)}">Bundle with VPS</button></section></div><pre id="checkout-${slugify(bot.name)}" style="display:none;white-space:pre-wrap;background:#06111d;border:1px solid rgba(255,255,255,.1);padding:12px;border-radius:12px"></pre></section>${riskDisclosureBlock()}<script>document.querySelectorAll('.finance-checkout').forEach(btn=>btn.addEventListener('click',async()=>{const slug=btn.dataset.slug;const out=document.getElementById('checkout-'+slug);out.style.display='block';out.textContent='Creating '+btn.dataset.plan+' checkout...';const res=await fetch('/api/bots/'+slug+'/checkout-plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({botName:btn.dataset.bot,planType:btn.dataset.plan,priceUsd:Number(btn.dataset.price||0)})});const json=await res.json();out.textContent=json.ok?('Plan created: '+json.planType+' for '+json.productName+'\nStatus: '+json.status+(json.checkoutUrl?'\nOpen: '+json.checkoutUrl:'\nManual/dev mode record created.')):('Checkout error: '+(json.error||'Unknown error'));}));</script>`;
 }
@@ -3099,7 +3099,7 @@ function financeWidgetCards(userId, state) {
   const payouts = Object.values(state.payoutsById).filter((x)=>String(x.userId)===String(userId));
   const commissions = Object.values(state.commissionLedgerById).filter((x)=>String(x.referrerUserId)===String(userId));
   const available = commissions.filter((x)=>x.status==='available').reduce((sum,x)=>sum+Number(x.commissionAmount||0),0);
-  return `<div class="grid3"><section class="card"><h3>Active Subscriptions</h3><div class="metric">${subscriptions.length}</div><p>Bot rentals, signal rooms, copy access, memberships, and VPS.</p></section><section class="card"><h3>Payment Plans</h3><div class="metric">${plans.length}</div><p>Monthly-until-owned bot plans. VPS required until paid in full.</p></section><section class="card"><h3>VPS Assignments</h3><div class="metric">${vps.length}</div><p>Hosted MT4 environments for rentals, plans, and copy trading.</p></section><section class="card"><h3>Available Commission</h3><div class="metric green">${money(available)}</div><p>Approved and available for payout request.</p></section><section class="card"><h3>Payout Requests</h3><div class="metric">${payouts.length}</div><p>Requested, approved, paid, rejected, or held payout records.</p></section><section class="card"><h3>Finance Engine</h3><span class="tag green">Stripe Ready</span><span class="tag gold">Manual fallback</span><span class="tag">VPS access rules</span></section></div>`;
+  return `<div class="grid3"><section class="card"><h3>Active Subscriptions</h3><div class="metric">${subscriptions.length}</div><p>Bot rentals, signal rooms, copy access, memberships, and VPS.</p></section><section class="card"><h3>Payment Plans</h3><div class="metric">${plans.length}</div><p>Monthly-until-owned bot plans. VPS required until paid in full.</p></section><section class="card"><h3>VPS Assignments</h3><div class="metric">${vps.length}</div><p>Hosted MT4 environments for rentals, plans, and copy trading.</p></section><section class="card"><h3>Available Commission</h3><div class="metric green">${money(available)}</div><p>Approved and available for payout request.</p></section><section class="card"><h3>Payout Requests</h3><div class="metric">${payouts.length}</div><p>Requested, approved, paid, rejected, or held payout records.</p></section><section class="card"><h3>Finance Engine</h3><span class="tag green">Square Ready</span><span class="tag gold">Manual fallback</span><span class="tag">VPS access rules</span></section></div>`;
 }
 
 function subscriptionsPage(userId, state) {
@@ -3138,7 +3138,7 @@ function payoutRequestPage(userId, state) {
 }
 
 function purchaseResultPage(success = true) {
-  return `${sectionHero(success ? 'Purchase Success' : 'Purchase Cancelled', success ? 'Your checkout was completed or recorded. WISDO will unlock the correct access after payment confirmation.' : 'Checkout was cancelled. You can return to the marketplace anytime.', '<a class="btn primary" href="/member/my-bots">My Bots</a><a class="btn" href="/member/subscriptions">Subscriptions</a><a class="btn" href="/member/bots">Bot Store</a>')}<section class="card full"><h3>${success ? 'Next Steps' : 'No problem'}</h3><p>${success ? 'Check My Bots, Subscriptions, Payment Plans, or VPS Forge. If Stripe webhook is configured, paid orders can unlock automatically.' : 'No payment was completed. Your account was not charged by this page.'}</p></section>`;
+  return `${sectionHero(success ? 'Purchase Success' : 'Purchase Cancelled', success ? 'Your checkout was completed or recorded. WISDO will unlock the correct access after payment confirmation.' : 'Checkout was cancelled. You can return to the marketplace anytime.', '<a class="btn primary" href="/member/my-bots">My Bots</a><a class="btn" href="/member/subscriptions">Subscriptions</a><a class="btn" href="/member/bots">Bot Store</a>')}<section class="card full"><h3>${success ? 'Next Steps' : 'No problem'}</h3><p>${success ? 'Check My Bots, Subscriptions, Payment Plans, or VPS Forge. If the Square webhook is configured, paid orders can unlock automatically.' : 'No payment was completed. Your account was not charged by this page.'}</p></section>`;
 }
 
 function adminFinancePage(state) {
@@ -3299,7 +3299,7 @@ function referralLandingPage(baseUrl, referralCode, targetType = 'general', targ
 function enhancedWalletPage(userId, state) {
   const stats = referralStatsForUser(state, userId);
   const rows = Object.values(state.commissionLedgerById || {}).filter((c)=>String(c.referrerUserId)===String(userId)).map((c)=>`<tr><td>${esc(c.productType)}</td><td>${esc(c.productId)}</td><td>${money(c.grossAmount)}</td><td>${c.commissionRatePercent}%</td><td>${money(c.commissionAmount)}</td><td>${esc(c.status)}</td></tr>`).join('');
-  return `${sectionHero('Commission Wallet', 'Trades prove value. Stripe collects payment. WISDO tracks commission. Admin approves payout.', '<button class="btn primary" onclick="requestPayout()">Request Payout</button><a class="btn" href="/member/referrals?userId='+encodeURIComponent(userId)+'">Referral Links</a>')}
+  return `${sectionHero('Commission Wallet', 'Trades prove value. Square collects payment. WISDO tracks commission. Admin approves payout.', '<button class="btn primary" onclick="requestPayout()">Request Payout</button><a class="btn" href="/member/referrals?userId='+encodeURIComponent(userId)+'">Referral Links</a>')}
   <div class="grid"><section class="card"><h3>Lifetime Earned</h3><div class="metric green">${money(stats.totals.lifetime)}</div></section><section class="card"><h3>Pending</h3><div class="metric gold">${money(stats.totals.pending)}</div></section><section class="card"><h3>Available</h3><div class="metric blue">${money(stats.totals.available)}</div></section><section class="card"><h3>Paid</h3><div class="metric">${money(stats.totals.paid)}</div></section></div>
   <section class="card full" style="margin-top:16px"><h3>Commission Ledger</h3><table><thead><tr><th>Type</th><th>Product</th><th>Gross</th><th>Rate</th><th>Commission</th><th>Status</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No commission records yet.</td></tr>'}</tbody></table></section>
   <script>async function requestPayout(){const amount=prompt('Amount to request payout for?');if(!amount)return;const res=await fetch('/api/payouts/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:'${esc(userId)}',amount:Number(amount),payoutMethod:'manual'})});alert(JSON.stringify(await res.json(),null,2));}</script>`;
@@ -3908,8 +3908,8 @@ function adminHealthPage(config, mt4 = {}, state = {}) {
   const connections = Object.values(mt4.connections || {});
   const snapshots = Object.values(mt4.latestSnapshots || {});
   const stale = snapshots.filter((s)=>Date.now()-new Date(s.receivedAt).getTime()>60000).length;
-  return `${sectionHero('Admin System Health', 'Operational view for Render, Discord, MT4 sync, command queues, Stripe, signals, OAuth, and storage preparation.')}
-  <div class="grid3"><section class="card"><h3>Connected Accounts</h3><div class="metric">${connections.length}</div></section><section class="card"><h3>Latest Snapshots</h3><div class="metric">${snapshots.length}</div></section><section class="card"><h3>Stale Snapshots</h3><div class="metric ${stale?'red':'green'}">${stale}</div></section><section class="card"><h3>Stripe</h3><div class="metric">${process.env.STRIPE_SECRET_KEY?'Set':'Missing'}</div></section><section class="card"><h3>OAuth Client Secret</h3><div class="metric">${process.env.CLIENT_SECRET?'Set':'Missing'}</div></section><section class="card"><h3>Signal Channel</h3><div class="metric">${process.env.SIGNAL_CHANNEL_ID?'Set':'Missing'}</div></section></div>
+  return `${sectionHero('Admin System Health', 'Operational view for Render, Discord, MT4 sync, command queues, Square, signals, OAuth, and storage preparation.')}
+  <div class="grid3"><section class="card"><h3>Connected Accounts</h3><div class="metric">${connections.length}</div></section><section class="card"><h3>Latest Snapshots</h3><div class="metric">${snapshots.length}</div></section><section class="card"><h3>Stale Snapshots</h3><div class="metric ${stale?'red':'green'}">${stale}</div></section><section class="card"><h3>Square</h3><div class="metric">${process.env.SQUARE_ACCESS_TOKEN?'Set':'Missing'}</div></section><section class="card"><h3>OAuth Client Secret</h3><div class="metric">${process.env.CLIENT_SECRET?'Set':'Missing'}</div></section><section class="card"><h3>Signal Channel</h3><div class="metric">${process.env.SIGNAL_CHANNEL_ID?'Set':'Missing'}</div></section></div>
   <section class="card full" style="margin-top:16px"><h3>Storage Upgrade Prep</h3><p>Current storage provider: <code>${esc(process.env.STORAGE_PROVIDER || 'local')}</code></p><p class="muted">For large videos, prepare Cloudflare R2/S3 env vars later: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, R2_PUBLIC_URL.</p></section>`;
 }
 
@@ -4018,7 +4018,7 @@ function identityBar(req) {
 function linkAccessPage(req) {
   const identity = getIdentity(req);
   const cards = PAID_LINK_PRODUCTS.map((p) => `<section class="card upgrade"><div class="row" style="justify-content:space-between"><span class="tag">${esc(p.badge)}</span><span class="tag">${esc(p.billingType)}</span></div><h3>${esc(p.name)}</h3><div class="price">${money(p.price)}${p.billingType === 'monthly' ? '/mo' : ''}</div><p>${esc(p.description)}</p><div class="row"><span class="tag">${esc(p.targetType)}</span><span class="tag">Paid Link Access</span><span class="tag">Commission trackable</span></div><form method="post" action="/api/link-access/checkout" style="margin-top:12px"><input type="hidden" name="productId" value="${esc(p.productId)}"><input type="hidden" name="buyerUserId" value="${esc(identity.userId)}"><button class="btn primary" type="submit">Pay to Link</button><a class="btn ghost" href="/u/${encodeURIComponent(p.targetUserId)}">View Profile</a></form></section>`).join('');
-  return `${sectionHero('Paid Link Access', 'Pay to link to traders, coaches, bot owners, signal rooms, private desks, and VPS setup operators. This turns relationships into trackable access, subscriptions, and commissions.', '<a class="btn primary" href="/member/linked-access">My Linked Access</a>')}${identityBar(req)}<section class="grid3">${cards}</section><section class="card full"><h3>How Paid Link Works</h3><p>User chooses who or what they want to link to → Stripe/manual checkout starts → access record is created → signals, desks, copy setup, or coaching access unlocks → referral commission can be tracked.</p></section>`;
+  return `${sectionHero('Paid Link Access', 'Pay to link to traders, coaches, bot owners, signal rooms, private desks, and VPS setup operators. This turns relationships into trackable access, subscriptions, and commissions.', '<a class="btn primary" href="/member/linked-access">My Linked Access</a>')}${identityBar(req)}<section class="grid3">${cards}</section><section class="card full"><h3>How Paid Link Works</h3><p>User chooses who or what they want to link to → Square/manual checkout starts → access record is created → signals, desks, copy setup, or coaching access unlocks → referral commission can be tracked.</p></section>`;
 }
 
 function linkedAccessPage(req, state) {
@@ -4055,7 +4055,7 @@ function createPaidLinkAccess({ buyerUserId, productId, status = 'pending_paymen
     billingType: product.billingType,
     status,
     source,
-    stripeSubscriptionId: null,
+    squareSubscriptionId: null,
     createdAt: now,
     expiresAt: product.billingType === 'one_time' ? null : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
   };
@@ -4078,13 +4078,6 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   // 5) public/auth/API/member/admin routes. Keep exact Wisdo routes before
   // registerDeadshotCommandCenterRoutes so broad legacy /member/* redirects do
   // not intercept /member/command-center, /education, /simulator, /social, etc.
-  registerDeadshotWebhookRoutes(app, {
-    config,
-    loadEcosystemState,
-    saveEcosystemState,
-    logger,
-  });
-
   app.use(express.json({ limit: '200mb', verify: (req, res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 
   app.get('/api/signal-health', async (req, res) => {
@@ -4134,6 +4127,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     loadEcosystemState,
     saveEcosystemState,
     logger,
+    paymentService,
   });
 
   async function getRequestAccess(req) {
@@ -6062,7 +6056,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
         await saveEcosystemState(next);
         return res.json({ ok: true, botName: bot.name, priceUsd, quote, order, commission, checkoutUrl: session.url });
       }
-      return res.json({ ok: true, botName: bot.name, priceUsd, quote, order, commission, license, checkoutUrl: null, checkoutMode: 'manual_invoice_pending', message: 'Live price and order saved. Stripe is not configured, so no license is granted until admin marks payment received or Stripe checkout is connected.' });
+      return res.json({ ok: true, botName: bot.name, priceUsd, quote, order, commission, license, checkoutUrl: null, checkoutMode: 'manual_invoice_pending', message: 'Live price and order saved. Square is not configured, so no license is granted until admin marks payment received or Square checkout is connected.' });
     } catch (error) {
       logger.error('Website bot checkout failed', { message: error.message, stack: error.stack });
       return res.status(500).json({ ok: false, error: error.message });
@@ -6107,8 +6101,8 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     const userId = currentUserId(req);
     const plan = VPS_PRODUCTS.find((v)=>v.slug === String(req.body?.planSlug || '')) || VPS_PRODUCTS[1];
     const state = financeState(await loadEcosystemState());
-    const subscription = { subscriptionId: makeId('sub'), userId, productType: 'vps', productId: plan.slug, productName: plan.planName, stripeSubscriptionId: null, status: paymentService?.isConfigured() ? 'checkout_created' : 'manual_invoice_pending', amountMonthly: plan.monthlyPrice, currentPeriodStart: new Date().toISOString(), currentPeriodEnd: '', cancelAtPeriodEnd: false, createdAt: new Date().toISOString() };
-    const vps = { vpsId: makeId('vps'), userId, planName: plan.planName, monthlyPrice: plan.monthlyPrice, status: 'setup_requested', assignedBotSlug: String(req.body?.assignedBotSlug || ''), assignedAccountId: String(req.body?.assignedAccountId || ''), stripeSubscriptionId: null, lastHeartbeatAt: null, setupStatus: 'requested', createdAt: new Date().toISOString() };
+    const subscription = { subscriptionId: makeId('sub'), userId, productType: 'vps', productId: plan.slug, productName: plan.planName, squareSubscriptionId: null, status: paymentService?.isConfigured() ? 'checkout_created' : 'manual_invoice_pending', amountMonthly: plan.monthlyPrice, currentPeriodStart: new Date().toISOString(), currentPeriodEnd: '', cancelAtPeriodEnd: false, createdAt: new Date().toISOString() };
+    const vps = { vpsId: makeId('vps'), userId, planName: plan.planName, monthlyPrice: plan.monthlyPrice, status: 'setup_requested', assignedBotSlug: String(req.body?.assignedBotSlug || ''), assignedAccountId: String(req.body?.assignedAccountId || ''), squareSubscriptionId: null, lastHeartbeatAt: null, setupStatus: 'requested', createdAt: new Date().toISOString() };
     state.subscriptionsById[subscription.subscriptionId] = subscription;
     state.vpsAssignmentsById[vps.vpsId] = vps;
     await saveEcosystemState(state);
@@ -6123,7 +6117,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     const planType = String(req.body?.planType || 'paid_in_full');
     const state = financeState(await loadEcosystemState());
     const now = new Date().toISOString();
-    const order = { orderId: makeId('order'), userId, productType: 'bot', productId: slugify(bot.name), productName: bot.name, grossAmount: fullPrice, amountUsd: fullPrice, currency: 'usd', paymentProvider: paymentService?.isConfigured() ? 'stripe' : 'manual', paymentStatus: 'pending', status: 'pending', checkoutSessionId: null, referralCode: String(req.body?.referralCode || ''), referrerUserId: '', licenseGranted: false, planType, createdAt: now, paidAt: null };
+    const order = { orderId: makeId('order'), userId, productType: 'bot', productId: slugify(bot.name), productName: bot.name, grossAmount: fullPrice, amountUsd: fullPrice, currency: 'usd', paymentProvider: paymentService?.isConfigured() ? 'square' : 'manual', paymentStatus: 'pending', status: 'pending', checkoutSessionId: null, referralCode: String(req.body?.referralCode || ''), referrerUserId: '', licenseGranted: false, planType, createdAt: now, paidAt: null };
     state.ordersById ||= {}; state.ordersById[order.orderId] = order;
     let subscription = null; let paymentPlan = null; let vps = null; let license = null;
     if (planType === 'paid_in_full') {
@@ -6134,32 +6128,22 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
       }
     } else if (planType === 'payment_plan') {
       const monthly = Math.ceil(fullPrice / 6);
-      paymentPlan = { planId: makeId('plan'), userId, productType: 'bot', productId: slugify(bot.name), productName: bot.name, totalPrice: fullPrice, amountPaid: 0, balanceRemaining: fullPrice, monthlyAmount: monthly, paymentsMade: 0, paymentsRemaining: 6, stripeSubscriptionId: null, status: paymentService?.isConfigured() ? 'checkout_created' : 'manual_invoice_pending', vpsRequired: true, downloadUnlocked: false, paidInFullAt: null, createdAt: now, nextDueAt: '' };
+      paymentPlan = { planId: makeId('plan'), userId, productType: 'bot', productId: slugify(bot.name), productName: bot.name, totalPrice: fullPrice, amountPaid: 0, balanceRemaining: fullPrice, monthlyAmount: monthly, paymentsMade: 0, paymentsRemaining: 6, squareSubscriptionId: null, status: paymentService?.isConfigured() ? 'checkout_created' : 'manual_invoice_pending', vpsRequired: true, downloadUnlocked: false, paidInFullAt: null, createdAt: now, nextDueAt: '' };
       state.paymentPlansById[paymentPlan.planId] = paymentPlan;
-      vps = { vpsId: makeId('vps'), userId, planName: 'Operator VPS', monthlyPrice: 97, status: 'active', assignedBotSlug: slugify(bot.name), assignedAccountId: '', stripeSubscriptionId: null, lastHeartbeatAt: null, setupStatus: 'payment_plan_required', createdAt: now };
+      vps = { vpsId: makeId('vps'), userId, planName: 'Operator VPS', monthlyPrice: 97, status: 'active', assignedBotSlug: slugify(bot.name), assignedAccountId: '', squareSubscriptionId: null, lastHeartbeatAt: null, setupStatus: 'payment_plan_required', createdAt: now };
       state.vpsAssignmentsById[vps.vpsId] = vps;
     } else {
       const monthly = planType === 'vps_bundle' ? (bot.recommended ? 597 : Math.max(147, Math.round(fullPrice*.2))) : (bot.recommended ? 497 : Math.max(97, Math.round(fullPrice*.16)));
-      subscription = { subscriptionId: makeId('sub'), userId, productType: planType === 'vps_bundle' ? 'bot_vps_bundle' : 'bot_rental', productId: slugify(bot.name), productName: bot.name, stripeSubscriptionId: null, status: paymentService?.isConfigured() ? 'checkout_created' : 'manual_invoice_pending', amountMonthly: monthly, currentPeriodStart: now, currentPeriodEnd: '', cancelAtPeriodEnd: false, createdAt: now };
+      subscription = { subscriptionId: makeId('sub'), userId, productType: planType === 'vps_bundle' ? 'bot_vps_bundle' : 'bot_rental', productId: slugify(bot.name), productName: bot.name, squareSubscriptionId: null, status: paymentService?.isConfigured() ? 'checkout_created' : 'manual_invoice_pending', amountMonthly: monthly, currentPeriodStart: now, currentPeriodEnd: '', cancelAtPeriodEnd: false, createdAt: now };
       state.subscriptionsById[subscription.subscriptionId] = subscription;
-      vps = { vpsId: makeId('vps'), userId, planName: planType === 'vps_bundle' ? 'Operator VPS Bundle' : 'Rental VPS', monthlyPrice: planType === 'vps_bundle' ? 97 : 0, status: 'active', assignedBotSlug: slugify(bot.name), assignedAccountId: '', stripeSubscriptionId: null, lastHeartbeatAt: null, setupStatus: 'bot_access_vps_only', createdAt: now };
+      vps = { vpsId: makeId('vps'), userId, planName: planType === 'vps_bundle' ? 'Operator VPS Bundle' : 'Rental VPS', monthlyPrice: planType === 'vps_bundle' ? 97 : 0, status: 'active', assignedBotSlug: slugify(bot.name), assignedAccountId: '', squareSubscriptionId: null, lastHeartbeatAt: null, setupStatus: 'bot_access_vps_only', createdAt: now };
       state.vpsAssignmentsById[vps.vpsId] = vps;
     }
     await saveEcosystemState(state);
     res.json({ ok: true, planType, productName: bot.name, status: order.status, order, subscription, paymentPlan, vps, license, checkoutUrl: null, message: paymentService?.isConfigured() ? 'Live finance record created; connect checkout session for payment collection.' : 'Live finance record saved as manual invoice pending. No bot download/license unlock occurs until payment is confirmed.' });
   });
 
-  app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-    if (paymentService?.hasWebhookConfig?.()) {
-      try {
-        const result = await paymentService.handleWebhook(req.body, req.headers['stripe-signature']);
-        return res.json(result);
-      } catch (error) {
-        return res.status(error.expose ? 400 : 500).json({ ok: false, error: error.message });
-      }
-    }
-    res.status(503).json({ ok: false, error: 'Stripe webhook is not configured. Add STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET before live webhooks.' });
-  });
+
 
 
   app.post('/api/admin/orders/:orderId/mark-paid', async (req, res) => {
@@ -6442,18 +6426,40 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   app.get('/api/link-access/products', (req, res) => res.json({ ok: true, products: PAID_LINK_PRODUCTS }));
   app.get('/api/me/linked-access', async (req, res) => { const state = await loadEcosystemState(); const identity = getIdentity(req); const ids = state.paidLinkAccessByUserId?.[identity.userId] || []; res.json({ ok: true, linkedAccess: ids.map((id) => state.paidLinkAccessById?.[id]).filter(Boolean) }); });
   app.post('/api/link-access/checkout', async (req, res) => {
-    const state = await loadEcosystemState();
-    const identity = getIdentity(req);
-    const buyerUserId = String(req.body?.buyerUserId || identity.userId || 'website-buyer');
-    const access = createPaidLinkAccess({ buyerUserId, productId: String(req.body?.productId || ''), status: process.env.STRIPE_SECRET_KEY ? 'pending_payment' : 'manual_invoice_pending', source: process.env.STRIPE_SECRET_KEY ? 'stripe_pending' : 'manual_invoice' });
-    state.paidLinkAccessById ||= {};
-    state.paidLinkAccessByUserId ||= {};
-    state.paidLinkAccessById[access.linkAccessId] = access;
-    state.paidLinkAccessByUserId[buyerUserId] ||= [];
-    state.paidLinkAccessByUserId[buyerUserId] = [access.linkAccessId, ...state.paidLinkAccessByUserId[buyerUserId].filter((id) => id !== access.linkAccessId)];
-    await saveEcosystemState(state);
-    if (String(req.headers.accept || '').includes('text/html')) return res.redirect(`/member/linked-access?created=${encodeURIComponent(access.linkAccessId)}`);
-    res.json({ ok: true, access, checkoutReady: Boolean(process.env.STRIPE_SECRET_KEY), message: process.env.STRIPE_SECRET_KEY ? 'Access record created and awaiting Stripe payment confirmation.' : 'Live price/access record saved as manual invoice pending. Access remains locked until payment is confirmed.' });
+    try {
+      const state = await loadEcosystemState();
+      const identity = getIdentity(req);
+      const buyerUserId = String(req.body?.buyerUserId || identity.userId || 'website-buyer');
+      const access = createPaidLinkAccess({ buyerUserId, productId: String(req.body?.productId || ''), status: paymentService?.isConfigured() ? 'pending_payment' : 'manual_invoice_pending', source: paymentService?.isConfigured() ? 'square_pending' : 'manual_invoice' });
+      state.paidLinkAccessById ||= {};
+      state.paidLinkAccessByUserId ||= {};
+      state.paidLinkAccessById[access.linkAccessId] = access;
+      state.paidLinkAccessByUserId[buyerUserId] ||= [];
+      state.paidLinkAccessByUserId[buyerUserId] = [access.linkAccessId, ...state.paidLinkAccessByUserId[buyerUserId].filter((id) => id !== access.linkAccessId)];
+      await saveEcosystemState(state);
+      if (paymentService?.isConfigured()) {
+        const checkout = await paymentService.createOneTimeCheckout({
+          name: access.productName,
+          amountCents: Math.round(Number(access.price || 0) * 100),
+          type: 'link_access',
+          payload: { a: access.linkAccessId, u: buyerUserId },
+          buyerEmail: identity.email || undefined,
+          redirectPath: `/member/linked-access?created=${encodeURIComponent(access.linkAccessId)}`,
+        });
+        access.squarePaymentLinkId = checkout.id;
+        access.squareOrderId = checkout.orderId;
+        const nextState = await loadEcosystemState();
+        if (nextState.paidLinkAccessById?.[access.linkAccessId]) nextState.paidLinkAccessById[access.linkAccessId] = access;
+        await saveEcosystemState(nextState);
+        if (String(req.headers.accept || '').includes('text/html')) return res.redirect(checkout.url);
+        return res.json({ ok: true, provider: 'square', access, checkoutReady: true, checkoutUrl: checkout.url });
+      }
+      if (String(req.headers.accept || '').includes('text/html')) return res.redirect(`/member/linked-access?created=${encodeURIComponent(access.linkAccessId)}`);
+      res.json({ ok: true, provider: 'manual', access, checkoutReady: false, message: 'Live price/access record saved as manual invoice pending. Access remains locked until payment is confirmed.' });
+    } catch (error) {
+      logger.error('Paid link Square checkout failed', { message: error.message });
+      res.status(error.expose ? 400 : 500).json({ ok: false, error: error.message });
+    }
   });
   app.post('/api/admin/link-access/grant', async (req, res) => { const state = await loadEcosystemState(); const access = createPaidLinkAccess({ buyerUserId: req.body?.buyerUserId, productId: req.body?.productId, status: 'active', source: 'admin_grant' }); state.paidLinkAccessById ||= {}; state.paidLinkAccessByUserId ||= {}; state.paidLinkAccessById[access.linkAccessId] = access; state.paidLinkAccessByUserId[access.buyerUserId] ||= []; state.paidLinkAccessByUserId[access.buyerUserId].unshift(access.linkAccessId); await saveEcosystemState(state); res.json({ ok: true, access }); });
   app.post('/api/admin/link-access/revoke', async (req, res) => { const state = await loadEcosystemState(); const id = String(req.body?.linkAccessId || ''); if (state.paidLinkAccessById?.[id]) state.paidLinkAccessById[id].status = 'revoked'; await saveEcosystemState(state); res.json({ ok: true, linkAccessId: id, status: state.paidLinkAccessById?.[id]?.status || 'not_found' }); });

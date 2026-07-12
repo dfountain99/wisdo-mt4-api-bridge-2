@@ -1,11 +1,14 @@
-WISDO V5.4.0 AI WEBINAR ROOM PATCH
+WISDO V5.6.0 PATCH
 
-1. Back up the current WISDO project and persistent data.
-2. Extract this patch into the project root and allow it to replace matching files.
-3. Run: npm ci --omit=dev --no-audit --no-fund
-4. Run: npm run check
-5. Restart the application.
-6. Open /app/education and test AI Webinar Room.
-7. Admins should test Strategy Studio draft -> publish -> member generation.
+Base: WISDO V5.5.0 TradingView AI Chart Teacher
+Adds: Square checkout + verified historical Study Room examples
 
-For the safest deployment, use the full replacement ZIP instead of applying the patch to an unknown version.
+1. Extract this ZIP over the clean V5.5 project root.
+2. Run npm ci.
+3. Run npm run check. Expected: 19 tests passed.
+4. Apply migrations/2026-07-12-square-real-study-room-v5.6.sql.
+5. Configure Square and historical data environment variables.
+6. Commit and push to the branch watched by Render, normally main.
+7. Hard refresh /app/education after deployment.
+
+WISDO does not generate fake Study Room candles when historical data is unavailable.

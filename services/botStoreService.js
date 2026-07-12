@@ -544,7 +544,7 @@ export class BotStoreService {
   async handleCompletedCheckoutSession(session) {
     const quoteId = session.metadata?.quoteId;
     if (!quoteId) {
-      logger.warn('Stripe checkout completed without quote metadata.', {
+      logger.warn('Square checkout completed without quote metadata.', {
         sessionId: session.id,
       });
       return;
@@ -552,7 +552,7 @@ export class BotStoreService {
 
     const quote = await this.repository.getQuote(quoteId);
     if (!quote) {
-      logger.warn('Stripe checkout completed for unknown quote.', {
+      logger.warn('Square checkout completed for unknown quote.', {
         quoteId,
       });
       return;
@@ -713,7 +713,7 @@ export class BotStoreService {
         `Open quotes: ${quotes.filter((quote) => quote.status === 'open').length}`,
         `Paid orders: ${orders.filter((order) => order.status === 'paid').length}`,
         `Active licenses: ${licenses.filter((license) => license.status === 'active').length}`,
-        `Stripe checkout configured: ${this.paymentService?.isConfigured() ? 'Yes' : 'No'}`,
+        `Square checkout configured: ${this.paymentService?.isConfigured() ? 'Yes' : 'No'}`,
         `Welcome DM enabled: ${this.config.store.welcomeDmEnabled ? 'Yes' : 'No'}`,
       ],
     );

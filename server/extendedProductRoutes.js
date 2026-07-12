@@ -1,6 +1,12 @@
 import crypto from 'node:crypto';
-import Stripe from 'stripe';
 import webpush from 'web-push';
+
+import {
+  SquarePaymentGateway,
+  decodeSquarePaymentNote,
+  encodeSquarePaymentNote,
+  squarePlanVariationForCycle,
+} from '../services/squarePaymentService.js';
 
 import { computePrice } from './majorUpgradeRoutes.js';
 import { getSessionUser } from './security.js';
@@ -31,11 +37,13 @@ import {
   buildWebinarPrompt,
   createWebinarSession,
   gradeWebinarQuiz,
+  hydrateWebinarCharts,
   isPublishedStrategy,
   normalizeGeneratedWebinar,
   normalizeStrategyInput,
   publicStrategy,
 } from '../services/aiWebinarService.js';
+import { HistoricalMarketDataService } from '../services/historicalMarketDataService.js';
 
 const ACADEMY_TRACKS = [
   { id: 'foundation', title: 'Trading and Investing Foundations', lessons: ['candlesticks-price-bars', 'market-structure', 'order-types-execution', 'position-sizing', 'trading-plan'] },
@@ -81,6 +89,15 @@ function ensure(state = {}) {
   state.firms ||= {};
   state.affiliates ||= {};
   state.affiliateConversions ||= {};
+  state.squareCheckoutIntents ||= {};
+  state.squareWebhookEvents ||= {};
+  state.squareOrphanSubscriptions ||= {};
+  state.payments ||= {};
+  state.memberships ||= {};
+  state.subscriptionsById ||= {};
+  state.affiliatesById ||= {};
+  state.affiliatePayouts ||= [];
+  state.admin_logs ||= [];
   state.auditLog ||= [];
   return state;
 }
@@ -114,14 +131,54 @@ function audit(state, userId, action, targetType, targetId, data = {}) {
 function baseUrl(req, config) {
   return String(config?.api?.publicBaseUrl || process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
 }
-function stripeClient() {
-  return process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
+
+function compactSubscriptionPayload(userId, price = {}) {
+  return {
+    u: String(userId || ''),
+    p: price.plan,
+    c: price.billingCycle,
+    q: Number(price.accountQuantity || 1),
+    a: Boolean(price.addons?.analyzer),
+    d: Boolean(price.addons?.dedicatedEnv),
+    e: Number(price.addons?.extraEnvAccounts || 0),
+    t: Number(price.total || 0),
+  };
 }
+function priceFromSquarePayload(payload = {}) {
+  return {
+    plan: payload.p || 'starter',
+    billingCycle: payload.c || 'monthly',
+    accountQuantity: Number(payload.q || 1),
+    addons: {
+      analyzer: Boolean(payload.a),
+      dedicatedEnv: Boolean(payload.d),
+      extraEnvAccounts: Number(payload.e || 0),
+    },
+    total: Number(payload.t || 0),
+  };
+}
+function normalizeSquareSubscriptionStatus(value) {
+  const status = String(value || '').trim().toLowerCase();
+  if (status === 'active') return 'active';
+  if (['canceled', 'cancelled', 'deactivated'].includes(status)) return 'cancelled';
+  if (status === 'paused') return 'paused';
+  if (status === 'pending') return 'pending';
+  return status || 'pending';
+}
+function squarePaymentObject(event = {}) {
+  return event.data?.object?.payment || null;
+}
+function squareSubscriptionObject(event = {}) {
+  return event.data?.object?.subscription || null;
+}
+
 function subscriptionFor(state, userId) {
   return Object.values(state.subscriptions).find((subscription) => String(subscription.user_id || subscription.userId) === String(userId) && !['cancelled', 'expired'].includes(subscription.status)) || null;
 }
 
-export function registerExtendedProductRoutes(app, { config, loadEcosystemState, saveEcosystemState, logger }) {
+export function registerExtendedProductRoutes(app, { config, loadEcosystemState, saveEcosystemState, logger, paymentService = null }) {
+  const square = new SquarePaymentGateway(config);
+  const historicalMarketData = new HistoricalMarketDataService(config, { logger });
   const adminGuard = requireAdmin(loadEcosystemState);
 
   app.get('/api/v2/firms/:id', async (req, res) => {
@@ -185,94 +242,345 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
 
   app.get('/api/v2/subscription', requireUser, async (req, res) => {
     const state = ensure(await loadEcosystemState());
-    res.json({ ok: true, subscription: subscriptionFor(state, req.wisdoUser.id) });
+    res.json({ ok: true, provider: 'square', subscription: subscriptionFor(state, req.wisdoUser.id) });
   });
+
   app.post('/api/v2/billing/checkout', requireUser, async (req, res) => {
-    const stripe = stripeClient();
     const price = computePrice(req.body || {});
-    if (!stripe) return res.status(503).json({ ok: false, providerReady: false, error: 'Stripe is not configured.', price });
-    const base = baseUrl(req, config);
-    const session = await stripe.checkout.sessions.create({
-      mode: 'subscription',
-      client_reference_id: String(req.wisdoUser.id),
-      customer_email: req.wisdoUser.email || undefined,
-      success_url: `${base}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${base}/pricing?checkout=cancelled`,
-      allow_promotion_codes: true,
-      line_items: [{ quantity: 1, price_data: { currency: 'usd', unit_amount: price.total, product_data: { name: `WISDO ${price.plan} · ${price.accountQuantity} account${price.accountQuantity === 1 ? '' : 's'}`, description: `${price.cycleLabel}; Analyzer ${price.addons.analyzer ? 'on' : 'off'}; Dedicated environment ${price.addons.dedicatedEnv ? 'on' : 'off'}` }, recurring: { interval: 'month', interval_count: price.months } } }],
-      metadata: { wisdo_user_id: String(req.wisdoUser.id), configuration: Buffer.from(JSON.stringify(price)).toString('base64url') },
-      subscription_data: { metadata: { wisdo_user_id: String(req.wisdoUser.id), configuration: Buffer.from(JSON.stringify(price)).toString('base64url') } },
-    });
-    res.json({ ok: true, providerReady: true, url: session.url, sessionId: session.id, price });
+    if (!square.isConfigured()) {
+      return res.status(503).json({
+        ok: false,
+        provider: 'square',
+        providerReady: false,
+        error: 'Square checkout is not configured. Add SQUARE_ACCESS_TOKEN, SQUARE_LOCATION_ID, and PUBLIC_BASE_URL.',
+        price,
+      });
+    }
+    const planVariationId = square.subscriptionPlanVariationForCycle(price.billingCycle);
+    if (!planVariationId) {
+      const variable = {
+        monthly: 'SQUARE_SUBSCRIPTION_PLAN_MONTHLY_ID',
+        quarterly: 'SQUARE_SUBSCRIPTION_PLAN_QUARTERLY_ID',
+        semiannual: 'SQUARE_SUBSCRIPTION_PLAN_SEMIANNUAL_ID',
+        annual: 'SQUARE_SUBSCRIPTION_PLAN_ANNUAL_ID',
+      }[price.billingCycle] || 'SQUARE_SUBSCRIPTION_PLAN_ID';
+      return res.status(503).json({
+        ok: false,
+        provider: 'square',
+        providerReady: false,
+        error: `Square subscription checkout needs ${variable}.`,
+        price,
+      });
+    }
+
+    try {
+      const note = encodeSquarePaymentNote('subscription', compactSubscriptionPayload(req.wisdoUser.id, price));
+      const checkout = await square.createSubscriptionPaymentLink({
+        name: `WISDO ${price.plan} · ${price.accountQuantity} account${price.accountQuantity === 1 ? '' : 's'}`,
+        amountCents: price.total,
+        note,
+        redirectUrl: `${baseUrl(req, config)}/checkout/success?provider=square`,
+        buyerEmail: req.wisdoUser.email,
+        subscriptionPlanVariationId: planVariationId,
+        billingCycle: price.billingCycle,
+      });
+      const subscription = await mutate(loadEcosystemState, saveEcosystemState, (state) => {
+        const existing = Object.values(state.subscriptions).find((row) => String(row.user_id || row.userId) === String(req.wisdoUser.id)) || {
+          id: id('sub'),
+          user_id: String(req.wisdoUser.id),
+          created_at: nowIso(),
+        };
+        Object.assign(existing, {
+          provider: 'square',
+          status: 'checkout_pending',
+          plan: price.plan,
+          billing_cycle: price.billingCycle,
+          account_quantity: price.accountQuantity,
+          addon_analyzer: Boolean(price.addons?.analyzer),
+          addon_dedicated_env: Boolean(price.addons?.dedicatedEnv),
+          addon_extra_env_accounts: Number(price.addons?.extraEnvAccounts || 0),
+          price_cents: price.total,
+          square_payment_link_id: checkout.id,
+          square_order_id: checkout.orderId,
+          square_plan_variation_id: planVariationId,
+          updated_at: nowIso(),
+        });
+        state.subscriptions[existing.id] = existing;
+        const intentKey = checkout.orderId || checkout.id;
+        state.squareCheckoutIntents[intentKey] = {
+          id: id('square_intent'),
+          type: 'subscription',
+          user_id: String(req.wisdoUser.id),
+          subscription_id: existing.id,
+          payment_link_id: checkout.id,
+          order_id: checkout.orderId,
+          price,
+          created_at: nowIso(),
+        };
+        audit(state, req.wisdoUser.id, 'square.checkout.created', 'Subscription', existing.id, { paymentLinkId: checkout.id, orderId: checkout.orderId });
+        return existing;
+      });
+      return res.json({ ok: true, provider: 'square', providerReady: true, url: checkout.url, paymentLinkId: checkout.id, orderId: checkout.orderId, price, subscription });
+    } catch (error) {
+      logger?.error?.('Square subscription checkout failed', { message: error.message, status: error.status });
+      return res.status(error.expose ? 400 : 502).json({ ok: false, provider: 'square', error: error.message, price });
+    }
   });
+
   app.post('/api/v2/billing/portal', requireUser, async (req, res) => {
-    const stripe = stripeClient();
     const state = ensure(await loadEcosystemState());
     const subscription = subscriptionFor(state, req.wisdoUser.id);
-    if (!stripe || !subscription?.stripe_customer_id) return res.status(409).json({ ok: false, error: 'No Stripe customer is connected to this account.' });
-    const portal = await stripe.billingPortal.sessions.create({ customer: subscription.stripe_customer_id, return_url: `${baseUrl(req, config)}/app/settings/billing` });
-    res.json({ ok: true, url: portal.url });
+    if (!subscription) return res.status(404).json({ ok: false, provider: 'square', error: 'No subscription is connected to this account.' });
+    res.json({ ok: true, provider: 'square', managedInApp: true, url: '/app/settings/billing', subscription });
   });
+
   app.post('/api/v2/subscription/cancel', requireUser, async (req, res) => {
-    const stripe = stripeClient();
-    const result = await mutate(loadEcosystemState, saveEcosystemState, async (state) => {
-      const subscription = subscriptionFor(state, req.wisdoUser.id);
-      if (!subscription) return null;
-      if (stripe && subscription.stripe_subscription_id) await stripe.subscriptions.update(subscription.stripe_subscription_id, { cancel_at_period_end: true });
-      subscription.cancel_at_period_end = true;
-      subscription.updated_at = nowIso();
-      return subscription;
-    });
-    if (!result) return res.status(404).json({ ok: false, error: 'Active subscription not found.' });
-    res.json({ ok: true, subscription: result });
+    try {
+      const result = await mutate(loadEcosystemState, saveEcosystemState, async (state) => {
+        const subscription = subscriptionFor(state, req.wisdoUser.id);
+        if (!subscription) return null;
+        if (subscription.square_subscription_id && square.isConfigured()) {
+          await square.cancelSubscription(subscription.square_subscription_id);
+        }
+        subscription.cancel_at_period_end = true;
+        subscription.updated_at = nowIso();
+        audit(state, req.wisdoUser.id, 'square.subscription.cancel_requested', 'Subscription', subscription.id, { squareSubscriptionId: subscription.square_subscription_id || null });
+        return subscription;
+      });
+      if (!result) return res.status(404).json({ ok: false, error: 'Active subscription not found.' });
+      res.json({ ok: true, provider: 'square', subscription: result });
+    } catch (error) {
+      res.status(error.expose ? 400 : 502).json({ ok: false, provider: 'square', error: error.message });
+    }
   });
+
   app.post('/api/v2/subscription/resume', requireUser, async (req, res) => {
-    const stripe = stripeClient();
-    const result = await mutate(loadEcosystemState, saveEcosystemState, async (state) => {
-      const subscription = Object.values(state.subscriptions).find((row) => String(row.user_id || row.userId) === String(req.wisdoUser.id));
-      if (!subscription) return null;
-      if (stripe && subscription.stripe_subscription_id) await stripe.subscriptions.update(subscription.stripe_subscription_id, { cancel_at_period_end: false });
-      subscription.cancel_at_period_end = false;
-      if (subscription.status === 'cancelled') subscription.status = 'active';
-      subscription.updated_at = nowIso();
-      return subscription;
-    });
-    if (!result) return res.status(404).json({ ok: false, error: 'Subscription not found.' });
-    res.json({ ok: true, subscription: result });
+    try {
+      const result = await mutate(loadEcosystemState, saveEcosystemState, async (state) => {
+        const subscription = Object.values(state.subscriptions).find((row) => String(row.user_id || row.userId) === String(req.wisdoUser.id));
+        if (!subscription) return null;
+        if (subscription.square_subscription_id && square.isConfigured()) {
+          await square.resumeSubscription(subscription.square_subscription_id);
+        }
+        subscription.cancel_at_period_end = false;
+        if (subscription.status === 'cancelled') subscription.status = 'active';
+        subscription.updated_at = nowIso();
+        audit(state, req.wisdoUser.id, 'square.subscription.resume_requested', 'Subscription', subscription.id, { squareSubscriptionId: subscription.square_subscription_id || null });
+        return subscription;
+      });
+      if (!result) return res.status(404).json({ ok: false, error: 'Subscription not found.' });
+      res.json({ ok: true, provider: 'square', subscription: result });
+    } catch (error) {
+      res.status(error.expose ? 400 : 502).json({ ok: false, provider: 'square', error: error.message });
+    }
   });
-  app.post('/api/public/webhooks/stripe', async (req, res) => {
-    const stripe = stripeClient();
-    if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) return res.status(503).json({ ok: false, error: 'Stripe webhook is not configured.' });
-    let event;
-    try { event = stripe.webhooks.constructEvent(req.rawBody || Buffer.from(JSON.stringify(req.body || {})), req.headers['stripe-signature'], process.env.STRIPE_WEBHOOK_SECRET); }
-    catch (error) { return res.status(400).json({ ok: false, error: `Invalid Stripe signature: ${error.message}` }); }
+
+  const squareWebhookHandler = async (req, res) => {
+    if (!square.hasWebhookConfig()) {
+      return res.status(503).json({ ok: false, provider: 'square', error: 'Square webhook is not configured. Add SQUARE_WEBHOOK_SIGNATURE_KEY and SQUARE_WEBHOOK_NOTIFICATION_URL.' });
+    }
+    const rawBody = req.rawBody || Buffer.from(JSON.stringify(req.body || {}));
+    const signature = req.headers['x-square-hmacsha256-signature'];
+    if (!square.verifyWebhook(rawBody, signature)) {
+      return res.status(403).json({ ok: false, provider: 'square', error: 'Invalid Square webhook signature.' });
+    }
+    const event = req.body && typeof req.body === 'object' ? req.body : JSON.parse(rawBody.toString('utf8'));
+    const eventId = String(event.event_id || event.id || '');
+    const payment = squarePaymentObject(event);
+    const squareSubscription = squareSubscriptionObject(event);
+
+    if (payment?.status === 'COMPLETED' && paymentService?.handleCompletedPayment) {
+      await paymentService.handleCompletedPayment(payment);
+    }
+
     await mutate(loadEcosystemState, saveEcosystemState, (state) => {
-      const object = event.data.object || {};
-      const userId = object.metadata?.wisdo_user_id || object.client_reference_id;
-      if (!userId) return true;
-      let configuration = {};
-      try { configuration = JSON.parse(Buffer.from(object.metadata?.configuration || '', 'base64url').toString('utf8')); } catch {}
-      const existing = Object.values(state.subscriptions).find((row) => String(row.user_id || row.userId) === String(userId)) || { id: id('sub'), user_id: String(userId), created_at: nowIso() };
-      if (event.type === 'checkout.session.completed') {
-        existing.stripe_customer_id = object.customer;
-        existing.stripe_subscription_id = object.subscription;
-        existing.status = 'active';
-        Object.assign(existing, { plan: configuration.plan, billing_cycle: configuration.billingCycle, account_quantity: configuration.accountQuantity, addon_analyzer: configuration.addons?.analyzer, addon_dedicated_env: configuration.addons?.dedicatedEnv, price_cents: configuration.total });
-      } else if (event.type === 'customer.subscription.updated' || event.type === 'customer.subscription.deleted') {
-        existing.stripe_subscription_id = object.id;
-        existing.stripe_customer_id = object.customer;
-        existing.status = event.type.endsWith('deleted') ? 'cancelled' : object.status;
-        existing.cancel_at_period_end = Boolean(object.cancel_at_period_end);
-        existing.current_period_end = object.current_period_end ? new Date(object.current_period_end * 1000).toISOString() : existing.current_period_end;
-      } else if (event.type === 'invoice.payment_failed') existing.status = 'past_due';
-      else if (event.type === 'invoice.paid') existing.status = 'active';
-      existing.updated_at = nowIso();
-      state.subscriptions[existing.id] = existing;
-      audit(state, userId, `stripe.${event.type}`, 'Subscription', existing.id, { stripeEventId: event.id });
+      if (eventId && state.squareWebhookEvents[eventId]) return true;
+      const eventType = String(event.type || 'unknown');
+      const note = decodeSquarePaymentNote(payment?.note);
+      let targetSubscription = null;
+      let actorUserId = 'system';
+
+      if (note?.type === 'subscription') {
+        const userId = String(note.payload?.u || '');
+        const price = priceFromSquarePayload(note.payload || {});
+        actorUserId = userId || actorUserId;
+        targetSubscription = Object.values(state.subscriptions).find((row) => String(row.user_id || row.userId) === userId)
+          || Object.values(state.subscriptions).find((row) => row.square_order_id && row.square_order_id === payment?.order_id)
+          || { id: id('sub'), user_id: userId, created_at: nowIso() };
+        Object.assign(targetSubscription, {
+          provider: 'square',
+          status: payment?.status === 'COMPLETED' ? 'active' : targetSubscription.status,
+          plan: price.plan,
+          billing_cycle: price.billingCycle,
+          account_quantity: price.accountQuantity,
+          addon_analyzer: price.addons.analyzer,
+          addon_dedicated_env: price.addons.dedicatedEnv,
+          addon_extra_env_accounts: price.addons.extraEnvAccounts,
+          price_cents: price.total || Number(payment?.amount_money?.amount || targetSubscription.price_cents || 0),
+          square_payment_id: payment?.id || targetSubscription.square_payment_id,
+          square_order_id: payment?.order_id || targetSubscription.square_order_id,
+          square_customer_id: payment?.customer_id || targetSubscription.square_customer_id,
+          updated_at: nowIso(),
+        });
+        const orphan = state.squareOrphanSubscriptions[targetSubscription.square_customer_id] || null;
+        if (orphan) {
+          targetSubscription.square_subscription_id = orphan.id;
+          targetSubscription.status = normalizeSquareSubscriptionStatus(orphan.status);
+          delete state.squareOrphanSubscriptions[targetSubscription.square_customer_id];
+        }
+        state.subscriptions[targetSubscription.id] = targetSubscription;
+      } else if (note?.type === 'legacy_checkout' && payment?.status === 'COMPLETED') {
+        const userId = String(note.payload?.u || '');
+        const productId = String(note.payload?.p || '');
+        const membershipProduct = Number(note.payload?.m || 0) === 1;
+        const affiliateId = String(note.payload?.a || '');
+        const referralCode = String(note.payload?.r || '');
+        const splitPercent = Math.max(1, Math.min(80, Number(note.payload?.s || 30)));
+        const amountCents = Number(payment?.amount_money?.amount || 0);
+        actorUserId = userId || actorUserId;
+        if (payment?.id) {
+          state.payments[payment.id] = {
+            id: payment.id,
+            provider: 'square',
+            userId,
+            productId,
+            amountTotal: amountCents,
+            status: 'COMPLETED',
+            membershipProduct,
+            affiliateId,
+            referralCode,
+            squareOrderId: payment.order_id || null,
+            squareCustomerId: payment.customer_id || null,
+            createdAt: nowIso(),
+          };
+        }
+        if (affiliateId) {
+          state.affiliatePayouts.push({
+            id: id('affiliate_payout'),
+            affiliateId,
+            referralCode,
+            buyerUserId: userId,
+            paymentId: payment.id,
+            grossAmount: amountCents / 100,
+            splitPercent,
+            payoutAmount: (amountCents / 100) * (splitPercent / 100),
+            status: 'earned_pending_review',
+            provider: 'square',
+            createdAt: nowIso(),
+          });
+          if (state.affiliatesById?.[affiliateId]) {
+            state.affiliatesById[affiliateId].status = 'active';
+            state.affiliatesById[affiliateId].squarePaymentId = payment.id;
+            state.affiliatesById[affiliateId].updatedAt = nowIso();
+          }
+        }
+        if (membershipProduct && userId) {
+          state.memberships[userId] = {
+            ...(state.memberships[userId] || {}),
+            userId,
+            status: 'square_active',
+            source: 'square_checkout',
+            productId,
+            squarePaymentId: payment.id,
+            squareOrderId: payment.order_id || null,
+            squareCustomerId: payment.customer_id || null,
+            updatedAt: nowIso(),
+          };
+          const legacySubId = payment.subscription_id || payment.order_id || payment.id;
+          state.subscriptionsById[legacySubId] = {
+            ...(state.subscriptionsById[legacySubId] || {}),
+            id: legacySubId,
+            userId,
+            productId,
+            status: 'active',
+            provider: 'square',
+            squarePaymentId: payment.id,
+            squareOrderId: payment.order_id || null,
+            squareCustomerId: payment.customer_id || null,
+            updatedAt: nowIso(),
+          };
+          state.admin_logs.push({ id: id('admin_log'), action: 'square_membership_activated', userId, productId, paymentId: payment.id, createdAt: nowIso() });
+        } else {
+          state.admin_logs.push({ id: id('admin_log'), action: 'square_one_time_product_paid', userId, productId, paymentId: payment.id, createdAt: nowIso() });
+        }
+        audit(state, userId, 'square.legacy_checkout.completed', membershipProduct ? 'Membership' : 'Payment', payment.id || productId, { productId, affiliateId, squareOrderId: payment.order_id || null });
+      } else if (note?.type === 'link_access' && payment?.status === 'COMPLETED') {
+        const accessId = String(note.payload?.a || '');
+        const userId = String(note.payload?.u || '');
+        actorUserId = userId || actorUserId;
+        const access = state.paidLinkAccessById?.[accessId];
+        if (access) {
+          access.status = 'active';
+          access.source = 'square';
+          access.squarePaymentId = payment.id;
+          access.squareOrderId = payment.order_id || access.squareOrderId || null;
+          access.squareCustomerId = payment.customer_id || null;
+          access.activatedAt = nowIso();
+          access.updatedAt = nowIso();
+          audit(state, userId, 'square.link_access.activated', 'PaidLinkAccess', accessId, { squarePaymentId: payment.id });
+        }
+      } else if (note?.type === 'affiliate_activation' && payment?.status === 'COMPLETED') {
+        const userId = String(note.payload?.u || '');
+        actorUserId = userId || actorUserId;
+        const affiliate = Object.values(state.affiliates).find((row) => String(row.user_id || row.userId) === userId) || {
+          id: id('affiliate'),
+          user_id: userId,
+          created_at: nowIso(),
+        };
+        Object.assign(affiliate, {
+          status: 'active',
+          referrer_code: String(note.payload?.r || affiliate.referrer_code || ''),
+          activated_at: nowIso(),
+          provider: 'square',
+          square_payment_id: payment.id,
+          square_order_id: payment.order_id || null,
+          square_customer_id: payment.customer_id || null,
+          updated_at: nowIso(),
+        });
+        state.affiliates[affiliate.id] = affiliate;
+        audit(state, userId, 'square.affiliate.activated', 'Affiliate', affiliate.id, { squarePaymentId: payment.id });
+      }
+
+      if (squareSubscription?.id) {
+        const legacyMembership = Object.values(state.memberships).find((row) => row.squareSubscriptionId === squareSubscription.id)
+          || Object.values(state.memberships).find((row) => row.squareCustomerId && row.squareCustomerId === squareSubscription.customer_id);
+        if (legacyMembership) {
+          legacyMembership.squareSubscriptionId = squareSubscription.id;
+          legacyMembership.squareCustomerId = squareSubscription.customer_id || legacyMembership.squareCustomerId;
+          legacyMembership.status = ['ACTIVE','PENDING'].includes(String(squareSubscription.status || '').toUpperCase()) ? 'square_active' : 'inactive';
+          legacyMembership.source = 'square_subscription';
+          legacyMembership.updatedAt = nowIso();
+        }
+        targetSubscription = Object.values(state.subscriptions).find((row) => row.square_subscription_id === squareSubscription.id)
+          || Object.values(state.subscriptions).find((row) => row.square_customer_id && row.square_customer_id === squareSubscription.customer_id)
+          || targetSubscription;
+        if (targetSubscription) {
+          targetSubscription.square_subscription_id = squareSubscription.id;
+          targetSubscription.square_customer_id = squareSubscription.customer_id || targetSubscription.square_customer_id;
+          targetSubscription.status = normalizeSquareSubscriptionStatus(squareSubscription.status);
+          targetSubscription.cancel_at_period_end = Boolean(squareSubscription.canceled_date);
+          targetSubscription.current_period_end = squareSubscription.charged_through_date || targetSubscription.current_period_end;
+          targetSubscription.updated_at = nowIso();
+          state.subscriptions[targetSubscription.id] = targetSubscription;
+          actorUserId = String(targetSubscription.user_id || targetSubscription.userId || actorUserId);
+        } else {
+          state.squareOrphanSubscriptions[squareSubscription.customer_id || squareSubscription.id] = squareSubscription;
+        }
+      }
+
+      if (payment && ['FAILED', 'CANCELED'].includes(String(payment.status || '').toUpperCase()) && note?.type === 'subscription' && targetSubscription) {
+        targetSubscription.status = 'past_due';
+        targetSubscription.updated_at = nowIso();
+      }
+      if (eventId) state.squareWebhookEvents[eventId] = { eventType, received_at: nowIso() };
+      if (targetSubscription) audit(state, actorUserId, `square.${eventType}`, 'Subscription', targetSubscription.id, { squareEventId: eventId, squarePaymentId: payment?.id || null, squareSubscriptionId: squareSubscription?.id || null });
       return true;
     });
-    res.json({ received: true });
-  });
+    res.json({ received: true, provider: 'square' });
+  };
+
+  app.post('/api/public/webhooks/square', squareWebhookHandler);
+  app.post('/api/square/webhook', squareWebhookHandler);
 
   app.get('/api/v2/push/public-key', requireUser, (req, res) => {
     const publicKey = String(process.env.VAPID_PUBLIC_KEY || '').trim();
@@ -408,6 +716,7 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
         logger?.warn?.('AI Webinar fallback activated', { message: error.message });
       }
     }
+    await hydrateWebinarCharts(webinar, historicalMarketData);
     return { webinar, provider };
   }
 
@@ -417,10 +726,13 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
     res.json({
       ok: true,
       version: AI_WEBINAR_VERSION,
-      mode: 'on_demand_ai_video_with_chart_teacher',
+      mode: 'on_demand_ai_video_with_real_historical_chart_teacher',
       browserNarrationReady: true,
       chartTeacherReady: true,
       tradingViewReady: true,
+      realHistoricalExamplesRequired: true,
+      historicalDataProviderReady: historicalMarketData.isConfigured('OANDA:XAUUSD', '15'),
+      historicalDataProviders: historicalMarketData.configuredProviders('OANDA:XAUUSD', '15'),
       aiProviderReady: Boolean(process.env.OPENAI_API_KEY),
       externalVideoProviderReady: Boolean(process.env.WISDO_AI_VIDEO_PROVIDER_URL),
       canTeachStrategies: isAdmin(state, req.wisdoUser),
@@ -951,11 +1263,38 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
   });
 
   app.post('/api/v2/affiliate/activate', requireUser, async (req, res) => {
-    const stripe = stripeClient();
     const feeCents = Math.round(Number(config?.affiliate?.activationFeeAmount || 125) * 100);
-    if (!stripe) return res.status(503).json({ ok: false, error: 'Stripe is not configured.', feeCents });
-    const session = await stripe.checkout.sessions.create({ mode: 'payment', client_reference_id: String(req.wisdoUser.id), customer_email: req.wisdoUser.email || undefined, success_url: `${baseUrl(req, config)}/app/affiliate?activated=1`, cancel_url: `${baseUrl(req, config)}/app/affiliate?activated=0`, line_items: [{ quantity: 1, price_data: { currency: 'usd', unit_amount: feeCents, product_data: { name: 'WISDO Affiliate Activation' } } }], metadata: { wisdo_user_id: String(req.wisdoUser.id), type: 'affiliate_activation', referrer_code: String(req.body?.referrer_code || '') } });
-    res.json({ ok: true, url: session.url, feeCents });
+    if (!square.isConfigured()) {
+      return res.status(503).json({ ok: false, provider: 'square', providerReady: false, error: 'Square checkout is not configured.', feeCents });
+    }
+    try {
+      const referrerCode = String(req.body?.referrer_code || '');
+      const checkout = await square.createOneTimePaymentLink({
+        name: 'WISDO Affiliate Activation',
+        amountCents: feeCents,
+        note: encodeSquarePaymentNote('affiliate_activation', { u: String(req.wisdoUser.id), r: referrerCode }),
+        redirectUrl: `${baseUrl(req, config)}/app/affiliate?activated=1&provider=square`,
+        buyerEmail: req.wisdoUser.email,
+      });
+      await mutate(loadEcosystemState, saveEcosystemState, (state) => {
+        const key = checkout.orderId || checkout.id;
+        state.squareCheckoutIntents[key] = {
+          id: id('square_intent'),
+          type: 'affiliate_activation',
+          user_id: String(req.wisdoUser.id),
+          referrer_code: referrerCode,
+          amount_cents: feeCents,
+          payment_link_id: checkout.id,
+          order_id: checkout.orderId,
+          created_at: nowIso(),
+        };
+        return true;
+      });
+      res.json({ ok: true, provider: 'square', providerReady: true, url: checkout.url, paymentLinkId: checkout.id, orderId: checkout.orderId, feeCents });
+    } catch (error) {
+      logger?.error?.('Square affiliate checkout failed', { message: error.message });
+      res.status(error.expose ? 400 : 502).json({ ok: false, provider: 'square', error: error.message, feeCents });
+    }
   });
 
   app.post('/api/v2/ai/analyzer-chat', requireUser, async (req, res) => {

@@ -12,7 +12,7 @@
 - [ ] all generated secrets are long and unique
 - [ ] credential encryption reports ready in `/api/public/health`
 - [ ] broker webhook rejects missing/invalid signatures
-- [ ] Stripe webhook rejects invalid signatures
+- [ ] Square webhook rejects invalid signatures
 - [ ] cron routes reject missing/invalid bearer tokens
 - [ ] non-owner cannot control another follower account
 - [ ] admin APIs reject normal members
@@ -53,7 +53,7 @@
 ## Product systems
 
 - [ ] pricing total matches server calculation
-- [ ] Stripe checkout and portal complete in test mode
+- [ ] Square checkout and portal complete in test mode
 - [ ] subscription webhook updates state
 - [ ] Resend test message arrives
 - [ ] push public key and subscription registration work

@@ -1,24 +1,26 @@
-import Stripe from 'stripe';
-
 import { logger } from '../logger.js';
+import {
+  SquarePaymentGateway,
+  decodeSquarePaymentNote,
+  encodeSquarePaymentNote,
+} from './squarePaymentService.js';
 
 function maskCheckoutId(value) {
   const normalized = String(value || '').trim();
-  if (!normalized) {
-    return 'unknown';
-  }
-
+  if (!normalized) return 'unknown';
   return `${normalized.slice(0, 6)}***${normalized.slice(-4)}`;
 }
 
+function paymentFromEvent(event = {}) {
+  return event.data?.object?.payment || event.data?.object || null;
+}
+
 export class PaymentService {
-  constructor(config, repository) {
+  constructor(config, repository, options = {}) {
     this.config = config;
     this.repository = repository;
     this.botStoreService = null;
-    this.stripe = config.store.stripeSecretKey
-      ? new Stripe(config.store.stripeSecretKey)
-      : null;
+    this.square = new SquarePaymentGateway(config, options);
   }
 
   setBotStoreService(botStoreService) {
@@ -26,110 +28,131 @@ export class PaymentService {
   }
 
   isConfigured() {
-    return Boolean(this.stripe && this.config.api.publicBaseUrl && !this.config.api.publicBaseUrl.includes('YOUR_DOMAIN'));
+    return this.square.isConfigured();
   }
 
   hasWebhookConfig() {
-    return Boolean(this.isConfigured() && this.config.store.stripeWebhookSecret);
+    return this.square.hasWebhookConfig();
   }
 
   getSuccessUrl() {
-    return `${this.config.api.publicBaseUrl}${this.config.store.stripeSuccessPath}?session_id={CHECKOUT_SESSION_ID}`;
+    return `${this.square.publicBaseUrl}${this.config.store.squareSuccessPath || '/store/success'}?provider=square`;
   }
 
   getCancelUrl() {
-    return `${this.config.api.publicBaseUrl}${this.config.store.stripeCancelPath}`;
+    return `${this.square.publicBaseUrl}${this.config.store.squareCancelPath || '/store/cancel'}?provider=square`;
+  }
+
+  async createOneTimeCheckout({ name, amountCents, type, payload, buyerEmail, redirectPath = '/checkout/success' }) {
+    if (!this.isConfigured()) {
+      const error = new Error('Square checkout is not configured yet. Add SQUARE_ACCESS_TOKEN, SQUARE_LOCATION_ID, and PUBLIC_BASE_URL first.');
+      error.expose = true;
+      throw error;
+    }
+    return this.square.createOneTimePaymentLink({
+      name,
+      amountCents,
+      note: encodeSquarePaymentNote(type, payload),
+      redirectUrl: `${this.square.publicBaseUrl}${redirectPath}${redirectPath.includes('?') ? '&' : '?'}provider=square`,
+      buyerEmail,
+    });
   }
 
   async createCheckoutSession({ quote, member, guildId }) {
     if (!this.isConfigured()) {
       const error = new Error(
-        'Stripe checkout is not configured yet. Add STRIPE_SECRET_KEY and a real PUBLIC_BASE_URL first.',
+        'Square checkout is not configured yet. Add SQUARE_ACCESS_TOKEN, SQUARE_LOCATION_ID, and a real PUBLIC_BASE_URL first.',
       );
       error.expose = true;
       throw error;
     }
 
-    const session = await this.stripe.checkout.sessions.create({
-      mode: 'payment',
-      success_url: this.getSuccessUrl(),
-      cancel_url: this.getCancelUrl(),
-      line_items: [
-        {
-          quantity: 1,
-          price_data: {
-            currency: this.config.store.currency,
-            unit_amount: Math.round(quote.finalPriceUsd * 100),
-            product_data: {
-              name:
-                quote.botNames.length === 1
-                  ? `Culture Coin Bot: ${quote.botNames[0]}`
-                  : `Culture Coin Bot Bundle (${quote.botNames.length})`,
-              description: `Discord delivery for ${quote.botNames.join(', ')}`,
-            },
-          },
-        },
-      ],
-      metadata: {
-        quoteId: quote.quoteId,
-        discordUserId: quote.discordUserId,
-        guildId: guildId || '',
-        botIds: quote.botIds.join(','),
-        botNames: quote.botNames.join(' | '),
-      },
-      customer_email: member?.user?.email || undefined,
-      client_reference_id: quote.discordUserId,
+    const note = encodeSquarePaymentNote('bot_purchase', {
+      q: quote.quoteId,
+      u: quote.discordUserId,
+      g: guildId || '',
+    });
+    const checkout = await this.square.createOneTimePaymentLink({
+      name: quote.botNames.length === 1
+        ? `Culture Coin Bot: ${quote.botNames[0]}`
+        : `Culture Coin Bot Bundle (${quote.botNames.length})`,
+      amountCents: Math.round(quote.finalPriceUsd * 100),
+      note,
+      redirectUrl: this.getSuccessUrl(),
+      buyerEmail: member?.user?.email,
     });
 
-    logger.info('Stripe checkout session created', {
+    logger.info('Square checkout link created', {
       quoteId: quote.quoteId,
       discordUserId: quote.discordUserId,
-      sessionId: maskCheckoutId(session.id),
+      paymentLinkId: maskCheckoutId(checkout.id),
+      orderId: maskCheckoutId(checkout.orderId),
     });
 
-    return session;
+    return checkout;
   }
 
   async handleWebhook(rawBody, signature) {
     if (!this.hasWebhookConfig()) {
-      const error = new Error('Stripe webhook is not configured.');
+      const error = new Error('Square webhook is not configured.');
+      error.expose = true;
+      throw error;
+    }
+    if (!this.square.verifyWebhook(rawBody, signature)) {
+      logger.warn('Square webhook signature verification failed');
+      const error = new Error('Invalid Square webhook signature');
       error.expose = true;
       throw error;
     }
 
+    const raw = Buffer.isBuffer(rawBody) ? rawBody.toString('utf8') : String(rawBody || '');
     let event;
     try {
-      event = this.stripe.webhooks.constructEvent(
-        rawBody,
-        signature,
-        this.config.store.stripeWebhookSecret,
-      );
-    } catch (error) {
-      logger.warn('Stripe webhook signature verification failed', {
-        message: error.message,
-      });
-      const exposedError = new Error('Invalid Stripe webhook signature');
-      exposedError.expose = true;
-      throw exposedError;
+      event = JSON.parse(raw);
+    } catch {
+      const error = new Error('Invalid Square webhook JSON');
+      error.expose = true;
+      throw error;
     }
 
-    if (event.type === 'checkout.session.completed') {
-      await this.handleCheckoutCompleted(event.data.object);
+    const payment = paymentFromEvent(event);
+    if (String(event.type || '').startsWith('payment.') && payment?.status === 'COMPLETED') {
+      await this.handleCompletedPayment(payment);
     }
 
     return {
       ok: true,
       received: true,
       eventType: event.type,
+      eventId: event.event_id || null,
     };
   }
 
-  async handleCheckoutCompleted(session) {
+  async handleCompletedPayment(payment) {
+    const metadata = decodeSquarePaymentNote(payment.note);
+    if (!metadata || metadata.type !== 'bot_purchase') return;
     if (!this.botStoreService) {
-      logger.warn('Stripe checkout completed but no bot store service was attached.');
+      logger.warn('Square bot payment completed but no bot store service was attached.');
       return;
     }
 
-    await this.botStoreService.handleCompletedCheckoutSession(session);
+    const quoteId = metadata.payload?.q;
+    if (!quoteId) {
+      logger.warn('Square bot payment completed without quote metadata.', { paymentId: payment.id });
+      return;
+    }
+    await this.botStoreService.handleCompletedCheckoutSession({
+      id: payment.id,
+      amount_total: Number(payment.amount_money?.amount || 0),
+      payment_status: 'paid',
+      provider: 'square',
+      order_id: payment.order_id || null,
+      customer: payment.customer_id || null,
+      metadata: {
+        quoteId,
+        discordUserId: metadata.payload?.u || '',
+        guildId: metadata.payload?.g || '',
+      },
+    });
   }
 }

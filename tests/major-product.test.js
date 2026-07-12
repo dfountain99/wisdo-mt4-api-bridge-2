@@ -16,7 +16,9 @@ import { ChartRenderService } from '../services/chartRenderService.js';
 import { TradeSignalService } from '../services/tradeSignalService.js';
 import { ACADEMY_COURSE_COUNT, buildInteractiveLesson, buildPersonalizedPath, getAcademyCourse, searchAcademyCourses } from '../services/academyCatalogService.js';
 import { calculateTradingTool, getEducationHubSummary, searchEducationResources } from '../services/educationHubService.js';
-import { buildFallbackWebinar, buildTeachingChart, createWebinarSession, gradeWebinarQuiz, normalizeStrategyInput } from '../services/aiWebinarService.js';
+import { buildFallbackWebinar, buildHistoricalTeachingChart, buildTeachingChart, createWebinarSession, gradeWebinarQuiz, normalizeStrategyInput } from '../services/aiWebinarService.js';
+import { normalizeHistoricalCandles } from '../services/historicalMarketDataService.js';
+import { SquarePaymentGateway, decodeSquarePaymentNote, encodeSquarePaymentNote, verifySquareWebhookSignature } from '../services/squarePaymentService.js';
 
 process.env.NODE_ENV = 'test';
 process.env.WISDO_ALLOW_TEST_IDENTITY = 'true';
@@ -711,15 +713,30 @@ test('AI Webinar service builds narrated lessons and grades knowledge checks wit
   const chartScene = webinar.scenes.find((scene) => scene.chart);
   assert.ok(chartScene);
   assert.equal(chartScene.chart.symbol, 'OANDA:XAUUSD');
-  assert.ok(chartScene.chart.candles.length >= 50);
-  assert.ok(chartScene.chart.steps.length >= 4);
-  assert.ok(chartScene.chart.levels.some((level) => level.role === 'stop'));
+  assert.equal(chartScene.chart.simulated, false);
+  assert.equal(chartScene.chart.dataStatus, 'pending');
+  assert.equal(chartScene.chart.candles.length, 0);
+  assert.match(chartScene.chart.notice, /will not generate a fake chart/i);
   const chart = buildTeachingChart({ symbol: 'BTCUSD', interval: '1H', scenarioType: 'breakout', direction: 'bullish' });
   assert.equal(chart.symbol, 'COINBASE:BTCUSD');
   assert.equal(chart.interval, '60');
-  assert.equal(chart.simulated, true);
+  assert.equal(chart.simulated, false);
+  const rows = Array.from({ length: 90 }, (_, index) => {
+    const baseline = 100 + index * 0.18 + Math.sin(index / 4) * 1.7;
+    const open = baseline + Math.sin(index / 3) * 0.3;
+    const close = baseline + Math.cos(index / 5) * 0.45;
+    return { datetime: new Date(Date.UTC(2026, 0, 1, index)).toISOString(), open, high: Math.max(open, close) + 0.8, low: Math.min(open, close) - 0.8, close };
+  });
+  const candles = normalizeHistoricalCandles(rows);
+  const historicalChart = buildHistoricalTeachingChart(chart, { provider: 'test_feed', sourceName: 'Verified test history', providerSymbol: 'BTC/USD', candles, fetchedAt: new Date().toISOString() });
+  assert.equal(historicalChart.dataStatus, 'ready');
+  assert.equal(historicalChart.simulated, false);
+  assert.ok(historicalChart.candles.length >= 50);
+  assert.ok(historicalChart.steps.length >= 4);
+  assert.ok(historicalChart.levels.some((level) => level.role === 'stop'));
+  assert.match(historicalChart.notice, /Real historical example/i);
   const session = createWebinarSession({ userId: 'member-1', request: { question: 'Teach me the reversal process' }, webinar, strategy });
-  assert.equal(session.mediaMode, 'interactive_ai_video_with_chart_teacher');
+  assert.equal(session.mediaMode, 'interactive_ai_video_with_real_historical_chart_teacher');
   const grade = gradeWebinarQuiz(session, { q1: 0, q2: 0, q3: 0 });
   assert.equal(grade.score, 100);
   assert.equal(grade.passed, true);
@@ -733,7 +750,8 @@ test('AI Webinar Room supports admin-taught strategy publishing, member lessons,
 
   const config = await jsonFetch(`${fixture.base}/api/v2/webinar-ai/config`, { headers: memberHeaders });
   assert.equal(config.response.status, 200);
-  assert.equal(config.payload.mode, 'on_demand_ai_video_with_chart_teacher');
+  assert.equal(config.payload.mode, 'on_demand_ai_video_with_real_historical_chart_teacher');
+  assert.equal(config.payload.realHistoricalExamplesRequired, true);
   assert.equal(config.payload.browserNarrationReady, true);
   assert.equal(config.payload.chartTeacherReady, true);
   assert.equal(config.payload.tradingViewReady, true);
@@ -787,14 +805,17 @@ test('AI Webinar Room supports admin-taught strategy publishing, member lessons,
     body: JSON.stringify({ question: 'Teach me this reversal strategy step by step', topic: 'Reversal strategy', level: 'starter', durationMinutes: 8, strategyId, chartSymbol: 'OANDA:XAUUSD', chartInterval: '60' }),
   });
   assert.equal(generated.response.status, 201);
-  assert.equal(generated.payload.session.mediaMode, 'interactive_ai_video_with_chart_teacher');
+  assert.equal(generated.payload.session.mediaMode, 'interactive_ai_video_with_real_historical_chart_teacher');
   assert.ok(generated.payload.session.webinar.scenes.length >= 4);
   assert.ok(generated.payload.session.webinar.quiz.length >= 2);
   const generatedChartScene = generated.payload.session.webinar.scenes.find((scene) => scene.chart);
   assert.ok(generatedChartScene);
   assert.equal(generatedChartScene.chart.symbol, 'OANDA:XAUUSD');
   assert.equal(generatedChartScene.chart.interval, '60');
-  assert.ok(generatedChartScene.chart.steps.some((step) => /zoom/i.test(step.narration)));
+  assert.equal(generatedChartScene.chart.simulated, false);
+  assert.equal(generatedChartScene.chart.dataStatus, 'unavailable');
+  assert.equal(generatedChartScene.chart.candles.length, 0);
+  assert.match(generatedChartScene.chart.notice, /will not invent candles/i);
   assert.equal('answerIndex' in generated.payload.session.webinar.quiz[0], false);
   const sessionId = generated.payload.session.sessionId;
 
@@ -841,4 +862,27 @@ test('AI Webinar Room supports admin-taught strategy publishing, member lessons,
   assert.match(client, /AI Markup/);
   assert.match(client, /Zoom in/);
   assert.match(client, /tradingViewWidgetUrl/);
+});
+
+
+test('Square checkout creates hosted links and validates signed webhooks without Stripe', async () => {
+  const calls = [];
+  const config = { api: { publicBaseUrl: 'https://wisdo.example' }, store: { squareAccessToken: 'token', squareLocationId: 'location', squareEnvironment: 'sandbox', squareWebhookSignatureKey: 'signature-key', squareWebhookNotificationUrl: 'https://wisdo.example/api/public/webhooks/square', currency: 'USD' } };
+  const gateway = new SquarePaymentGateway(config, { fetchImpl: async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body) });
+    return { ok: true, json: async () => ({ payment_link: { id: 'plink_1', url: 'https://square.link/u/test', order_id: 'order_1' } }) };
+  } });
+  const note = encodeSquarePaymentNote('legacy_checkout', { u: 'user-1', p: 'setup-fee', m: 0 });
+  assert.deepEqual(decodeSquarePaymentNote(note), { type: 'legacy_checkout', payload: { u: 'user-1', p: 'setup-fee', m: 0 } });
+  const checkout = await gateway.createOneTimePaymentLink({ name: 'WISDO Setup', amountCents: 12500, note, redirectUrl: 'https://wisdo.example/checkout/success' });
+  assert.equal(checkout.provider, 'square');
+  assert.equal(checkout.url, 'https://square.link/u/test');
+  assert.match(calls[0].url, /online-checkout\/payment-links/);
+  assert.equal(calls[0].body.quick_pay.price_money.amount, 12500);
+  assert.equal(calls[0].body.payment_note, note);
+  const rawBody = JSON.stringify({ event_id: 'evt_1', type: 'payment.updated' });
+  const notificationUrl = 'https://wisdo.example/api/public/webhooks/square';
+  const signature = crypto.createHmac('sha256', 'signature-key').update(`${notificationUrl}${rawBody}`, 'utf8').digest('base64');
+  assert.equal(verifySquareWebhookSignature({ rawBody, signature, signatureKey: 'signature-key', notificationUrl }), true);
+  assert.equal(verifySquareWebhookSignature({ rawBody, signature: 'wrong', signatureKey: 'signature-key', notificationUrl }), false);
 });

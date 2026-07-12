@@ -194,9 +194,9 @@
       ctx.fillStyle = color; ctx.fillText(label, Math.max(left + 6, x - labelWidth / 2 + 6), markerY - 11);
     }
 
-    ctx.fillStyle = '#dbe8f2'; ctx.font = '600 13px system-ui'; ctx.fillText(`${chart.symbol} · ${chart.interval} · AI teaching markup`, left, 20);
+    ctx.fillStyle = '#dbe8f2'; ctx.font = '600 13px system-ui'; ctx.fillText(`${chart.symbol} · ${chart.interval} · real historical AI markup`, left, 20);
     ctx.fillStyle = 'rgba(190,210,225,.65)'; ctx.font = '11px system-ui';
-    ctx.fillText(`Bars ${from + 1}–${to} of ${allCandles.length} · simulated example`, left, height - 13);
+    ctx.fillText(`Bars ${from + 1}–${to} of ${allCandles.length} · ${chart.sourceName || 'verified historical data'} · ${chart.rangeStart ? new Date(chart.rangeStart).toLocaleDateString() : ''}${chart.rangeEnd ? `–${new Date(chart.rangeEnd).toLocaleDateString()}` : ''}`, left, height - 13);
   }
 
   function tradingViewWidgetUrl(chart = {}) {
@@ -799,42 +799,82 @@
       player.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
+    function webinarHistoricalChartReady(chart = {}) {
+      return chart.dataStatus === 'ready' && chart.simulated === false && Array.isArray(chart.candles) && chart.candles.length >= 32;
+    }
+
+    function webinarHistoricalRange(chart = {}) {
+      const start = chart.rangeStart ? new Date(chart.rangeStart) : null;
+      const end = chart.rangeEnd ? new Date(chart.rangeEnd) : null;
+      const validStart = start && !Number.isNaN(start.getTime()) ? start.toLocaleString() : '';
+      const validEnd = end && !Number.isNaN(end.getTime()) ? end.toLocaleString() : '';
+      return validStart && validEnd ? `${validStart} – ${validEnd}` : '';
+    }
+
     function renderWebinarChartViewport(scene) {
       const player = panel('webinar').querySelector('#ai-webinar-player');
       const viewport = player?.querySelector('#webinar-chart-viewport');
       if (!viewport || !scene?.chart) return;
       const chart = scene.chart;
-      player.querySelectorAll('[data-webinar-chart-mode]').forEach((button) => button.classList.toggle('active', button.dataset.webinarChartMode === webinarChartMode));
-      player.querySelectorAll('[data-webinar-chart-step]').forEach((button) => button.classList.toggle('active', Number(button.dataset.webinarChartStep) === webinarChartStepIndex));
+      const historicalReady = webinarHistoricalChartReady(chart);
+      if (webinarChartMode === 'ai' && !historicalReady) webinarChartMode = 'tradingview';
+      player.querySelectorAll('[data-webinar-chart-mode]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.webinarChartMode === webinarChartMode);
+        if (button.dataset.webinarChartMode === 'ai') {
+          button.disabled = !historicalReady;
+          button.title = historicalReady ? 'Open the verified historical example with WISDO annotations.' : 'AI Markup requires verified historical OHLC data.';
+        }
+      });
+      player.querySelectorAll('[data-webinar-chart-step]').forEach((button) => {
+        button.classList.toggle('active', Number(button.dataset.webinarChartStep) === webinarChartStepIndex);
+        button.disabled = !historicalReady;
+      });
+      ['#webinar-chart-zoom-in','#webinar-chart-zoom-out','#webinar-chart-reset'].forEach((selector) => {
+        const control = player.querySelector(selector); if (control) control.disabled = !historicalReady;
+      });
       const step = chart.steps?.[webinarChartStepIndex] || chart.steps?.[0];
       const coach = player.querySelector('#webinar-chart-step-coach');
-      if (coach && step) coach.innerHTML = `<strong>${html(step.title)}</strong><p>${html(step.narration)}</p>`;
+      if (coach) coach.innerHTML = step
+        ? `<strong>${html(step.title)}</strong><p>${html(step.narration)}</p>`
+        : `<strong>Real historical example unavailable</strong><p>${html(chart.dataError || 'Connect a historical market-data provider to enable AI Markup. WISDO will not invent candles.')}</p>`;
       const intervalSelect = player.querySelector('#webinar-chart-interval');
       if (intervalSelect) intervalSelect.value = String(chart.interval || '15');
       const openLink = player.querySelector('#webinar-open-tradingview');
       if (openLink) openLink.href = tradingViewFullUrl(chart);
 
       if (webinarChartMode === 'tradingview') {
-        viewport.innerHTML = `<iframe title="Live TradingView chart for ${html(chart.symbol)}" loading="eager" allowfullscreen src="${html(tradingViewWidgetUrl(chart))}"></iframe><div class="ai-chart-help"><strong>Live TradingView:</strong> use the mouse wheel, drag, or pinch directly inside the chart to zoom and inspect real market candles. Switch to AI Markup for automatic zoom and lesson annotations.</div>`;
+        const status = historicalReady
+          ? `<div class="ai-chart-help"><strong>Verified historical lesson ready:</strong> ${html(chart.sourceName || 'configured provider')} · ${html(webinarHistoricalRange(chart))}. Switch to AI Markup for the exact saved historical window and annotations.</div>`
+          : `<div class="ai-chart-help"><strong>Live TradingView only:</strong> use the mouse wheel, drag, or pinch to inspect the market. AI Markup is disabled because verified historical OHLC data was not available. WISDO did not generate substitute candles.</div>`;
+        viewport.innerHTML = `<iframe title="Live TradingView chart for ${html(chart.symbol)}" loading="eager" allowfullscreen src="${html(tradingViewWidgetUrl(chart))}"></iframe>${status}`;
         return;
       }
-      viewport.innerHTML = `<canvas id="webinar-teaching-chart" aria-label="AI marked educational candlestick example"></canvas><div class="ai-chart-legend"><span style="--legend:#b89cff">Teaching zone</span><span style="--legend:#ffcc74">Confirmation</span><span style="--legend:#59a8ff">Entry</span><span style="--legend:#ff6f82">Invalidation</span><span style="--legend:#68f7c4">Objective</span></div>`;
+      const sourceLink = chart.sourceUrl ? `<a href="${html(chart.sourceUrl)}" target="_blank" rel="noopener">${html(chart.sourceName || 'Historical source')}</a>` : html(chart.sourceName || 'Historical source');
+      viewport.innerHTML = `<canvas id="webinar-teaching-chart" aria-label="WISDO annotations on verified historical candlesticks"></canvas><div class="ai-chart-legend"><span style="--legend:#b89cff">Historical zone</span><span style="--legend:#ffcc74">Observed confirmation</span><span style="--legend:#59a8ff">Educational entry</span><span style="--legend:#ff6f82">Invalidation</span><span style="--legend:#68f7c4">2R projection</span></div><div class="ai-chart-help"><strong>Real historical example:</strong> ${sourceLink} · ${html(chart.providerSymbol || chart.symbol)} · ${html(webinarHistoricalRange(chart))}. Annotations are educational observations, not a live signal.</div>`;
       requestAnimationFrame(() => drawWebinarTeachingChart(viewport.querySelector('#webinar-teaching-chart'), chart, webinarChartStepIndex, webinarChartZoom));
     }
 
     function renderWebinarChartScene(scene, stage, sceneCount) {
       const chart = scene.chart;
       const steps = chart.steps || [];
-      stage.innerHTML = `<div class="ai-webinar-chart-stage"><aside class="ai-webinar-chart-coach"><span class="eyebrow">Scene ${webinarSceneIndex + 1} of ${sceneCount} · On-chart lesson</span><h2>${html(scene.title)}</h2><p class="lead">${html(scene.narration)}</p><div class="ai-webinar-bullets">${(scene.bullets || []).map((bullet) => `<span>${html(bullet)}</span>`).join('')}</div><div class="ai-chart-step-list">${steps.map((step, index) => `<button type="button" data-webinar-chart-step="${index}"><small>${index === 0 ? 'Start wide' : index === steps.length - 1 ? 'Review' : 'Zoom step'}</small><br><strong>${html(step.title)}</strong></button>`).join('')}</div><div id="webinar-chart-step-coach" class="private-strategy-notice"></div></aside><div class="ai-webinar-chart-shell"><div class="ai-chart-toolbar"><button class="btn ghost ai-chart-mode" type="button" data-webinar-chart-mode="tradingview">Live TradingView</button><button class="btn ghost ai-chart-mode" type="button" data-webinar-chart-mode="ai">AI Markup</button><select class="input" id="webinar-chart-interval" aria-label="Chart timeframe"><option value="1">1m</option><option value="5">5m</option><option value="15">15m</option><option value="60">1h</option><option value="240">4h</option><option value="D">1D</option></select><button class="btn ghost" id="webinar-chart-zoom-in" type="button">Zoom in</button><button class="btn ghost" id="webinar-chart-zoom-out" type="button">Zoom out</button><button class="btn ghost" id="webinar-chart-reset" type="button">Reset</button><a class="btn primary" id="webinar-open-tradingview" target="_blank" rel="noopener">Open full TradingView</a></div><div id="webinar-chart-viewport" class="ai-chart-viewport"></div><div class="private-strategy-notice" style="margin-top:10px">${html(chart.notice || '')}</div></div></div>`;
-      stage.querySelectorAll('[data-webinar-chart-mode]').forEach((button) => button.onclick = () => { webinarChartMode = button.dataset.webinarChartMode; renderWebinarChartViewport(scene); });
+      const historicalReady = webinarHistoricalChartReady(chart);
+      const sourceSummary = historicalReady
+        ? `${chart.sourceName || 'Historical source'} · ${webinarHistoricalRange(chart)}`
+        : 'Verified historical data unavailable — AI Markup disabled';
+      stage.innerHTML = `<div class="ai-webinar-chart-stage"><aside class="ai-webinar-chart-coach"><span class="eyebrow">Scene ${webinarSceneIndex + 1} of ${sceneCount} · Real on-chart lesson</span><h2>${html(scene.title)}</h2><p class="lead">${html(scene.narration)}</p><div class="ai-webinar-bullets">${(scene.bullets || []).map((bullet) => `<span>${html(bullet)}</span>`).join('')}</div><div class="private-strategy-notice"><strong>Example source</strong><p>${html(sourceSummary)}</p></div><div class="ai-chart-step-list">${steps.map((step, index) => `<button type="button" data-webinar-chart-step="${index}" ${historicalReady ? '' : 'disabled'}><small>${index === 0 ? 'Start wide' : index === steps.length - 1 ? 'Review result' : 'Zoom step'}</small><br><strong>${html(step.title)}</strong></button>`).join('')}</div><div id="webinar-chart-step-coach" class="private-strategy-notice"></div></aside><div class="ai-webinar-chart-shell"><div class="ai-chart-toolbar"><button class="btn ghost ai-chart-mode" type="button" data-webinar-chart-mode="tradingview">Live TradingView</button><button class="btn ghost ai-chart-mode" type="button" data-webinar-chart-mode="ai" ${historicalReady ? '' : 'disabled'}>AI Historical Markup</button><select class="input" id="webinar-chart-interval" aria-label="Live TradingView timeframe"><option value="1">1m</option><option value="5">5m</option><option value="15">15m</option><option value="60">1h</option><option value="240">4h</option><option value="D">1D</option></select><button class="btn ghost" id="webinar-chart-zoom-in" type="button" ${historicalReady ? '' : 'disabled'}>Zoom in</button><button class="btn ghost" id="webinar-chart-zoom-out" type="button" ${historicalReady ? '' : 'disabled'}>Zoom out</button><button class="btn ghost" id="webinar-chart-reset" type="button" ${historicalReady ? '' : 'disabled'}>Reset</button><a class="btn primary" id="webinar-open-tradingview" target="_blank" rel="noopener">Open full TradingView</a></div><div id="webinar-chart-viewport" class="ai-chart-viewport"></div><div class="private-strategy-notice" style="margin-top:10px">${html(chart.notice || '')}<br><small>Changing the timeframe above changes Live TradingView only. Generate a new lesson to load a different verified historical AI example.</small></div></div></div>`;
+      stage.querySelectorAll('[data-webinar-chart-mode]').forEach((button) => button.onclick = () => {
+        if (button.dataset.webinarChartMode === 'ai' && !historicalReady) return;
+        webinarChartMode = button.dataset.webinarChartMode; renderWebinarChartViewport(scene);
+      });
       stage.querySelectorAll('[data-webinar-chart-step]').forEach((button) => button.onclick = () => {
+        if (!historicalReady) return;
         webinarChartMode = 'ai'; webinarChartStepIndex = Number(button.dataset.webinarChartStep); webinarChartZoom = 1;
         renderWebinarChartViewport(scene);
         const selected = chart.steps?.[webinarChartStepIndex]; if (selected) speak(`${selected.title}. ${selected.narration}`, webinarVoiceEnabled);
       });
-      stage.querySelector('#webinar-chart-zoom-in').onclick = () => { webinarChartMode = 'ai'; webinarChartZoom = Math.min(3.2, webinarChartZoom * 1.35); renderWebinarChartViewport(scene); };
-      stage.querySelector('#webinar-chart-zoom-out').onclick = () => { webinarChartMode = 'ai'; webinarChartZoom = Math.max(.55, webinarChartZoom / 1.35); renderWebinarChartViewport(scene); };
-      stage.querySelector('#webinar-chart-reset').onclick = () => { webinarChartMode = 'ai'; webinarChartZoom = 1; webinarChartStepIndex = 0; renderWebinarChartViewport(scene); };
+      stage.querySelector('#webinar-chart-zoom-in').onclick = () => { if (!historicalReady) return; webinarChartMode = 'ai'; webinarChartZoom = Math.min(3.2, webinarChartZoom * 1.35); renderWebinarChartViewport(scene); };
+      stage.querySelector('#webinar-chart-zoom-out').onclick = () => { if (!historicalReady) return; webinarChartMode = 'ai'; webinarChartZoom = Math.max(.55, webinarChartZoom / 1.35); renderWebinarChartViewport(scene); };
+      stage.querySelector('#webinar-chart-reset').onclick = () => { if (!historicalReady) return; webinarChartMode = 'ai'; webinarChartZoom = 1; webinarChartStepIndex = 0; renderWebinarChartViewport(scene); };
       stage.querySelector('#webinar-chart-interval').onchange = (event) => { chart.interval = event.target.value; webinarChartMode = 'tradingview'; renderWebinarChartViewport(scene); };
       renderWebinarChartViewport(scene);
     }

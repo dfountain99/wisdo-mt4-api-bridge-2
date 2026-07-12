@@ -1,35 +1,35 @@
-WISDO TRADINGVIEW AI CHART TEACHER V5.5.0
-Source: wisdo-member-app-product-pass(1).zip
-Source SHA-256: df2143c9aee5039bf4ff547256d68bca84bd54b1ddbd1db99e30bcd7f4d1f7ce
-Base release: V5.1.1 Copier Close Authority
-Version: 5.5.0
+WISDO SQUARE CHECKOUT + REAL HISTORICAL STUDY ROOM V5.6.0
+Version: 5.6.0
 Build command: npm ci --omit=dev --no-audit --no-fund
 Start command: npm start
 Web-only smoke: npm run start:web
 Validation: npm run check
 Primary migration: migrations/2026-07-10-wisdo-major-production-v5.sql
-Live symbol execution automatch default: false
-Member shell: /app/*
-Unified copier options: /api/copier/options
-Unified Academy: /app/education
-Course catalog: 6,500 structured courses
-Private strategy source: not included in public assets or repository
-TradingView private layout env: WISDO_DF_SAUCE_TRADINGVIEW_URL
-Reporter: CultureCoin Reporter v1.56 sync-account + close authority
-Tests: 18 passed, 0 failed
+Additive V5.6 migration: migrations/2026-07-12-square-real-study-room-v5.6.sql
+Tests: 19 passed, 0 failed
+JavaScript syntax/build validation: 80 files passed
 
-Education Hub pillars: Trading Academy, WISDO University, Resource Center, AI Webinar Room
-Original resource catalog: 390 generated guides/checklists/worksheets/flashcards/journals/cheat sheets
-Trading calculators: 8
-Global Wisdo AI assistant: public + authenticated context, voice, screenshot, history, links, usage tiers, confirmation boundaries
-Shared event ledger: Culture Lane relay, Trades, Insight Engine, Alerts
+PAYMENTS
+Provider: Square
+Hosted checkout: subscriptions + one-time products + bots + affiliate activation + paid links
+Webhook: /api/public/webhooks/square
+Webhook verification: exact notification URL + raw body HMAC signature
+Stripe runtime dependency: removed
+Subscription variation envs: monthly, quarterly, semiannual, annual
 
-AI Webinar mode: on-demand interactive narrated chart lessons
-Admin teaching: Strategy Studio with draft/review/publish lifecycle
-Published knowledge: versioned and member-visible only after approval
-Browser narration: enabled without external provider
-Optional external MP4 renderer: WISDO_AI_VIDEO_PROVIDER_URL
+STUDY ROOM
+Mode: on-demand AI video with real historical chart teacher
+Simulated/fake candle fallback: disabled
+Historical source labels: required
+Exact example date range: required
+Live TradingView: enabled
+AI Historical Markup: enabled only when verified OHLC is available
+Automatic zoom: context, confirmation, risk, historical follow-through
+Manual zoom: in, out, reset
+Historical providers: WISDO bridge, Twelve Data, supported Coinbase markets
 
-TradingView mode: live advanced chart embed with symbol and timeframe handoff
-AI Chart Teacher: simulated markup, zones, levels, markers, automatic step zoom, manual zoom controls
-Service worker cache: wisdo-shell-v5.5
+SAFETY
+Private strategy source: excluded
+Quiz answer indices: excluded from member payloads
+AI chart annotations: educational, not live signals
+No provider means no generated candles

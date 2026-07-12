@@ -96,7 +96,7 @@ export function buildWisdoPhaseTwoCommands(ctx) {
 
   commands.push({
     data:new SlashCommandBuilder().setName('marketplace-status').setDescription('Show marketplace/payment/commission foundation status.'),
-    async execute(interaction){ await defer(interaction); const svc=new PlatformBusinessService(ctx.config); const market=await svc.marketplace(); await reply(interaction,['🛒 **Live Marketplace Engine**',...market.products.map(p=>`• ${p.name} — ${money(p.priceUsd)} (${p.type})`),'','Live pricing is loaded from the marketplace file. Orders stay pending until Stripe or admin payment confirmation activates access.'].join('\n')); }
+    async execute(interaction){ await defer(interaction); const svc=new PlatformBusinessService(ctx.config); const market=await svc.marketplace(); await reply(interaction,['🛒 **Live Marketplace Engine**',...market.products.map(p=>`• ${p.name} — ${money(p.priceUsd)} (${p.type})`),'','Live pricing is loaded from the marketplace file. Orders stay pending until Square or admin payment confirmation activates access.'].join('\n')); }
   });
 
   commands.push({

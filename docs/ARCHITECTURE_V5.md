@@ -27,7 +27,7 @@ Initializes configuration, persistence, Discord, the command registry, MT4 synch
 
 ### `server/apiServer.js`
 
-Owns middleware and route order. Raw request bytes are preserved for signed Stripe and broker webhooks. Premium routes register before broad legacy aliases so modern pages cannot be shadowed.
+Owns middleware and route order. Raw request bytes are preserved for signed Square and broker webhooks. Premium routes register before broad legacy aliases so modern pages cannot be shadowed.
 
 ### `server/majorUpgradeRoutes.js`
 
@@ -35,7 +35,7 @@ Owns the premium public website, protected workspace shell, pricing calculation,
 
 ### `server/extendedProductRoutes.js`
 
-Owns community leads and account sharing, Stripe billing and subscription state, push registration, Resend validation, Academy progress, support tickets, affiliate activation, AI analyzer chat, expanded admin functions, and trial expiration.
+Owns community leads and account sharing, Square billing and subscription state, push registration, Resend validation, Academy progress, support tickets, affiliate activation, AI analyzer chat, expanded admin functions, and trial expiration.
 
 ### `server/deadshotSite.js`
 

@@ -1,6 +1,5 @@
 import crypto from 'node:crypto';
-import Stripe from 'stripe';
-import express from 'express';
+import { SquarePaymentGateway, encodeSquarePaymentNote } from '../services/squarePaymentService.js';
 import { encodeSignedSession, decodeSignedSession, safeReturnPath } from './security.js';
 
 const SESSION_COOKIE = 'cc_user';
@@ -217,6 +216,9 @@ function ensureState(state) {
   state.lastAccountMetrics ||= {};
   state.metricHistory ||= {};
   state.subscriptionsById ||= {};
+  state.squareCheckoutIntents ||= {};
+  state.affiliatesById ||= {};
+  state.affiliatePayouts ||= [];
   for (const product of PRODUCTS) state.products[product.id] ||= product;
   return state;
 }
@@ -266,7 +268,7 @@ async function grantDiscordCultureCoinRole(config, discordUserId) {
 
 function hasActivePaidRecord(state, userId) {
   const membership = state.memberships?.[userId];
-  if (['active', 'manual_active', 'discord_role_active', 'stripe_active'].includes(membership?.status)) return true;
+  if (['active', 'manual_active', 'discord_role_active', 'square_active'].includes(membership?.status)) return true;
   const subs = Object.values(state.subscriptionsById || {}).filter((sub) => String(sub.userId || sub.discordUserId || sub.customerUserId || '') === String(userId));
   return subs.some((sub) => ['active', 'trialing'].includes(String(sub.status || '').toLowerCase()));
 }
@@ -1225,7 +1227,7 @@ function tcFaqItems(firstOpen = false) {
     ['What happens after the free trial?','You move to the selected plan automatically. Cancel before the trial ends and you will not be charged.'],
     ['Do you offer refunds?','New subscriptions can use the satisfaction review window listed in billing and support.'],
     ['Is there a setup fee?','No forced setup fee. Guided setup and activation offers can be sold separately.'],
-    ['What payment methods do you accept?','Stripe supports major cards and wallet methods once your Stripe account/domain are configured.'],
+    ['What payment methods do you accept?','Square hosted checkout displays the eligible payment methods enabled for your Square account, region, and the customer device.'],
     ['Can I cancel anytime?','Yes. Cancellation is handled through the billing portal, and copier permissions follow membership state.'],
   ];
   return `<div class="tc-faq">${items.map(([q,a],idx)=>`<details ${idx===0&&firstOpen?'open':''}><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join('')}</div>`;
@@ -1276,7 +1278,7 @@ function legalPage(kind) {
 }
 
 function homePage() {
-  return `<main><section class="hero"><div class="container hero-grid"><div><span class="eyebrow">MT4/MT5 • Discord • Risk Control</span><h1>Run your trading bots from one live command center.</h1><p class="lead">Culture Coin / Deadshot connects webinar onboarding, paid memberships, Discord login, MT4/MT5 account connection, Culture Coin Reporter, trade copier access, bot controls, and emergency risk commands into one clean premium platform.</p><div class="actions"><a class="btn primary" href="/tunnel">Enter The Tunnel</a><a class="btn gold" href="/webinar/register">Watch Webinar</a><a class="btn" href="/app/dashboard" data-launch>Open Dashboard</a></div><div class="trust-strip"><span class="chip green">Live equity tracking</span><span class="chip">Discord command console</span><span class="chip gold">Membership-gated copier</span><span class="chip">Stripe checkout ready</span></div></div><div class="card preview glow">${dashboardPreview()}</div></div></section><section class="section"><div class="container">${sectionHead('Problem', 'Bots are powerful, but scattered control is dangerous.', 'A trader should not need to jump between Discord, MT4, payment tools, spreadsheets, and random web pages just to know if they are active, safe, connected, or allowed to copy trades.')}<div class="grid"><div class="card red"><h3>Invisible risk</h3><p>Drawdown, margin level, open trades, and copier permissions need to be visible before anyone touches live execution.</p></div><div class="card purple"><h3>Disconnected commands</h3><p>Discord commands need status, audit history, and backend permission checks.</p></div><div class="card gold"><h3>Membership confusion</h3><p>Paid website subscription or manually granted Discord role can activate Culture Coin access, but inactive users must never copy trades.</p></div></div></div></section><section class="section"><div class="container">${sectionHead('Solution', 'A premium trading operator desk.', 'The public site sells through the webinar funnel. The member portal controls accounts, reporter access, subscriptions, copier gates, and bot operations. The admin desk controls users, payments, licenses, leads, and access.')}<div class="grid4"><div class="card"><h3>Reporter for everyone</h3><p>Free and inactive users still receive market alerts, bot commentary, trade ideas, and risk warnings.</p></div><div class="card glow"><h3>Copier only for active members</h3><p>Every copy action checks auth, subscription/role, copier enablement, and account connection before execution.</p></div><div class="card purple"><h3>Command launch animation</h3><p>Successful login and connection events trigger an original Culture Coin command-ship launch sequence.</p></div><div class="card gold"><h3>Stripe subscriptions</h3><p>Recurring memberships, one-time products, checkout, billing portal, and webhook membership syncing.</p></div></div></div></section>${pricingSection()}<section class="section"><div class="container">${sectionHead('Dashboard first', 'Built to feel alive.', 'Live gauges, bot status pulse, command console, reporter cards, emergency buttons, and locked/upgrade states give users clarity without copying any other brand.')}<div class="feature-row"><div class="card preview">${dashboardPreview(true)}</div><div class="card purple"><span class="eyebrow">Connection Flow</span><h3>Command Launch lights up only after checks pass.</h3><div class="subtle-divider"></div><div class="mini-stat"><span>Authentication</span><strong>Required</strong></div><div class="mini-stat"><span>Membership</span><strong>Stripe or Discord role</strong></div><div class="mini-stat"><span>Reporter</span><strong>Always visible after login</strong></div><div class="mini-stat"><span>Trade copier</span><strong>Backend gated</strong></div></div></div></div></section></main>`;
+  return `<main><section class="hero"><div class="container hero-grid"><div><span class="eyebrow">MT4/MT5 • Discord • Risk Control</span><h1>Run your trading bots from one live command center.</h1><p class="lead">Culture Coin / Deadshot connects webinar onboarding, paid memberships, Discord login, MT4/MT5 account connection, Culture Coin Reporter, trade copier access, bot controls, and emergency risk commands into one clean premium platform.</p><div class="actions"><a class="btn primary" href="/tunnel">Enter The Tunnel</a><a class="btn gold" href="/webinar/register">Watch Webinar</a><a class="btn" href="/app/dashboard" data-launch>Open Dashboard</a></div><div class="trust-strip"><span class="chip green">Live equity tracking</span><span class="chip">Discord command console</span><span class="chip gold">Membership-gated copier</span><span class="chip">Square checkout ready</span></div></div><div class="card preview glow">${dashboardPreview()}</div></div></section><section class="section"><div class="container">${sectionHead('Problem', 'Bots are powerful, but scattered control is dangerous.', 'A trader should not need to jump between Discord, MT4, payment tools, spreadsheets, and random web pages just to know if they are active, safe, connected, or allowed to copy trades.')}<div class="grid"><div class="card red"><h3>Invisible risk</h3><p>Drawdown, margin level, open trades, and copier permissions need to be visible before anyone touches live execution.</p></div><div class="card purple"><h3>Disconnected commands</h3><p>Discord commands need status, audit history, and backend permission checks.</p></div><div class="card gold"><h3>Membership confusion</h3><p>Paid website subscription or manually granted Discord role can activate Culture Coin access, but inactive users must never copy trades.</p></div></div></div></section><section class="section"><div class="container">${sectionHead('Solution', 'A premium trading operator desk.', 'The public site sells through the webinar funnel. The member portal controls accounts, reporter access, subscriptions, copier gates, and bot operations. The admin desk controls users, payments, licenses, leads, and access.')}<div class="grid4"><div class="card"><h3>Reporter for everyone</h3><p>Free and inactive users still receive market alerts, bot commentary, trade ideas, and risk warnings.</p></div><div class="card glow"><h3>Copier only for active members</h3><p>Every copy action checks auth, subscription/role, copier enablement, and account connection before execution.</p></div><div class="card purple"><h3>Command launch animation</h3><p>Successful login and connection events trigger an original Culture Coin command-ship launch sequence.</p></div><div class="card gold"><h3>Square subscriptions</h3><p>Recurring memberships, one-time products, hosted checkout, in-app subscription controls, and signed Square webhook syncing.</p></div></div></div></section>${pricingSection()}<section class="section"><div class="container">${sectionHead('Dashboard first', 'Built to feel alive.', 'Live gauges, bot status pulse, command console, reporter cards, emergency buttons, and locked/upgrade states give users clarity without copying any other brand.')}<div class="feature-row"><div class="card preview">${dashboardPreview(true)}</div><div class="card purple"><span class="eyebrow">Connection Flow</span><h3>Command Launch lights up only after checks pass.</h3><div class="subtle-divider"></div><div class="mini-stat"><span>Authentication</span><strong>Required</strong></div><div class="mini-stat"><span>Membership</span><strong>Square or Discord role</strong></div><div class="mini-stat"><span>Reporter</span><strong>Always visible after login</strong></div><div class="mini-stat"><span>Trade copier</span><strong>Backend gated</strong></div></div></div></div></section></main>`;
 }
 
 function dashboardPreview(full = false, liveData = null, membership = null, accountConfig = {}) {
@@ -1319,11 +1321,11 @@ function webinarReplayPage() {
 }
 
 function affiliatePage() {
-  return `<main><section class="hero"><div class="container hero-grid"><div><span class="eyebrow">Wisdo Affiliate Desk</span><h1>Sign up, activate today, and earn split payouts.</h1><p class="lead">Affiliates get a referral code after signup. The activation checkout carries affiliateId, referralCode, and splitPercent metadata into Stripe/manual invoices so payout ledgers can be reviewed.</p><div class="trust-strip"><span class="chip green">Activation due today</span><span class="chip gold">Default split configurable</span><span class="chip">Payout review ledger</span></div></div><form id="affiliateSignupForm" class="card form"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Email</label><input type="email" name="email" required></div><div class="field"><label>Phone</label><input name="phone"></div><div class="field"><label>Payout Handle</label><input name="payoutHandle" placeholder="Cash App / PayPal / business email"></div><div class="field"><label>Payout Split %</label><div class="range-row"><input type="range" min="10" max="80" value="30" name="splitPercent" oninput="this.nextElementSibling.value=this.value"><output>30</output></div></div><div class="field"><label>Activation Product</label><select name="activationProductId"><option value="setup-fee">One-Time Setup Fee</option><option value="culture-coin-monthly">Monthly Membership</option><option value="webinar-special">Webinar Special</option></select></div><button class="btn primary" type="submit">Create Affiliate + Pay Activation</button><pre class="live-out" id="affiliateSignupOut"></pre></form></div></section></main>`;
+  return `<main><section class="hero"><div class="container hero-grid"><div><span class="eyebrow">Wisdo Affiliate Desk</span><h1>Sign up, activate today, and earn split payouts.</h1><p class="lead">Affiliates get a referral code after signup. The activation checkout carries affiliateId, referralCode, and splitPercent metadata into Square/manual invoices so payout ledgers can be reviewed.</p><div class="trust-strip"><span class="chip green">Activation due today</span><span class="chip gold">Default split configurable</span><span class="chip">Payout review ledger</span></div></div><form id="affiliateSignupForm" class="card form"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Email</label><input type="email" name="email" required></div><div class="field"><label>Phone</label><input name="phone"></div><div class="field"><label>Payout Handle</label><input name="payoutHandle" placeholder="Cash App / PayPal / business email"></div><div class="field"><label>Payout Split %</label><div class="range-row"><input type="range" min="10" max="80" value="30" name="splitPercent" oninput="this.nextElementSibling.value=this.value"><output>30</output></div></div><div class="field"><label>Activation Product</label><select name="activationProductId"><option value="setup-fee">One-Time Setup Fee</option><option value="culture-coin-monthly">Monthly Membership</option><option value="webinar-special">Webinar Special</option></select></div><button class="btn primary" type="submit">Create Affiliate + Pay Activation</button><pre class="live-out" id="affiliateSignupOut"></pre></form></div></section></main>`;
 }
 
 function offerPage() {
-  return `<main><section class="hero"><div class="container hero-grid"><div><span class="eyebrow">Offer Stack</span><h1>Activate your Culture Coin operator desk.</h1><p class="lead">Pick a recurring membership, add one-time setup, then enter the command center. Apple Pay and Google Pay are supported through Stripe Checkout once your Stripe wallet/domain settings are live.</p><div class="actions"><button class="btn primary" data-checkout="culture-coin-monthly">Monthly Membership</button><button class="btn gold" data-checkout="setup-fee">Add Setup</button></div></div><div class="card purple"><h3>Included with active membership</h3><ul><li>Culture Coin Reporter</li><li>Trade copier access</li><li>Trading account connection</li><li>Bot controls</li><li>Discord command console</li><li>Risk controls</li><li>Trade history</li></ul></div></div></section></main>`;
+  return `<main><section class="hero"><div class="container hero-grid"><div><span class="eyebrow">Offer Stack</span><h1>Activate your Culture Coin operator desk.</h1><p class="lead">Pick a recurring membership, add one-time setup, then enter the command center. Square securely hosts checkout. Available payment methods are shown by Square based on your Square account, customer device, and region.</p><div class="actions"><button class="btn primary" data-checkout="culture-coin-monthly">Monthly Membership</button><button class="btn gold" data-checkout="setup-fee">Add Setup</button></div></div><div class="card purple"><h3>Included with active membership</h3><ul><li>Culture Coin Reporter</li><li>Trade copier access</li><li>Trading account connection</li><li>Bot controls</li><li>Discord command console</li><li>Risk controls</li><li>Trade history</li></ul></div></div></section></main>`;
 }
 
 function pricingPage() {
@@ -1331,7 +1333,7 @@ function pricingPage() {
 }
 
 function loginPage(error = '') {
-  return `<main><section class="hero"><div class="container hero-grid"><div><span class="eyebrow">Secure Login</span><h1>Enter the command center.</h1><p class="lead">Use email, Google, or Discord. After login, the Command Launch animation runs and waits for the real membership check before unlocking trade-copy controls.</p><div class="trust-strip"><span class="chip green">Secure sessions</span><span class="chip">Discord role sync</span><span class="chip gold">Stripe billing link</span></div>${error ? `<div class="card red"><strong>Login issue:</strong> ${esc(error)}</div>` : ''}</div><div class="card"><form class="form" method="post" action="/auth/email/login"><div class="field"><label>Email</label><input type="email" name="email" required></div><div class="field"><label>Password</label><input type="password" name="password" required></div><button class="btn primary" data-launch type="submit">Login</button></form><div class="actions"><a class="btn" href="/auth/google" data-launch>Continue with Google</a><a class="btn" href="/auth/discord" data-launch>Continue with Discord</a></div><p class="muted">No account yet? <a href="/signup">Create one.</a></p></div></div></section></main>`;
+  return `<main><section class="hero"><div class="container hero-grid"><div><span class="eyebrow">Secure Login</span><h1>Enter the command center.</h1><p class="lead">Use email, Google, or Discord. After login, the Command Launch animation runs and waits for the real membership check before unlocking trade-copy controls.</p><div class="trust-strip"><span class="chip green">Secure sessions</span><span class="chip">Discord role sync</span><span class="chip gold">Square billing link</span></div>${error ? `<div class="card red"><strong>Login issue:</strong> ${esc(error)}</div>` : ''}</div><div class="card"><form class="form" method="post" action="/auth/email/login"><div class="field"><label>Email</label><input type="email" name="email" required></div><div class="field"><label>Password</label><input type="password" name="password" required></div><button class="btn primary" data-launch type="submit">Login</button></form><div class="actions"><a class="btn" href="/auth/google" data-launch>Continue with Google</a><a class="btn" href="/auth/discord" data-launch>Continue with Discord</a></div><p class="muted">No account yet? <a href="/signup">Create one.</a></p></div></div></section></main>`;
 }
 
 function signupPage(error = '') {
@@ -1344,7 +1346,7 @@ function faqPage() {
     ['Can inactive users copy trades?', 'No. Every copy action is blocked unless authentication, active subscription or Discord role, copier enablement, and account connection checks pass.'],
     ['Can Discord manually activate a member?', 'Yes. If the user has the configured Culture Coin Discord role, the website treats them as active even if the subscription did not originate on the website.'],
     ['Does the animation unlock access?', 'No. It is only a transition. Controls unlock only after the backend membership check succeeds.'],
-    ['Does Stripe support Apple Pay and Google Pay?', 'Stripe Checkout can show wallet methods after your Stripe account and domain are configured correctly.'],
+    ['Which payment methods will Square show?', 'Square displays the payment methods enabled and eligible for your account, region, and the customer’s device during hosted checkout.'],
   ].map(([q,a]) => `<details><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join('');
   return `<main><section class="section"><div class="container">${sectionHead('FAQ', 'Clear rules build trust.', 'This platform separates information access from live execution access.')}<div class="faq">${items}</div></div></section></main>`;
 }
@@ -1354,7 +1356,7 @@ function contactPage() {
 }
 
 function successPage() {
-  return `<main><section class="hero"><div class="container hero-grid"><div><span class="eyebrow">Payment Success</span><h1>Command Center activation received.</h1><p class="lead">Your billing event will sync membership through Stripe webhooks when live keys are configured. Next, connect Discord and your trading bridge.</p><div class="actions"><a class="btn primary" href="/auth/success?provider=checkout">Launch Dashboard</a><a class="btn" href="/app/connect-account">Connect Trading Account</a></div></div><div class="card glow">${dashboardPreview()}</div></div></section></main>`;
+  return `<main><section class="hero"><div class="container hero-grid"><div><span class="eyebrow">Payment Success</span><h1>Command Center activation received.</h1><p class="lead">Your billing event will sync membership through signed Square webhooks when the Square production settings are configured. Next, connect Discord and your trading bridge.</p><div class="actions"><a class="btn primary" href="/auth/success?provider=checkout">Launch Dashboard</a><a class="btn" href="/app/connect-account">Connect Trading Account</a></div></div><div class="card glow">${dashboardPreview()}</div></div></section></main>`;
 }
 
 function cancelPage() {
@@ -1636,7 +1638,7 @@ function portalContent(page, membership, state, selectedAccountId = '') {
   if (page === 'copier-logs') { const logs = getUserCopierLogs(state, membership.userId); return `<div class="card"><span class="eyebrow">Copier Logs</span><h3>Allowed, failed, and blocked copy actions</h3><table class="table"><thead><tr><th>Time</th><th>Action</th><th>Status</th><th>Reason</th></tr></thead><tbody>${logs.map((l)=>`<tr><td>${esc(l.createdAt)}</td><td>${esc(l.action || l.type)}</td><td>${esc(l.status || (l.allowed ? 'allowed' : 'blocked'))}</td><td>${esc(l.reason || '')}</td></tr>`).join('') || '<tr><td colspan="4">No copier logs yet.</td></tr>'}</tbody></table></div>`; }
   if (page === 'account-trades') return accountTradesPage(liveData, membership, state);
   if (page === 'performance') return performancePage(liveData, membership, state, accountConfig);
-  if (page === 'subscriptions' || page === 'billing') return `<div class="grid"><div class="card"><h3>Active Plan</h3><div class="metric">${membership.role.includes('active') ? 'Culture Coin' : 'Free/Inactive'}</div><p>Status source: ${esc(membership.source || 'none')}</p></div><div class="card"><h3>Billing Portal</h3><p>Open Stripe customer portal when live billing customer IDs are connected.</p><button class="btn primary" data-checkout="culture-coin-monthly">Subscribe / Reactivate</button></div><div class="card gold"><h3>Discord Role Sync</h3><p>Manual Culture Coin role in Discord can activate membership even without website payment.</p></div></div>`;
+  if (page === 'subscriptions' || page === 'billing') return `<div class="grid"><div class="card"><h3>Active Plan</h3><div class="metric">${membership.role.includes('active') ? 'Culture Coin' : 'Free/Inactive'}</div><p>Status source: ${esc(membership.source || 'none')}</p></div><div class="card"><h3>Billing Portal</h3><p>Manage Square subscription status here. Checkout and payment receipts remain available through Square.</p><button class="btn primary" data-checkout="culture-coin-monthly">Subscribe / Reactivate</button></div><div class="card gold"><h3>Discord Role Sync</h3><p>Manual Culture Coin role in Discord can activate membership even without website payment.</p></div></div>`;
   if (page === 'membership') return `<div class="grid2"><div class="card glow"><h3>Current Role</h3><div class="metric green">${esc(membership.role)}</div><p>Copier Engine: ${membership.canCopyTrades ? 'Unlocked' : 'Locked'}</p></div><div class="card"><h3>Access Rules</h3><ul><li>Reporter: available to free, inactive, and active users</li><li>Copier Engine: active Culture Coin member only</li><li>Bot execution: active Culture Coin member only</li><li>Admin override: available from admin desk</li></ul></div></div>`;
   return `<div class="card"><h3>${esc(pageTitle(page))}</h3><p>Profile data, OAuth connections, Discord ID, notification settings, and command preferences.</p></div>`;
 }
@@ -2077,87 +2079,65 @@ function evaluateMetricNotifications(state, { userId, tradingAccountId = 'defaul
   return created;
 }
 
-async function createStripeCheckout({ config, state, userId, product, req, affiliateContext = {} }) {
-  const stripeKey = config?.store?.stripeSecretKey || process.env.STRIPE_SECRET_KEY || '';
-  if (!stripeKey) return null;
-  const stripe = new Stripe(stripeKey);
+async function createSquareCheckout({ config, state, userId, product, req, affiliateContext = {} }) {
+  const square = new SquarePaymentGateway(config);
+  if (!square.isConfigured()) return null;
   const baseUrl = String(config?.api?.publicBaseUrl || process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
-  const mode = product.mode === 'subscription' ? 'subscription' : 'payment';
-  const session = await stripe.checkout.sessions.create({
-    mode,
-    success_url: `${baseUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}&launch=1`,
-    cancel_url: `${baseUrl}/checkout/cancel`,
-    client_reference_id: userId || undefined,
-    customer_email: getSessionUser(req)?.email || undefined,
-    allow_promotion_codes: true,
-    billing_address_collection: 'auto',
-    phone_number_collection: { enabled: true },
-    payment_method_types: ['card'],
-    line_items: [{
-      quantity: 1,
-      price_data: {
-        currency: config?.store?.currency || 'usd',
-        unit_amount: Math.round(product.price * 100),
-        recurring: mode === 'subscription' ? { interval: product.interval || 'month' } : undefined,
-        product_data: { name: product.name, description: product.description },
-      },
-    }],
-    metadata: { productId: product.id, userId: userId || '', membershipProduct: String(product.id.includes('culture-coin') || product.id.includes('vip')), affiliateId: affiliateContext.affiliateId || '', referralCode: affiliateContext.referralCode || '', splitPercent: affiliateContext.splitPercent ? String(affiliateContext.splitPercent) : '', signupType: affiliateContext.signupType || '' },
+  const membershipProduct = Boolean(product.id.includes('culture-coin') || product.id.includes('vip') || product.id.includes('pro-bot'));
+  const billingCycle = product.interval === 'year' ? 'annual' : 'monthly';
+  const note = encodeSquarePaymentNote('legacy_checkout', {
+    u: String(userId || ''),
+    p: product.id,
+    m: membershipProduct ? 1 : 0,
+    a: affiliateContext.affiliateId || '',
+    r: affiliateContext.referralCode || '',
+    s: affiliateContext.splitPercent ? Number(affiliateContext.splitPercent) : 0,
   });
-  return session.url;
+  const input = {
+    name: product.name,
+    amountCents: Math.round(Number(product.price || 0) * 100),
+    note,
+    redirectUrl: `${baseUrl}/checkout/success?provider=square&launch=1`,
+    buyerEmail: getSessionUser(req)?.email || undefined,
+  };
+  let checkout;
+  if (product.mode === 'subscription') {
+    const planVariationId = square.subscriptionPlanVariationForCycle(billingCycle);
+    if (!planVariationId) {
+      const variable = billingCycle === 'annual' ? 'SQUARE_SUBSCRIPTION_PLAN_ANNUAL_ID' : 'SQUARE_SUBSCRIPTION_PLAN_MONTHLY_ID';
+      const error = new Error(`Square subscription checkout needs ${variable}.`);
+      error.expose = true;
+      throw error;
+    }
+    checkout = await square.createSubscriptionPaymentLink({
+      ...input,
+      subscriptionPlanVariationId: planVariationId,
+      billingCycle,
+    });
+  } else {
+    checkout = await square.createOneTimePaymentLink(input);
+  }
+  const intentKey = checkout.orderId || checkout.id;
+  state.squareCheckoutIntents[intentKey] = {
+    id: id('square_checkout'),
+    type: 'legacy_checkout',
+    userId: String(userId || ''),
+    productId: product.id,
+    membershipProduct,
+    affiliateId: affiliateContext.affiliateId || '',
+    referralCode: affiliateContext.referralCode || '',
+    splitPercent: Number(affiliateContext.splitPercent || 0),
+    paymentLinkId: checkout.id,
+    orderId: checkout.orderId,
+    createdAt: nowIso(),
+  };
+  return checkout.url;
 }
 
-export function registerDeadshotWebhookRoutes(app, { config, loadEcosystemState, saveEcosystemState, logger }) {
-  app.post('/api/stripe/membership-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-    const stripeKey = config?.store?.stripeSecretKey || process.env.STRIPE_SECRET_KEY || '';
-    const webhookSecret = config?.store?.stripeWebhookSecret || process.env.STRIPE_WEBHOOK_SECRET || '';
-    if (!stripeKey || !webhookSecret) return res.status(400).json({ ok: false, error: 'Stripe webhook not configured' });
-    const stripe = new Stripe(stripeKey);
-    let event;
-    try {
-      event = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], webhookSecret);
-    } catch (error) {
-      logger?.warn?.('Deadshot membership webhook signature failed', { message: error.message });
-      return res.status(400).send(`Webhook Error: ${error.message}`);
-    }
-    const state = ensureState(await loadEcosystemState());
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object;
-      const userId = session.client_reference_id || session.metadata?.userId;
-      const productId = session.metadata?.productId || '';
-      const isMembershipProduct = String(session.metadata?.membershipProduct || '').toLowerCase() === 'true';
-      if (userId) {
-        state.payments[session.id] = { id: session.id, userId, productId, amountTotal: session.amount_total, status: session.payment_status, mode: session.mode || '', membershipProduct: isMembershipProduct, affiliateId: session.metadata?.affiliateId || '', referralCode: session.metadata?.referralCode || '', createdAt: nowIso() };
-        if (session.metadata?.affiliateId) {
-          state.affiliatePayouts ||= [];
-          const splitPercent = Math.max(1, Math.min(80, Number(session.metadata?.splitPercent || state.affiliatesById?.[session.metadata.affiliateId]?.splitPercent || 30)));
-          state.affiliatePayouts.push({ id: id('affiliate_payout'), affiliateId: session.metadata.affiliateId, referralCode: session.metadata?.referralCode || '', buyerUserId: userId, paymentId: session.id, grossAmount: Number(session.amount_total || 0) / 100, splitPercent, payoutAmount: (Number(session.amount_total || 0) / 100) * (splitPercent / 100), status: 'earned_pending_review', createdAt: nowIso() });
-          if (state.affiliatesById?.[session.metadata.affiliateId]) state.affiliatesById[session.metadata.affiliateId].status = 'active';
-        }
-        if (isMembershipProduct) {
-          state.memberships[userId] = { userId, status: 'stripe_active', source: 'stripe_checkout', productId, stripeCustomerId: session.customer || '', stripeSubscriptionId: session.subscription || '', updatedAt: nowIso() };
-          const discordUserId = state.discord_connections?.[userId]?.discordUserId || (String(userId).match(/^\d+$/) ? userId : '');
-          const roleGrant = await grantDiscordCultureCoinRole(config, discordUserId);
-          state.admin_logs.push({ id: id('admin_log'), action: 'stripe_membership_activated', userId, discordUserId, roleGrant, createdAt: nowIso() });
-        } else {
-          state.admin_logs.push({ id: id('admin_log'), action: 'stripe_one_time_product_paid', userId, productId, createdAt: nowIso() });
-        }
-      }
-    }
-    if (event.type === 'customer.subscription.deleted' || event.type === 'customer.subscription.paused') {
-      const sub = event.data.object;
-      const match = Object.values(state.memberships).find((m) => m.stripeSubscriptionId === sub.id);
-      if (match) { match.status = 'inactive'; match.updatedAt = nowIso(); match.source = 'stripe_subscription'; }
-    }
-    if (event.type === 'customer.subscription.updated') {
-      const sub = event.data.object;
-      const match = Object.values(state.memberships).find((m) => m.stripeSubscriptionId === sub.id);
-      if (match) { match.status = ['active','trialing'].includes(sub.status) ? 'stripe_active' : 'inactive'; match.updatedAt = nowIso(); match.source = 'stripe_subscription'; }
-    }
-    await saveEcosystemState(state);
-    res.json({ ok: true, received: true, eventType: event.type });
-  });
-}
+// Square webhooks are registered in extendedProductRoutes after the raw request
+// body capture middleware. This compatibility export intentionally registers no
+// duplicate webhook route.
+export function registerDeadshotWebhookRoutes() {}
 
 export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystemState, saveEcosystemState, mt4SyncService, mt4CommandService, logger }) {
   const loadLiveState = async () => {
@@ -2787,17 +2767,17 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
     state.affiliatesById[affiliateId] = { affiliateId, userId: membership.userId || '', name, email, phone, payoutHandle, splitPercent, referralCode, activationProductId, status: 'activation_due', createdAt: nowIso(), signupSource: 'website_affiliate_portal' };
     const product = PRODUCTS.find((p) => p.id === activationProductId) || PRODUCTS.find((p) => p.id === 'setup-fee');
     let checkoutUrl = '';
-    if (membership.userId && product) checkoutUrl = await createStripeCheckout({ config, state, userId: membership.userId, product, req, affiliateContext: { affiliateId, referralCode, splitPercent, signupType: 'affiliate_activation' } });
+    if (membership.userId && product) checkoutUrl = await createSquareCheckout({ config, state, userId: membership.userId, product, req, affiliateContext: { affiliateId, referralCode, splitPercent, signupType: 'affiliate_activation' } });
     if (!checkoutUrl && product) {
       const paymentId = id('payment');
       state.payments[paymentId] = { id: paymentId, productId: product.id, affiliateId, userId: membership.userId || 'guest', amount: product.price, status: 'manual_affiliate_activation_pending', accessGranted: false, createdAt: nowIso() };
     }
     await saveEcosystemState(state);
-    res.json({ ok: true, affiliateId, referralCode, splitPercent, status: 'activation_due', checkoutUrl, message: checkoutUrl ? 'Affiliate created. Send user to checkoutUrl to pay activation today.' : 'Affiliate created with manual activation due because Stripe is not configured.' });
+    res.json({ ok: true, affiliateId, referralCode, splitPercent, status: 'activation_due', checkoutUrl, message: checkoutUrl ? 'Affiliate created. Send user to checkoutUrl to pay activation today.' : 'Affiliate created with manual activation due because Square is not configured.' });
   });
 
 
-  // Checkout/session API with Stripe or manual-invoice fallback.
+  // Checkout/session API with Square or manual-invoice fallback.
   app.post('/api/checkout/session', async (req, res) => {
     try {
       const state = ensureState(await loadEcosystemState());
@@ -2806,13 +2786,13 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
       if (!product) return res.status(404).json({ ok: false, error: 'Product not found' });
       if (product.mode === 'free') return res.json({ ok: true, url: '/signup' });
       if (!membership.userId) return res.status(401).json({ ok: false, error: 'Create an account or login before checkout so billing can activate the correct member.', url: `/signup?product=${encodeURIComponent(product.id)}` });
-      const url = await createStripeCheckout({ config, state, userId: membership.userId, product, req });
+      const url = await createSquareCheckout({ config, state, userId: membership.userId, product, req });
       if (url) return res.json({ ok: true, url });
       // Manual-invoice fallback: records a real pending order; access stays locked until payment is confirmed.
       const paymentId = id('payment');
       state.payments[paymentId] = { id: paymentId, productId: product.id, userId: membership.userId || 'guest', amount: product.price, status: 'manual_invoice_pending', accessGranted: false, createdAt: nowIso() };
       await saveEcosystemState(state);
-      res.json({ ok: true, checkoutMode: 'manual_invoice_pending', paymentId, message: 'Live price/order saved. Stripe is not configured, so access remains locked until admin confirms payment.' });
+      res.json({ ok: true, checkoutMode: 'manual_invoice_pending', paymentId, message: 'Live price/order saved. Square is not configured, so access remains locked until admin confirms payment.' });
     } catch (error) {
       logger?.error?.('Checkout session failed', { message: error.message });
       res.status(500).json({ ok: false, error: error.message });

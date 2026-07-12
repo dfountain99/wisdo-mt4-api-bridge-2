@@ -55,7 +55,7 @@ Broker credentials are encrypted at rest and never returned by account APIs.
 | Method | Route | Authentication |
 |---|---|---|
 | POST | `/api/public/webhooks/broker-trade` | HMAC-SHA256 using `BROKER_WEBHOOK_SECRET` |
-| POST | `/api/public/webhooks/stripe` | Stripe `stripe-signature` |
+| POST | `/api/public/webhooks/square` | Square `x-square-hmacsha256-signature` |
 | POST | `/api/public/cron/sync-accounts` | `Authorization: Bearer <CRON_SECRET>` |
 | POST | `/api/public/cron/refresh-market` | cron bearer token |
 | POST | `/api/public/cron/close-expired-trials` | cron bearer token |
@@ -76,8 +76,8 @@ Broker credentials are encrypted at rest and never returned by account APIs.
 | Method | Route | Purpose |
 |---|---|---|
 | GET | `/api/v2/subscription` | current subscription |
-| POST | `/api/v2/billing/checkout` | Stripe Checkout session |
-| POST | `/api/v2/billing/portal` | Stripe customer portal |
+| POST | `/api/v2/billing/checkout` | Square Checkout session |
+| POST | `/api/v2/billing/portal` | WISDO billing settings (Square-managed subscription actions) |
 | POST | `/api/v2/subscription/cancel` | cancel at period end |
 | POST | `/api/v2/subscription/resume` | resume cancellation |
 | GET | `/api/v2/affiliate` | code, conversions, held/available commissions |
