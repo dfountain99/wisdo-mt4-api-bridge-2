@@ -16,6 +16,7 @@ import { ChartRenderService } from '../services/chartRenderService.js';
 import { TradeSignalService } from '../services/tradeSignalService.js';
 import { ACADEMY_COURSE_COUNT, buildInteractiveLesson, buildPersonalizedPath, getAcademyCourse, searchAcademyCourses } from '../services/academyCatalogService.js';
 import { calculateTradingTool, getEducationHubSummary, searchEducationResources } from '../services/educationHubService.js';
+import { buildFallbackWebinar, createWebinarSession, gradeWebinarQuiz, normalizeStrategyInput } from '../services/aiWebinarService.js';
 
 process.env.NODE_ENV = 'test';
 process.env.WISDO_ALLOW_TEST_IDENTITY = 'true';
@@ -685,4 +686,138 @@ test('Education Hub provides original resources, calculators, live-learning surf
   assert.match(assistantClient, /Page-aware education and operations assistant/);
   assert.match(assistantClient, /SpeechRecognition|webkitSpeechRecognition/);
   assert.match(assistantClient, /accept=\\"image\/\*\\"|accept="image\/\*"/);
+});
+
+
+test('AI Webinar service builds narrated lessons and grades knowledge checks without requiring an external video provider', () => {
+  const strategy = normalizeStrategyInput({
+    title: 'Deadshot Reversal Framework',
+    summary: 'A confirmation-led reversal learning framework.',
+    markets: ['XAUUSD'],
+    marketConditions: ['Price reaches a defined exhaustion area'],
+    entryRules: ['Wait for the approved reversal confirmation'],
+    confirmationRules: ['Confirm structure has shifted'],
+    exitRules: ['Exit when the approved invalidation or objective is reached'],
+    invalidationRules: ['The setup is invalid when price reclaims the exhaustion extreme'],
+    riskRules: ['Practice with controlled risk and a daily loss boundary'],
+    status: 'published',
+    version: '1.0',
+  });
+  strategy.publishedAt = new Date().toISOString();
+  const webinar = buildFallbackWebinar({ question: 'Teach me the reversal process', topic: 'Reversals', level: 'starter', durationMinutes: 8, strategy });
+  assert.ok(webinar.scenes.length >= 4);
+  assert.ok(webinar.quiz.length >= 2);
+  assert.match(webinar.subtitle, /approved Deadshot Reversal Framework/i);
+  const session = createWebinarSession({ userId: 'member-1', request: { question: 'Teach me the reversal process' }, webinar, strategy });
+  assert.equal(session.mediaMode, 'interactive_ai_video');
+  const grade = gradeWebinarQuiz(session, { q1: 0, q2: 0, q3: 0 });
+  assert.equal(grade.score, 100);
+  assert.equal(grade.passed, true);
+});
+
+test('AI Webinar Room supports admin-taught strategy publishing, member lessons, progress, quizzes, and follow-up teaching', async (t) => {
+  const fixture = await createTestServer();
+  t.after(() => fixture.server.close());
+  const adminHeaders = { 'content-type': 'application/json', 'x-wisdo-test-user': 'admin-teacher' };
+  const memberHeaders = { 'content-type': 'application/json', 'x-wisdo-test-user': 'member-student' };
+
+  const config = await jsonFetch(`${fixture.base}/api/v2/webinar-ai/config`, { headers: memberHeaders });
+  assert.equal(config.response.status, 200);
+  assert.equal(config.payload.mode, 'on_demand_ai_video');
+  assert.equal(config.payload.browserNarrationReady, true);
+  assert.ok(config.payload.templates.length >= 6);
+
+  const draft = await jsonFetch(`${fixture.base}/api/v2/admin/webinar-ai/strategies`, {
+    method: 'POST', headers: adminHeaders,
+    body: JSON.stringify({ title: 'WISDO Confirmation Reversal', summary: 'Teach a controlled reversal decision process.', version: '1.0' }),
+  });
+  assert.equal(draft.response.status, 201);
+  assert.equal(draft.payload.strategy.status, 'draft');
+  const strategyId = draft.payload.strategy.strategyId;
+
+  const blockedPublish = await jsonFetch(`${fixture.base}/api/v2/admin/webinar-ai/strategies/${encodeURIComponent(strategyId)}/publish`, { method: 'POST', headers: adminHeaders, body: '{}' });
+  assert.equal(blockedPublish.response.status, 409);
+
+  const unpublishedGenerate = await jsonFetch(`${fixture.base}/api/v2/webinar-ai/generate`, {
+    method: 'POST', headers: memberHeaders,
+    body: JSON.stringify({ question: 'Teach this strategy', strategyId }),
+  });
+  assert.equal(unpublishedGenerate.response.status, 409);
+
+  const updated = await jsonFetch(`${fixture.base}/api/v2/admin/webinar-ai/strategies/${encodeURIComponent(strategyId)}`, {
+    method: 'PATCH', headers: adminHeaders,
+    body: JSON.stringify({
+      summary: 'A confirmation-led reversal decision process for education and simulation.',
+      markets: ['XAUUSD', 'FOREX'],
+      marketConditions: ['Price reaches a defined exhaustion area', 'The higher-timeframe context is identified'],
+      entryRules: ['Wait for the approved reversal trigger'],
+      confirmationRules: ['Confirm a structure shift before considering entry'],
+      exitRules: ['Exit at the approved objective or when invalidated'],
+      invalidationRules: ['Price reclaims the exhaustion extreme'],
+      riskRules: ['Use controlled practice risk', 'Stop when the daily loss boundary is reached'],
+      commonMistakes: ['Entering before confirmation'],
+      examples: ['Mark context, confirmation, invalidation, and risk before simulation'],
+      faq: ['Why wait? Because a touch alone is not confirmation.'],
+    }),
+  });
+  assert.equal(updated.response.status, 200);
+  assert.notEqual(updated.payload.strategy.status, 'published');
+
+  const published = await jsonFetch(`${fixture.base}/api/v2/admin/webinar-ai/strategies/${encodeURIComponent(strategyId)}/publish`, { method: 'POST', headers: adminHeaders, body: '{}' });
+  assert.equal(published.response.status, 200);
+  assert.equal(published.payload.strategy.status, 'published');
+  assert.ok(published.payload.strategy.publishedAt);
+  assert.equal(fixture.getState().aiWebinarStrategyVersions[strategyId].length, 1);
+  assert.equal(fixture.getState().aiWebinarStrategyVersions[strategyId][0].status, 'published');
+
+  const generated = await jsonFetch(`${fixture.base}/api/v2/webinar-ai/generate`, {
+    method: 'POST', headers: memberHeaders,
+    body: JSON.stringify({ question: 'Teach me this reversal strategy step by step', topic: 'Reversal strategy', level: 'starter', durationMinutes: 8, strategyId }),
+  });
+  assert.equal(generated.response.status, 201);
+  assert.equal(generated.payload.session.mediaMode, 'interactive_ai_video');
+  assert.ok(generated.payload.session.webinar.scenes.length >= 4);
+  assert.ok(generated.payload.session.webinar.quiz.length >= 2);
+  assert.equal('answerIndex' in generated.payload.session.webinar.quiz[0], false);
+  const sessionId = generated.payload.session.sessionId;
+
+  const library = await jsonFetch(`${fixture.base}/api/v2/webinar-ai/library`, { headers: memberHeaders });
+  assert.equal(library.response.status, 200);
+  assert.equal(library.payload.sessions[0].sessionId, sessionId);
+  assert.equal('answerIndex' in library.payload.sessions[0].webinar.quiz[0], false);
+
+  const progress = await jsonFetch(`${fixture.base}/api/v2/webinar-ai/sessions/${encodeURIComponent(sessionId)}/progress`, {
+    method: 'PATCH', headers: memberHeaders, body: JSON.stringify({ sceneIndex: 2, watchedSeconds: 140 }),
+  });
+  assert.equal(progress.response.status, 200);
+  assert.equal(progress.payload.progress.sceneIndex, 2);
+  assert.equal(progress.payload.progress.watchedSeconds, 140);
+
+  const quiz = await jsonFetch(`${fixture.base}/api/v2/webinar-ai/sessions/${encodeURIComponent(sessionId)}/quiz`, {
+    method: 'POST', headers: memberHeaders, body: JSON.stringify({ answers: { q1: 0, q2: 0, q3: 0 } }),
+  });
+  assert.equal(quiz.response.status, 200);
+  assert.equal(quiz.payload.score, 100);
+  assert.equal(quiz.payload.passed, true);
+  assert.equal('correctIndex' in quiz.payload.results[0], false);
+
+  const question = await jsonFetch(`${fixture.base}/api/v2/webinar-ai/sessions/${encodeURIComponent(sessionId)}/questions`, {
+    method: 'POST', headers: memberHeaders, body: JSON.stringify({ question: 'What should I identify before confirmation?' }),
+  });
+  assert.equal(question.response.status, 200);
+  assert.match(question.payload.question.answer, /condition|confirmation|invalidation/i);
+
+  const editedPublished = await jsonFetch(`${fixture.base}/api/v2/admin/webinar-ai/strategies/${encodeURIComponent(strategyId)}`, {
+    method: 'PATCH', headers: adminHeaders, body: JSON.stringify({ summary: 'A revised strategy lesson requiring new approval.' }),
+  });
+  assert.equal(editedPublished.response.status, 200);
+  assert.equal(editedPublished.payload.strategy.status, 'review');
+  const configAfterEdit = await jsonFetch(`${fixture.base}/api/v2/webinar-ai/config`, { headers: memberHeaders });
+  assert.equal(configAfterEdit.payload.strategies.some((row) => row.strategyId === strategyId), false);
+
+  const client = await fs.readFile(new URL('../public/js/df-sauce-academy.js', import.meta.url), 'utf8');
+  assert.match(client, /AI Webinar Room/);
+  assert.match(client, /Strategy Studio/);
+  assert.match(client, /\/api\/v2\/webinar-ai\/generate/);
+  assert.match(client, /SpeechSynthesisUtterance/);
 });

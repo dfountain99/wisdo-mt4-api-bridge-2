@@ -1,4 +1,4 @@
-# WISDO Member App — Capability + Adaptive Academy V5.3.0
+# WISDO Member App — AI Webinar Room + Strategy Studio V5.4.0
 
 WISDO is a multi-account trading command center that combines a premium public product site, account linking, MT4/Discord relay execution, Culture Lanes, risk governance, analytics, education, affiliate operations, billing, alerts, and administrative controls.
 
@@ -29,11 +29,24 @@ This release was rebuilt directly from the user-provided `wisdo-member-app-produ
 - Proprietary DF Sauce Pine source removed from all public assets and blocked from Git commits
 - Private TradingView layout handoff through `WISDO_DF_SAUCE_TRADINGVIEW_URL`
 
+
+## V5.4 AI Webinar Room and Strategy Teaching Studio
+
+- Replaces the external “live webinar” placeholder with an on-demand AI Webinar Room inside `/app/education`.
+- Members enter any learning question and receive a structured narrated lesson with scenes, examples, risk guidance, knowledge checks, progress saving, and follow-up questions.
+- Browser speech synthesis powers the interactive AI-video lesson immediately; no webinar host or video-rendering vendor is required.
+- OpenAI lesson generation is used when `OPENAI_API_KEY` is configured, with a deterministic educational fallback when it is not.
+- Optional external MP4 rendering can be connected through `WISDO_AI_VIDEO_PROVIDER_URL`, while the browser lesson remains the default reliable experience.
+- Authorized administrators receive a Strategy Teaching Studio for structured market conditions, entry, confirmation, exit, invalidation, risk, examples, mistakes, and FAQs.
+- Strategies remain private drafts until explicitly published. Editing published knowledge automatically returns it to review, preventing unapproved changes from being taught.
+- Every published strategy version is snapshotted, and the AI is instructed to use only the published version without inventing missing rules or exposing protected source code.
+- Member webinar payloads do not expose quiz answer indices.
+
 ## V5.3 connected intelligence and Education Hub
 
 - Reporter snapshots feed one authoritative trade/event ledger used by Trades, WISDO Insight Engine, Alerts, and Culture Lane lifecycle diagnostics.
 - Active Culture Lanes are synchronized into the lead snapshot detector before open/close comparison.
-- Education Hub has four pillars: Trading Academy, WISDO University, Resource Center, and Live Learning.
+- Education Hub has four pillars: Trading Academy, WISDO University, Resource Center, and the on-demand AI Webinar Room.
 - 6,500 adaptive courses remain searchable, while course sessions now open into worked explanations, vocabulary, context, risk, replay practice, checkpoints, and tutor engagement instead of static module paragraphs.
 - Resource Center generates 390 original WISDO study guides, checklists, worksheets, flash-card packs, journal templates, and cheat sheets with bookmarks.
 - Trading tools include position size, risk/reward, margin, pip value, P/L, drawdown, compounding, and risk-of-ruin scenarios.
@@ -143,6 +156,10 @@ CRON_SECRET=<long random secret>
 DATA_DIR=/var/data/wisdo
 WISDO_STORAGE_PATH=/var/data/wisdo
 WISDO_DF_SAUCE_TRADINGVIEW_URL=https://www.tradingview.com/chart/YOUR_PRIVATE_LAYOUT
+OPENAI_API_KEY=<optional for generative webinar lessons>
+WISDO_AI_VIDEO_PROVIDER_URL=<optional external MP4 renderer>
+WISDO_AI_VIDEO_PROVIDER_KEY=<optional renderer credential>
+WISDO_AI_VIDEO_WEBHOOK_SECRET=<required when external rendering is enabled>
 ```
 
 Discord and MT4 add `DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID`, `MT4_SYNC_API_KEY`, and related role/channel IDs. Stripe, Resend, market providers, AI, Google OAuth, VAPID, and PostgreSQL are provider integrations and stay unavailable until their real production credentials are configured.
@@ -201,13 +218,15 @@ Reporter v1.56 supports immediate account synchronization and closes by the stor
 
 **Follower terminal upgrade is mandatory:** compile `mql4/CultureCoin_MT4_Reporter.mq4` in MetaEditor and replace the older Reporter EX4. The legacy compiled binary is archived and is not delivered as the active Reporter.
 
-## Education provider settings
+## Education and AI Webinar settings
 
 ```env
 WISDO_DF_SAUCE_TRADINGVIEW_URL=https://www.tradingview.com/chart/YOUR_PRIVATE_LAYOUT/
-WISDO_WEBINAR_PROVIDER_URL=https://your-live-learning-provider.example/room
 OPENAI_API_KEY=
 WISDO_AI_MODEL=gpt-4.1-mini
+WISDO_AI_VIDEO_PROVIDER_URL=
+WISDO_AI_VIDEO_PROVIDER_KEY=
+WISDO_AI_VIDEO_WEBHOOK_SECRET=
 ```
 
-Without external AI or webinar credentials, the internal adaptive tutor, calculators, resource library, and scenario labs remain available; live provider links report setup-required rather than pretending to be live.
+Without external AI or video-rendering credentials, the internal adaptive tutor, calculators, resource library, scenario labs, and browser-narrated AI Webinar Room remain available. The optional renderer is used only when a downloadable MP4 provider is deliberately configured.

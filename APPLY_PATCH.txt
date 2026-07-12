@@ -1,0 +1,11 @@
+WISDO V5.4.0 AI WEBINAR ROOM PATCH
+
+1. Back up the current WISDO project and persistent data.
+2. Extract this patch into the project root and allow it to replace matching files.
+3. Run: npm ci --omit=dev --no-audit --no-fund
+4. Run: npm run check
+5. Restart the application.
+6. Open /app/education and test AI Webinar Room.
+7. Admins should test Strategy Studio draft -> publish -> member generation.
+
+For the safest deployment, use the full replacement ZIP instead of applying the patch to an unknown version.

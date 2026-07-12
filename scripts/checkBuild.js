@@ -12,6 +12,7 @@ const required = [
   'server/security.js',
   'services/academyCatalogService.js',
   'services/educationHubService.js',
+  'services/aiWebinarService.js',
   'public/js/workspace.js',
   'public/js/df-sauce-academy.js',
   'public/js/wisdo-assistant.js',

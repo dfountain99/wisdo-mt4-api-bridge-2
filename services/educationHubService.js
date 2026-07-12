@@ -4,7 +4,7 @@ export const EDUCATION_PILLARS = [
   { id: 'trading-academy', title: 'Trading Academy', description: 'Beginner through professional market education, execution, risk, psychology, and research.' },
   { id: 'wisdo-university', title: 'WISDO University', description: 'Command Center, Culture Lanes, Reporter operations, account health, DF Sauce scenarios, and HIGHTOWER operating principles without exposing proprietary source.' },
   { id: 'resource-center', title: 'Resource Center', description: 'Original checklists, worksheets, journals, calculators, glossaries, and study guides.' },
-  { id: 'live-learning', title: 'Live Learning', description: 'Webinars, recorded seminars, market breakdowns, office hours, and community question sessions.' },
+  { id: 'ai-webinar-room', title: 'AI Webinar Room', description: 'On-demand AI video lessons generated from user questions, Academy content, and admin-approved strategy knowledge.' },
 ];
 
 const RESOURCE_TYPES = [
@@ -28,12 +28,12 @@ const TOOL_DEFINITIONS = [
 ];
 
 const LIVE_LEARNING = [
-  { id: 'orientation-live', type: 'live-webinar', title: 'WISDO Orientation and Safety Setup', level: 'starter', durationMinutes: 45, status: 'schedule-ready', description: 'Account connection, Reporter health, Culture Lane permissions, and emergency controls.' },
-  { id: 'candles-workshop', type: 'recorded-seminar', title: 'Candlesticks: Reading Price Without Memorizing Patterns', level: 'starter', durationMinutes: 62, status: 'on-demand', description: 'OHLC, body and wick behavior, context, volatility, and invalidation.' },
-  { id: 'risk-clinic', type: 'live-office-hours', title: 'Risk and Money Management Clinic', level: 'foundation', durationMinutes: 60, status: 'schedule-ready', description: 'Position sizing, drawdown, exposure, margin, and household-finance boundaries.' },
-  { id: 'automation-reliability', type: 'recorded-seminar', title: 'Automation Reliability Before Strategy Optimization', level: 'intermediate', durationMinutes: 78, status: 'on-demand', description: 'Idempotency, event ledgers, retries, command completion, close authority, and crash recovery.' },
-  { id: 'forex-metals-outlook', type: 'market-breakdown', title: 'Forex and Metals Market Breakdown Framework', level: 'intermediate', durationMinutes: 35, status: 'provider-ready', description: 'A reusable framework for sessions, macro catalysts, liquidity, structure, and execution risk.' },
-  { id: 'df-sauce-lab', type: 'interactive-lab', title: 'DF Sauce Campaign Character Lab', level: 'advanced', durationMinutes: 50, status: 'interactive', description: 'Protected scenario replay using structure, campaign state, risk, and invalidation without exposing private code.' },
+  { id: 'orientation-ai', type: 'ai-webinar-template', title: 'WISDO Orientation and Safety Setup', level: 'starter', durationMinutes: 8, status: 'on-demand', description: 'Generate a personalized video lesson for account connection, Reporter health, Culture Lane permissions, and emergency controls.' },
+  { id: 'candles-ai', type: 'ai-webinar-template', title: 'Candlesticks: Reading Price in Context', level: 'starter', durationMinutes: 10, status: 'on-demand', description: 'Create an AI-led lesson on OHLC, body and wick behavior, context, volatility, and invalidation.' },
+  { id: 'risk-ai', type: 'ai-webinar-template', title: 'Risk and Money Management Clinic', level: 'foundation', durationMinutes: 12, status: 'on-demand', description: 'Generate a lesson for position sizing, drawdown, exposure, margin, and household-finance boundaries.' },
+  { id: 'automation-ai', type: 'ai-webinar-template', title: 'Automation Reliability Before Optimization', level: 'intermediate', durationMinutes: 12, status: 'on-demand', description: 'Teach idempotency, event ledgers, retries, command completion, close authority, and crash recovery.' },
+  { id: 'market-framework-ai', type: 'ai-webinar-template', title: 'Forex and Metals Market Framework', level: 'intermediate', durationMinutes: 10, status: 'on-demand', description: 'Build a reusable lesson for sessions, macro catalysts, liquidity, structure, and execution risk.' },
+  { id: 'strategy-ai', type: 'ai-webinar-template', title: 'Approved Strategy Deep Dive', level: 'advanced', durationMinutes: 15, status: 'admin-knowledge', description: 'Generate a versioned AI webinar from an admin-published strategy without inventing missing rules or exposing protected source code.' },
 ];
 
 function normalize(value = '') { return String(value || '').trim().toLowerCase(); }

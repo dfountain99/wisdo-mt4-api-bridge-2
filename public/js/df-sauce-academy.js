@@ -102,6 +102,14 @@
     let currentCheckpoint = 0;
     let voiceEnabled = false;
     let catalogPage = 1;
+    let webinarConfig = null;
+    let webinarLibrary = [];
+    let activeWebinarSession = null;
+    let webinarSceneIndex = 0;
+    let webinarTimer = null;
+    let webinarPlaying = false;
+    let webinarVoiceEnabled = true;
+    let strategyStudioRows = [];
 
     container.innerHTML = `
       <section class="card academy-hero">
@@ -122,7 +130,8 @@
         <button class="btn" data-academy-tab="tutor">Ask WISDO Tutor</button>
         <button class="btn" data-academy-tab="resources">Resource Center</button>
         <button class="btn" data-academy-tab="tools">Trading Tools</button>
-        <button class="btn" data-academy-tab="live">Live Learning</button>
+        <button class="btn" data-academy-tab="webinar">AI Webinar Room</button>
+        ${bootstrap.canTeachStrategies ? '<button class="btn" data-academy-tab="studio">Strategy Studio</button>' : ''}
         <button class="btn" data-academy-tab="scenario">DF Sauce Scenario Lab</button>
         <button class="btn" data-academy-tab="watch">TradingView Watch Room</button>
       </nav>
@@ -131,7 +140,8 @@
       <div data-academy-panel="tutor" hidden></div>
       <div data-academy-panel="resources" hidden></div>
       <div data-academy-panel="tools" hidden></div>
-      <div data-academy-panel="live" hidden></div>
+      <div data-academy-panel="webinar" hidden></div>
+      <div data-academy-panel="studio" hidden></div>
       <div data-academy-panel="scenario" hidden></div>
       <div data-academy-panel="watch" hidden></div>
     `;
@@ -146,7 +156,8 @@
       if (name === 'catalog') await loadCatalog();
       if (name === 'resources') await loadResources();
       if (name === 'tools') await loadTools();
-      if (name === 'live') await loadLiveLearning();
+      if (name === 'webinar') await loadAiWebinarRoom();
+      if (name === 'studio') await loadStrategyStudio();
       if (name === 'scenario') await loadScenario(container.querySelector('#scenario-select')?.value || 'bull-campaign');
       if (name === 'watch') await loadWatchRoom();
     };
@@ -528,15 +539,231 @@
       workbench.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
-    async function loadLiveLearning() {
-      const host = panel('live'); const result = await api('/api/v2/education/live-learning');
-      host.innerHTML = `<section class="card"><div class="card-head"><div><span class="eyebrow">Live Learning</span><h3>Seminars, workshops, market breakdowns, and office hours.</h3></div><span class="status-pill ${result.providerReady ? 'connected' : 'waiting'}">${result.providerReady ? 'Provider connected' : 'Scheduling ready'}</span></div><div class="academy-course-grid">${(result.sessions || []).map((session) => `<article class="course-tile"><span class="eyebrow">${html(session.type)}</span><h3>${html(session.title)}</h3><p>${html(session.description)}</p><div class="course-meta"><span>${html(session.level)}</span><span>${Number(session.durationMinutes || 0)} min</span><span>${html(session.status)}</span></div>${result.providerUrl ? `<a class="btn primary" href="${html(result.providerUrl)}" target="_blank" rel="noopener">Open live room</a>` : '<button class="btn ghost" disabled>Provider setup required for live room</button>'}</article>`).join('')}</div></section>`;
+    async function loadAiWebinarRoom() {
+      const host = panel('webinar');
+      host.innerHTML = '<section class="card"><h3>Opening AI Webinar Room…</h3><p class="muted">Loading your lesson library and approved strategy knowledge.</p></section>';
+      const [config, library] = await Promise.all([api('/api/v2/webinar-ai/config'), api('/api/v2/webinar-ai/library')]);
+      webinarConfig = config;
+      webinarLibrary = library.sessions || [];
+      renderAiWebinarRoom();
+    }
+
+    function renderAiWebinarRoom() {
+      const host = panel('webinar');
+      const strategies = webinarConfig?.strategies || [];
+      const templates = webinarConfig?.templates || [];
+      host.innerHTML = `
+        <style>
+          .ai-webinar-stage{min-height:390px;border:1px solid rgba(104,247,196,.18);border-radius:22px;padding:28px;background:radial-gradient(circle at 80% 10%,rgba(89,168,255,.16),transparent 36%),linear-gradient(145deg,#07111d,#050910);display:grid;grid-template-columns:1.2fr .8fr;gap:24px;align-items:center;overflow:hidden;position:relative}
+          .ai-webinar-stage:after{content:'WISDO AI VIDEO';position:absolute;right:18px;top:16px;font-size:10px;letter-spacing:.18em;color:rgba(255,255,255,.42)}
+          .ai-webinar-visual{min-height:220px;border:1px solid rgba(255,255,255,.08);border-radius:18px;display:grid;place-items:center;background:linear-gradient(135deg,rgba(104,247,196,.08),rgba(117,87,255,.12));font-size:72px}
+          .ai-webinar-bullets{display:grid;gap:9px;margin-top:18px}.ai-webinar-bullets span{display:block;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.05)}
+          .ai-webinar-timeline{height:8px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}.ai-webinar-timeline span{display:block;height:100%;background:linear-gradient(90deg,#68f7c4,#59a8ff);transition:width .25s ease}
+          .ai-webinar-library{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}.ai-webinar-form{display:grid;grid-template-columns:1fr 1fr;gap:14px}.ai-webinar-form .full{grid-column:1/-1}
+          .strategy-studio-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:18px}.strategy-rule-list{display:grid;gap:7px}.strategy-rule-list span{font-size:12px;padding:8px;border-radius:10px;background:rgba(255,255,255,.05)}
+          @media(max-width:820px){.ai-webinar-stage,.strategy-studio-grid{grid-template-columns:1fr}.ai-webinar-form{grid-template-columns:1fr}.ai-webinar-form .full{grid-column:auto}}
+        </style>
+        <section class="card academy-hero">
+          <div><span class="eyebrow">On-demand AI Webinar Room</span><h1>Ask for a lesson. WISDO builds and teaches it.</h1><p class="muted">Generate a narrated AI video lesson from your question, the WISDO Academy, or an admin-published strategy. No scheduled host and no fake live webinar.</p></div>
+          <div class="academy-score"><small>Teaching engine</small><strong>${webinarConfig?.aiProviderReady ? 'AI' : 'AUTO'}</strong><span>${webinarConfig?.aiProviderReady ? 'OpenAI connected' : 'adaptive lesson engine'}</span><p>Browser narration ready</p></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><div><span class="eyebrow">Generate your webinar</span><h3>What do you need help with?</h3></div><span class="status-pill connected">On demand</span></div>
+          <form id="ai-webinar-form" class="ai-webinar-form">
+            <label class="full">Question or problem<textarea class="input" name="question" rows="4" required placeholder="Example: Teach me how to identify a reversal, confirm it, define invalidation, and practice it safely."></textarea></label>
+            <label>Topic<input class="input" name="topic" placeholder="Reversals, risk, copier setup, MT4 Reporter…"></label>
+            <label>Experience<select class="input" name="level"><option value="starter">Starter</option><option value="foundation">Foundation</option><option value="intermediate">Intermediate</option><option value="advanced">Advanced</option><option value="professional">Professional</option></select></label>
+            <label>Length<select class="input" name="durationMinutes"><option value="5">5-minute lesson</option><option value="8" selected>8-minute lesson</option><option value="12">12-minute lesson</option><option value="15">15-minute lesson</option><option value="20">20-minute lesson</option></select></label>
+            <label>Approved strategy<select class="input" name="strategyId"><option value="">General Academy knowledge</option>${strategies.map((strategy) => `<option value="${html(strategy.strategyId)}">${html(strategy.title)} · v${html(strategy.version)}</option>`).join('')}</select></label>
+            <button class="btn primary full" type="submit">Generate AI Webinar</button>
+          </form>
+          <div id="ai-webinar-status" class="private-strategy-notice" style="margin-top:14px">WISDO will build scenes, narration, examples, risk warnings, and a quiz. Strategy lessons use published admin knowledge only.</div>
+        </section>
+        <section class="card"><div class="card-head"><div><span class="eyebrow">Fast starts</span><h3>Generate from a lesson template</h3></div></div><div class="academy-course-grid">${templates.map((item) => `<button class="course-tile" data-webinar-template="${html(item.id)}" data-title="${html(item.title)}" data-level="${html(item.level)}" data-minutes="${Number(item.durationMinutes || 8)}"><span class="eyebrow">${html(item.type)}</span><h3>${html(item.title)}</h3><p>${html(item.description)}</p><div class="course-meta"><span>${html(item.level)}</span><span>${Number(item.durationMinutes || 0)} min</span></div></button>`).join('')}</div></section>
+        <section id="ai-webinar-player"></section>
+        <section class="card"><div class="card-head"><div><span class="eyebrow">My webinar library</span><h3>Continue saved lessons</h3></div><button class="btn ghost" id="refresh-webinar-library">Refresh</button></div><div id="ai-webinar-library" class="ai-webinar-library">${renderWebinarLibraryCards()}</div></section>`;
+      const form = host.querySelector('#ai-webinar-form');
+      form.elements.level.value = profile.experience || 'starter';
+      form.onsubmit = async (event) => {
+        event.preventDefault();
+        const status = host.querySelector('#ai-webinar-status');
+        const submit = form.querySelector('button[type="submit"]');
+        submit.disabled = true; submit.textContent = 'Building scenes and narration…';
+        status.textContent = 'WISDO is creating your personalized AI webinar.';
+        try {
+          const body = Object.fromEntries(new FormData(form).entries());
+          const result = await api('/api/v2/webinar-ai/generate', { method: 'POST', body: JSON.stringify(body) }, 60000);
+          webinarLibrary.unshift(result.session);
+          status.textContent = `Ready: ${result.session.webinar.title}`;
+          openWebinar(result.session);
+          host.querySelector('#ai-webinar-library').innerHTML = renderWebinarLibraryCards();
+          bindWebinarLibraryButtons();
+        } catch (error) { status.textContent = error.message; }
+        finally { submit.disabled = false; submit.textContent = 'Generate AI Webinar'; }
+      };
+      host.querySelectorAll('[data-webinar-template]').forEach((button) => {
+        button.onclick = () => {
+          form.elements.topic.value = button.dataset.title;
+          form.elements.question.value = `Create an AI video lesson that teaches ${button.dataset.title} step by step, includes a worked example, risk warnings, common mistakes, and a knowledge check.`;
+          form.elements.level.value = button.dataset.level || 'starter';
+          form.elements.durationMinutes.value = button.dataset.minutes || '8';
+          form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+      });
+      host.querySelector('#refresh-webinar-library').onclick = async () => { const result = await api('/api/v2/webinar-ai/library'); webinarLibrary = result.sessions || []; renderAiWebinarRoom(); };
+      bindWebinarLibraryButtons();
+      if (activeWebinarSession) openWebinar(activeWebinarSession);
+    }
+
+    function renderWebinarLibraryCards() {
+      if (!webinarLibrary.length) return '<article class="course-tile"><h3>No generated webinars yet</h3><p>Ask WISDO for the first lesson above.</p></article>';
+      return webinarLibrary.slice(0, 24).map((session) => `<article class="course-tile"><span class="eyebrow">${html(session.provider || 'WISDO')}</span><h3>${html(session.webinar?.title || 'AI Webinar')}</h3><p>${html(session.webinar?.objective || '')}</p><div class="course-meta"><span>${html(session.webinar?.level || '')}</span><span>${Number(session.webinar?.estimatedMinutes || 0)} min</span><span>${session.progress?.completed ? 'Completed' : `Scene ${Number(session.progress?.sceneIndex || 0) + 1}`}</span></div><button class="btn primary" data-open-webinar="${html(session.sessionId)}">${session.progress?.completed ? 'Replay webinar' : 'Continue webinar'}</button></article>`).join('');
+    }
+
+    function bindWebinarLibraryButtons() {
+      panel('webinar').querySelectorAll('[data-open-webinar]').forEach((button) => {
+        button.onclick = async () => {
+          const local = webinarLibrary.find((row) => row.sessionId === button.dataset.openWebinar);
+          if (local) return openWebinar(local);
+          const result = await api(`/api/v2/webinar-ai/sessions/${encodeURIComponent(button.dataset.openWebinar)}`);
+          openWebinar(result.session);
+        };
+      });
+    }
+
+    function webinarVisualIcon(visual = '') {
+      return ({ 'title-card': '✦', 'concept-map': '⌘', 'strategy-board': '⇄', 'chart-example': '⌁', 'risk-panel': '⚠', 'quiz-card': '?', 'summary-card': '✓' })[visual] || 'W';
+    }
+
+    function openWebinar(session) {
+      stopWebinarPlayback();
+      activeWebinarSession = session;
+      webinarSceneIndex = Number(session.progress?.sceneIndex || 0);
+      const player = panel('webinar').querySelector('#ai-webinar-player');
+      if (!player) return;
+      player.innerHTML = `
+        <section class="card"><div class="card-head"><div><span class="eyebrow">Interactive narrated AI video</span><h3>${html(session.webinar?.title)}</h3><p class="muted">${html(session.webinar?.subtitle || '')}</p></div><label class="voice-toggle"><input id="webinar-voice" type="checkbox" checked> AI narration</label></div>
+          <div class="ai-webinar-timeline"><span id="webinar-progress-bar"></span></div>
+          <div id="webinar-scene-stage" style="margin-top:16px"></div>
+          <div class="actions"><button class="btn ghost" id="webinar-prev">Previous</button><button class="btn primary" id="webinar-play">Play webinar</button><button class="btn ghost" id="webinar-next">Next</button>${webinarConfig?.externalVideoProviderReady ? '<button class="btn ghost" id="webinar-render-video">Render MP4</button>' : ''}</div>
+          <div id="webinar-player-status" class="muted" style="margin-top:10px">Ready to play.</div>
+        </section>
+        <section class="grid2 app-panel-row"><div class="card" id="webinar-quiz"></div><div class="card"><span class="eyebrow">Ask about this lesson</span><h3>Follow-up with the AI teacher</h3><div id="webinar-questions" class="tutor-thread">${(session.questions || []).map((item) => `<div class="tutor-message user">${html(item.question)}</div><div class="tutor-message assistant">${html(item.answer)}</div>`).join('') || '<div class="tutor-message assistant">Ask for another example, a simpler explanation, or clarification of an approved rule.</div>'}</div><form id="webinar-question-form" class="tutor-compose"><textarea class="input" name="question" rows="3" required placeholder="Explain the invalidation rule with another example."></textarea><button class="btn primary">Ask teacher</button></form></div></section>`;
+      player.querySelector('#webinar-prev').onclick = () => { stopWebinarPlayback(); webinarSceneIndex = Math.max(0, webinarSceneIndex - 1); renderWebinarScene(); };
+      player.querySelector('#webinar-next').onclick = () => { stopWebinarPlayback(); advanceWebinarScene(false); };
+      player.querySelector('#webinar-play').onclick = () => { webinarPlaying ? stopWebinarPlayback() : playWebinarScene(); };
+      player.querySelector('#webinar-voice').onchange = (event) => { webinarVoiceEnabled = event.target.checked; if (!webinarVoiceEnabled && 'speechSynthesis' in window) speechSynthesis.cancel(); };
+      const renderButton = player.querySelector('#webinar-render-video');
+      if (renderButton) renderButton.onclick = async () => { renderButton.disabled = true; renderButton.textContent = 'Sending render…'; try { const result = await api(`/api/v2/webinar-ai/sessions/${encodeURIComponent(session.sessionId)}/render-video`, { method: 'POST', body: '{}' }, 60000); player.querySelector('#webinar-player-status').textContent = result.externalVideo?.url ? 'External video ready.' : 'External video render queued.'; } catch (error) { player.querySelector('#webinar-player-status').textContent = error.message; } finally { renderButton.disabled = false; renderButton.textContent = 'Render MP4'; } };
+      player.querySelector('#webinar-question-form').onsubmit = async (event) => {
+        event.preventDefault(); const form = event.target; const question = form.elements.question.value.trim(); if (!question) return;
+        const thread = player.querySelector('#webinar-questions'); thread.insertAdjacentHTML('beforeend', `<div class="tutor-message user">${html(question)}</div><div class="tutor-message assistant" data-pending>WISDO is checking the lesson knowledge…</div>`); form.elements.question.value = '';
+        try { const result = await api(`/api/v2/webinar-ai/sessions/${encodeURIComponent(session.sessionId)}/questions`, { method: 'POST', body: JSON.stringify({ question }) }, 45000); const pending = thread.querySelector('[data-pending]'); pending.removeAttribute('data-pending'); pending.textContent = result.question.answer; speak(result.question.answer, webinarVoiceEnabled); }
+        catch (error) { const pending = thread.querySelector('[data-pending]'); if (pending) pending.textContent = error.message; }
+        thread.scrollTop = thread.scrollHeight;
+      };
+      renderWebinarQuiz();
+      renderWebinarScene();
+      player.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function renderWebinarScene() {
+      const session = activeWebinarSession; if (!session) return;
+      const scenes = session.webinar?.scenes || [];
+      webinarSceneIndex = Math.max(0, Math.min(scenes.length - 1, webinarSceneIndex));
+      const scene = scenes[webinarSceneIndex];
+      const player = panel('webinar').querySelector('#ai-webinar-player'); if (!scene || !player) return;
+      const stage = player.querySelector('#webinar-scene-stage');
+      stage.innerHTML = `<div class="ai-webinar-stage"><div><span class="eyebrow">Scene ${webinarSceneIndex + 1} of ${scenes.length}</span><h2>${html(scene.title)}</h2><p class="lead">${html(scene.narration)}</p><div class="ai-webinar-bullets">${(scene.bullets || []).map((bullet) => `<span>${html(bullet)}</span>`).join('')}</div></div><div class="ai-webinar-visual" aria-label="${html(scene.visual)}">${webinarVisualIcon(scene.visual)}</div></div>`;
+      player.querySelector('#webinar-progress-bar').style.width = `${((webinarSceneIndex + 1) / Math.max(1, scenes.length)) * 100}%`;
+      player.querySelector('#webinar-prev').disabled = webinarSceneIndex === 0;
+      player.querySelector('#webinar-next').textContent = webinarSceneIndex >= scenes.length - 1 ? 'Finish lesson' : 'Next';
+      api(`/api/v2/webinar-ai/sessions/${encodeURIComponent(session.sessionId)}/progress`, { method: 'PATCH', body: JSON.stringify({ sceneIndex: webinarSceneIndex }) }).catch(() => null);
+    }
+
+    function playWebinarScene() {
+      const session = activeWebinarSession; if (!session) return;
+      const scene = session.webinar?.scenes?.[webinarSceneIndex]; if (!scene) return;
+      stopWebinarPlayback(false);
+      webinarPlaying = true;
+      const player = panel('webinar').querySelector('#ai-webinar-player');
+      player.querySelector('#webinar-play').textContent = 'Pause webinar';
+      player.querySelector('#webinar-player-status').textContent = `Playing scene ${webinarSceneIndex + 1}: ${scene.title}`;
+      if (webinarVoiceEnabled && 'speechSynthesis' in window) {
+        speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(`${scene.title}. ${scene.narration}. ${(scene.bullets || []).join('. ')}`.slice(0, 3500));
+        utterance.rate = 0.94; utterance.pitch = 0.96;
+        utterance.onend = () => { if (webinarPlaying) advanceWebinarScene(true); };
+        utterance.onerror = () => { webinarTimer = setTimeout(() => advanceWebinarScene(true), 7000); };
+        speechSynthesis.speak(utterance);
+      } else {
+        webinarTimer = setTimeout(() => advanceWebinarScene(true), Math.max(6000, Math.min(18000, Number(scene.durationSeconds || 45) * 250)));
+      }
+    }
+
+    function stopWebinarPlayback(updateButton = true) {
+      webinarPlaying = false;
+      if (webinarTimer) { clearTimeout(webinarTimer); webinarTimer = null; }
+      if ('speechSynthesis' in window) speechSynthesis.cancel();
+      const button = panel('webinar')?.querySelector('#webinar-play'); if (button && updateButton) button.textContent = 'Play webinar';
+    }
+
+    function advanceWebinarScene(autoPlay) {
+      const session = activeWebinarSession; if (!session) return;
+      const scenes = session.webinar?.scenes || [];
+      if (webinarSceneIndex >= scenes.length - 1) {
+        stopWebinarPlayback();
+        api(`/api/v2/webinar-ai/sessions/${encodeURIComponent(session.sessionId)}/progress`, { method: 'PATCH', body: JSON.stringify({ sceneIndex: webinarSceneIndex, completed: true }) }).catch(() => null);
+        const status = panel('webinar').querySelector('#webinar-player-status'); if (status) status.textContent = 'Lesson complete. Take the quiz and ask follow-up questions.';
+        return;
+      }
+      webinarSceneIndex += 1;
+      renderWebinarScene();
+      if (autoPlay) playWebinarScene();
+    }
+
+    function renderWebinarQuiz() {
+      const session = activeWebinarSession; if (!session) return;
+      const quizHost = panel('webinar').querySelector('#webinar-quiz');
+      const quiz = session.webinar?.quiz || [];
+      quizHost.innerHTML = `<span class="eyebrow">Knowledge check</span><h3>Complete the webinar quiz</h3><form id="webinar-quiz-form">${quiz.map((item, index) => `<fieldset style="border:0;padding:12px 0"><legend><strong>${index + 1}. ${html(item.prompt)}</strong></legend>${(item.options || []).map((option, optionIndex) => `<label style="display:block;padding:7px"><input type="radio" name="${html(item.questionId)}" value="${optionIndex}" required> ${html(option)}</label>`).join('')}</fieldset>`).join('')}<button class="btn primary">Submit quiz</button></form><div id="webinar-quiz-result" class="muted" style="margin-top:10px">A score of 70% completes the lesson.</div>`;
+      quizHost.querySelector('#webinar-quiz-form').onsubmit = async (event) => {
+        event.preventDefault(); const answers = Object.fromEntries(new FormData(event.target).entries());
+        const result = await api(`/api/v2/webinar-ai/sessions/${encodeURIComponent(session.sessionId)}/quiz`, { method: 'POST', body: JSON.stringify({ answers }) });
+        quizHost.querySelector('#webinar-quiz-result').textContent = `${result.score}% · ${result.passed ? 'Passed — lesson completed.' : 'Review the scenes and try again.'}`;
+      };
+    }
+
+    async function loadStrategyStudio() {
+      const host = panel('studio');
+      if (!bootstrap.canTeachStrategies) { host.innerHTML = '<section class="card"><h3>Admin access required</h3></section>'; return; }
+      const result = await api('/api/v2/admin/webinar-ai/strategies');
+      strategyStudioRows = result.strategies || [];
+      renderStrategyStudio();
+    }
+
+    function renderStrategyStudio(editId = '') {
+      const host = panel('studio');
+      const editing = strategyStudioRows.find((row) => row.strategyId === editId) || null;
+      const lines = (value) => html((value || []).join('\n'));
+      host.innerHTML = `<section class="card academy-hero"><div><span class="eyebrow">Admin Strategy Teaching Studio</span><h1>Teach WISDO once. Let the AI teach approved lessons.</h1><p class="muted">Enter the strategy rules, invalidation, risk, examples, and FAQs. WISDO will not teach it to members until an admin publishes the version.</p></div><div class="academy-score"><small>Knowledge control</small><strong>${strategyStudioRows.length}</strong><span>strategy records</span><p>Versioned and approval-gated</p></div></section>
+      <div class="strategy-studio-grid"><section class="card"><div class="card-head"><div><span class="eyebrow">${editing ? 'Edit strategy' : 'New strategy'}</span><h3>${editing ? html(editing.title) : 'Create teaching knowledge'}</h3></div>${editing ? '<button class="btn ghost" id="strategy-cancel-edit">Cancel</button>' : ''}</div><form id="strategy-studio-form" class="academy-profile-grid">
+        <input type="hidden" name="strategyId" value="${html(editing?.strategyId || '')}"><label>Strategy title<input class="input" name="title" required value="${html(editing?.title || '')}"></label><label>Version<input class="input" name="version" value="${html(editing?.version || '1.0')}"></label><label>Level<select class="input" name="level"><option value="starter">Starter</option><option value="foundation">Foundation</option><option value="intermediate">Intermediate</option><option value="advanced">Advanced</option><option value="professional">Professional</option></select></label><label>Markets<input class="input" name="markets" value="${html((editing?.markets || []).join(', '))}" placeholder="Gold, forex"></label>
+        <label class="full">Summary<textarea class="input" name="summary" rows="3" required>${html(editing?.summary || '')}</textarea></label><label class="full">Market conditions — one per line<textarea class="input" name="marketConditions" rows="4">${lines(editing?.marketConditions)}</textarea></label><label class="full">Entry rules — one per line<textarea class="input" name="entryRules" rows="5">${lines(editing?.entryRules)}</textarea></label><label class="full">Confirmation rules — one per line<textarea class="input" name="confirmationRules" rows="4">${lines(editing?.confirmationRules)}</textarea></label><label class="full">Exit rules — one per line<textarea class="input" name="exitRules" rows="4">${lines(editing?.exitRules)}</textarea></label><label class="full">Invalidation rules — required before publish<textarea class="input" name="invalidationRules" rows="4">${lines(editing?.invalidationRules)}</textarea></label><label class="full">Risk rules — one per line<textarea class="input" name="riskRules" rows="4">${lines(editing?.riskRules)}</textarea></label><label class="full">Common mistakes — one per line<textarea class="input" name="commonMistakes" rows="4">${lines(editing?.commonMistakes)}</textarea></label><label class="full">Examples — one per line<textarea class="input" name="examples" rows="5">${lines(editing?.examples)}</textarea></label><label class="full">FAQ / extra teaching notes<textarea class="input" name="faq" rows="4">${lines(editing?.faq)}</textarea></label><label class="full">Source notes kept in admin knowledge<textarea class="input" name="sourceNotes" rows="5">${html(editing?.sourceNotes || '')}</textarea></label><button class="btn primary full" type="submit">${editing ? 'Save strategy update' : 'Create strategy draft'}</button></form><div id="strategy-studio-status" class="private-strategy-notice" style="margin-top:14px">Drafts are private. Publish only after the rules are complete and reviewed.</div></section>
+        <aside class="card"><span class="eyebrow">Strategy library</span><h3>Draft, review, and publish</h3><div class="path-list">${strategyStudioRows.map((row) => `<article class="path-item"><small>${html(row.status)} · v${html(row.version)}</small><strong>${html(row.title)}</strong><p class="muted">${html(row.summary || 'No summary yet.')}</p><div class="strategy-rule-list"><span>${(row.entryRules || []).length} entry rules</span><span>${(row.invalidationRules || []).length} invalidation rules</span><span>${(row.riskRules || []).length} risk rules</span></div><div class="actions"><button class="btn ghost" data-edit-strategy="${html(row.strategyId)}">Edit</button>${row.status === 'published' ? `<button class="btn primary" data-generate-strategy="${html(row.strategyId)}">Generate member lesson</button>` : `<button class="btn primary" data-publish-strategy="${html(row.strategyId)}">Publish version</button>`}</div></article>`).join('') || '<p class="muted">No strategy drafts yet.</p>'}</div></aside></div>`;
+      const form = host.querySelector('#strategy-studio-form'); form.elements.level.value = editing?.level || 'foundation';
+      form.onsubmit = async (event) => { event.preventDefault(); const values = Object.fromEntries(new FormData(form).entries()); const status = host.querySelector('#strategy-studio-status'); try { const isEdit = Boolean(values.strategyId); const path = isEdit ? `/api/v2/admin/webinar-ai/strategies/${encodeURIComponent(values.strategyId)}` : '/api/v2/admin/webinar-ai/strategies'; const method = isEdit ? 'PATCH' : 'POST'; const result = await api(path, { method, body: JSON.stringify(values) }); const index = strategyStudioRows.findIndex((row) => row.strategyId === result.strategy.strategyId); if (index >= 0) strategyStudioRows[index] = result.strategy; else strategyStudioRows.unshift(result.strategy); status.textContent = `${result.strategy.title} saved as ${result.strategy.status}.`; renderStrategyStudio(result.strategy.strategyId); } catch (error) { status.textContent = error.message; } };
+      const cancel = host.querySelector('#strategy-cancel-edit'); if (cancel) cancel.onclick = () => renderStrategyStudio();
+      host.querySelectorAll('[data-edit-strategy]').forEach((button) => button.onclick = () => renderStrategyStudio(button.dataset.editStrategy));
+      host.querySelectorAll('[data-publish-strategy]').forEach((button) => button.onclick = async () => { button.disabled = true; try { const result = await api(`/api/v2/admin/webinar-ai/strategies/${encodeURIComponent(button.dataset.publishStrategy)}/publish`, { method: 'POST', body: '{}' }); const index = strategyStudioRows.findIndex((row) => row.strategyId === result.strategy.strategyId); if (index >= 0) strategyStudioRows[index] = result.strategy; renderStrategyStudio(result.strategy.strategyId); } catch (error) { alert(error.message); button.disabled = false; } });
+      host.querySelectorAll('[data-generate-strategy]').forEach((button) => button.onclick = () => { switchTab('webinar').then(() => { const webinarForm = panel('webinar').querySelector('#ai-webinar-form'); webinarForm.elements.strategyId.value = button.dataset.generateStrategy; webinarForm.elements.question.value = 'Create a complete AI video lesson that teaches this approved strategy, including conditions, confirmations, entries, exits, invalidation, risk, common mistakes, a worked example, and a quiz.'; webinarForm.scrollIntoView({ behavior: 'smooth' }); }); });
     }
 
     renderTutor();
     renderScenarioShell();
     loadPath().catch((error) => { panel('path').innerHTML = `<section class="card"><h3>Academy could not load</h3><p class="red">${html(error.message)}</p></section>`; });
-    if (options.bot === 'df-sauce-final-ai') switchTab('scenario');
+    if (location.hash === '#ai-webinar-room') switchTab('webinar');
+    else if (options.bot === 'df-sauce-final-ai') switchTab('scenario');
   }
 
   window.DFSauceAcademy = { mount };

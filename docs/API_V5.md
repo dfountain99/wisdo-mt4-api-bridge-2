@@ -135,3 +135,35 @@ Each account includes `canLead`, `canReceive`, `canExecute`, `isShared`, `isComm
 - `GET|DELETE /api/v2/academy/tutor/history`
 
 The Academy does not expose Pine or MQL strategy source.
+
+## V5.4 AI Webinar Room
+
+### Member routes
+
+| Method | Route | Purpose |
+|---|---|---|
+| GET | `/api/v2/webinar-ai/config` | webinar capabilities, templates, and published strategies |
+| GET | `/api/v2/webinar-ai/library` | current member's saved webinar sessions |
+| POST | `/api/v2/webinar-ai/generate` | generate an on-demand narrated lesson |
+| GET | `/api/v2/webinar-ai/sessions/:sessionId` | reopen one owned session |
+| PATCH | `/api/v2/webinar-ai/sessions/:sessionId/progress` | save scene and completion progress |
+| POST | `/api/v2/webinar-ai/sessions/:sessionId/quiz` | grade the webinar knowledge check |
+| POST | `/api/v2/webinar-ai/sessions/:sessionId/questions` | ask a lesson-scoped follow-up question |
+| POST | `/api/v2/webinar-ai/sessions/:sessionId/render-video` | request optional external MP4 rendering |
+
+Member webinar payloads omit quiz answer indices. A requested strategy must exist in published status.
+
+### Strategy Studio admin routes
+
+| Method | Route | Purpose |
+|---|---|---|
+| GET | `/api/v2/admin/webinar-ai/strategies` | all strategy drafts and version history |
+| POST | `/api/v2/admin/webinar-ai/strategies` | create a private strategy draft |
+| PATCH | `/api/v2/admin/webinar-ai/strategies/:strategyId` | update structured teaching knowledge |
+| POST | `/api/v2/admin/webinar-ai/strategies/:strategyId/publish` | validate, snapshot, and publish a version |
+
+Editing a published strategy automatically moves it back to review. The edited knowledge is unavailable to members until republished.
+
+### Optional external-video callback
+
+`POST /api/public/webhooks/ai-webinar-video` requires `x-wisdo-video-secret` matching `WISDO_AI_VIDEO_WEBHOOK_SECRET`. The route fails closed when no secret is configured.

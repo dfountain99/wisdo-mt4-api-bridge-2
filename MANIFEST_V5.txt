@@ -1,8 +1,8 @@
-WISDO CAPABILITY + ADAPTIVE ACADEMY V5.3.0
+WISDO AI WEBINAR ROOM + STRATEGY STUDIO V5.4.0
 Source: wisdo-member-app-product-pass(1).zip
 Source SHA-256: df2143c9aee5039bf4ff547256d68bca84bd54b1ddbd1db99e30bcd7f4d1f7ce
 Base release: V5.1.1 Copier Close Authority
-Version: 5.3.0
+Version: 5.4.0
 Build command: npm ci --omit=dev --no-audit --no-fund
 Start command: npm start
 Web-only smoke: npm run start:web
@@ -16,10 +16,16 @@ Course catalog: 6,500 structured courses
 Private strategy source: not included in public assets or repository
 TradingView private layout env: WISDO_DF_SAUCE_TRADINGVIEW_URL
 Reporter: CultureCoin Reporter v1.56 sync-account + close authority
-Tests: 16 passed, 0 failed
+Tests: 18 passed, 0 failed
 
-Education Hub pillars: Trading Academy, WISDO University, Resource Center, Live Learning
+Education Hub pillars: Trading Academy, WISDO University, Resource Center, AI Webinar Room
 Original resource catalog: 390 generated guides/checklists/worksheets/flashcards/journals/cheat sheets
 Trading calculators: 8
 Global Wisdo AI assistant: public + authenticated context, voice, screenshot, history, links, usage tiers, confirmation boundaries
 Shared event ledger: Culture Lane relay, Trades, Insight Engine, Alerts
+
+AI Webinar mode: on-demand interactive narrated video lessons
+Admin teaching: Strategy Studio with draft/review/publish lifecycle
+Published knowledge: versioned and member-visible only after approval
+Browser narration: enabled without external provider
+Optional external MP4 renderer: WISDO_AI_VIDEO_PROVIDER_URL

@@ -24,6 +24,18 @@ import {
   searchEducationResources,
   suggestedQuestionsForPage,
 } from '../services/educationHubService.js';
+import {
+  AI_WEBINAR_DISCLAIMER,
+  AI_WEBINAR_VERSION,
+  buildFallbackWebinar,
+  buildWebinarPrompt,
+  createWebinarSession,
+  gradeWebinarQuiz,
+  isPublishedStrategy,
+  normalizeGeneratedWebinar,
+  normalizeStrategyInput,
+  publicStrategy,
+} from '../services/aiWebinarService.js';
 
 const ACADEMY_TRACKS = [
   { id: 'foundation', title: 'Trading and Investing Foundations', lessons: ['candlesticks-price-bars', 'market-structure', 'order-types-execution', 'position-sizing', 'trading-plan'] },
@@ -59,6 +71,10 @@ function ensure(state = {}) {
   state.learnerProfiles ||= {};
   state.academyTutorThreads ||= {};
   state.educationBookmarks ||= {};
+  state.aiWebinarStrategies ||= {};
+  state.aiWebinarStrategyVersions ||= {};
+  state.aiWebinarSessions ||= {};
+  state.aiWebinarSessionsByUser ||= {};
   state.wisdoAssistantThreads ||= {};
   state.wisdoAssistantUsage ||= {};
   state.supportTickets ||= {};
@@ -348,7 +364,283 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
     try { res.json({ ok: true, ...calculateTradingTool(req.params.toolId, req.body || {}) }); }
     catch (error) { res.status(400).json({ ok: false, error: error.message }); }
   });
-  app.get('/api/v2/education/live-learning', requireUser, (req, res) => res.json({ ok: true, sessions: getLiveLearning(), providerReady: Boolean(process.env.WISDO_WEBINAR_PROVIDER_URL), providerUrl: process.env.WISDO_WEBINAR_PROVIDER_URL || null }));
+  app.get('/api/v2/education/live-learning', requireUser, (req, res) => res.json({ ok: true, sessions: getLiveLearning(), aiWebinarRoom: true, providerReady: Boolean(process.env.OPENAI_API_KEY), providerUrl: '/app/education#ai-webinar-room', videoProviderReady: Boolean(process.env.WISDO_AI_VIDEO_PROVIDER_URL) }));
+
+
+  function clientWebinarSession(row) {
+    if (!row) return null;
+    return {
+      ...row,
+      webinar: {
+        ...row.webinar,
+        quiz: (row.webinar?.quiz || []).map(({ answerIndex, ...question }) => question),
+      },
+    };
+  }
+
+  async function generateWebinarContent({ request, strategy, learnerProfile, course }) {
+    const fallbackInput = { question: request.question, topic: request.topic, level: request.level, durationMinutes: request.durationMinutes, strategy, learnerProfile, course };
+    let webinar = buildFallbackWebinar(fallbackInput);
+    let provider = 'adaptive_fallback';
+    if (process.env.OPENAI_API_KEY) {
+      try {
+        const prompt = buildWebinarPrompt(fallbackInput);
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'content-type': 'application/json' },
+          body: JSON.stringify({
+            model: process.env.WISDO_AI_MODEL || 'gpt-4.1-mini',
+            messages: [{ role: 'system', content: prompt.system }, { role: 'user', content: prompt.user }],
+            response_format: { type: 'json_object' },
+            temperature: 0.2,
+          }),
+          signal: AbortSignal.timeout(45000),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) {
+          const content = payload.choices?.[0]?.message?.content || '{}';
+          webinar = normalizeGeneratedWebinar(JSON.parse(content), fallbackInput);
+          provider = 'openai';
+        } else {
+          logger?.warn?.('AI Webinar provider rejected request', { status: response.status, message: payload.error?.message });
+        }
+      } catch (error) {
+        logger?.warn?.('AI Webinar fallback activated', { message: error.message });
+      }
+    }
+    return { webinar, provider };
+  }
+
+  app.get('/api/v2/webinar-ai/config', requireUser, async (req, res) => {
+    const state = ensure(await loadEcosystemState());
+    const strategies = Object.values(state.aiWebinarStrategies).filter(isPublishedStrategy).map(publicStrategy).sort((a, b) => new Date(b.publishedAt || 0) - new Date(a.publishedAt || 0));
+    res.json({
+      ok: true,
+      version: AI_WEBINAR_VERSION,
+      mode: 'on_demand_ai_video',
+      browserNarrationReady: true,
+      aiProviderReady: Boolean(process.env.OPENAI_API_KEY),
+      externalVideoProviderReady: Boolean(process.env.WISDO_AI_VIDEO_PROVIDER_URL),
+      canTeachStrategies: isAdmin(state, req.wisdoUser),
+      strategies,
+      templates: getLiveLearning(),
+      disclaimer: AI_WEBINAR_DISCLAIMER,
+    });
+  });
+
+  app.get('/api/v2/webinar-ai/library', requireUser, async (req, res) => {
+    const state = ensure(await loadEcosystemState());
+    const userId = String(req.wisdoUser.id);
+    const ids = state.aiWebinarSessionsByUser[userId] || [];
+    const sessions = ids.map((sessionId) => state.aiWebinarSessions[sessionId]).filter(Boolean).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    res.json({ ok: true, sessions: sessions.slice(0, 100).map(clientWebinarSession) });
+  });
+
+  app.post('/api/v2/webinar-ai/generate', requireUser, async (req, res) => {
+    const request = {
+      question: String(req.body?.question || '').trim().slice(0, 4000),
+      topic: String(req.body?.topic || '').trim().slice(0, 500),
+      level: String(req.body?.level || 'starter').toLowerCase(),
+      durationMinutes: Math.max(3, Math.min(30, Number(req.body?.durationMinutes || 8) || 8)),
+      strategyId: String(req.body?.strategyId || ''),
+      courseId: String(req.body?.courseId || ''),
+    };
+    if (!request.question && !request.topic) return res.status(400).json({ ok: false, error: 'Tell WISDO what the webinar should teach.' });
+    const state = ensure(await loadEcosystemState());
+    const strategy = request.strategyId ? state.aiWebinarStrategies[request.strategyId] : null;
+    if (request.strategyId && (!strategy || !isPublishedStrategy(strategy))) return res.status(409).json({ ok: false, error: 'That strategy is not published for AI teaching.' });
+    const learnerProfile = state.learnerProfiles[req.wisdoUser.id] || { experience: request.level, goals: [], markets: [], interests: [], learningStyle: 'interactive' };
+    const course = request.courseId ? getAcademyCourse(request.courseId) : null;
+    const generated = await generateWebinarContent({ request, strategy, learnerProfile, course });
+    const session = createWebinarSession({ userId: req.wisdoUser.id, request, webinar: generated.webinar, provider: generated.provider, strategy, course });
+    await mutate(loadEcosystemState, saveEcosystemState, (nextState) => {
+      nextState.aiWebinarSessions[session.sessionId] = session;
+      const rows = nextState.aiWebinarSessionsByUser[req.wisdoUser.id] ||= [];
+      rows.unshift(session.sessionId);
+      nextState.aiWebinarSessionsByUser[req.wisdoUser.id] = [...new Set(rows)].slice(0, 200);
+      audit(nextState, req.wisdoUser.id, 'ai_webinar.generated', 'AiWebinarSession', session.sessionId, { provider: generated.provider, strategyId: strategy?.strategyId || null, courseId: course?.id || null });
+      return true;
+    });
+    res.status(201).json({ ok: true, session: clientWebinarSession(session) });
+  });
+
+  app.get('/api/v2/webinar-ai/sessions/:sessionId', requireUser, async (req, res) => {
+    const state = ensure(await loadEcosystemState());
+    const session = state.aiWebinarSessions[req.params.sessionId];
+    if (!session || String(session.userId) !== String(req.wisdoUser.id)) return res.status(404).json({ ok: false, error: 'AI webinar not found.' });
+    res.json({ ok: true, session: clientWebinarSession(session) });
+  });
+
+  app.patch('/api/v2/webinar-ai/sessions/:sessionId/progress', requireUser, async (req, res) => {
+    const progress = await mutate(loadEcosystemState, saveEcosystemState, (state) => {
+      const session = state.aiWebinarSessions[req.params.sessionId];
+      if (!session || String(session.userId) !== String(req.wisdoUser.id)) return null;
+      session.progress = {
+        ...session.progress,
+        sceneIndex: Math.max(0, Math.min((session.webinar?.scenes?.length || 1) - 1, Number(req.body?.sceneIndex ?? session.progress?.sceneIndex ?? 0) || 0)),
+        watchedSeconds: Math.max(0, Number(req.body?.watchedSeconds ?? session.progress?.watchedSeconds ?? 0) || 0),
+        completed: req.body?.completed == null ? Boolean(session.progress?.completed) : Boolean(req.body.completed),
+        updatedAt: nowIso(),
+      };
+      session.updatedAt = nowIso();
+      return session.progress;
+    });
+    if (!progress) return res.status(404).json({ ok: false, error: 'AI webinar not found.' });
+    res.json({ ok: true, progress });
+  });
+
+  app.post('/api/v2/webinar-ai/sessions/:sessionId/quiz', requireUser, async (req, res) => {
+    const result = await mutate(loadEcosystemState, saveEcosystemState, (state) => {
+      const session = state.aiWebinarSessions[req.params.sessionId];
+      if (!session || String(session.userId) !== String(req.wisdoUser.id)) return null;
+      const grade = gradeWebinarQuiz(session, req.body?.answers || {});
+      session.progress = { ...session.progress, quizScore: grade.score, completed: grade.passed || Boolean(session.progress?.completed), updatedAt: nowIso() };
+      session.updatedAt = nowIso();
+      audit(state, req.wisdoUser.id, 'ai_webinar.quiz_submitted', 'AiWebinarSession', session.sessionId, { score: grade.score, passed: grade.passed });
+      return grade;
+    });
+    if (!result) return res.status(404).json({ ok: false, error: 'AI webinar not found.' });
+    res.json({ ok: true, ...result, results: result.results.map(({ correctIndex, ...row }) => row) });
+  });
+
+  app.post('/api/v2/webinar-ai/sessions/:sessionId/questions', requireUser, async (req, res) => {
+    const state = ensure(await loadEcosystemState());
+    const session = state.aiWebinarSessions[req.params.sessionId];
+    if (!session || String(session.userId) !== String(req.wisdoUser.id)) return res.status(404).json({ ok: false, error: 'AI webinar not found.' });
+    const question = String(req.body?.question || '').trim().slice(0, 4000);
+    if (!question) return res.status(400).json({ ok: false, error: 'Enter a follow-up question.' });
+    const lessonContext = (session.webinar?.scenes || []).map((scene) => `${scene.title}: ${scene.narration}`).join('\n').slice(0, 18000);
+    let answer = `Based on this webinar, focus on the approved process: identify the condition, wait for confirmation, define invalidation, control risk, and practice in simulation before live execution. Your question was: ${question}`;
+    let provider = 'adaptive_fallback';
+    if (process.env.OPENAI_API_KEY) {
+      try {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ model: process.env.WISDO_AI_MODEL || 'gpt-4.1-mini', temperature: 0.2, messages: [
+            { role: 'system', content: `You are the WISDO AI Webinar follow-up coach. Answer only from the lesson context and approved strategy version. If the answer is not present, say the admin has not taught that rule yet. Never invent a rule, promise profit, or direct a live trade. ${AI_WEBINAR_DISCLAIMER}` },
+            { role: 'user', content: `Lesson context:\n${lessonContext}\n\nQuestion: ${question}` },
+          ] }),
+          signal: AbortSignal.timeout(30000),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok && payload.choices?.[0]?.message?.content) { answer = payload.choices[0].message.content; provider = 'openai'; }
+      } catch (error) { logger?.warn?.('AI Webinar follow-up fallback', { message: error.message }); }
+    }
+    const row = { questionId: id('webinar_question'), question, answer, provider, createdAt: nowIso() };
+    await mutate(loadEcosystemState, saveEcosystemState, (nextState) => {
+      const target = nextState.aiWebinarSessions[req.params.sessionId];
+      if (!target || String(target.userId) !== String(req.wisdoUser.id)) return false;
+      target.questions ||= [];
+      target.questions.push(row);
+      target.questions = target.questions.slice(-100);
+      target.updatedAt = nowIso();
+      return true;
+    });
+    res.json({ ok: true, question: row });
+  });
+
+  app.post('/api/v2/webinar-ai/sessions/:sessionId/render-video', requireUser, async (req, res) => {
+    const providerUrl = String(process.env.WISDO_AI_VIDEO_PROVIDER_URL || '').trim();
+    if (!providerUrl) return res.status(503).json({ ok: false, browserNarrationReady: true, error: 'External MP4 rendering is not configured. The interactive narrated webinar is ready now.' });
+    const state = ensure(await loadEcosystemState());
+    const session = state.aiWebinarSessions[req.params.sessionId];
+    if (!session || String(session.userId) !== String(req.wisdoUser.id)) return res.status(404).json({ ok: false, error: 'AI webinar not found.' });
+    try {
+      const response = await fetch(providerUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(process.env.WISDO_AI_VIDEO_PROVIDER_KEY ? { authorization: `Bearer ${process.env.WISDO_AI_VIDEO_PROVIDER_KEY}` } : {}) },
+        body: JSON.stringify({ sessionId: session.sessionId, title: session.webinar.title, presenter: session.webinar.presenter, scenes: session.webinar.scenes, callbackUrl: `${baseUrl(req, config)}/api/public/webhooks/ai-webinar-video`, callbackHeader: process.env.WISDO_AI_VIDEO_WEBHOOK_SECRET ? { 'x-wisdo-video-secret': process.env.WISDO_AI_VIDEO_WEBHOOK_SECRET } : undefined }),
+        signal: AbortSignal.timeout(45000),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) return res.status(502).json({ ok: false, error: payload.error || payload.message || 'Video provider rejected the render request.' });
+      const externalVideo = { status: payload.status || 'queued', jobId: payload.jobId || payload.id || null, url: payload.url || null, provider: payload.provider || 'configured_provider', requestedAt: nowIso() };
+      await mutate(loadEcosystemState, saveEcosystemState, (nextState) => { nextState.aiWebinarSessions[session.sessionId].externalVideo = externalVideo; return true; });
+      res.json({ ok: true, externalVideo });
+    } catch (error) { res.status(502).json({ ok: false, error: error.message }); }
+  });
+
+  app.post('/api/public/webhooks/ai-webinar-video', async (req, res) => {
+    const secret = String(process.env.WISDO_AI_VIDEO_WEBHOOK_SECRET || '');
+    if (!secret) return res.status(503).json({ ok: false, error: 'AI video webhook secret is not configured.' });
+    if (String(req.headers['x-wisdo-video-secret'] || '') !== secret) return res.status(401).json({ ok: false, error: 'Invalid video webhook secret.' });
+    const sessionId = String(req.body?.sessionId || '');
+    const updated = await mutate(loadEcosystemState, saveEcosystemState, (state) => {
+      const session = state.aiWebinarSessions[sessionId];
+      if (!session) return null;
+      session.externalVideo = { ...(session.externalVideo || {}), status: String(req.body?.status || 'ready'), url: req.body?.url || session.externalVideo?.url || null, jobId: req.body?.jobId || session.externalVideo?.jobId || null, updatedAt: nowIso() };
+      session.updatedAt = nowIso();
+      return session.externalVideo;
+    });
+    if (!updated) return res.status(404).json({ ok: false, error: 'AI webinar not found.' });
+    res.json({ ok: true });
+  });
+
+  app.get('/api/v2/admin/webinar-ai/strategies', requireUser, adminGuard, async (req, res) => {
+    const state = ensure(await loadEcosystemState());
+    const strategies = Object.values(state.aiWebinarStrategies).sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+    res.json({ ok: true, strategies, versionHistory: state.aiWebinarStrategyVersions });
+  });
+
+  app.post('/api/v2/admin/webinar-ai/strategies', requireUser, adminGuard, async (req, res) => {
+    const strategy = await mutate(loadEcosystemState, saveEcosystemState, (state) => {
+      const normalized = normalizeStrategyInput({ ...(req.body || {}), status: 'draft' });
+      if (state.aiWebinarStrategies[normalized.strategyId]) return null;
+      normalized.createdBy = String(req.wisdoUser.id);
+      normalized.updatedBy = String(req.wisdoUser.id);
+      state.aiWebinarStrategies[normalized.strategyId] = normalized;
+      audit(state, req.wisdoUser.id, 'ai_webinar.strategy_created', 'AiWebinarStrategy', normalized.strategyId, { status: normalized.status, version: normalized.version });
+      return normalized;
+    });
+    if (!strategy) return res.status(409).json({ ok: false, error: 'A strategy with that ID already exists.' });
+    res.status(201).json({ ok: true, strategy });
+  });
+
+  app.patch('/api/v2/admin/webinar-ai/strategies/:strategyId', requireUser, adminGuard, async (req, res) => {
+    const strategy = await mutate(loadEcosystemState, saveEcosystemState, (state) => {
+      const previous = state.aiWebinarStrategies[req.params.strategyId];
+      if (!previous) return null;
+      const next = normalizeStrategyInput({ ...req.body, strategyId: previous.strategyId }, previous);
+      next.updatedBy = String(req.wisdoUser.id);
+      // Published knowledge is immutable until the edited version is reviewed and published again.
+      if (previous.status === 'published') {
+        next.status = 'review';
+        delete next.publishedAt;
+        delete next.approvedBy;
+      } else if (next.status === 'published') {
+        next.status = previous.status === 'approved' ? 'approved' : 'review';
+      }
+      state.aiWebinarStrategies[previous.strategyId] = next;
+      audit(state, req.wisdoUser.id, 'ai_webinar.strategy_updated', 'AiWebinarStrategy', previous.strategyId, { status: next.status, version: next.version });
+      return next;
+    });
+    if (!strategy) return res.status(404).json({ ok: false, error: 'Strategy not found.' });
+    res.json({ ok: true, strategy });
+  });
+
+  app.post('/api/v2/admin/webinar-ai/strategies/:strategyId/publish', requireUser, adminGuard, async (req, res) => {
+    const result = await mutate(loadEcosystemState, saveEcosystemState, (state) => {
+      const strategy = state.aiWebinarStrategies[req.params.strategyId];
+      if (!strategy) return { error: 'not_found' };
+      const ruleCount = (strategy.entryRules?.length || 0) + (strategy.confirmationRules?.length || 0) + (strategy.exitRules?.length || 0) + (strategy.riskRules?.length || 0);
+      if (!strategy.summary || ruleCount < 3 || !(strategy.invalidationRules?.length)) return { error: 'incomplete' };
+      strategy.status = 'published';
+      strategy.approvedBy = String(req.wisdoUser.id);
+      strategy.publishedAt = nowIso();
+      strategy.updatedAt = nowIso();
+      strategy.updatedBy = String(req.wisdoUser.id);
+      const snapshot = structuredClone(strategy);
+      const versions = state.aiWebinarStrategyVersions[strategy.strategyId] ||= [];
+      versions.push({ ...snapshot, versionSnapshotAt: nowIso() });
+      state.aiWebinarStrategyVersions[strategy.strategyId] = versions.slice(-50);
+      audit(state, req.wisdoUser.id, 'ai_webinar.strategy_published', 'AiWebinarStrategy', strategy.strategyId, { version: strategy.version });
+      return { strategy };
+    });
+    if (result.error === 'not_found') return res.status(404).json({ ok: false, error: 'Strategy not found.' });
+    if (result.error === 'incomplete') return res.status(409).json({ ok: false, error: 'Add a summary, at least three teaching rules, and at least one invalidation rule before publishing.' });
+    res.json({ ok: true, strategy: result.strategy });
+  });
 
   function assistantUserContext(state, user, page, selectedAccountId = '') {
     const userId = String(user?.id || 'public');
@@ -464,7 +756,7 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
     const state = ensure(await loadEcosystemState());
     const progress = state.academyProgress[req.wisdoUser.id] || { completed_lessons: [], score: 0, badges: [] };
     const learnerProfile = state.learnerProfiles[req.wisdoUser.id] || null;
-    res.json({ ok: true, tracks: ACADEMY_TRACKS, progress, learnerProfile, summary: getAcademySummary() });
+    res.json({ ok: true, tracks: ACADEMY_TRACKS, progress, learnerProfile, canTeachStrategies: isAdmin(state, req.wisdoUser), summary: getAcademySummary() });
   });
 
   app.get('/api/v2/academy/catalog', requireUser, (req, res) => {
