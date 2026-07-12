@@ -1,0 +1,13 @@
+WISDO V5.5.0 TRADINGVIEW AI CHART TEACHER DEPLOYMENT CHECKLIST
+
+[ ] Apply the V5.5.0 patch at the repository root.
+[ ] Run npm ci.
+[ ] Run npm run check and confirm 18 tests pass.
+[ ] Commit and push the V5.5.0 files to the branch watched by deployment, normally main.
+[ ] Confirm /api/public/health returns version 5.5.0 with chartTeacher=true and tradingViewLessons=true.
+[ ] Hard refresh /app/education once after deployment so the V5.5 service worker takes control.
+[ ] Generate a webinar using OANDA:XAUUSD and timeframe 15.
+[ ] Confirm the chart scene initially opens Live TradingView.
+[ ] Press Play and confirm the scene switches to AI Markup and advances through zoom steps.
+[ ] Test Zoom In, Zoom Out, Reset, timeframe changes, and Open Full TradingView.
+[ ] Confirm the simulated-data notice is visible.

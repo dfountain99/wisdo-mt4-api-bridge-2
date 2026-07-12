@@ -1,8 +1,8 @@
-WISDO AI WEBINAR ROOM + STRATEGY STUDIO V5.4.0
+WISDO TRADINGVIEW AI CHART TEACHER V5.5.0
 Source: wisdo-member-app-product-pass(1).zip
 Source SHA-256: df2143c9aee5039bf4ff547256d68bca84bd54b1ddbd1db99e30bcd7f4d1f7ce
 Base release: V5.1.1 Copier Close Authority
-Version: 5.4.0
+Version: 5.5.0
 Build command: npm ci --omit=dev --no-audit --no-fund
 Start command: npm start
 Web-only smoke: npm run start:web
@@ -24,8 +24,12 @@ Trading calculators: 8
 Global Wisdo AI assistant: public + authenticated context, voice, screenshot, history, links, usage tiers, confirmation boundaries
 Shared event ledger: Culture Lane relay, Trades, Insight Engine, Alerts
 
-AI Webinar mode: on-demand interactive narrated video lessons
+AI Webinar mode: on-demand interactive narrated chart lessons
 Admin teaching: Strategy Studio with draft/review/publish lifecycle
 Published knowledge: versioned and member-visible only after approval
 Browser narration: enabled without external provider
 Optional external MP4 renderer: WISDO_AI_VIDEO_PROVIDER_URL
+
+TradingView mode: live advanced chart embed with symbol and timeframe handoff
+AI Chart Teacher: simulated markup, zones, levels, markers, automatic step zoom, manual zoom controls
+Service worker cache: wisdo-shell-v5.5

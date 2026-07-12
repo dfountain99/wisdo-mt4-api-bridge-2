@@ -379,7 +379,7 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
   }
 
   async function generateWebinarContent({ request, strategy, learnerProfile, course }) {
-    const fallbackInput = { question: request.question, topic: request.topic, level: request.level, durationMinutes: request.durationMinutes, strategy, learnerProfile, course };
+    const fallbackInput = { question: request.question, topic: request.topic, level: request.level, durationMinutes: request.durationMinutes, chartSymbol: request.chartSymbol, chartInterval: request.chartInterval, strategy, learnerProfile, course };
     let webinar = buildFallbackWebinar(fallbackInput);
     let provider = 'adaptive_fallback';
     if (process.env.OPENAI_API_KEY) {
@@ -417,8 +417,10 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
     res.json({
       ok: true,
       version: AI_WEBINAR_VERSION,
-      mode: 'on_demand_ai_video',
+      mode: 'on_demand_ai_video_with_chart_teacher',
       browserNarrationReady: true,
+      chartTeacherReady: true,
+      tradingViewReady: true,
       aiProviderReady: Boolean(process.env.OPENAI_API_KEY),
       externalVideoProviderReady: Boolean(process.env.WISDO_AI_VIDEO_PROVIDER_URL),
       canTeachStrategies: isAdmin(state, req.wisdoUser),
@@ -444,6 +446,8 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
       durationMinutes: Math.max(3, Math.min(30, Number(req.body?.durationMinutes || 8) || 8)),
       strategyId: String(req.body?.strategyId || ''),
       courseId: String(req.body?.courseId || ''),
+      chartSymbol: String(req.body?.chartSymbol || '').trim().slice(0, 80),
+      chartInterval: String(req.body?.chartInterval || '').trim().slice(0, 20),
     };
     if (!request.question && !request.topic) return res.status(400).json({ ok: false, error: 'Tell WISDO what the webinar should teach.' });
     const state = ensure(await loadEcosystemState());

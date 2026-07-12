@@ -89,6 +89,126 @@
     }
   }
 
+
+  function webinarRoleColor(role = '') {
+    return ({ entry: '#59a8ff', stop: '#ff6f82', target: '#68f7c4', confirmation: '#ffcc74', context: '#b89cff' })[role] || '#d7e4ef';
+  }
+
+  function drawWebinarTeachingChart(canvas, chart, stepIndex = 0, zoom = 1) {
+    if (!canvas || !chart?.candles?.length) return;
+    const ratio = window.devicePixelRatio || 1;
+    const width = Math.max(560, canvas.clientWidth || 960);
+    const height = Math.max(360, canvas.clientHeight || 520);
+    canvas.width = Math.floor(width * ratio);
+    canvas.height = Math.floor(height * ratio);
+    const ctx = canvas.getContext('2d');
+    ctx.scale(ratio, ratio);
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = '#02070d'; ctx.fillRect(0, 0, width, height);
+
+    const allCandles = chart.candles || [];
+    const step = chart.steps?.[stepIndex] || { fromIndex: 0, toIndex: allCandles.length };
+    const baseFrom = Math.max(0, Number(step.fromIndex || 0));
+    const baseTo = Math.min(allCandles.length, Math.max(baseFrom + 8, Number(step.toIndex || allCandles.length)));
+    const center = (baseFrom + baseTo) / 2;
+    const baseWidth = Math.max(8, baseTo - baseFrom);
+    const visibleWidth = Math.max(8, Math.min(allCandles.length, Math.round(baseWidth / Math.max(.55, Math.min(3.2, zoom)))));
+    let from = Math.max(0, Math.round(center - visibleWidth / 2));
+    let to = Math.min(allCandles.length, from + visibleWidth);
+    from = Math.max(0, to - visibleWidth);
+    const candles = allCandles.slice(from, to);
+    if (!candles.length) return;
+
+    const left = 66; const right = 24; const top = 38; const bottom = 42;
+    const chartWidth = width - left - right; const chartHeight = height - top - bottom;
+    const visibleLevels = (chart.levels || []).map((row) => Number(row.price)).filter(Number.isFinite);
+    const values = [...candles.flatMap((bar) => [Number(bar.high), Number(bar.low)]), ...visibleLevels];
+    let min = Math.min(...values); let max = Math.max(...values);
+    const padding = Math.max((max - min) * .11, Math.abs(max || 1) * .0005);
+    min -= padding; max += padding;
+    const range = Math.max(.0000001, max - min);
+    const y = (price) => top + ((max - Number(price)) / range) * chartHeight;
+    const xForIndex = (globalIndex) => left + ((globalIndex - from + .5) / Math.max(1, candles.length)) * chartWidth;
+
+    ctx.strokeStyle = 'rgba(255,255,255,.065)'; ctx.lineWidth = 1;
+    for (let index = 0; index <= 6; index += 1) {
+      const rowY = top + chartHeight * (index / 6);
+      ctx.beginPath(); ctx.moveTo(left, rowY); ctx.lineTo(width - right, rowY); ctx.stroke();
+      const value = max - range * (index / 6);
+      ctx.fillStyle = 'rgba(190,210,225,.72)'; ctx.font = '11px system-ui';
+      const digits = Math.abs(value) < 10 ? 5 : Math.abs(value) < 1000 ? 2 : 0;
+      ctx.fillText(value.toFixed(digits), 4, rowY + 4);
+    }
+    for (let index = 0; index <= 8; index += 1) {
+      const colX = left + chartWidth * (index / 8);
+      ctx.beginPath(); ctx.moveTo(colX, top); ctx.lineTo(colX, height - bottom); ctx.stroke();
+    }
+
+    for (const zone of chart.zones || []) {
+      const zoneFrom = Math.max(from, Number(zone.fromIndex || 0));
+      const zoneTo = Math.min(to - 1, Number(zone.toIndex ?? to - 1));
+      if (zoneTo < zoneFrom) continue;
+      const x1 = xForIndex(zoneFrom) - chartWidth / candles.length / 2;
+      const x2 = xForIndex(zoneTo) + chartWidth / candles.length / 2;
+      const zoneTop = y(Math.max(Number(zone.low), Number(zone.high)));
+      const zoneBottom = y(Math.min(Number(zone.low), Number(zone.high)));
+      ctx.fillStyle = 'rgba(184,156,255,.13)'; ctx.strokeStyle = 'rgba(184,156,255,.5)';
+      ctx.fillRect(x1, zoneTop, x2 - x1, Math.max(3, zoneBottom - zoneTop));
+      ctx.strokeRect(x1, zoneTop, x2 - x1, Math.max(3, zoneBottom - zoneTop));
+      ctx.fillStyle = '#d8caff'; ctx.font = '11px system-ui'; ctx.fillText(String(zone.label || 'Teaching zone'), x1 + 6, zoneTop + 14);
+    }
+
+    const barStep = chartWidth / Math.max(1, candles.length);
+    const bodyWidth = Math.max(4, Math.min(16, barStep * .62));
+    candles.forEach((bar, localIndex) => {
+      const x = left + localIndex * barStep + barStep / 2;
+      const up = Number(bar.close) >= Number(bar.open);
+      ctx.strokeStyle = up ? '#68f7c4' : '#ff6f82'; ctx.fillStyle = up ? '#68f7c4' : '#ff6f82';
+      ctx.beginPath(); ctx.moveTo(x, y(bar.high)); ctx.lineTo(x, y(bar.low)); ctx.stroke();
+      const bodyTop = Math.min(y(bar.open), y(bar.close));
+      const bodyHeight = Math.max(2, Math.abs(y(bar.open) - y(bar.close)));
+      ctx.fillRect(x - bodyWidth / 2, bodyTop, bodyWidth, bodyHeight);
+    });
+
+    for (const level of chart.levels || []) {
+      const rowY = y(level.price); const color = webinarRoleColor(level.role);
+      ctx.strokeStyle = color; ctx.lineWidth = 1.4; ctx.setLineDash(level.role === 'entry' ? [] : [7, 5]);
+      ctx.beginPath(); ctx.moveTo(left, rowY); ctx.lineTo(width - right, rowY); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = color; ctx.font = '600 11px system-ui';
+      const label = `${String(level.label || level.role)} · ${level.price}`;
+      const labelWidth = Math.min(chartWidth - 8, ctx.measureText(label).width + 14);
+      ctx.fillStyle = 'rgba(2,7,13,.86)'; ctx.fillRect(width - right - labelWidth, rowY - 15, labelWidth, 18);
+      ctx.fillStyle = color; ctx.fillText(label, width - right - labelWidth + 7, rowY - 2);
+    }
+
+    for (const marker of chart.markers || []) {
+      const markerIndex = Number(marker.index);
+      if (markerIndex < from || markerIndex >= to) continue;
+      const bar = allCandles[markerIndex]; const x = xForIndex(markerIndex); const color = webinarRoleColor(marker.role);
+      const markerY = marker.role === 'confirmation' || marker.role === 'entry' ? y(bar.low) + 24 : y(bar.high) - 24;
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, markerY, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = color; ctx.beginPath(); ctx.moveTo(x, markerY); ctx.lineTo(x, marker.role === 'confirmation' || marker.role === 'entry' ? y(bar.low) + 4 : y(bar.high) - 4); ctx.stroke();
+      ctx.font = '600 11px system-ui'; const label = String(marker.label || marker.role);
+      const labelWidth = ctx.measureText(label).width + 12;
+      ctx.fillStyle = 'rgba(2,7,13,.9)'; ctx.fillRect(Math.max(left, x - labelWidth / 2), markerY - 24, labelWidth, 18);
+      ctx.fillStyle = color; ctx.fillText(label, Math.max(left + 6, x - labelWidth / 2 + 6), markerY - 11);
+    }
+
+    ctx.fillStyle = '#dbe8f2'; ctx.font = '600 13px system-ui'; ctx.fillText(`${chart.symbol} · ${chart.interval} · AI teaching markup`, left, 20);
+    ctx.fillStyle = 'rgba(190,210,225,.65)'; ctx.font = '11px system-ui';
+    ctx.fillText(`Bars ${from + 1}–${to} of ${allCandles.length} · simulated example`, left, height - 13);
+  }
+
+  function tradingViewWidgetUrl(chart = {}) {
+    const symbol = encodeURIComponent(String(chart.symbol || 'OANDA:XAUUSD'));
+    const interval = encodeURIComponent(String(chart.interval || '15'));
+    return `https://s.tradingview.com/widgetembed/?frameElementId=wisdo_webinar_tv&symbol=${symbol}&interval=${interval}&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=0b1420&studies=%5B%5D&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hideideas=1`;
+  }
+
+  function tradingViewFullUrl(chart = {}) {
+    return `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(String(chart.symbol || 'OANDA:XAUUSD'))}`;
+  }
+
   function mount(container, options = {}) {
     if (!container) return;
     const bootstrap = options.bootstrap || {};
@@ -109,6 +229,11 @@
     let webinarTimer = null;
     let webinarPlaying = false;
     let webinarVoiceEnabled = true;
+    let webinarChartMode = 'tradingview';
+    let webinarChartStepIndex = 0;
+    let webinarChartZoom = 1;
+    let webinarChartTourTimer = null;
+    let webinarChartSceneId = '';
     let strategyStudioRows = [];
 
     container.innerHTML = `
@@ -552,6 +677,7 @@
       const host = panel('webinar');
       const strategies = webinarConfig?.strategies || [];
       const templates = webinarConfig?.templates || [];
+      const defaultChartSymbol = profile.markets?.[0] || 'OANDA:XAUUSD';
       host.innerHTML = `
         <style>
           .ai-webinar-stage{min-height:390px;border:1px solid rgba(104,247,196,.18);border-radius:22px;padding:28px;background:radial-gradient(circle at 80% 10%,rgba(89,168,255,.16),transparent 36%),linear-gradient(145deg,#07111d,#050910);display:grid;grid-template-columns:1.2fr .8fr;gap:24px;align-items:center;overflow:hidden;position:relative}
@@ -560,12 +686,16 @@
           .ai-webinar-bullets{display:grid;gap:9px;margin-top:18px}.ai-webinar-bullets span{display:block;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.05)}
           .ai-webinar-timeline{height:8px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}.ai-webinar-timeline span{display:block;height:100%;background:linear-gradient(90deg,#68f7c4,#59a8ff);transition:width .25s ease}
           .ai-webinar-library{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}.ai-webinar-form{display:grid;grid-template-columns:1fr 1fr;gap:14px}.ai-webinar-form .full{grid-column:1/-1}
+          .ai-webinar-chart-stage{min-height:520px;border:1px solid rgba(104,247,196,.18);border-radius:22px;padding:18px;background:linear-gradient(145deg,#07111d,#03070d);display:grid;grid-template-columns:minmax(250px,.55fr) minmax(0,1.45fr);gap:18px;overflow:hidden}
+          .ai-webinar-chart-coach{border:1px solid rgba(255,255,255,.07);border-radius:18px;padding:20px;background:rgba(255,255,255,.025);display:flex;flex-direction:column;gap:14px}.ai-webinar-chart-coach h2{margin:0}.ai-chart-step-list{display:grid;gap:8px}.ai-chart-step-list button{text-align:left;width:100%;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);color:inherit}.ai-chart-step-list button.active{border-color:rgba(104,247,196,.7);background:rgba(104,247,196,.1)}
+          .ai-webinar-chart-shell{min-width:0}.ai-chart-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}.ai-chart-toolbar .input{width:auto;min-width:104px}.ai-chart-viewport{min-height:430px;border:1px solid rgba(255,255,255,.08);border-radius:16px;overflow:hidden;background:#02070d;position:relative}.ai-chart-viewport canvas{display:block;width:100%;height:430px}.ai-chart-viewport iframe{display:block;width:100%;height:430px;border:0}.ai-chart-mode.active{border-color:rgba(104,247,196,.75);box-shadow:0 0 0 1px rgba(104,247,196,.2) inset}.ai-chart-legend{display:flex;gap:12px;flex-wrap:wrap;padding:9px 12px;font-size:11px;color:rgba(220,235,245,.78);background:rgba(2,7,13,.88);position:absolute;left:8px;bottom:8px;border-radius:10px}.ai-chart-legend span:before{content:'';display:inline-block;width:9px;height:9px;border-radius:99px;margin-right:5px;background:var(--legend)}.ai-chart-help{font-size:12px;padding:9px 12px;color:rgba(220,235,245,.72);border-top:1px solid rgba(255,255,255,.06)}
           .strategy-studio-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:18px}.strategy-rule-list{display:grid;gap:7px}.strategy-rule-list span{font-size:12px;padding:8px;border-radius:10px;background:rgba(255,255,255,.05)}
-          @media(max-width:820px){.ai-webinar-stage,.strategy-studio-grid{grid-template-columns:1fr}.ai-webinar-form{grid-template-columns:1fr}.ai-webinar-form .full{grid-column:auto}}
+          @media(max-width:980px){.ai-webinar-chart-stage{grid-template-columns:1fr}.ai-chart-viewport,.ai-chart-viewport canvas,.ai-chart-viewport iframe{height:390px}}
+          @media(max-width:820px){.ai-webinar-stage,.strategy-studio-grid{grid-template-columns:1fr}.ai-webinar-form{grid-template-columns:1fr}.ai-webinar-form .full{grid-column:auto}.ai-chart-viewport,.ai-chart-viewport canvas,.ai-chart-viewport iframe{height:340px}}
         </style>
         <section class="card academy-hero">
-          <div><span class="eyebrow">On-demand AI Webinar Room</span><h1>Ask for a lesson. WISDO builds and teaches it.</h1><p class="muted">Generate a narrated AI video lesson from your question, the WISDO Academy, or an admin-published strategy. No scheduled host and no fake live webinar.</p></div>
-          <div class="academy-score"><small>Teaching engine</small><strong>${webinarConfig?.aiProviderReady ? 'AI' : 'AUTO'}</strong><span>${webinarConfig?.aiProviderReady ? 'OpenAI connected' : 'adaptive lesson engine'}</span><p>Browser narration ready</p></div>
+          <div><span class="eyebrow">On-demand AI Webinar Room</span><h1>Ask for a lesson. WISDO teaches it directly on the chart.</h1><p class="muted">Generate a narrated lesson with a live TradingView chart, AI-marked candles, entries, invalidation, objectives, and automatic step-by-step zoom.</p></div>
+          <div class="academy-score"><small>Teaching engine</small><strong>${webinarConfig?.aiProviderReady ? 'AI' : 'AUTO'}</strong><span>${webinarConfig?.aiProviderReady ? 'OpenAI connected' : 'adaptive lesson engine'}</span><p>TradingView + AI Chart Teacher ready</p></div>
         </section>
         <section class="card">
           <div class="card-head"><div><span class="eyebrow">Generate your webinar</span><h3>What do you need help with?</h3></div><span class="status-pill connected">On demand</span></div>
@@ -575,9 +705,11 @@
             <label>Experience<select class="input" name="level"><option value="starter">Starter</option><option value="foundation">Foundation</option><option value="intermediate">Intermediate</option><option value="advanced">Advanced</option><option value="professional">Professional</option></select></label>
             <label>Length<select class="input" name="durationMinutes"><option value="5">5-minute lesson</option><option value="8" selected>8-minute lesson</option><option value="12">12-minute lesson</option><option value="15">15-minute lesson</option><option value="20">20-minute lesson</option></select></label>
             <label>Approved strategy<select class="input" name="strategyId"><option value="">General Academy knowledge</option>${strategies.map((strategy) => `<option value="${html(strategy.strategyId)}">${html(strategy.title)} · v${html(strategy.version)}</option>`).join('')}</select></label>
+            <label>Chart symbol<input class="input" name="chartSymbol" value="${html(defaultChartSymbol)}" placeholder="OANDA:XAUUSD"></label>
+            <label>Chart timeframe<select class="input" name="chartInterval"><option value="1">1 minute</option><option value="5">5 minutes</option><option value="15" selected>15 minutes</option><option value="60">1 hour</option><option value="240">4 hours</option><option value="D">Daily</option></select></label>
             <button class="btn primary full" type="submit">Generate AI Webinar</button>
           </form>
-          <div id="ai-webinar-status" class="private-strategy-notice" style="margin-top:14px">WISDO will build scenes, narration, examples, risk warnings, and a quiz. Strategy lessons use published admin knowledge only.</div>
+          <div id="ai-webinar-status" class="private-strategy-notice" style="margin-top:14px">WISDO will open the matching TradingView market, create an AI-marked teaching chart, zoom into each setup step, narrate the example, and finish with risk review and a quiz.</div>
         </section>
         <section class="card"><div class="card-head"><div><span class="eyebrow">Fast starts</span><h3>Generate from a lesson template</h3></div></div><div class="academy-course-grid">${templates.map((item) => `<button class="course-tile" data-webinar-template="${html(item.id)}" data-title="${html(item.title)}" data-level="${html(item.level)}" data-minutes="${Number(item.durationMinutes || 8)}"><span class="eyebrow">${html(item.type)}</span><h3>${html(item.title)}</h3><p>${html(item.description)}</p><div class="course-meta"><span>${html(item.level)}</span><span>${Number(item.durationMinutes || 0)} min</span></div></button>`).join('')}</div></section>
         <section id="ai-webinar-player"></section>
@@ -588,8 +720,8 @@
         event.preventDefault();
         const status = host.querySelector('#ai-webinar-status');
         const submit = form.querySelector('button[type="submit"]');
-        submit.disabled = true; submit.textContent = 'Building scenes and narration…';
-        status.textContent = 'WISDO is creating your personalized AI webinar.';
+        submit.disabled = true; submit.textContent = 'Building chart lesson…';
+        status.textContent = 'WISDO is creating the lesson, chart plan, TradingView view, and automatic zoom steps.';
         try {
           const body = Object.fromEntries(new FormData(form).entries());
           const result = await api('/api/v2/webinar-ai/generate', { method: 'POST', body: JSON.stringify(body) }, 60000);
@@ -604,7 +736,7 @@
       host.querySelectorAll('[data-webinar-template]').forEach((button) => {
         button.onclick = () => {
           form.elements.topic.value = button.dataset.title;
-          form.elements.question.value = `Create an AI video lesson that teaches ${button.dataset.title} step by step, includes a worked example, risk warnings, common mistakes, and a knowledge check.`;
+          form.elements.question.value = `Create an AI chart lesson that teaches ${button.dataset.title} step by step, opens the matching TradingView market, marks a worked example directly on candles, automatically zooms into context and confirmation, includes risk warnings, common mistakes, and a knowledge check.`;
           form.elements.level.value = button.dataset.level || 'starter';
           form.elements.durationMinutes.value = button.dataset.minutes || '8';
           form.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -642,7 +774,7 @@
       const player = panel('webinar').querySelector('#ai-webinar-player');
       if (!player) return;
       player.innerHTML = `
-        <section class="card"><div class="card-head"><div><span class="eyebrow">Interactive narrated AI video</span><h3>${html(session.webinar?.title)}</h3><p class="muted">${html(session.webinar?.subtitle || '')}</p></div><label class="voice-toggle"><input id="webinar-voice" type="checkbox" checked> AI narration</label></div>
+        <section class="card"><div class="card-head"><div><span class="eyebrow">Interactive narrated AI chart lesson</span><h3>${html(session.webinar?.title)}</h3><p class="muted">${html(session.webinar?.subtitle || '')}</p></div><label class="voice-toggle"><input id="webinar-voice" type="checkbox" checked> AI narration</label></div>
           <div class="ai-webinar-timeline"><span id="webinar-progress-bar"></span></div>
           <div id="webinar-scene-stage" style="margin-top:16px"></div>
           <div class="actions"><button class="btn ghost" id="webinar-prev">Previous</button><button class="btn primary" id="webinar-play">Play webinar</button><button class="btn ghost" id="webinar-next">Next</button>${webinarConfig?.externalVideoProviderReady ? '<button class="btn ghost" id="webinar-render-video">Render MP4</button>' : ''}</div>
@@ -667,6 +799,46 @@
       player.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
+    function renderWebinarChartViewport(scene) {
+      const player = panel('webinar').querySelector('#ai-webinar-player');
+      const viewport = player?.querySelector('#webinar-chart-viewport');
+      if (!viewport || !scene?.chart) return;
+      const chart = scene.chart;
+      player.querySelectorAll('[data-webinar-chart-mode]').forEach((button) => button.classList.toggle('active', button.dataset.webinarChartMode === webinarChartMode));
+      player.querySelectorAll('[data-webinar-chart-step]').forEach((button) => button.classList.toggle('active', Number(button.dataset.webinarChartStep) === webinarChartStepIndex));
+      const step = chart.steps?.[webinarChartStepIndex] || chart.steps?.[0];
+      const coach = player.querySelector('#webinar-chart-step-coach');
+      if (coach && step) coach.innerHTML = `<strong>${html(step.title)}</strong><p>${html(step.narration)}</p>`;
+      const intervalSelect = player.querySelector('#webinar-chart-interval');
+      if (intervalSelect) intervalSelect.value = String(chart.interval || '15');
+      const openLink = player.querySelector('#webinar-open-tradingview');
+      if (openLink) openLink.href = tradingViewFullUrl(chart);
+
+      if (webinarChartMode === 'tradingview') {
+        viewport.innerHTML = `<iframe title="Live TradingView chart for ${html(chart.symbol)}" loading="eager" allowfullscreen src="${html(tradingViewWidgetUrl(chart))}"></iframe><div class="ai-chart-help"><strong>Live TradingView:</strong> use the mouse wheel, drag, or pinch directly inside the chart to zoom and inspect real market candles. Switch to AI Markup for automatic zoom and lesson annotations.</div>`;
+        return;
+      }
+      viewport.innerHTML = `<canvas id="webinar-teaching-chart" aria-label="AI marked educational candlestick example"></canvas><div class="ai-chart-legend"><span style="--legend:#b89cff">Teaching zone</span><span style="--legend:#ffcc74">Confirmation</span><span style="--legend:#59a8ff">Entry</span><span style="--legend:#ff6f82">Invalidation</span><span style="--legend:#68f7c4">Objective</span></div>`;
+      requestAnimationFrame(() => drawWebinarTeachingChart(viewport.querySelector('#webinar-teaching-chart'), chart, webinarChartStepIndex, webinarChartZoom));
+    }
+
+    function renderWebinarChartScene(scene, stage, sceneCount) {
+      const chart = scene.chart;
+      const steps = chart.steps || [];
+      stage.innerHTML = `<div class="ai-webinar-chart-stage"><aside class="ai-webinar-chart-coach"><span class="eyebrow">Scene ${webinarSceneIndex + 1} of ${sceneCount} · On-chart lesson</span><h2>${html(scene.title)}</h2><p class="lead">${html(scene.narration)}</p><div class="ai-webinar-bullets">${(scene.bullets || []).map((bullet) => `<span>${html(bullet)}</span>`).join('')}</div><div class="ai-chart-step-list">${steps.map((step, index) => `<button type="button" data-webinar-chart-step="${index}"><small>${index === 0 ? 'Start wide' : index === steps.length - 1 ? 'Review' : 'Zoom step'}</small><br><strong>${html(step.title)}</strong></button>`).join('')}</div><div id="webinar-chart-step-coach" class="private-strategy-notice"></div></aside><div class="ai-webinar-chart-shell"><div class="ai-chart-toolbar"><button class="btn ghost ai-chart-mode" type="button" data-webinar-chart-mode="tradingview">Live TradingView</button><button class="btn ghost ai-chart-mode" type="button" data-webinar-chart-mode="ai">AI Markup</button><select class="input" id="webinar-chart-interval" aria-label="Chart timeframe"><option value="1">1m</option><option value="5">5m</option><option value="15">15m</option><option value="60">1h</option><option value="240">4h</option><option value="D">1D</option></select><button class="btn ghost" id="webinar-chart-zoom-in" type="button">Zoom in</button><button class="btn ghost" id="webinar-chart-zoom-out" type="button">Zoom out</button><button class="btn ghost" id="webinar-chart-reset" type="button">Reset</button><a class="btn primary" id="webinar-open-tradingview" target="_blank" rel="noopener">Open full TradingView</a></div><div id="webinar-chart-viewport" class="ai-chart-viewport"></div><div class="private-strategy-notice" style="margin-top:10px">${html(chart.notice || '')}</div></div></div>`;
+      stage.querySelectorAll('[data-webinar-chart-mode]').forEach((button) => button.onclick = () => { webinarChartMode = button.dataset.webinarChartMode; renderWebinarChartViewport(scene); });
+      stage.querySelectorAll('[data-webinar-chart-step]').forEach((button) => button.onclick = () => {
+        webinarChartMode = 'ai'; webinarChartStepIndex = Number(button.dataset.webinarChartStep); webinarChartZoom = 1;
+        renderWebinarChartViewport(scene);
+        const selected = chart.steps?.[webinarChartStepIndex]; if (selected) speak(`${selected.title}. ${selected.narration}`, webinarVoiceEnabled);
+      });
+      stage.querySelector('#webinar-chart-zoom-in').onclick = () => { webinarChartMode = 'ai'; webinarChartZoom = Math.min(3.2, webinarChartZoom * 1.35); renderWebinarChartViewport(scene); };
+      stage.querySelector('#webinar-chart-zoom-out').onclick = () => { webinarChartMode = 'ai'; webinarChartZoom = Math.max(.55, webinarChartZoom / 1.35); renderWebinarChartViewport(scene); };
+      stage.querySelector('#webinar-chart-reset').onclick = () => { webinarChartMode = 'ai'; webinarChartZoom = 1; webinarChartStepIndex = 0; renderWebinarChartViewport(scene); };
+      stage.querySelector('#webinar-chart-interval').onchange = (event) => { chart.interval = event.target.value; webinarChartMode = 'tradingview'; renderWebinarChartViewport(scene); };
+      renderWebinarChartViewport(scene);
+    }
+
     function renderWebinarScene() {
       const session = activeWebinarSession; if (!session) return;
       const scenes = session.webinar?.scenes || [];
@@ -674,11 +846,36 @@
       const scene = scenes[webinarSceneIndex];
       const player = panel('webinar').querySelector('#ai-webinar-player'); if (!scene || !player) return;
       const stage = player.querySelector('#webinar-scene-stage');
-      stage.innerHTML = `<div class="ai-webinar-stage"><div><span class="eyebrow">Scene ${webinarSceneIndex + 1} of ${scenes.length}</span><h2>${html(scene.title)}</h2><p class="lead">${html(scene.narration)}</p><div class="ai-webinar-bullets">${(scene.bullets || []).map((bullet) => `<span>${html(bullet)}</span>`).join('')}</div></div><div class="ai-webinar-visual" aria-label="${html(scene.visual)}">${webinarVisualIcon(scene.visual)}</div></div>`;
+      if (scene.chart) {
+        if (webinarChartSceneId !== scene.sceneId) {
+          webinarChartSceneId = scene.sceneId;
+          webinarChartMode = 'tradingview';
+          webinarChartStepIndex = 0;
+          webinarChartZoom = 1;
+        }
+        renderWebinarChartScene(scene, stage, scenes.length);
+      } else {
+        webinarChartSceneId = '';
+        stage.innerHTML = `<div class="ai-webinar-stage"><div><span class="eyebrow">Scene ${webinarSceneIndex + 1} of ${scenes.length}</span><h2>${html(scene.title)}</h2><p class="lead">${html(scene.narration)}</p><div class="ai-webinar-bullets">${(scene.bullets || []).map((bullet) => `<span>${html(bullet)}</span>`).join('')}</div></div><div class="ai-webinar-visual" aria-label="${html(scene.visual)}">${webinarVisualIcon(scene.visual)}</div></div>`;
+      }
       player.querySelector('#webinar-progress-bar').style.width = `${((webinarSceneIndex + 1) / Math.max(1, scenes.length)) * 100}%`;
       player.querySelector('#webinar-prev').disabled = webinarSceneIndex === 0;
       player.querySelector('#webinar-next').textContent = webinarSceneIndex >= scenes.length - 1 ? 'Finish lesson' : 'Next';
       api(`/api/v2/webinar-ai/sessions/${encodeURIComponent(session.sessionId)}/progress`, { method: 'PATCH', body: JSON.stringify({ sceneIndex: webinarSceneIndex }) }).catch(() => null);
+    }
+
+    function startWebinarChartTour(scene) {
+      if (!scene?.chart?.steps?.length) return;
+      if (webinarChartTourTimer) clearInterval(webinarChartTourTimer);
+      webinarChartMode = 'ai'; webinarChartStepIndex = 0; webinarChartZoom = 1;
+      renderWebinarChartViewport(scene);
+      webinarChartTourTimer = setInterval(() => {
+        if (!webinarPlaying || activeWebinarSession?.webinar?.scenes?.[webinarSceneIndex]?.sceneId !== scene.sceneId) { clearInterval(webinarChartTourTimer); webinarChartTourTimer = null; return; }
+        if (webinarChartStepIndex >= scene.chart.steps.length - 1) { clearInterval(webinarChartTourTimer); webinarChartTourTimer = null; return; }
+        webinarChartStepIndex += 1;
+        webinarChartZoom = webinarChartStepIndex === 1 ? 1.25 : webinarChartStepIndex === 2 ? 1.55 : .9;
+        renderWebinarChartViewport(scene);
+      }, 6500);
     }
 
     function playWebinarScene() {
@@ -688,10 +885,12 @@
       webinarPlaying = true;
       const player = panel('webinar').querySelector('#ai-webinar-player');
       player.querySelector('#webinar-play').textContent = 'Pause webinar';
-      player.querySelector('#webinar-player-status').textContent = `Playing scene ${webinarSceneIndex + 1}: ${scene.title}`;
+      player.querySelector('#webinar-player-status').textContent = scene.chart ? `Teaching on chart: ${scene.chart.symbol} ${scene.chart.interval}` : `Playing scene ${webinarSceneIndex + 1}: ${scene.title}`;
+      if (scene.chart) startWebinarChartTour(scene);
       if (webinarVoiceEnabled && 'speechSynthesis' in window) {
         speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(`${scene.title}. ${scene.narration}. ${(scene.bullets || []).join('. ')}`.slice(0, 3500));
+        const chartNarration = scene.chart?.steps?.map((step) => `${step.title}. ${step.narration}`).join('. ') || '';
+        const utterance = new SpeechSynthesisUtterance(`${scene.title}. ${scene.narration}. ${(scene.bullets || []).join('. ')}. ${chartNarration}`.slice(0, 6000));
         utterance.rate = 0.94; utterance.pitch = 0.96;
         utterance.onend = () => { if (webinarPlaying) advanceWebinarScene(true); };
         utterance.onerror = () => { webinarTimer = setTimeout(() => advanceWebinarScene(true), 7000); };
@@ -704,6 +903,7 @@
     function stopWebinarPlayback(updateButton = true) {
       webinarPlaying = false;
       if (webinarTimer) { clearTimeout(webinarTimer); webinarTimer = null; }
+      if (webinarChartTourTimer) { clearInterval(webinarChartTourTimer); webinarChartTourTimer = null; }
       if ('speechSynthesis' in window) speechSynthesis.cancel();
       const button = panel('webinar')?.querySelector('#webinar-play'); if (button && updateButton) button.textContent = 'Play webinar';
     }
@@ -756,7 +956,7 @@
       const cancel = host.querySelector('#strategy-cancel-edit'); if (cancel) cancel.onclick = () => renderStrategyStudio();
       host.querySelectorAll('[data-edit-strategy]').forEach((button) => button.onclick = () => renderStrategyStudio(button.dataset.editStrategy));
       host.querySelectorAll('[data-publish-strategy]').forEach((button) => button.onclick = async () => { button.disabled = true; try { const result = await api(`/api/v2/admin/webinar-ai/strategies/${encodeURIComponent(button.dataset.publishStrategy)}/publish`, { method: 'POST', body: '{}' }); const index = strategyStudioRows.findIndex((row) => row.strategyId === result.strategy.strategyId); if (index >= 0) strategyStudioRows[index] = result.strategy; renderStrategyStudio(result.strategy.strategyId); } catch (error) { alert(error.message); button.disabled = false; } });
-      host.querySelectorAll('[data-generate-strategy]').forEach((button) => button.onclick = () => { switchTab('webinar').then(() => { const webinarForm = panel('webinar').querySelector('#ai-webinar-form'); webinarForm.elements.strategyId.value = button.dataset.generateStrategy; webinarForm.elements.question.value = 'Create a complete AI video lesson that teaches this approved strategy, including conditions, confirmations, entries, exits, invalidation, risk, common mistakes, a worked example, and a quiz.'; webinarForm.scrollIntoView({ behavior: 'smooth' }); }); });
+      host.querySelectorAll('[data-generate-strategy]').forEach((button) => button.onclick = () => { switchTab('webinar').then(() => { const webinarForm = panel('webinar').querySelector('#ai-webinar-form'); webinarForm.elements.strategyId.value = button.dataset.generateStrategy; webinarForm.elements.question.value = 'Create a complete AI chart lesson that teaches this approved strategy on TradingView and an AI-marked candlestick example, including conditions, confirmations, entries, exits, invalidation, automatic zoom, risk, common mistakes, a worked example, and a quiz.'; webinarForm.scrollIntoView({ behavior: 'smooth' }); }); });
     }
 
     renderTutor();

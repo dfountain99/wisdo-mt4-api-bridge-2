@@ -1,4 +1,4 @@
-# WISDO Member App — AI Webinar Room + Strategy Studio V5.4.0
+# WISDO Member App — TradingView AI Chart Teacher V5.5.0
 
 WISDO is a multi-account trading command center that combines a premium public product site, account linking, MT4/Discord relay execution, Culture Lanes, risk governance, analytics, education, affiliate operations, billing, alerts, and administrative controls.
 
@@ -28,6 +28,18 @@ This release was rebuilt directly from the user-provided `wisdo-member-app-produ
 - Account-aware AI tutor with persistent history and course recommendations
 - Proprietary DF Sauce Pine source removed from all public assets and blocked from Git commits
 - Private TradingView layout handoff through `WISDO_DF_SAUCE_TRADINGVIEW_URL`
+
+
+## V5.5 TradingView AI Chart Teacher
+
+- Every generated trading webinar now includes at least one on-chart worked example.
+- Chart scenes open the matching symbol and timeframe inside a live TradingView advanced chart.
+- The AI Markup mode draws a safe simulated candlestick example with a teaching zone, confirmation marker, educational entry, invalidation, and objective.
+- Four chart-teaching steps move from wide context to confirmation, risk mapping, and full-move review.
+- Webinar playback automatically switches to AI Markup and zooms through those steps while narration continues.
+- Members can manually zoom in/out, reset the chart, change timeframe, return to live TradingView, or open the full TradingView chart in a separate tab.
+- Simulated examples are clearly labeled and never represented as real historical prices or live trade signals.
+- The service-worker cache is advanced to V5.5 so browsers receive the new Academy client after deployment.
 
 
 ## V5.4 AI Webinar Room and Strategy Teaching Studio

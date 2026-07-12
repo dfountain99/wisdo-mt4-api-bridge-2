@@ -16,7 +16,7 @@ import { ChartRenderService } from '../services/chartRenderService.js';
 import { TradeSignalService } from '../services/tradeSignalService.js';
 import { ACADEMY_COURSE_COUNT, buildInteractiveLesson, buildPersonalizedPath, getAcademyCourse, searchAcademyCourses } from '../services/academyCatalogService.js';
 import { calculateTradingTool, getEducationHubSummary, searchEducationResources } from '../services/educationHubService.js';
-import { buildFallbackWebinar, createWebinarSession, gradeWebinarQuiz, normalizeStrategyInput } from '../services/aiWebinarService.js';
+import { buildFallbackWebinar, buildTeachingChart, createWebinarSession, gradeWebinarQuiz, normalizeStrategyInput } from '../services/aiWebinarService.js';
 
 process.env.NODE_ENV = 'test';
 process.env.WISDO_ALLOW_TEST_IDENTITY = 'true';
@@ -708,8 +708,18 @@ test('AI Webinar service builds narrated lessons and grades knowledge checks wit
   assert.ok(webinar.scenes.length >= 4);
   assert.ok(webinar.quiz.length >= 2);
   assert.match(webinar.subtitle, /approved Deadshot Reversal Framework/i);
+  const chartScene = webinar.scenes.find((scene) => scene.chart);
+  assert.ok(chartScene);
+  assert.equal(chartScene.chart.symbol, 'OANDA:XAUUSD');
+  assert.ok(chartScene.chart.candles.length >= 50);
+  assert.ok(chartScene.chart.steps.length >= 4);
+  assert.ok(chartScene.chart.levels.some((level) => level.role === 'stop'));
+  const chart = buildTeachingChart({ symbol: 'BTCUSD', interval: '1H', scenarioType: 'breakout', direction: 'bullish' });
+  assert.equal(chart.symbol, 'COINBASE:BTCUSD');
+  assert.equal(chart.interval, '60');
+  assert.equal(chart.simulated, true);
   const session = createWebinarSession({ userId: 'member-1', request: { question: 'Teach me the reversal process' }, webinar, strategy });
-  assert.equal(session.mediaMode, 'interactive_ai_video');
+  assert.equal(session.mediaMode, 'interactive_ai_video_with_chart_teacher');
   const grade = gradeWebinarQuiz(session, { q1: 0, q2: 0, q3: 0 });
   assert.equal(grade.score, 100);
   assert.equal(grade.passed, true);
@@ -723,8 +733,10 @@ test('AI Webinar Room supports admin-taught strategy publishing, member lessons,
 
   const config = await jsonFetch(`${fixture.base}/api/v2/webinar-ai/config`, { headers: memberHeaders });
   assert.equal(config.response.status, 200);
-  assert.equal(config.payload.mode, 'on_demand_ai_video');
+  assert.equal(config.payload.mode, 'on_demand_ai_video_with_chart_teacher');
   assert.equal(config.payload.browserNarrationReady, true);
+  assert.equal(config.payload.chartTeacherReady, true);
+  assert.equal(config.payload.tradingViewReady, true);
   assert.ok(config.payload.templates.length >= 6);
 
   const draft = await jsonFetch(`${fixture.base}/api/v2/admin/webinar-ai/strategies`, {
@@ -772,12 +784,17 @@ test('AI Webinar Room supports admin-taught strategy publishing, member lessons,
 
   const generated = await jsonFetch(`${fixture.base}/api/v2/webinar-ai/generate`, {
     method: 'POST', headers: memberHeaders,
-    body: JSON.stringify({ question: 'Teach me this reversal strategy step by step', topic: 'Reversal strategy', level: 'starter', durationMinutes: 8, strategyId }),
+    body: JSON.stringify({ question: 'Teach me this reversal strategy step by step', topic: 'Reversal strategy', level: 'starter', durationMinutes: 8, strategyId, chartSymbol: 'OANDA:XAUUSD', chartInterval: '60' }),
   });
   assert.equal(generated.response.status, 201);
-  assert.equal(generated.payload.session.mediaMode, 'interactive_ai_video');
+  assert.equal(generated.payload.session.mediaMode, 'interactive_ai_video_with_chart_teacher');
   assert.ok(generated.payload.session.webinar.scenes.length >= 4);
   assert.ok(generated.payload.session.webinar.quiz.length >= 2);
+  const generatedChartScene = generated.payload.session.webinar.scenes.find((scene) => scene.chart);
+  assert.ok(generatedChartScene);
+  assert.equal(generatedChartScene.chart.symbol, 'OANDA:XAUUSD');
+  assert.equal(generatedChartScene.chart.interval, '60');
+  assert.ok(generatedChartScene.chart.steps.some((step) => /zoom/i.test(step.narration)));
   assert.equal('answerIndex' in generated.payload.session.webinar.quiz[0], false);
   const sessionId = generated.payload.session.sessionId;
 
@@ -820,4 +837,8 @@ test('AI Webinar Room supports admin-taught strategy publishing, member lessons,
   assert.match(client, /Strategy Studio/);
   assert.match(client, /\/api\/v2\/webinar-ai\/generate/);
   assert.match(client, /SpeechSynthesisUtterance/);
+  assert.match(client, /Live TradingView/);
+  assert.match(client, /AI Markup/);
+  assert.match(client, /Zoom in/);
+  assert.match(client, /tradingViewWidgetUrl/);
 });

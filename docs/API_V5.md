@@ -167,3 +167,19 @@ Editing a published strategy automatically moves it back to review. The edited k
 ### Optional external-video callback
 
 `POST /api/public/webhooks/ai-webinar-video` requires `x-wisdo-video-secret` matching `WISDO_AI_VIDEO_WEBHOOK_SECRET`. The route fails closed when no secret is configured.
+
+
+## V5.5 AI chart lesson payload
+
+`POST /api/v2/webinar-ai/generate` accepts optional `chartSymbol` and `chartInterval` fields.
+
+Chart scenes return a `chart` object with:
+
+- `symbol` and `interval` for the live TradingView embed
+- `simulated: true` for the AI teaching candles
+- `candles` for the controlled educational example
+- `zones`, `levels`, and `markers` for chart markup
+- `steps` containing chart ranges and narration for automatic zoom
+- a notice separating simulated teaching data from the real TradingView market chart
+
+The client defaults to Live TradingView when a chart scene opens. Starting webinar playback switches to AI Markup and advances through context, confirmation, risk mapping, and review ranges.
