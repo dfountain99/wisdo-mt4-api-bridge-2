@@ -1,6 +1,6 @@
 {
   "name": "culture-coin-operator-desks-bot",
-  "version": "5.6.3",
+  "version": "5.7.0",
   "description": "WISDO multi-account trading command center, Square checkout, copier engine, analyzer, academy, affiliate, Discord and MT4 relay.",
   "type": "module",
   "private": true,

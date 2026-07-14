@@ -131,6 +131,7 @@ export function calculateTradingTool(toolId, input = {}) {
 
 export function suggestedQuestionsForPage(page = '/') {
   const path = String(page || '/');
+  if (path.includes('/learn') || path.includes('/growth') || path.includes('/webinar')) return ['Build my personal WISDO learning plan.', 'What should I watch first?', 'Explain Reporter versus Copier.', 'Give me a demo-account setup checklist.'];
   if (path.includes('copier')) return ['Why is my Culture Lane not relaying?', 'Explain fixed lot versus equity ratio.', 'What prevents a follower from closing?', 'Show me the copier health checklist.'];
   if (path.includes('accounts')) return ['Why is my Reporter stale?', 'How do lead and receiver capabilities work?', 'What does Expert Enabled mean?', 'Help me pair a new MT4 account.'];
   if (path.includes('trades')) return ['Explain this trade ledger.', 'Why can open trades and closed history disagree?', 'How is net P/L calculated?', 'Show me a trade-review template.'];

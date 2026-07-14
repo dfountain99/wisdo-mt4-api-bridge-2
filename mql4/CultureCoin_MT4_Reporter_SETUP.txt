@@ -1,3 +1,12 @@
+
+IMPORTANT — ONE REPORTER PER MT4 ACCOUNT
+----------------------------------------
+Attach CultureCoin_MT4_Reporter to only one chart in each MT4 terminal/account.
+The default snapshot interval is 10 seconds. Command polling remains 1 second so trade
+open/close commands stay responsive. Multiple Reporter copies on the same account can
+create near-simultaneous sync requests; v5.6.2 coalesces them, but removing duplicates
+is still the correct setup.
+
 Culture Coin MT4 Reporter v1.56 — Sync Account + Close Authority Setup
 
 ACTIVE FILES

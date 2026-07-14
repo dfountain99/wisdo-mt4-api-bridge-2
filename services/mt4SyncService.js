@@ -135,6 +135,49 @@ function normalizeTrade(trade, closed = false) {
   };
 }
 
+
+function compactHistorySnapshot(snapshot = {}) {
+  return {
+    accountNumber: snapshot.accountNumber,
+    accountName: snapshot.accountName,
+    brokerServer: snapshot.brokerServer,
+    isDemo: snapshot.isDemo,
+    eaName: snapshot.eaName,
+    eaVersion: snapshot.eaVersion,
+    balance: snapshot.balance,
+    equity: snapshot.equity,
+    margin: snapshot.margin,
+    freeMargin: snapshot.freeMargin,
+    marginLevel: snapshot.marginLevel,
+    floatingPL: snapshot.floatingPL,
+    dailyClosedPL: snapshot.dailyClosedPL,
+    openTradeCount: snapshot.openTradeCount,
+    buyTradeCount: snapshot.buyTradeCount,
+    sellTradeCount: snapshot.sellTradeCount,
+    totalLots: snapshot.totalLots,
+    symbols: Array.isArray(snapshot.symbols) ? snapshot.symbols.slice(0, 50) : [],
+    timestamp: snapshot.timestamp,
+    terminalConnected: snapshot.terminalConnected,
+    expertEnabled: snapshot.expertEnabled,
+  };
+}
+
+function appendBoundedHistory(history, record) {
+  const globalLimit = Math.max(50, Number(process.env.WISDO_MT4_HISTORY_GLOBAL_LIMIT || 500));
+  const accountLimit = Math.max(10, Number(process.env.WISDO_MT4_HISTORY_ACCOUNT_LIMIT || 100));
+  const result = [record];
+  let accountCount = 1;
+  for (const item of Array.isArray(history) ? history : []) {
+    if (result.length >= globalLimit) break;
+    if (String(item.accountId || '') === String(record.accountId || '')) {
+      if (accountCount >= accountLimit) continue;
+      accountCount += 1;
+    }
+    result.push(item);
+  }
+  return result;
+}
+
 export class Mt4SyncError extends Error {
   constructor(statusCode, message) {
     super(message);
@@ -539,12 +582,17 @@ export class Mt4SyncService {
               });
             }
           }
+          if (tracking.tradeKeyToSignalId) delete tracking.tradeKeyToSignalId[oldKey];
         }
       }
 
+      const activeSignalMap = {};
+      for (const key of nowOpenKeys) {
+        if (tracking.tradeKeyToSignalId?.[key]) activeSignalMap[key] = tracking.tradeKeyToSignalId[key];
+      }
       state.signalTrackingByAccountId[accountId] = {
-        ...tracking,
         openKeys: nowOpenKeys,
+        tradeKeyToSignalId: activeSignalMap,
         updatedAt: new Date().toISOString(),
       };
 
@@ -633,6 +681,10 @@ export class Mt4SyncService {
 
   checkRateLimit(key) {
     const now = Date.now();
+    const configuredInterval = Number(process.env.WISDO_MT4_SYNC_MIN_INTERVAL_MS || 750);
+    const minimumIntervalMs = Number.isFinite(configuredInterval)
+      ? Math.max(100, Math.min(10_000, configuredInterval))
+      : 750;
 
     for (const [entryKey, timestamp] of this.requestTimestamps.entries()) {
       if (now - timestamp > 60_000) {
@@ -641,12 +693,18 @@ export class Mt4SyncService {
     }
 
     const previous = this.requestTimestamps.get(key);
+    const elapsedMs = previous ? now - previous : Number.POSITIVE_INFINITY;
 
-    if (previous && now - previous < 1000) {
-      throw new Mt4SyncError(429, 'Too many MT4 sync requests');
+    if (previous && elapsedMs < minimumIntervalMs) {
+      return {
+        allowed: false,
+        retryAfterMs: Math.max(1, minimumIntervalMs - elapsedMs),
+        minimumIntervalMs,
+      };
     }
 
     this.requestTimestamps.set(key, now);
+    return { allowed: true, retryAfterMs: 0, minimumIntervalMs };
   }
 
   async getDeskMt4Status(discordUserId) {
@@ -723,7 +781,29 @@ export class Mt4SyncService {
       throw new Mt4SyncError(400, 'Pairing code expired');
     }
 
-    this.checkRateLimit(`${snapshot.pairingCode}:${snapshot.accountNumber}`);
+    const accountId = this.repository.getMt4AccountId
+      ? this.repository.getMt4AccountId(snapshot.accountNumber, snapshot.brokerServer)
+      : `${snapshot.accountNumber}:${snapshot.brokerServer}`;
+    const rateLimit = this.checkRateLimit(`${snapshot.pairingCode}:${snapshot.accountNumber}`);
+
+    // Multiple Reporter copies can fire during the same timer tick when the EA is attached
+    // to more than one chart. Coalesce those near-simultaneous snapshots instead of returning
+    // HTTP 429, logging an error, and repeating all signal/persistence work.
+    if (!rateLimit.allowed) {
+      return {
+        ok: true,
+        status: 'coalesced',
+        message: 'Rapid duplicate snapshot coalesced',
+        discordUserId: pairingRecord.discordUserId,
+        accountId,
+        coalesced: true,
+        retryAfterMs: rateLimit.retryAfterMs,
+        copySignalsOpened: 0,
+        copySignalsClosed: 0,
+        signalSkipped: true,
+        signalSkipReason: 'rapid-duplicate-snapshot',
+      };
+    }
 
     const existingConnection = await this.getConnection(pairingRecord.discordUserId);
     const lockedAccountNumber = pairingRecord.accountNumber;
@@ -741,9 +821,6 @@ export class Mt4SyncService {
 
     const receivedAt = new Date().toISOString();
     const nextStatus = pairingRecord.status === 'connected' ? 'updated' : 'connected';
-    const accountId = this.repository.getMt4AccountId
-      ? this.repository.getMt4AccountId(snapshot.accountNumber, snapshot.brokerServer)
-      : `${snapshot.accountNumber}:${snapshot.brokerServer}`;
     const mt4StateBeforeSnapshot = await this.repository.getMt4State?.();
     const existingAccountSettings = mt4StateBeforeSnapshot?.accountSettingsByAccountId?.[accountId] || {};
     const connectionRecord = {
@@ -787,9 +864,12 @@ export class Mt4SyncService {
     const signalSummary = await this.processTradeSignals({ connectionRecord, latestSnapshotRecord });
 
     const historyRecord = {
-      ...latestSnapshotRecord,
-      pairingCode: snapshot.pairingCode,
+      discordUserId: latestSnapshotRecord.discordUserId,
+      channelId: latestSnapshotRecord.channelId,
       accountId,
+      snapshot: compactHistorySnapshot(snapshot),
+      receivedAt,
+      pairingCode: snapshot.pairingCode,
       copySignalsOpened: signalSummary.opened,
       copySignalsClosed: signalSummary.closed,
       signalSkipped: signalSummary.skipped,
@@ -825,17 +905,7 @@ export class Mt4SyncService {
         state.connections[pairingRecord.discordUserId] = connectionRecord;
         state.latestSnapshots[pairingRecord.discordUserId] = latestSnapshotRecord;
       }
-      state.snapshotHistory = [historyRecord, ...state.snapshotHistory].filter((record, index, array) => {
-        if (index >= 1000) {
-          return false;
-        }
-
-        const userHistory = array
-          .slice(0, index + 1)
-          .filter((item) => item.discordUserId === record.discordUserId);
-
-        return userHistory.length <= 250;
-      });
+      state.snapshotHistory = appendBoundedHistory(state.snapshotHistory, historyRecord);
       return state;
     });
 
@@ -905,6 +975,7 @@ async resetUserAccount(discordUserId) {
     if (!state.pairingCodes) state.pairingCodes = {};
     if (!state.connections) state.connections = {};
     if (!state.latestSnapshots) state.latestSnapshots = {};
+    if (!state.signalTrackingByAccountId) state.signalTrackingByAccountId = {};
     if (!Array.isArray(state.snapshotHistory)) state.snapshotHistory = [];
 
     for (const pairing of Object.values(state.pairingCodes)) {
@@ -925,6 +996,10 @@ async resetUserAccount(discordUserId) {
     if (state.latestSnapshots[userId]) {
       delete state.latestSnapshots[userId];
       summary.latestSnapshotCleared = true;
+    }
+
+    for (const [accountId, connection] of Object.entries(state.connectionsByAccountId || {})) {
+      if (String(connection?.discordUserId) === userId) delete state.signalTrackingByAccountId[accountId];
     }
 
     const beforeHistory = state.snapshotHistory.length;

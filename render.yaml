@@ -48,6 +48,16 @@ services:
         value: "true"
       - key: MT4_MAX_PAYLOAD_KB
         value: "256"
+      - key: WISDO_MT4_HISTORY_GLOBAL_LIMIT
+        value: "500"
+      - key: WISDO_MT4_HISTORY_ACCOUNT_LIMIT
+        value: "100"
+      - key: WISDO_MT4_SIGNAL_TRACKING_ACCOUNT_LIMIT
+        value: "250"
+      - key: WISDO_SIGNAL_HISTORY_LIMIT
+        value: "500"
+      - key: WISDO_STATE_QUARANTINE_MB
+        value: "96"
       - key: AUTO_REGISTER_COMMANDS_ON_START
         value: "true"
       - key: DATA_DIR
@@ -144,6 +154,18 @@ services:
         sync: false
       - key: RESEND_FROM_EMAIL
         sync: false
+      - key: WISDO_EMAIL_REPLY_TO
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
+      - key: FUNNEL_MONTHLY_LEAD_TARGET
+        value: "1000"
+      - key: FUNNEL_TARGET_CONVERSION_RATE
+        value: "20"
       - key: FINNHUB_API_KEY
         sync: false
       - key: TRADING_ECONOMICS_API_KEY

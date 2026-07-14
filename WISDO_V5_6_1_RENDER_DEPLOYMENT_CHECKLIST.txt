@@ -1,0 +1,39 @@
+WISDO V5.6.1 RENDER DEPLOYMENT CHECKLIST
+
+[ ] Deploy the full V5.6.1 ZIP/repository root.
+[ ] Build command: npm ci --omit=dev --no-audit --no-fund
+[ ] Start command: npm start
+[ ] Persistent disk mount: /var/data
+[ ] DATA_DIR=/var/data/wisdo
+[ ] WISDO_STORAGE_PATH=/var/data/wisdo
+[ ] PUBLIC_BASE_URL is the live HTTPS Render URL.
+
+EMAIL
+[ ] RESEND_API_KEY configured.
+[ ] RESEND_FROM_EMAIL configured with a verified domain/sender.
+[ ] WISDO_EMAIL_REPLY_TO configured.
+
+SMS
+[ ] TWILIO_ACCOUNT_SID configured.
+[ ] TWILIO_AUTH_TOKEN configured.
+[ ] TWILIO_FROM_NUMBER configured in E.164 format.
+[ ] SMS remains optional and consent-based.
+
+FUNNEL
+[ ] FUNNEL_MONTHLY_LEAD_TARGET=1000
+[ ] FUNNEL_TARGET_CONVERSION_RATE=20
+[ ] Test /growth with utm_source, utm_medium, utm_campaign, and ref.
+[ ] Confirm /admin/growth-funnel metrics and source attribution.
+
+REPORTER/COPIER
+[ ] Confirm prestart repair runs before the application.
+[ ] Confirm Reporter first heartbeat opens expected signals.
+[ ] Confirm identical second heartbeat opens zero duplicate signals.
+[ ] Close one master trade and confirm exactly one close is detected.
+[ ] Confirm follower command completes with its actual follower ticket.
+
+HEALTH
+[ ] /health returns 200.
+[ ] /api/public/health shows version 5.6.1.
+[ ] Render logs no longer show repeated copySignalsOpened equal to every open trade count.
+[ ] Render logs no longer show JavaScript heap out of memory / exit 134.

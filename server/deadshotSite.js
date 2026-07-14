@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 import { SquarePaymentGateway, encodeSquarePaymentNote } from '../services/squarePaymentService.js';
+import { NotificationDeliveryService } from '../services/notificationDeliveryService.js';
+import { GrowthFunnelService } from '../services/growthFunnelService.js';
 import { encodeSignedSession, decodeSignedSession, safeReturnPath } from './security.js';
 
 const SESSION_COOKIE = 'cc_user';
@@ -81,6 +83,7 @@ const PUBLIC_NAV = [
   ['/', 'Home'],
   ['/tunnel', 'Tunnel'],
   ['/webinar/register', 'Webinar'],
+  ['/growth', 'Start Free'],
   ['/pricing', 'Pricing'],
   ['/faq', 'FAQ'],
   ['/contact', 'Support'],
@@ -117,6 +120,7 @@ const ADMIN_NAV = [
   ['/admin/payments', 'Payments'],
   ['/admin/products', 'Products'],
   ['/admin/leads', 'Tunnel Leads'],
+  ['/admin/growth-funnel', 'Growth Funnel'],
   ['/admin/copier-access', 'Copier Access'],
   ['/admin/reporter-settings', 'Reporter Settings'],
   ['/admin/notifications', 'Notifications'],
@@ -144,6 +148,11 @@ function nowIso() {
 
 function id(prefix) {
   return `${prefix}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+}
+
+
+function formBoolean(value) {
+  return ['1', 'true', 'yes', 'on', 'checked'].includes(String(value || '').trim().toLowerCase());
 }
 
 function parseCookies(req) {
@@ -205,6 +214,13 @@ function ensureState(state) {
   state.trading_accounts ||= {};
   state.account_configurations ||= {};
   state.notification_events ||= [];
+  state.notificationOutboxById ||= {};
+  state.notificationDeliveryLogById ||= {};
+  state.notificationPreferencesByUserId ||= {};
+  state.funnelCampaignsById ||= {};
+  state.funnelVisitsById ||= {};
+  state.funnelLeadsById ||= {};
+  state.funnelEvents ||= [];
   state.sync_events ||= [];
   state.copier_events ||= [];
   state.feedback ||= [];
@@ -1304,8 +1320,26 @@ function tunnelPage() {
   return `<main><section class="hero"><div class="container hero-grid"><div><span class="eyebrow">Trading On Automatic Tunnel</span><h1>See the command center before you connect a live account.</h1><p class="lead">This funnel educates users first: what the reporter does, what copier access unlocks, how membership controls permissions, and how Deadshot protects trading actions behind real account checks.</p><div class="actions"><a class="btn primary" href="/webinar/register">Register For Webinar</a><a class="btn" href="/webinar/replay">Watch Replay</a></div></div><div class="card gold"><h3>What the webinar covers</h3><p>Reporter alerts, active member gates, Discord commands, MT4/MT5 bridge connection, emergency close controls, and the difference between seeing reports and copying trades.</p><div class="trust-strip"><span class="chip green">No fake profit claims</span><span class="chip gold">Clear risk rules</span><span class="chip">Beginner friendly</span></div></div></div></section><section class="section"><div class="container"><div class="grid"><div class="card"><h3>1. Learn</h3><p>Understand the reporter, dashboard, risk controls, and copier rules.</p></div><div class="card"><h3>2. Activate</h3><p>Subscribe on the website or receive the Discord Culture Coin role manually.</p></div><div class="card"><h3>3. Launch</h3><p>Connect Discord, connect the bridge, then unlock controls only after real checks pass.</p></div></div></div></section></main>`;
 }
 
-function webinarRegistrationPage() {
-  return `<main><section class="hero"><div class="container hero-grid"><div><span class="eyebrow">Free Command Webinar</span><h1>Build control before you scale automation.</h1><p class="lead">Register to see how Culture Coin Reporter, Deadshot bot controls, Discord commands, membership gates, and trade copier access work together.</p></div><form class="card form" method="post" action="/api/leads"><input type="hidden" name="source" value="webinar"><div class="field"><label>Name</label><input name="name" required placeholder="Your name"></div><div class="field"><label>Email</label><input type="email" name="email" required placeholder="you@example.com"></div><div class="field"><label>Phone optional</label><input name="phone" placeholder="Optional"></div><div class="field"><label>Trading platform</label><select name="platform"><option>MT4</option><option>MT5</option><option>Both</option><option>Not sure yet</option></select></div><button class="btn primary" type="submit">Reserve My Seat</button><p class="muted">Lead is saved locally in the project JSON store until you connect a CRM/email provider.</p></form></div></section></main>`;
+function attributionInputs(req = {}, defaults = {}) {
+  const query = req.query || {};
+  const fields = {
+    source: query.utm_source || query.source || defaults.source || 'website',
+    medium: query.utm_medium || query.medium || defaults.medium || '',
+    campaign: query.utm_campaign || query.campaign || defaults.campaign || 'wisdo-growth',
+    content: query.utm_content || query.content || defaults.content || '',
+    term: query.utm_term || query.term || defaults.term || '',
+    referralCode: query.ref || query.referralCode || defaults.referralCode || '',
+    landingPath: req.originalUrl || defaults.landingPath || '',
+  };
+  return Object.entries(fields).map(([name, value]) => `<input type="hidden" name="${name}" value="${esc(value)}">`).join('');
+}
+
+function webinarRegistrationPage(req = {}) {
+  return `<main><section class="hero"><div class="container hero-grid"><div><span class="eyebrow">Free Command Webinar</span><h1>Build control before you scale automation.</h1><p class="lead">Register to receive a personal learning room with the command webinar, setup links, teaching videos, and a portable WISDO AI guide that follows your progress across the funnel.</p><div class="trust-strip"><span class="chip green">Instant email confirmation</span><span class="chip">Optional text confirmation</span><span class="chip gold">No profit guarantees</span></div></div><form class="card form" method="post" action="/api/leads">${attributionInputs(req,{source:'webinar',campaign:'wisdo-command-webinar'})}<div class="field"><label>Name</label><input name="name" required placeholder="Your name"></div><div class="field"><label>Email</label><input type="email" name="email" required placeholder="you@example.com"></div><div class="field"><label>Phone optional</label><input name="phone" inputmode="tel" autocomplete="tel" placeholder="(555) 555-5555"></div><div class="field"><label>Trading platform</label><select name="platform"><option>MT4</option><option>MT5</option><option>Both</option><option>Not sure yet</option></select></div><label class="field" style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" name="smsConsent" value="true" style="width:auto;margin-top:4px"><span>Text me my registration confirmation and setup link. Message and data rates may apply. Reply STOP to opt out.</span></label><label class="field" style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" name="marketingConsent" value="true" style="width:auto;margin-top:4px"><span>Send me the four-part WISDO education series with Reporter setup, copier safety, videos, and AI-guided next steps. I can unsubscribe anytime.</span></label><label aria-hidden="true" style="position:absolute;left:-9999px"><span>Website</span><input name="companyWebsite" tabindex="-1" autocomplete="off"></label><button class="btn primary" type="submit">Reserve My Seat</button><p class="muted">The registration email is transactional. SMS is sent only when a valid phone number and explicit consent are provided.</p></form></div></section><script>fetch('/api/funnel/visit',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({path:location.pathname+location.search,referrer:document.referrer,userAgent:navigator.userAgent,source:new URLSearchParams(location.search).get('utm_source')||'webinar',medium:new URLSearchParams(location.search).get('utm_medium')||'',campaign:new URLSearchParams(location.search).get('utm_campaign')||'wisdo-command-webinar',content:new URLSearchParams(location.search).get('utm_content')||'',term:new URLSearchParams(location.search).get('utm_term')||'',referralCode:new URLSearchParams(location.search).get('ref')||''})}).catch(()=>{});</script></main>`;
+}
+
+function growthFunnelPage(req = {}) {
+  return `<main><section class="hero"><div class="container hero-grid"><div><span class="eyebrow">WISDO Free Operator Starter</span><h1>Connect your first account with control.</h1><p class="lead">Get a personal command-center learning room, emailed webinars, Reporter setup information, copier-safety videos, and a portable WISDO AI guide.</p><div class="actions"><a class="btn" href="/webinar/replay">Preview Training</a><a class="btn gold" href="/pricing">Compare Access</a></div><div class="trust-strip"><span class="chip green">Personal learning room</span><span class="chip">Tracked referral credit</span><span class="chip gold">Optional SMS</span></div></div><form class="card form" method="post" action="/api/funnel/leads">${attributionInputs(req,{source:'growth-page',campaign:'1000-lead-engine'})}<div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Email</label><input type="email" name="email" required></div><div class="field"><label>Phone optional</label><input name="phone" inputmode="tel" autocomplete="tel"></div><div class="field"><label>Platform</label><select name="platform"><option>MT4</option><option>MT5</option><option>Both</option><option>Learning first</option></select></div><label class="field" style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" name="smsConsent" value="true" style="width:auto;margin-top:4px"><span>Send my access link by text. Message and data rates may apply. Reply STOP to opt out.</span></label><label class="field" style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" name="marketingConsent" value="true" checked style="width:auto;margin-top:4px"><span>Send training and product follow-up by email.</span></label><label aria-hidden="true" style="position:absolute;left:-9999px"><span>Website</span><input name="companyWebsite" tabindex="-1" autocomplete="off"></label><button class="btn primary" type="submit">Get Free Access</button><p class="muted">Monthly lead volume depends on traffic and conversion rate. The dashboard tracks progress toward the configured 1,000-lead target.</p></form></div></section><section class="section"><div class="container"><div class="grid"><div class="card"><h3>1. Capture</h3><p>Landing pages preserve source, campaign, referral code, and UTM attribution.</p></div><div class="card"><h3>2. Confirm</h3><p>Signup and lead confirmations send through Resend and optional consent-based Twilio SMS.</p></div><div class="card"><h3>3. Convert</h3><p>Webinar, free Reporter access, membership, and affiliate links move each lead to the next measurable stage.</p></div></div></div></section><script>fetch('/api/funnel/visit',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({path:location.pathname+location.search,referrer:document.referrer,userAgent:navigator.userAgent,source:new URLSearchParams(location.search).get('utm_source')||'direct',medium:new URLSearchParams(location.search).get('utm_medium')||'',campaign:new URLSearchParams(location.search).get('utm_campaign')||'1000-lead-engine',content:new URLSearchParams(location.search).get('utm_content')||'',term:new URLSearchParams(location.search).get('utm_term')||'',referralCode:new URLSearchParams(location.search).get('ref')||''})}).catch(()=>{});</script></main>`;
 }
 
 function webinarReplayPage() {
@@ -1318,6 +1352,13 @@ function webinarReplayPage() {
     ['Affiliate Activation', 'Sign up, pay activation today, receive a referral code, and track earned split payouts from real checkout metadata.'],
   ];
   return `<main><section class="section"><div class="container">${sectionHead('Wisdo Seminar + Education Portal', 'Connect. Copy. Control.', 'The replay page is no longer a placeholder. It now explains how the live ecosystem should connect accounts, relay commands, educate users, and convert members without fake demo promises.')}<div class="grid2"><div class="card glow"><span class="eyebrow">Seminar Room</span><h3>Launch Training Flow</h3><p class="muted">Use this section for the recorded/live class, onboarding checklist, and account-relay walkthrough. The CTA sends users into paid activation or the free reporter path.</p><div class="command-diagnostics"><div class="mini-stat"><span>Step 1</span><strong>Create profile</strong></div><div class="mini-stat"><span>Step 2</span><strong>Pay/role activate</strong></div><div class="mini-stat"><span>Step 3</span><strong>Pair MT4 reporter</strong></div><div class="mini-stat"><span>Step 4</span><strong>Select relay account</strong></div></div><div class="actions"><button class="btn primary" data-checkout="culture-coin-monthly">Activate Membership</button><a class="btn" href="/app/connect-account">Connect Reporter</a><a class="btn gold" href="/affiliate">Affiliate Signup</a></div></div><div class="card purple"><span class="eyebrow">Education Answers</span><h3>What Wisdo should teach automatically</h3><p>When a user asks about setup, risk, copier rules, live vs demo, broker suffixes, or why a command was blocked, the portal should answer using these modules and route them to the exact fix page.</p><div class="trust-strip"><span class="chip green">No demo command claims</span><span class="chip gold">Real account gates</span><span class="chip">Mobile-first</span></div></div></div><div class="grid" style="margin-top:16px">${modules.map(([title, body])=>`<div class="card"><h3>${esc(title)}</h3><p>${esc(body)}</p></div>`).join('')}</div></div></section></main>`;
+}
+
+function leadLearningPortalPage({ lead = {}, access = {}, resources = [] } = {}) {
+  const videos = resources.filter((item) => item.type === 'video');
+  const cards = resources.map((item) => `<article class="card ${item.type === 'ai' ? 'purple' : item.type === 'webinar' ? 'glow' : ''}"><span class="tag">${esc(item.type || 'resource')}</span><h3>${esc(item.title || 'WISDO lesson')}</h3><p>${esc(item.description || '')}</p><div class="mini-stat"><span>Format</span><strong>${esc(item.duration || '')}</strong></div><a class="btn ${item.type === 'ai' ? 'gold' : 'primary'}" href="${esc(item.trackedUrl || item.href || '#')}">${item.type === 'ai' ? 'Open portable AI' : item.type === 'video' ? 'Open video' : 'Open lesson'}</a></article>`).join('');
+  const tokenJson = JSON.stringify(access.token || '');
+  return `<main><section class="hero"><div class="container hero-grid"><div><span class="eyebrow">Personal WISDO Learning Room</span><h1>${esc(lead.name ? `${lead.name}, your training path is ready.` : 'Your WISDO training path is ready.')}</h1><p class="lead">Your webinar, setup information, teaching videos, and portable WISDO AI guide are connected through this personal learning link.</p><div class="trust-strip"><span class="chip green">Personal resource link</span><span class="chip gold">Portable page-aware AI</span><span class="chip">Education before execution</span></div><div class="actions"><a class="btn primary" href="${esc(resources.find((item) => item.id === 'command-webinar')?.trackedUrl || '/webinar/replay')}">Start the webinar</a><button class="btn gold" type="button" onclick="document.querySelector('.wisdo-ai-launch')?.click()">Ask WISDO AI</button><a class="btn" href="/signup?leadToken=${encodeURIComponent(access.token || '')}">Create free account</a></div></div><div class="card glow"><span class="eyebrow">Your progress</span><h3>Learn → Test → Connect</h3><div class="command-diagnostics"><div class="mini-stat"><span>1</span><strong>Watch the command webinar</strong></div><div class="mini-stat"><span>2</span><strong>Review Reporter setup</strong></div><div class="mini-stat"><span>3</span><strong>Learn copier safety</strong></div><div class="mini-stat"><span>4</span><strong>Ask AI for your checklist</strong></div></div><p class="muted">Use demo accounts for first tests. The AI can teach and troubleshoot, but cannot execute trades or silently change copier settings.</p></div></div></section><section class="section"><div class="container">${sectionHead('Your training library', 'Webinars, videos, information, and AI in one place.', 'Every resource click and lesson completion helps WISDO understand where leads need more education.')}<div class="grid">${cards}</div></div></section>${videos.length ? `<section class="section"><div class="container">${sectionHead('Video classroom', 'Watch inside your learning room.', 'These visual lessons are tracked only for funnel progress and educational follow-up.')}<div class="grid2">${videos.map((video) => `<article class="card"><h3>${esc(video.title)}</h3><p>${esc(video.description)}</p><video controls playsinline preload="metadata" style="width:100%;border-radius:16px;background:#02050a" data-funnel-video="${esc(video.id)}"><source src="${esc(video.href)}" type="video/mp4"></video></article>`).join('')}</div></div></section>` : ''}<section class="section"><div class="container"><div class="card purple"><span class="eyebrow">Portable WISDO AI</span><h2>Carry the same learning context to every page.</h2><p>Open the floating <strong>W</strong> assistant on this page, the webinar, pricing, or education. Your personal lead token is stored in this browser so WISDO can remember your funnel stage and recommend the next safe lesson.</p><div class="actions"><button class="btn gold" type="button" onclick="document.querySelector('.wisdo-ai-launch')?.click()">Open WISDO AI</button><a class="btn" href="${esc(access.unsubscribeUrl || '#')}">Manage email training</a></div></div></div></section><script>(()=>{const token=${tokenJson};if(token){localStorage.setItem('wisdo.leadToken',token);}const send=(type,resourceId,metadata={})=>fetch('/api/funnel/engagement',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token,type,resourceId,metadata})}).catch(()=>{});send('portal_open','personal-learning-room',{path:location.pathname});document.querySelectorAll('[data-funnel-video]').forEach((video)=>{let started=false;video.addEventListener('play',()=>{if(started)return;started=true;send('video_started',video.dataset.funnelVideo,{currentTime:video.currentTime});});video.addEventListener('ended',()=>send('video_completed',video.dataset.funnelVideo,{duration:video.duration}));});})();</script></main>`;
 }
 
 function affiliatePage() {
@@ -1337,7 +1378,7 @@ function loginPage(error = '') {
 }
 
 function signupPage(error = '') {
-  return `<main><section class="hero"><div class="container hero-grid"><div><span class="eyebrow">Free Account</span><h1>Create your Culture Coin profile.</h1><p class="lead">Free users can view the reporter and market alerts. Copier controls stay locked until active membership is confirmed by billing or Discord role.</p>${error ? `<div class="card red">${esc(error)}</div>` : ''}</div><form class="card form" method="post" action="/auth/email/signup"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Email</label><input type="email" name="email" required></div><div class="field"><label>Password</label><input type="password" name="password" required minlength="8"></div><button class="btn primary" data-launch type="submit">Create Account</button></form></div></section></main>`;
+  return `<main><section class="hero"><div class="container hero-grid"><div><span class="eyebrow">Free Account</span><h1>Create your Culture Coin profile.</h1><p class="lead">Free users can view the Reporter and market alerts. Copier controls stay locked until active membership is confirmed by billing or Discord role.</p>${error ? `<div class="card red">${esc(error)}</div>` : ''}</div><form class="card form" method="post" action="/auth/email/signup"><input type="hidden" name="source" value="website-signup"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Email</label><input type="email" name="email" required></div><div class="field"><label>Phone optional</label><input name="phone" inputmode="tel" autocomplete="tel"></div><div class="field"><label>Password</label><input type="password" name="password" required minlength="8"></div><label class="field" style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" name="smsConsent" value="true" style="width:auto;margin-top:4px"><span>Text me my welcome and setup link. Message and data rates may apply. Reply STOP to opt out.</span></label><label class="field" style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" name="marketingConsent" value="true" style="width:auto;margin-top:4px"><span>Email me WISDO training and product updates.</span></label><button class="btn primary" data-launch type="submit">Create Account</button><p class="muted">A transactional welcome email is sent after signup. Text messages require a valid phone number and explicit consent.</p></form></div></section></main>`;
 }
 
 function faqPage() {
@@ -1808,6 +1849,19 @@ function adminPage(page, state) {
   return `${stats}<div class="grid2" style="margin-top:16px"><div class="card purple"><h3>Access Control</h3><p>Admins can manually activate, pause, or cancel membership. Billing webhook sync can also update status automatically.</p></div><div class="card"><h3>${esc(page || 'Admin dashboard')}</h3><p>Admin module for subscriptions, payments, products, copier access, reporter settings, support, and licenses.</p></div></div>`;
 }
 
+function growthFunnelAdminPage(dashboard = {}, delivery = {}, state = {}) {
+  const sourceRows = Object.entries(dashboard.bySource || {}).sort((a, b) => b[1] - a[1]).map(([source, count]) => `<tr><td>${esc(source)}</td><td>${Number(count)}</td></tr>`).join('');
+  const leadRows = (dashboard.recentLeads || []).map((lead) => `<tr><td>${esc(lead.name || '')}</td><td>${esc(lead.email || '')}</td><td>${esc(lead.phone ? `••••${String(lead.phone).replace(/\D/g,'').slice(-4)}` : '')}</td><td>${esc(lead.source || '')}</td><td>${esc(lead.campaign || '')}</td><td>${esc(lead.stage || 'new')}</td><td>${esc(lead.createdAt || '')}</td></tr>`).join('');
+  const outbox = Object.values(state.notificationOutboxById || {});
+  const pending = outbox.filter((item) => ['pending','retrying'].includes(item.status)).length;
+  const failed = outbox.filter((item) => item.status === 'failed').length;
+  const scheduledTraining = outbox.filter((item) => item.category === 'marketing_education' && ['pending','retrying'].includes(item.status)).length;
+  const sentTraining = outbox.filter((item) => item.category === 'marketing_education' && item.status === 'sent').length;
+  const stageRows = Object.entries(dashboard.byStage || {}).sort((a,b)=>b[1]-a[1]).map(([stage,count])=>`<tr><td>${esc(stage)}</td><td>${Number(count)}</td></tr>`).join('');
+  const engagementRows = Object.entries(dashboard.engagementByType || {}).sort((a,b)=>b[1]-a[1]).map(([type,count])=>`<tr><td>${esc(type)}</td><td>${Number(count)}</td></tr>`).join('');
+  return `<div class="grid4"><div class="card glow"><p class="muted">Monthly lead target</p><div class="metric green">${Number(dashboard.target || 1000).toLocaleString()}</div><p>${Number(dashboard.leads || 0)} captured this month</p></div><div class="card"><p class="muted">Projected leads</p><div class="metric ${dashboard.onPace ? 'green' : 'gold'}">${Number(dashboard.projected || 0).toLocaleString()}</div><p>Pace target today: ${Number(dashboard.paceTarget || 0)}</p></div><div class="card"><p class="muted">Visitors / conversion</p><div class="metric">${Number(dashboard.visits || 0).toLocaleString()}</div><p>${Number(dashboard.conversionRate || 0).toFixed(1)}% actual conversion</p></div><div class="card gold"><p class="muted">Daily requirement</p><div class="metric gold">${Number(dashboard.dailyLeadTarget || 0)}</div><p>${Number(dashboard.dailyVisitorTarget || 0)} visitors/day at ${Number(dashboard.configuredConversion || 0).toFixed(1)}%</p></div></div><div class="grid2" style="margin-top:16px"><section class="card"><h3>Funnel Pace</h3><div class="mini-stat"><span>Remaining lead gap</span><strong>${Number(dashboard.gap || 0).toLocaleString()}</strong></div><div class="mini-stat"><span>Required monthly visitors</span><strong>${Number(dashboard.requiredVisitors || 0).toLocaleString()}</strong></div><div class="mini-stat"><span>Month</span><strong>${esc(dashboard.month || '')}</strong></div><div class="mini-stat"><span>Status</span><strong>${dashboard.onPace ? 'On pace' : 'Below pace'}</strong></div><p class="muted">This is a measurable target model, not a guarantee. Traffic, offer quality, follow-up, and conversion determine the outcome.</p></section><section class="card"><h3>Email + SMS Delivery</h3><div class="mini-stat"><span>Resend email</span><strong>${delivery.emailConfigured ? 'Configured' : 'Needs environment keys'}</strong></div><div class="mini-stat"><span>Twilio SMS</span><strong>${delivery.smsConfigured ? 'Configured' : 'Needs environment keys'}</strong></div><div class="mini-stat"><span>Pending/retrying</span><strong>${pending}</strong></div><div class="mini-stat"><span>Failed</span><strong>${failed}</strong></div><form method="post" action="/api/notifications/retry"><button class="btn primary" type="submit">Retry Pending Notifications</button></form></section></div><div class="grid2" style="margin-top:16px"><section class="card"><h3>Lead Sources</h3><table class="table"><thead><tr><th>Source</th><th>Leads</th></tr></thead><tbody>${sourceRows || '<tr><td colspan="2">No source data yet.</td></tr>'}</tbody></table></section><section class="card"><h3>Campaign Links</h3><p>Use UTM links to measure every channel:</p><pre>${esc(`${process.env.PUBLIC_BASE_URL || 'https://your-domain.com'}/growth?utm_source=discord&utm_medium=community&utm_campaign=1000-lead-engine`)}</pre><pre>${esc(`${process.env.PUBLIC_BASE_URL || 'https://your-domain.com'}/growth?utm_source=instagram&utm_medium=social&utm_campaign=1000-lead-engine`)}</pre><pre>${esc(`${process.env.PUBLIC_BASE_URL || 'https://your-domain.com'}/growth?utm_source=affiliate&utm_medium=referral&utm_campaign=1000-lead-engine&ref=CODE`)}</pre></section></div><div class="grid4" style="margin-top:16px"><div class="card"><p class="muted">Engaged leads</p><div class="metric green">${Number(dashboard.engagedLeads || 0)}</div><p>Opened lessons, videos, resources, or AI.</p></div><div class="card"><p class="muted">Signed-up leads</p><div class="metric">${Number(dashboard.signedUpLeads || 0)}</div><p>Linked to a WISDO account.</p></div><div class="card gold"><p class="muted">Training opt-ins</p><div class="metric gold">${Number(dashboard.marketingOptIns || 0)}</div><p>Consent-based educational follow-up.</p></div><div class="card purple"><p class="muted">Scheduled / sent lessons</p><div class="metric">${scheduledTraining} / ${sentTraining}</div><p>Drip-sequence delivery state.</p></div></div><div class="grid2" style="margin-top:16px"><section class="card"><h3>Lead Stages</h3><table class="table"><thead><tr><th>Stage</th><th>Leads</th></tr></thead><tbody>${stageRows || '<tr><td colspan="2">No stage data yet.</td></tr>'}</tbody></table></section><section class="card"><h3>Learning Engagement</h3><table class="table"><thead><tr><th>Event</th><th>Count</th></tr></thead><tbody>${engagementRows || '<tr><td colspan="2">No engagement yet.</td></tr>'}</tbody></table></section></div><section class="card" style="margin-top:16px"><h3>Recent Funnel Leads</h3><table class="table"><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Source</th><th>Campaign</th><th>Stage</th><th>Created</th></tr></thead><tbody>${leadRows || '<tr><td colspan="7">No funnel leads yet.</td></tr>'}</tbody></table></section>`;
+}
+
 function adminDeniedPage() {
   return `<main class="main"><div class="card red"><span class="eyebrow">Admin Protected</span><h1 style="font-family:Sora,Inter,sans-serif">Admin access required.</h1><p>Set OWNER_USER_ID to your Discord/user ID and log in as that user, or activate an admin session before opening the admin desk.</p><div class="actions"><a class="btn primary" href="/login">Login</a><a class="btn" href="/app/dashboard">Return to dashboard</a></div></div></main>`;
 }
@@ -2140,6 +2194,12 @@ async function createSquareCheckout({ config, state, userId, product, req, affil
 export function registerDeadshotWebhookRoutes() {}
 
 export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystemState, saveEcosystemState, mt4SyncService, mt4CommandService, logger }) {
+  const publicBaseUrl = String(config?.api?.publicBaseUrl || process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
+  const notificationDeliveryService = new NotificationDeliveryService({ loadEcosystemState, saveEcosystemState, logger, publicBaseUrl });
+  const growthFunnelService = new GrowthFunnelService({ loadEcosystemState, saveEcosystemState, logger });
+  const funnelRateLimits = new Map();
+  notificationDeliveryService.startRetryLoop();
+
   const loadLiveState = async () => {
     const state = ensureState(await loadEcosystemState());
     try {
@@ -2159,10 +2219,52 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
   app.get('/', renderPublic(() => tcLandingPage(), '/'));
   app.get('/tunnel', renderPublic(() => tunnelPage(), '/tunnel'));
   app.get('/webinar', (req, res) => res.redirect('/webinar/register'));
-  app.get('/webinar/register', renderPublic(() => webinarRegistrationPage(), '/webinar/register'));
+  app.get('/webinar/register', renderPublic((req) => webinarRegistrationPage(req), '/webinar/register'));
+  app.get('/growth', renderPublic((req) => growthFunnelPage(req), '/growth'));
+  app.get('/funnel/:campaign', (req, res, next) => req.params.campaign === 'unsubscribe' ? next() : res.redirect(`/growth?utm_campaign=${encodeURIComponent(req.params.campaign)}`));
   app.get('/webinar/replay', renderPublic(() => webinarReplayPage(), '/webinar/register'));
   app.get('/education', renderPublic(() => webinarReplayPage(), '/webinar/register'));
   app.get('/seminar', renderPublic(() => webinarReplayPage(), '/webinar/register'));
+  app.get('/learn/:token', async (req, res) => {
+    const accessRecord = await growthFunnelService.getLeadByToken(req.params.token);
+    if (!accessRecord) return res.status(404).send(shell({ title: 'Learning link unavailable', body: `<main><section class="hero"><div class="container"><div class="card red"><h1>This learning link is invalid or expired.</h1><p>Register again to receive a fresh webinar and education link.</p><a class="btn primary" href="/growth">Get a new learning link</a></div></div></section></main>`, active: '/growth', mode: 'public' }));
+    const access = growthFunnelService.createAccessBundle(accessRecord.lead, publicBaseUrl);
+    growthFunnelService.recordEngagement({ token: req.params.token, type: 'portal_open', resourceId: 'personal-learning-room', metadata: { path: req.originalUrl } }).catch(() => null);
+    return res.send(shell({ title: 'Personal WISDO Learning Room', body: leadLearningPortalPage({ lead: accessRecord.lead, access, resources: access.resources }), active: '/education', mode: 'public' }));
+  });
+  app.get('/api/funnel/portal/:token', async (req, res) => {
+    const accessRecord = await growthFunnelService.getLeadByToken(req.params.token);
+    if (!accessRecord) return res.status(404).json({ ok: false, error: 'Learning link is invalid or expired.' });
+    const access = growthFunnelService.createAccessBundle(accessRecord.lead, publicBaseUrl);
+    return res.json({ ok: true, lead: { id: accessRecord.lead.id, name: accessRecord.lead.name, stage: accessRecord.lead.stage, platform: accessRecord.lead.platform }, access, resources: access.resources });
+  });
+  app.post('/api/funnel/engagement', async (req, res) => {
+    try {
+      const result = await growthFunnelService.recordEngagement({ token: req.body?.token, type: req.body?.type, resourceId: req.body?.resourceId, metadata: req.body?.metadata });
+      return res.status(201).json({ ok: true, eventId: result.event.id, stage: result.lead.stage });
+    } catch (error) {
+      return res.status(400).json({ ok: false, error: error.message });
+    }
+  });
+  app.get('/r/lead/:token/:resourceId', async (req, res) => {
+    const accessRecord = await growthFunnelService.getLeadByToken(req.params.token);
+    if (!accessRecord) return res.redirect('/growth?error=Learning+link+expired');
+    const resource = growthFunnelService.resourceCatalog().find((item) => item.id === req.params.resourceId);
+    if (!resource) return res.redirect(`/learn/${encodeURIComponent(req.params.token)}`);
+    await growthFunnelService.recordEngagement({ token: req.params.token, type: resource.type === 'video' ? 'video_link_opened' : 'resource_click', resourceId: resource.id, metadata: { destination: resource.href } }).catch(() => null);
+    const destination = new URL(resource.href, publicBaseUrl || `${req.protocol}://${req.get('host')}`);
+    if (destination.origin === new URL(publicBaseUrl || `${req.protocol}://${req.get('host')}`).origin && !destination.pathname.startsWith('/media/')) destination.searchParams.set('leadToken', req.params.token);
+    return res.redirect(destination.pathname + destination.search + destination.hash);
+  });
+  app.get('/funnel/unsubscribe', async (req, res) => {
+    try {
+      const lead = await growthFunnelService.unsubscribeLead(req.query.token);
+      const cancelled = await notificationDeliveryService.cancelLeadMarketing({ leadId: lead.id, email: lead.email });
+      return res.send(shell({ title: 'Email preferences updated', body: `<main><section class="hero"><div class="container"><div class="card glow"><h1>Educational follow-up stopped.</h1><p>${cancelled} scheduled training email(s) were cancelled. Transactional account and security messages may still be sent when necessary.</p><a class="btn primary" href="/growth">Return to WISDO</a></div></div></section></main>`, active: '/growth', mode: 'public' }));
+    } catch (error) {
+      return res.status(400).send(shell({ title: 'Email preference error', body: `<main><section class="hero"><div class="container"><div class="card red"><h1>We could not update this link.</h1><p>${esc(error.message)}</p><a class="btn" href="/contact">Contact support</a></div></div></section></main>`, active: '/growth', mode: 'public' }));
+    }
+  });
   app.get('/affiliate', renderPublic(() => affiliatePage(), '/pricing'));
   app.get('/offer', renderPublic(() => offerPage(), '/pricing'));
   app.get('/checkout', (req, res) => res.redirect('/offer'));
@@ -2199,13 +2301,39 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
     const state = ensureState(await loadEcosystemState());
     const email = normalizeEmail(req.body?.email);
     const password = String(req.body?.password || '');
+    const phone = String(req.body?.phone || '').trim();
+    const smsConsent = formBoolean(req.body?.smsConsent);
+    const marketingConsent = formBoolean(req.body?.marketingConsent);
     if (!email || password.length < 8) return res.redirect('/signup?error=Email and 8 character password required');
     const existing = Object.values(state.usersById).find((u) => normalizeEmail(u.email) === email);
     if (existing) return res.redirect('/signup?error=Account already exists');
-    const user = { id: id('user'), email, username: req.body?.name || email.split('@')[0], provider: 'email', createdAt: nowIso() };
+    const user = { id: id('user'), email, phone, username: req.body?.name || email.split('@')[0], provider: 'email', smsConsent, marketingConsent, createdAt: nowIso() };
     state.usersById[user.id] = { ...user, passwordHash: hashPassword(password) };
-    state.profiles[user.id] = { name: user.username, email, createdAt: nowIso() };
+    state.profiles[user.id] = { name: user.username, email, phone, smsConsent, marketingConsent, createdAt: nowIso() };
+    state.notificationPreferencesByUserId[user.id] = { emailTransactional: true, emailMarketing: marketingConsent, smsTransactional: smsConsent, smsMarketing: false, phone, updatedAt: nowIso() };
     await saveEcosystemState(state);
+
+    const attribution = {
+      name: user.username,
+      email,
+      phone,
+      platform: req.body?.platform || '',
+      stage: 'signed_up',
+      source: req.body?.source || 'website-signup',
+      medium: req.body?.medium || '',
+      campaign: req.body?.campaign || 'website-signup',
+      content: req.body?.content || '',
+      term: req.body?.term || '',
+      referralCode: req.body?.referralCode || req.body?.ref || '',
+      landingPath: req.body?.landingPath || '/signup',
+      smsConsent,
+      marketingConsent,
+      signupUserId: user.id,
+    };
+    await growthFunnelService.recordLead(attribution).catch((error) => logger?.warn?.('Signup funnel attribution failed.', { userId: user.id, message: error.message }));
+    await growthFunnelService.linkSignup({ email, phone, userId: user.id }).catch(() => null);
+    await notificationDeliveryService.queueSignupWelcome({ user, phone, smsConsent, source: attribution.source }).catch((error) => logger?.warn?.('Signup welcome delivery failed.', { userId: user.id, message: error.message }));
+
     setCookie(res, SESSION_COOKIE, encodeSession(user), { maxAge: 60 * 60 * 24 * 30 });
     const target=safeReturnPath(req.body?.returnTo,'/app/dashboard');
     res.redirect(`/auth/success?provider=email_signup&returnTo=${encodeURIComponent(target)}`);
@@ -2255,10 +2383,15 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
       const existingUser = getSessionUser(req);
       const userId = existingUser?.id || profile.id;
       const user = { ...(existingUser || {}), id: userId, discordUserId: profile.id, email: profile.email || existingUser?.email || '', username: profile.global_name || profile.username || existingUser?.username || 'Discord Operator', global_name: profile.global_name, provider: existingUser?.provider || 'discord', avatar: profile.avatar, createdAt: existingUser?.createdAt || nowIso() };
+      const isNewUser = !stateStore.usersById[user.id];
       stateStore.usersById[user.id] = { ...(stateStore.usersById[user.id] || {}), ...user };
       stateStore.discord_connections[user.id] = { userId: user.id, discordUserId: profile.id, username: profile.username, globalName: profile.global_name, linkedAt: nowIso() };
       stateStore.profiles[user.id] = { ...(stateStore.profiles[user.id] || {}), name: user.username, email: user.email, discordUserId: profile.id, provider: user.provider, updatedAt: nowIso() };
       await saveEcosystemState(stateStore);
+      if (isNewUser && user.email) {
+        await growthFunnelService.recordLead({ name: user.username, email: user.email, stage: 'signed_up', source: 'discord-oauth', campaign: 'oauth-signup', signupUserId: user.id }).catch(() => null);
+        await notificationDeliveryService.queueSignupWelcome({ user, smsConsent: false, source: 'discord-oauth' }).catch((error) => logger?.warn?.('Discord signup welcome delivery failed.', { userId: user.id, message: error.message }));
+      }
       setCookie(res, SESSION_COOKIE, encodeSession(user), { maxAge: 60 * 60 * 24 * 30 });
       clearCookie(res, 'oauth_state');
       const returnTo=safeReturnPath(cookies.oauth_return_to,'/app/dashboard');
@@ -2298,9 +2431,14 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
       const profile = await profileRes.json();
       const user = { id: `google_${profile.id}`, email: profile.email, username: profile.name || profile.email, provider: 'google', avatar: profile.picture, createdAt: nowIso() };
       const stateStore = ensureState(await loadEcosystemState());
+      const isNewUser = !stateStore.usersById[user.id];
       stateStore.usersById[user.id] ||= user;
       stateStore.profiles[user.id] = { ...(stateStore.profiles[user.id] || {}), name: user.username, email: user.email, provider: 'google', updatedAt: nowIso() };
       await saveEcosystemState(stateStore);
+      if (isNewUser && user.email) {
+        await growthFunnelService.recordLead({ name: user.username, email: user.email, stage: 'signed_up', source: 'google-oauth', campaign: 'oauth-signup', signupUserId: user.id }).catch(() => null);
+        await notificationDeliveryService.queueSignupWelcome({ user, smsConsent: false, source: 'google-oauth' }).catch((error) => logger?.warn?.('Google signup welcome delivery failed.', { userId: user.id, message: error.message }));
+      }
       setCookie(res, SESSION_COOKIE, encodeSession(user), { maxAge: 60 * 60 * 24 * 30 });
       clearCookie(res, 'google_oauth_state');
       const returnTo=safeReturnPath(cookies.google_oauth_return_to,'/app/dashboard');
@@ -2313,11 +2451,77 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
   });
 
   // Lead/support APIs.
-  app.post('/api/leads', async (req, res) => {
+  const captureLead = async (req, res, redirectTo = '/webinar/replay?registered=1') => {
+    try {
+      if (String(req.body?.companyWebsite || '').trim()) {
+        if (String(req.headers.accept || '').includes('application/json')) return res.status(202).json({ ok: true, accepted: true });
+        return res.redirect(redirectTo);
+      }
+      const rateKey = String(req.ip || req.socket?.remoteAddress || 'unknown');
+      const now = Date.now();
+      const recent = (funnelRateLimits.get(rateKey) || []).filter((time) => now - time < 60_000);
+      if (recent.length >= 10) throw new Error('Too many submissions. Try again in one minute.');
+      recent.push(now);
+      funnelRateLimits.set(rateKey, recent);
+      if (funnelRateLimits.size > 2000) {
+        for (const [key, times] of funnelRateLimits) if (!times.some((time) => now - time < 60_000)) funnelRateLimits.delete(key);
+      }
+      const smsConsent = formBoolean(req.body?.smsConsent);
+      const marketingConsent = formBoolean(req.body?.marketingConsent);
+      const result = await growthFunnelService.recordLead({
+        name: req.body?.name,
+        email: req.body?.email,
+        phone: req.body?.phone,
+        platform: req.body?.platform,
+        source: req.body?.source || 'website',
+        medium: req.body?.medium,
+        campaign: req.body?.campaign || 'wisdo-growth',
+        content: req.body?.content,
+        term: req.body?.term,
+        referralCode: req.body?.referralCode || req.body?.ref,
+        landingPath: req.body?.landingPath || req.originalUrl,
+        smsConsent,
+        marketingConsent,
+      });
+      const access = growthFunnelService.createAccessBundle(result.lead, publicBaseUrl);
+      await notificationDeliveryService.queueLeadConfirmation({
+        lead: result.lead,
+        smsConsent,
+        marketingConsent,
+        portalUrl: access.portalUrl || `${publicBaseUrl}${access.portalPath}`,
+        resources: access.resources,
+        unsubscribeUrl: access.unsubscribeUrl,
+      }).catch((error) => logger?.warn?.('Lead confirmation delivery failed.', { leadId: result.lead.id, message: error.message }));
+      if (String(req.headers.accept || '').includes('application/json')) return res.status(result.created ? 201 : 200).json({ ok: true, created: result.created, lead: result.lead, accessUrl: access.portalUrl || access.portalPath });
+      return res.redirect(`${access.portalPath}?registered=1`);
+    } catch (error) {
+      if (String(req.headers.accept || '').includes('application/json')) return res.status(400).json({ ok: false, error: error.message });
+      return res.redirect(`/growth?error=${encodeURIComponent(error.message)}`);
+    }
+  };
+
+  app.post('/api/leads', (req, res) => captureLead(req, res, '/webinar/replay?registered=1'));
+  app.post('/api/funnel/leads', (req, res) => captureLead(req, res, '/webinar/replay?registered=1&source=growth'));
+  app.post('/api/funnel/visit', async (req, res) => {
+    const visit = await growthFunnelService.recordVisit({ ...(req.body || {}), userAgent: req.get('user-agent') || req.body?.userAgent || '' }).catch((error) => ({ error: error.message }));
+    if (visit?.error) return res.status(400).json({ ok: false, error: visit.error });
+    return res.status(201).json({ ok: true, visitId: visit.id });
+  });
+  app.get('/api/funnel/dashboard', async (req, res) => {
     const state = ensureState(await loadEcosystemState());
-    state.leads.push({ id: id('lead'), name: req.body?.name || '', email: req.body?.email || '', phone: req.body?.phone || '', platform: req.body?.platform || '', source: req.body?.source || 'website', createdAt: nowIso() });
-    await saveEcosystemState(state);
-    res.redirect('/webinar/replay?registered=1');
+    const membership = await resolveMembership({ req, config, state });
+    if (membership.role !== 'admin') return res.status(403).json({ ok: false, error: 'Admin access required' });
+    const dashboard = await growthFunnelService.dashboard();
+    const delivery = notificationDeliveryService.providerHealth();
+    return res.json({ ok: true, dashboard, delivery });
+  });
+  app.post('/api/notifications/retry', async (req, res) => {
+    const state = ensureState(await loadEcosystemState());
+    const membership = await resolveMembership({ req, config, state });
+    if (membership.role !== 'admin') return res.status(403).json({ ok: false, error: 'Admin access required' });
+    const results = await notificationDeliveryService.retryPending(50);
+    if (!String(req.headers.accept || '').includes('application/json')) return res.redirect('/admin/growth-funnel?retried=1');
+    return res.json({ ok: true, attempted: results.length, results });
   });
   app.post('/api/support/tickets', async (req, res) => {
     const state = ensureState(await loadEcosystemState());
@@ -2666,6 +2870,7 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
     try {
       if (!mt4SyncService?.receiveSnapshot) return res.status(501).json({ ok: false, error: 'MT4 sync service is not available. Use npm run start:web after the live repository patch or run npm start.' });
       const result = await mt4SyncService.receiveSnapshot(req.body, req.headers);
+      if (result?.coalesced) return res.status(202).json(result);
       const state = ensureState(await loadEcosystemState());
       const bridgeUserId = String(result?.discordUserId || req.body?.userId || '').trim();
       const userId = findUserIdByDiscordId(state, bridgeUserId) || bridgeUserId;
@@ -3013,6 +3218,14 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
 
   // Admin routes.
   app.get('/admin', async (req, res) => { const state = await withState(loadEcosystemState); const membership = await resolveMembership({ req, config, state }); if (membership.role !== 'admin') return res.status(403).send(shell({ title: 'Admin Protected', body: adminDeniedPage(), active: '/admin', mode: 'public' })); res.send(shell({ title: 'Admin', body: adminPage('dashboard', state), active: '/admin', mode: 'admin' })); });
+  app.get('/admin/growth-funnel', async (req, res) => {
+    const state = await withState(loadEcosystemState);
+    const membership = await resolveMembership({ req, config, state });
+    if (membership.role !== 'admin') return res.status(403).send(shell({ title: 'Admin Protected', body: adminDeniedPage(), active: '/admin', mode: 'public' }));
+    const dashboard = await growthFunnelService.dashboard();
+    const delivery = notificationDeliveryService.providerHealth();
+    return res.send(shell({ title: 'Admin Growth Funnel', body: growthFunnelAdminPage(dashboard, delivery, state), active: '/admin/growth-funnel', mode: 'admin' }));
+  });
   for (const page of ['users','active-members','inactive-members','subscriptions','payments','products','leads','copier-access','reporter-settings','notifications','feedback','support-tickets','licenses']) {
     app.get(`/admin/${page}`, async (req, res) => { const state = await withState(loadEcosystemState); const membership = await resolveMembership({ req, config, state }); if (membership.role !== 'admin') return res.status(403).send(shell({ title: 'Admin Protected', body: adminDeniedPage(), active: '/admin', mode: 'public' })); res.send(shell({ title: `Admin ${page}`, body: adminPage(page, state), active: `/admin/${page}`, mode: 'admin' })); });
   }

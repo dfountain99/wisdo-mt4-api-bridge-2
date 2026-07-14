@@ -1,4 +1,13 @@
-# WISDO V5.6.0 — Square Checkout + Real Historical Study Room
+# WISDO V5.6.1 — Render Stability + Growth Funnel + Signup Email/SMS
+
+## V5.6.1 stability and growth additions
+
+- Fixes the MT4 `signalTrackingByAccountId` persistence regression that caused every Reporter heartbeat to reopen the same copy signals.
+- Compacts Reporter history so historical snapshots keep account metrics without duplicating full open/closed trade arrays.
+- Bounds trade-signal, tracking, and snapshot collections and runs a safe prestart repair against existing persistent files.
+- Adds `/growth`, UTM/referral attribution, deduplicated lead capture, and an admin dashboard measured against a configurable 1,000-lead monthly target. The target is not a guarantee.
+- Sends transactional signup and webinar email through Resend, plus optional consent-based SMS through Twilio. Failed deliveries enter a durable retry outbox.
+
 
 WISDO is a multi-account trading command center that combines a premium public product site, account linking, MT4/Discord relay execution, Culture Lanes, risk governance, analytics, education, affiliate operations, billing, alerts, and administrative controls.
 

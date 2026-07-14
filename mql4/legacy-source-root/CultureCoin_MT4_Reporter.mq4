@@ -4,7 +4,7 @@
 
 input string PairingCode = "";
 input string SyncUrl = "";
-input int ExportEverySeconds = 3;
+input int ExportEverySeconds = 10;
 input int CommandPollEverySeconds = 1;
 input int CommandsPerPollTick = 3;
 input bool PollCommandsBeforeSnapshot = true;

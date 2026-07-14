@@ -131,6 +131,29 @@ function riskAllowsSignal(signal, account = {}) {
   return { ok: true, reason: 'allowed' };
 }
 
+function sanitizeSignalData(input = {}, limit = Math.max(100, Number(process.env.WISDO_SIGNAL_HISTORY_LIMIT || 500))) {
+  const sourceById = input?.signalsById && typeof input.signalsById === 'object' ? input.signalsById : {};
+  const ordered = Array.isArray(input?.signalIds) ? input.signalIds.map(String).filter(Boolean) : [];
+  const fallback = Object.values(sourceById)
+    .sort((left, right) => new Date(right?.updatedAt || right?.createdAt || 0) - new Date(left?.updatedAt || left?.createdAt || 0))
+    .map((signal) => String(signal?.signalId || ''))
+    .filter(Boolean);
+  const ids = [...new Set([...ordered, ...fallback])].slice(0, limit);
+  const signalsById = {};
+  for (const signalId of ids) {
+    const raw = sourceById[signalId];
+    if (!raw) continue;
+    signalsById[signalId] = {
+      ...raw,
+      takes: Array.isArray(raw.takes) ? raw.takes.slice(-100) : [],
+      autoTakes: Array.isArray(raw.autoTakes) ? raw.autoTakes.slice(-100) : [],
+      autoCloses: Array.isArray(raw.autoCloses) ? raw.autoCloses.slice(-100) : [],
+      mutedBy: Array.isArray(raw.mutedBy) ? raw.mutedBy.slice(-500) : [],
+    };
+  }
+  return { signalsById, signalIds: ids.filter((id) => signalsById[id]) };
+}
+
 export class TradeSignalService {
   constructor({ config, client, repository, mt4CommandService, copyTradingService, operatorDeskService, signalGridService = null, discordSignalGridService = null, logger }) {
     this.config = config;
@@ -147,20 +170,25 @@ export class TradeSignalService {
     this.ttlSeconds = Number(process.env.SIGNAL_BUTTON_TTL_SECONDS || 180);
     this.signalChannelId = process.env.SIGNAL_CHANNEL_ID || process.env.TRADE_SIGNAL_CHANNEL_ID || '';
     this.signalCardService = new SignalCardService();
+    this.writeChain = Promise.resolve();
   }
 
   async load() {
     try {
       const raw = await fs.readFile(this.filePath, 'utf8');
       const data = JSON.parse(raw);
-      return { signalsById: data.signalsById || {}, signalIds: data.signalIds || [] };
+      return sanitizeSignalData(data);
     } catch {
       return { signalsById: {}, signalIds: [] };
     }
   }
 
   async save(data) {
-    await atomicWriteJson(this.filePath, data);
+    const sanitized = sanitizeSignalData(data);
+    const operation = this.writeChain.then(() => atomicWriteJson(this.filePath, sanitized));
+    this.writeChain = operation.catch(() => undefined);
+    await operation;
+    return sanitized;
   }
 
   async createSignal({ leaderUserId, leaderAccountId, leaderAccountNumber, leaderServer, leaderChannelId, eaName, eaVersion, trade, snapshot }) {

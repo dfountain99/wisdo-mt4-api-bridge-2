@@ -290,10 +290,18 @@ function ensureWisdoStateCollections(state = {}) {
     'paymentsById',
     'serverAnnouncementsById',
     'featureFlagsById',
+    'notificationOutboxById',
+    'notificationDeliveryLogById',
+    'notificationPreferencesByUserId',
+    'funnelCampaignsById',
+    'funnelVisitsById',
+    'funnelLeadsById',
   ];
   for (const key of objectBuckets) state[key] ||= {};
   state.referralVisits ||= [];
   state.conversions ||= [];
+  state.funnelEvents ||= [];
+  state.leads ||= [];
   return state;
 }
 
@@ -5745,6 +5753,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   app.post(config.api.mt4SyncPath || '/mt4-sync', async (req, res) => {
     try {
       const result = await mt4SyncService.receiveSnapshot(req.body, req.headers);
+      if (result?.coalesced) return res.status(202).json(result);
       if (result?.discordUserId && rankService && announcementService) {
         rankService.processSnapshot(result.discordUserId)
           .then((events) => announcementService.postRankEvents(events))

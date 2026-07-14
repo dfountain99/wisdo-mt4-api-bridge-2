@@ -34,12 +34,22 @@
   let context = null;
   let attachment = null;
   let historyLoaded = false;
+  const pathTokenMatch = location.pathname.match(/^\/learn\/([^/]+)/);
+  const queryToken = new URLSearchParams(location.search).get('leadToken') || '';
+  const leadToken = queryToken || (pathTokenMatch ? decodeURIComponent(pathTokenMatch[1]) : '') || localStorage.getItem('wisdo.leadToken') || '';
+  if (leadToken) localStorage.setItem('wisdo.leadToken', leadToken);
 
   const selectedAccountId = () => document.querySelector('#mobile-account')?.value || sessionStorage.getItem('wisdo.selectedAccountId') || '';
+  const withLeadToken = (href = '') => {
+    if (!leadToken || !href.startsWith('/')) return href;
+    const url = new URL(href, location.origin);
+    if (!url.pathname.startsWith('/media/')) url.searchParams.set('leadToken', leadToken);
+    return url.pathname + url.search + url.hash;
+  };
   const addMessage = (role, text, extras = {}) => {
     const node = document.createElement('div'); node.className = `wisdo-ai-msg ${role}`; node.textContent = text; thread.append(node);
     if (extras.actionLinks?.length) {
-      const links = document.createElement('div'); links.className = 'wisdo-ai-actions'; links.innerHTML = extras.actionLinks.map((item) => `<a href="${escapeHtml(item.href)}">${escapeHtml(item.label)}</a>`).join(''); node.append(links);
+      const links = document.createElement('div'); links.className = 'wisdo-ai-actions'; links.innerHTML = extras.actionLinks.map((item) => `<a href="${escapeHtml(withLeadToken(item.href))}">${escapeHtml(item.label)}</a>`).join(''); node.append(links);
     }
     if (extras.confirmationMessage) { const notice = document.createElement('div'); notice.className = 'wisdo-ai-msg notice'; notice.textContent = extras.confirmationMessage; thread.append(notice); }
     thread.scrollTop = thread.scrollHeight;
@@ -50,7 +60,9 @@
     if (historyLoaded) return;
     historyLoaded = true;
     try {
-      const response = await fetch('/api/v2/wisdo-ai/history');
+      const query = new URLSearchParams();
+      if (leadToken) query.set('leadToken', leadToken);
+      const response = await fetch(`/api/wisdo-ai/history?${query}`);
       if (!response.ok) return;
       const payload = await response.json();
       for (const row of (payload.messages || []).slice(-20)) addMessage(row.role === 'assistant' ? 'assistant' : 'user', row.content || '');
@@ -60,9 +72,14 @@
   async function loadContext() {
     try {
       const query = new URLSearchParams({ currentPage: location.pathname + location.search, selectedAccountId: selectedAccountId() });
+      if (leadToken) query.set('leadToken', leadToken);
       const response = await fetch(`/api/wisdo-ai/context?${query}`); const payload = await response.json(); context = payload.context || {};
       shell.querySelector('[data-ai-page]').textContent = context.currentPage || location.pathname;
-      shell.querySelector('[data-ai-account]').textContent = context.selectedAccount ? `${context.selectedAccount.broker || context.selectedAccount.platform} · ${context.selectedAccount.accountNumber}` : 'No selected account';
+      shell.querySelector('[data-ai-account]').textContent = context.selectedAccount
+        ? `${context.selectedAccount.broker || context.selectedAccount.platform} · ${context.selectedAccount.accountNumber}`
+        : context.funnelLead
+          ? `${context.funnelLead.name || 'Lead'} · ${context.funnelLead.stage || 'learning'}`
+          : 'Public education mode';
       shell.querySelector('[data-ai-account]').classList.toggle('warn', Boolean(context.issues?.length));
       if (context.issues?.length) launch.dataset.alert = String(context.issues.length); else delete launch.dataset.alert;
       suggestions.innerHTML = (context.suggestedQuestions || []).slice(0, 4).map((question) => `<button type="button">${escapeHtml(question)}</button>`).join('');
@@ -74,7 +91,7 @@
     addMessage('user', message);
     const pending = addMessage('assistant', 'Wisdo is building the response…');
     try {
-      const response = await fetch('/api/wisdo-ai/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message, currentPage: location.pathname + location.search, selectedAccountId: selectedAccountId(), attachment }) });
+      const response = await fetch('/api/wisdo-ai/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message, currentPage: location.pathname + location.search, selectedAccountId: selectedAccountId(), attachment, leadToken }) });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
       pending.remove(); addMessage('assistant', payload.answer || 'No answer returned.', payload);
@@ -85,7 +102,7 @@
 
   launch.onclick = async () => { shell.classList.toggle('open'); if (shell.classList.contains('open')) { await loadContext(); await loadHistory(); input.focus(); } };
   shell.querySelector('[data-wisdo-ai-clear]').onclick = async () => {
-    try { await fetch('/api/v2/wisdo-ai/history', { method: 'DELETE' }); } catch {}
+    try { await fetch('/api/wisdo-ai/history', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ leadToken }) }); } catch {}
     thread.querySelectorAll('.wisdo-ai-msg.user,.wisdo-ai-msg.assistant,.wisdo-ai-msg.notice').forEach((node, index) => { if (index > 0) node.remove(); });
     historyLoaded = true;
   };

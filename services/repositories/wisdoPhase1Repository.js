@@ -69,6 +69,14 @@ export function createWisdoPhase1State() {
     paymentsById: {},
     serverAnnouncementsById: {},
     featureFlagsById: {},
+    notificationOutboxById: {},
+    notificationDeliveryLogById: {},
+    notificationPreferencesByUserId: {},
+    funnelCampaignsById: {},
+    funnelVisitsById: {},
+    funnelLeadsById: {},
+    funnelEvents: [],
+    leads: [],
   };
 }
 

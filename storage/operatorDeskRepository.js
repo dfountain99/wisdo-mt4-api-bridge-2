@@ -15,6 +15,83 @@ function logState() {
   return { logs: [] };
 }
 
+const MT4_HISTORY_GLOBAL_LIMIT = Math.max(50, Number(process.env.WISDO_MT4_HISTORY_GLOBAL_LIMIT || 500));
+const MT4_HISTORY_ACCOUNT_LIMIT = Math.max(10, Number(process.env.WISDO_MT4_HISTORY_ACCOUNT_LIMIT || 100));
+const MT4_SIGNAL_TRACKING_ACCOUNT_LIMIT = Math.max(10, Number(process.env.WISDO_MT4_SIGNAL_TRACKING_ACCOUNT_LIMIT || 250));
+
+function compactSnapshotForHistory(snapshot = {}) {
+  return {
+    accountNumber: String(snapshot.accountNumber || ''),
+    accountName: String(snapshot.accountName || ''),
+    brokerServer: String(snapshot.brokerServer || ''),
+    isDemo: Boolean(snapshot.isDemo),
+    eaName: String(snapshot.eaName || ''),
+    eaVersion: String(snapshot.eaVersion || ''),
+    balance: Number(snapshot.balance || 0),
+    equity: Number(snapshot.equity || 0),
+    margin: Number(snapshot.margin || 0),
+    freeMargin: Number(snapshot.freeMargin || 0),
+    marginLevel: Number(snapshot.marginLevel || 0),
+    floatingPL: Number(snapshot.floatingPL || 0),
+    dailyClosedPL: Number(snapshot.dailyClosedPL || 0),
+    openTradeCount: Number(snapshot.openTradeCount || 0),
+    buyTradeCount: Number(snapshot.buyTradeCount || 0),
+    sellTradeCount: Number(snapshot.sellTradeCount || 0),
+    totalLots: Number(snapshot.totalLots || 0),
+    symbols: Array.isArray(snapshot.symbols) ? snapshot.symbols.slice(0, 50).map(String) : [],
+    timestamp: snapshot.timestamp || null,
+    terminalConnected: snapshot.terminalConnected !== false,
+    expertEnabled: snapshot.expertEnabled !== false,
+  };
+}
+
+function compactSnapshotHistoryRecord(record = {}) {
+  return {
+    discordUserId: String(record.discordUserId || ''),
+    channelId: String(record.channelId || ''),
+    accountId: String(record.accountId || ''),
+    pairingCode: String(record.pairingCode || ''),
+    receivedAt: record.receivedAt || new Date().toISOString(),
+    copySignalsOpened: Number(record.copySignalsOpened || 0),
+    copySignalsClosed: Number(record.copySignalsClosed || 0),
+    signalSkipped: Boolean(record.signalSkipped),
+    signalSkipReason: record.signalSkipReason || null,
+    snapshot: compactSnapshotForHistory(record.snapshot || {}),
+  };
+}
+
+function trimSnapshotHistory(history = []) {
+  const perAccount = new Map();
+  const result = [];
+  for (const raw of Array.isArray(history) ? history : []) {
+    if (result.length >= MT4_HISTORY_GLOBAL_LIMIT) break;
+    const record = compactSnapshotHistoryRecord(raw);
+    const key = record.accountId || `user:${record.discordUserId}`;
+    const count = perAccount.get(key) || 0;
+    if (count >= MT4_HISTORY_ACCOUNT_LIMIT) continue;
+    perAccount.set(key, count + 1);
+    result.push(record);
+  }
+  return result;
+}
+
+function normalizeSignalTracking(input = {}) {
+  const rows = Object.entries(input && typeof input === 'object' ? input : {})
+    .sort(([, left], [, right]) => new Date(right?.updatedAt || 0) - new Date(left?.updatedAt || 0))
+    .slice(0, MT4_SIGNAL_TRACKING_ACCOUNT_LIMIT);
+  const result = {};
+  for (const [accountId, raw] of rows) {
+    const openKeys = Array.isArray(raw?.openKeys) ? raw.openKeys.map(String).filter(Boolean).slice(0, 1000) : [];
+    const map = raw?.tradeKeyToSignalId && typeof raw.tradeKeyToSignalId === 'object' ? raw.tradeKeyToSignalId : {};
+    result[accountId] = {
+      openKeys,
+      tradeKeyToSignalId: Object.fromEntries(openKeys.filter((key) => map[key]).map((key) => [key, String(map[key])])),
+      updatedAt: raw?.updatedAt || null,
+    };
+  }
+  return result;
+}
+
 function mt4State() {
   return {
     pairingCodes: {},
@@ -30,6 +107,7 @@ function mt4State() {
     copyLinksById: {},
     latestSnapshots: {},
     latestSnapshotsByAccountId: {},
+    signalTrackingByAccountId: {},
     snapshotHistory: [],
   };
 }
@@ -76,7 +154,8 @@ function normalizeMt4State(state) {
     copyLinksById: state?.copyLinksById || {},
     latestSnapshots: state?.latestSnapshots || {},
     latestSnapshotsByAccountId,
-    snapshotHistory: Array.isArray(state?.snapshotHistory) ? state.snapshotHistory : [],
+    signalTrackingByAccountId: normalizeSignalTracking(state?.signalTrackingByAccountId || {}),
+    snapshotHistory: trimSnapshotHistory(state?.snapshotHistory || []),
   };
 }
 
@@ -257,7 +336,11 @@ export class OperatorDeskRepository {
   }
 
   async updateMt4State(updater) {
-    const next = await this.mt4Store.update((state) => updater(normalizeMt4State(state)));
+    const next = await this.mt4Store.update(async (state) => {
+      const normalized = normalizeMt4State(state);
+      const updated = await updater(normalized);
+      return normalizeMt4State(updated || normalized);
+    });
     return normalizeMt4State(next);
   }
 
@@ -950,6 +1033,8 @@ export class OperatorDeskRepository {
       delete state.connectionsByAccountId[accountId];
       delete state.latestSnapshotsByAccountId?.[accountId];
       delete state.accountSettingsByAccountId?.[accountId];
+      delete state.signalTrackingByAccountId?.[accountId];
+      state.snapshotHistory = (state.snapshotHistory || []).filter((record) => String(record.accountId) !== String(accountId));
       for (const pairing of Object.values(state.pairingCodes || {})) {
         if (pairing.accountId === accountId && String(pairing.discordUserId) === userId) {
           pairing.status = 'removed';

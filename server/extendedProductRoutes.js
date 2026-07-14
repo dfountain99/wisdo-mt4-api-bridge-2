@@ -44,6 +44,7 @@ import {
   publicStrategy,
 } from '../services/aiWebinarService.js';
 import { HistoricalMarketDataService } from '../services/historicalMarketDataService.js';
+import { verifyLeadAccessToken } from '../services/growthFunnelService.js';
 
 const ACADEMY_TRACKS = [
   { id: 'foundation', title: 'Trading and Investing Foundations', lessons: ['candlesticks-price-bars', 'market-structure', 'order-types-execution', 'position-sizing', 'trading-plan'] },
@@ -85,6 +86,8 @@ function ensure(state = {}) {
   state.aiWebinarSessionsByUser ||= {};
   state.wisdoAssistantThreads ||= {};
   state.wisdoAssistantUsage ||= {};
+  state.funnelLeadsById ||= {};
+  state.funnelEvents ||= [];
   state.supportTickets ||= {};
   state.firms ||= {};
   state.affiliates ||= {};
@@ -958,8 +961,8 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
     res.json({ ok: true, strategy: result.strategy });
   });
 
-  function assistantUserContext(state, user, page, selectedAccountId = '') {
-    const userId = String(user?.id || 'public');
+  function assistantUserContext(state, user, page, selectedAccountId = '', lead = null) {
+    const userId = String(user?.id || (lead?.id ? `lead:${lead.id}` : 'public'));
     const accounts = Object.values(state.tradingAccounts || {}).filter((row) => String(row.user_id) === userId);
     const selected = accounts.find((row) => String(row.id) === String(selectedAccountId)) || accounts[0] || null;
     const trades = Object.values(state.trades || {}).filter((row) => String(row.user_id) === userId);
@@ -976,6 +979,7 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
       userId,
       membershipTier: state.subscriptions?.[userId]?.plan || state.subscriptions?.[userId]?.status || 'basic',
       currentPage: String(page || '/'),
+      funnelLead: lead ? { id: lead.id, name: lead.name || '', stage: lead.stage || 'new', platform: lead.platform || '', campaign: lead.campaign || '', engagementCount: Number(lead.engagementCount || 0), marketingConsent: Boolean(lead.marketingConsent) } : null,
       selectedAccount: selected ? { id: selected.id, platform: selected.platform, broker: selected.broker, accountNumber: selected.account_number, status: selected.status, balance: Number(selected.balance || 0), equity: Number(selected.equity || 0), floatingPL: Number(selected.floating_pl || 0), openTrades: Number(selected.open_trades || 0), reporterConnected: Boolean(selected.reporter_connected), terminalConnected: selected.terminal_connected !== false, expertEnabled: selected.expert_enabled !== false } : null,
       connectedAccounts: accounts.map((row) => ({ id: row.id, nickname: row.nickname, accountNumber: row.account_number, status: row.status, canLead: row.canLead, canReceive: row.canReceive, canExecute: row.canExecute })),
       copierStatus: { activeRules: rules.filter((row) => row.status === 'active' || row.is_active).length, totalRules: rules.length },
@@ -1005,10 +1009,12 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
     if (authenticatedOnly && !user) return res.status(401).json({ ok: false, error: 'Authentication required.' });
     const state = ensure(await loadEcosystemState());
     const page = String(req.body?.currentPage || req.headers.referer || '/').slice(0, 500);
-    const context = assistantUserContext(state, user, page, req.body?.selectedAccountId);
+    const leadPayload = verifyLeadAccessToken(req.body?.leadToken || '');
+    const lead = leadPayload ? state.funnelLeadsById?.[leadPayload.leadId] || null : null;
+    const context = assistantUserContext(state, user, page, req.body?.selectedAccountId, lead);
     const message = String(req.body?.message || '').trim().slice(0, 8000);
     if (!message) return res.status(400).json({ ok: false, error: 'Ask WISDO a question.' });
-    const userId = String(user?.id || `public:${req.ip || 'unknown'}`);
+    const userId = String(user?.id || (lead?.id ? `lead:${lead.id}` : `public:${req.ip || 'unknown'}`));
     const today = nowIso().slice(0, 10);
     const usage = state.wisdoAssistantUsage[userId] || { day: today, count: 0 };
     if (usage.day !== today) { usage.day = today; usage.count = 0; }
@@ -1029,12 +1035,18 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
       } catch (error) { logger?.warn?.('Wisdo AI provider fallback', { message: error.message }); }
     }
     if (!answer) answer = fallbackAssistantReply(message, context);
-    const actionLinks = [
+    const portableLeadQuery = lead?.id && req.body?.leadToken ? `?leadToken=${encodeURIComponent(req.body.leadToken)}` : '';
+    const actionLinks = (lead?.id && !user ? [
+      { id: 'education', label: 'Open Education Room', href: `/education${portableLeadQuery}` },
+      { id: 'webinar', label: 'Open Webinar', href: `/webinar/replay${portableLeadQuery}` },
+      { id: 'pricing', label: 'Compare Access', href: `/pricing${portableLeadQuery}` },
+      { id: 'support', label: 'Open Support', href: '/contact' },
+    ] : [
       { id: 'education', label: 'Open Education Hub', href: '/app/education' },
       { id: 'accounts', label: 'Open Accounts', href: '/app/accounts' },
       { id: 'copier', label: 'Open Copier Engine', href: '/app/copier-engine' },
       { id: 'support', label: 'Open Support', href: '/contact' },
-    ].filter((item) => message.toLowerCase().includes(item.id) || item.id === 'support' || item.id === 'education').slice(0, 3);
+    ]).filter((item) => message.toLowerCase().includes(item.id) || item.id === 'support' || item.id === 'education').slice(0, 3);
     const riskyIntent = /(close|flatten|pause|resume|enable|disable|risk setting|copier setting|payment|checkout)/i.test(message);
     await mutate(loadEcosystemState, saveEcosystemState, (nextState) => {
       const thread = nextState.wisdoAssistantThreads[userId] ||= [];
@@ -1042,10 +1054,45 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
       thread.push({ id: id('wisdo_ai'), role: 'assistant', content: answer, provider, page, createdAt: nowIso() });
       nextState.wisdoAssistantThreads[userId] = thread.slice(-120);
       nextState.wisdoAssistantUsage[userId] = { day: today, count: usage.count + 1 };
+      if (lead?.id) {
+        const currentLead = nextState.funnelLeadsById?.[lead.id];
+        if (currentLead) {
+          currentLead.lastEngagedAt = nowIso();
+          currentLead.lastEngagementType = 'ai_question';
+          currentLead.engagementCount = Number(currentLead.engagementCount || 0) + 1;
+          if (!['signed_up', 'customer'].includes(currentLead.stage)) currentLead.stage = 'engaged';
+          currentLead.updatedAt = nowIso();
+          nextState.funnelEvents.unshift({ id: id('funnel_event'), type: 'ai_question', leadId: currentLead.id, campaign: currentLead.campaign || '', source: currentLead.source || '', createdAt: nowIso() });
+          nextState.funnelEvents = nextState.funnelEvents.slice(0, 5000);
+        }
+      }
       return true;
     });
     res.json({ ok: true, answer, provider, context, actionLinks, confirmationRequired: riskyIntent, confirmationMessage: riskyIntent ? 'Use the visible account-specific control and confirmation screen. Wisdo AI did not execute this action.' : null, usage: { day: today, count: usage.count + 1, limit } });
   }
+
+  app.get('/api/wisdo-ai/history', async (req, res) => {
+    const state = ensure(await loadEcosystemState());
+    const user = currentUser(req);
+    const leadPayload = verifyLeadAccessToken(req.query.leadToken || '');
+    const lead = leadPayload ? state.funnelLeadsById?.[leadPayload.leadId] || null : null;
+    const threadKey = String(user?.id || (lead?.id ? `lead:${lead.id}` : ''));
+    if (!threadKey) return res.json({ ok: true, messages: [] });
+    return res.json({ ok: true, messages: (state.wisdoAssistantThreads[threadKey] || []).slice(-60) });
+  });
+  app.delete('/api/wisdo-ai/history', async (req, res) => {
+    const user = currentUser(req);
+    const state = ensure(await loadEcosystemState());
+    const leadPayload = verifyLeadAccessToken(req.body?.leadToken || req.query?.leadToken || '');
+    const lead = leadPayload ? state.funnelLeadsById?.[leadPayload.leadId] || null : null;
+    const threadKey = String(user?.id || (lead?.id ? `lead:${lead.id}` : ''));
+    if (!threadKey) return res.status(401).json({ ok: false, error: 'Lead access or login required.' });
+    await mutate(loadEcosystemState, saveEcosystemState, (nextState) => {
+      nextState.wisdoAssistantThreads[threadKey] = [];
+      return true;
+    });
+    return res.json({ ok: true });
+  });
 
   app.get('/api/v2/wisdo-ai/history', requireUser, async (req, res) => {
     const state = ensure(await loadEcosystemState());
@@ -1063,7 +1110,9 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
   app.get('/api/wisdo-ai/context', async (req, res) => {
     const state = ensure(await loadEcosystemState());
     const user = currentUser(req);
-    res.json({ ok: true, context: assistantUserContext(state, user, req.query.currentPage || req.headers.referer || '/', req.query.selectedAccountId) });
+    const leadPayload = verifyLeadAccessToken(req.query.leadToken || '');
+    const lead = leadPayload ? state.funnelLeadsById?.[leadPayload.leadId] || null : null;
+    res.json({ ok: true, context: assistantUserContext(state, user, req.query.currentPage || req.headers.referer || '/', req.query.selectedAccountId, lead) });
   });
   app.post('/api/wisdo-ai/chat', async (req, res) => handleAssistantChat(req, res, false));
   app.post('/api/v2/wisdo-ai/chat', requireUser, async (req, res) => handleAssistantChat(req, res, true));
