@@ -641,6 +641,46 @@ test('major product routes persist accounts and lanes, preserve auth state, and 
 });
 
 
+
+test('copier lane save returns success when live relay registration is slow and read refresh stays read-only', async (t) => {
+  const previousTimeout = process.env.WISDO_COPIER_RELAY_TIMEOUT_MS;
+  process.env.WISDO_COPIER_RELAY_TIMEOUT_MS = '50';
+  let relayUpserts = 0;
+  const slowRepository = {
+    getMt4State: async () => ({ connectionsByAccountId: {} }),
+    getMt4AccountId: (accountNumber, server = '') => `${accountNumber}:${server || 'server'}`,
+    upsertCopyRoute: async () => {
+      relayUpserts += 1;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      return { routeId: 'late-route', status: 'active' };
+    },
+    getCopyRoutesForUser: async () => [],
+  };
+  const fixture = await createTestServer({
+    tradingAccounts: {
+      lead_1: { id: 'lead_1', user_id: 'operator-1', account_number: '10001', server: 'Demo', desk_role: 'lead', role: 'master', sharing_mode: 'private' },
+      receiver_1: { id: 'receiver_1', user_id: 'operator-1', account_number: '10002', server: 'Demo', desk_role: 'receiver', role: 'slave', sharing_mode: 'private', reporter_connected: true, terminal_connected: true, expert_enabled: true },
+    },
+  }, { mt4SyncService: { repository: slowRepository } });
+  t.after(() => {
+    fixture.server.close();
+    if (previousTimeout === undefined) delete process.env.WISDO_COPIER_RELAY_TIMEOUT_MS;
+    else process.env.WISDO_COPIER_RELAY_TIMEOUT_MS = previousTimeout;
+  });
+  const headers = { 'content-type': 'application/json', 'x-wisdo-test-user': 'operator-1' };
+  const startedAt = Date.now();
+  const saved = await jsonFetch(`${fixture.base}/api/v2/copier-rules`, { method: 'POST', headers, body: JSON.stringify({ master_id: 'lead_1', slave_id: 'receiver_1', risk_type: 'fixed_lot', risk_value: 0.01 }) });
+  assert.equal(saved.response.status, 201);
+  assert.equal(saved.payload.ok, true);
+  assert.equal(saved.payload.relayPending, true);
+  assert.ok(Date.now() - startedAt < 700);
+  assert.equal(Object.keys(fixture.getState().copierRules).length, 1);
+  const listed = await jsonFetch(`${fixture.base}/api/v2/copier-rules`, { headers });
+  assert.equal(listed.response.status, 200);
+  assert.equal(listed.payload.source, 'persisted-rules');
+  assert.equal(relayUpserts, 1);
+});
+
 test('Education Hub provides original resources, calculators, live-learning surfaces, and a page-aware Wisdo AI with confirmation boundaries', async (t) => {
   const summary = getEducationHubSummary();
   assert.ok(summary.courseCount >= 5000);

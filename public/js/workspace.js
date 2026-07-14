@@ -353,9 +353,9 @@
 
   async function drawRules() {
     const [ruleResult, options, relayDiagnostics] = await Promise.all([
-      api('/api/v2/copier-rules'),
-      api('/api/copier/options'),
-      api('/api/v2/copier/diagnostics').catch(() => ({ rules: [], relayDiagnostics: [] })),
+      api('/api/v2/copier-rules', {}, 20000),
+      api('/api/copier/options', {}, 30000),
+      api('/api/v2/copier/diagnostics', {}, 30000).catch(() => ({ rules: [], relayDiagnostics: [] })),
     ]);
     const rules = ruleResult.rules || [];
     const leaders = options.leads || [];
@@ -400,11 +400,15 @@
       try { payload.symbol_mapping = JSON.parse(payload.symbol_mapping || '{}'); } catch { status.className = 'form-status error full'; status.textContent = 'Symbol mapping must be valid JSON.'; return; }
       setBusy(button, true, 'Saving and arming lane…');
       try {
-        const saved = await api('/api/v2/copier-rules', { method: 'POST', body: JSON.stringify(payload) });
+        const saved = await api('/api/v2/copier-rules', { method: 'POST', body: JSON.stringify(payload) }, 45000);
         status.className = saved.executionReady ? 'form-status success full' : 'form-status working full';
         status.textContent = saved.executionReady ? 'Culture Lane saved and registered in the live relay engine.' : 'Lane saved, but Reporter execution is not ready. Open Accounts to finish pairing or AutoTrading.';
         toast(saved.executionReady ? 'Culture Lane armed for live relay' : 'Culture Lane saved; execution readiness needs attention', saved.executionReady ? 'ok' : 'warn', 7000);
-        await drawRules();
+        setTimeout(() => {
+          drawRules().catch((refreshError) => {
+            toast(`Culture Lane saved, but relay status refresh is still loading: ${refreshError.message}`, 'warn', 7000);
+          });
+        }, 250);
       } catch (error) { status.className = 'form-status error full'; status.textContent = error.message; }
       finally { setBusy(button, false); }
     };
