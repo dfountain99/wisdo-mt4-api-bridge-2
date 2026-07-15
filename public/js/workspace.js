@@ -81,30 +81,46 @@
   const selectedAccountId = () => document.querySelector('#mobile-account')?.value || '';
   const selectedAccount = () => accounts.find((account) => account.id === selectedAccountId()) || null;
 
-  async function api(path, options = {}, timeoutMs = 15000) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(new Error('Request timed out')), timeoutMs);
-    try {
-      const response = await fetch(path, {
-        ...options,
-        signal: options.signal || controller.signal,
-        headers: { 'content-type': 'application/json', ...(options.headers || {}) },
-      });
-      const contentType = response.headers.get('content-type') || '';
-      const payload = contentType.includes('application/json') ? await response.json().catch(() => ({})) : { message: await response.text() };
-      if (response.status === 401) {
-        const returnTo = `${location.pathname}${location.search}`;
-        location.href = `/login?returnTo=${encodeURIComponent(returnTo)}`;
-        throw new Error('Your session expired. Redirecting to login.');
+  async function api(path, options = {}, timeoutMs = 25000) {
+    const method = String(options.method || 'GET').toUpperCase();
+    const safeToRetry = ['GET', 'HEAD'].includes(method);
+    const attempts = safeToRetry ? 3 : 1;
+    let lastError = null;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(new Error('Request timed out')), timeoutMs + (attempt - 1) * 8000);
+      try {
+        const response = await fetch(path, {
+          ...options,
+          signal: options.signal || controller.signal,
+          headers: { 'content-type': 'application/json', ...(options.headers || {}) },
+        });
+        const contentType = response.headers.get('content-type') || '';
+        const payload = contentType.includes('application/json') ? await response.json().catch(() => ({})) : { message: await response.text() };
+        if (response.status === 401) {
+          const returnTo = `${location.pathname}${location.search}`;
+          location.href = `/login?returnTo=${encodeURIComponent(returnTo)}`;
+          throw new Error('Your session expired. Redirecting to login.');
+        }
+        if (!response.ok) {
+          const error = new Error(payload.error || payload.message || `Request failed (${response.status})`);
+          error.status = response.status;
+          throw error;
+        }
+        return payload;
+      } catch (error) {
+        lastError = error;
+        const transient = error.name === 'AbortError' || /timed out|failed to fetch|network/i.test(error.message || '') || [502, 503, 504].includes(error.status);
+        if (!safeToRetry || !transient || attempt >= attempts) break;
+        toast(attempt === 1 ? 'Waking the WISDO server and retrying…' : 'Server is still waking; retrying once more…', 'warn', 2600);
+        await fetch('/api/public/health', { cache: 'no-store' }).catch(() => null);
+        await sleep(attempt * 900);
+      } finally {
+        clearTimeout(timeout);
       }
-      if (!response.ok) throw new Error(payload.error || payload.message || `Request failed (${response.status})`);
-      return payload;
-    } catch (error) {
-      if (error.name === 'AbortError' || /timed out/i.test(error.message || '')) throw new Error('The server did not answer in time. Your form is still intact—retry after checking the service logs.');
-      throw error;
-    } finally {
-      clearTimeout(timeout);
     }
+    if (lastError?.name === 'AbortError' || /timed out/i.test(lastError?.message || '')) throw new Error('The server did not answer after automatic wake-up retries. Your form was not submitted.');
+    throw lastError || new Error('Request failed.');
   }
 
   function toast(message, tone = 'ok', duration = 4200) {
@@ -174,7 +190,7 @@
 
   async function refreshAccounts(preserveSelection = true, silent = false) {
     const previous = preserveSelection ? (selectedAccountId() || sessionStorage.getItem('wisdo.selectedAccountId') || '') : '';
-    const result = await api('/api/v2/accounts?includeReporter=1', {}, 12000);
+    const result = await api('/api/v2/accounts?includeReporter=1', {}, 25000);
     accounts = result.accounts || [];
     const selector = document.querySelector('#mobile-account');
     if (selector) {
@@ -416,43 +432,81 @@
     root().querySelectorAll('[data-delete-rule]').forEach((button) => button.onclick = async () => { if (!confirm('Delete this Culture Lane?')) return; await api(`/api/v2/copier-rules/${encodeURIComponent(button.dataset.deleteRule)}`, { method: 'DELETE' }); toast('Culture Lane deleted'); drawRules(); });
   }
 
+  function gaugeCard(label, value, { min = 0, max = 100, suffix = '', inverse = false } = {}) {
+    const numeric = Number(value || 0);
+    const normalized = Math.max(0, Math.min(1, (numeric - min) / Math.max(1, max - min)));
+    const dash = Math.round(normalized * 176);
+    const good = inverse ? numeric <= (min + max) / 2 : numeric >= (min + max) / 2;
+    return `<div class="card gauge-card"><small>${html(label)}</small><svg viewBox="0 0 120 72" role="img" aria-label="${html(`${label} ${numeric}${suffix}`)}"><path d="M14 64 A46 46 0 0 1 106 64" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="12" stroke-linecap="round" pathLength="176"></path><path d="M14 64 A46 46 0 0 1 106 64" fill="none" stroke="currentColor" class="${good ? 'green' : 'red'}" stroke-width="12" stroke-linecap="round" pathLength="176" stroke-dasharray="${dash} 176"></path></svg><div class="metric ${good ? 'green' : 'red'}">${Number.isInteger(numeric) ? numeric : numeric.toFixed(1)}${suffix}</div></div>`;
+  }
+
+  function lineChart(series = [], key = 'cumulative', label = 'Trend') {
+    const values = series.map((row) => Number(row[key] || 0));
+    if (!values.length) return '<div class="setup-note"><strong>Waiting for MT4 history</strong><p>The chart will populate after closed trades are imported.</p></div>';
+    const min = Math.min(...values); const max = Math.max(...values); const span = Math.max(1, max - min);
+    const points = values.map((value, index) => `${8 + index * (284 / Math.max(1, values.length - 1))},${112 - ((value - min) / span) * 92}`).join(' ');
+    return `<svg viewBox="0 0 300 128" class="trend-line-chart" role="img" aria-label="${html(label)}"><line x1="8" y1="112" x2="292" y2="112" stroke="rgba(255,255,255,.12)"></line><polyline points="${points}" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"></polyline>${values.map((value,index)=>`<circle cx="${8 + index * (284 / Math.max(1, values.length - 1))}" cy="${112 - ((value - min) / span) * 92}" r="3" fill="currentColor"><title>${html(`${series[index]?.label || ''}: ${money(value)}`)}</title></circle>`).join('')}</svg><div class="account-line"><span>Low ${money(min)}</span><span>High ${money(max)}</span></div>`;
+  }
+
+  function trackerCard(tracker) {
+    if (!tracker) return '';
+    const analysis = tracker.after || tracker.before || {};
+    const result = tracker.result || {};
+    return `<section class="card" style="margin-top:18px"><div class="card-head"><div><span class="eyebrow">Compound Tracker</span><h3>${html(tracker.label || tracker.mode || 'Close analysis')}</h3></div><span class="status-pill ${tracker.status === 'completed' ? 'connected' : tracker.status === 'failed' || tracker.status === 'queue_failed' ? 'waiting' : 'waiting'}">${html(tracker.status || 'queued')}</span></div><div class="grid4"><div><small>Closed</small><strong>${Number(result.closedCount || 0)}</strong></div><div><small>Realized</small><strong class="${Number(result.realizedPnl || 0) >= 0 ? 'green' : 'red'}">${money(result.realizedPnl)}</strong></div><div><small>Daily trend</small><strong>${Number(analysis.gauges?.dailyTrend || 0)}</strong></div><div><small>Weekly trend</small><strong>${Number(analysis.gauges?.weeklyTrend || 0)}</strong></div></div><p class="muted">${html(result.message || 'Waiting for the MT4 Reporter to execute and return the final result. This record remains saved with account history.')}</p></section>`;
+  }
+
   async function drawTrades() {
     const accountId = selectedAccountId();
-    const result = await api(`/api/v2/trades${accountId ? `?account_id=${encodeURIComponent(accountId)}` : ''}`);
+    const query = accountId ? `?account_id=${encodeURIComponent(accountId)}` : '';
+    const [result, trackerResult] = await Promise.all([
+      api(`/api/v2/trades${query}`),
+      api(`/api/v2/trades/compound-trackers${query}${query ? '&' : '?'}limit=8`).catch(() => ({ trackers: [] })),
+    ]);
     const trades = result.trades || [];
+    const trackers = trackerResult.trackers || [];
     const openCount = trades.filter((trade) => trade.status === 'open' || trade.status === 'closing').length;
     const closedCount = trades.filter((trade) => trade.status === 'closed').length;
     const lastTradeAt = trades[0]?.updated_at || trades[0]?.opened_at || null;
-    root().innerHTML = `<div class="workspace-heading"><div><span class="eyebrow">Execution proof</span><h1>Trade Log</h1><p class="muted">${accountId ? 'Filtered to the selected account.' : 'Showing the live portfolio ledger.'} Reporter snapshots are imported automatically.</p></div><div class="actions"><button class="btn danger" id="close-all">Close all selected</button><button class="btn ghost" id="refresh-trades">Refresh Reporter ledger</button></div></div>${accountMetrics(selectedAccount())}
+    root().innerHTML = `<div class="workspace-heading"><div><span class="eyebrow">Immediate trade control</span><h1>Trade Log</h1><p class="muted">${accountId ? 'Filtered to the selected account.' : 'Showing the live portfolio ledger.'} Every bulk close receives a saved Compound Tracker analysis.</p></div><div class="actions"><button class="btn danger" data-bulk-close="all">Close All Now</button><button class="btn primary" data-bulk-close="profitable">Profit Secure</button><button class="btn ghost" data-bulk-close="losing">Close Losing Only</button><button class="btn ghost" id="refresh-trades">Refresh</button></div></div>${accountMetrics(selectedAccount())}
       <div class="grid4"><div class="card"><small>Open positions</small><div class="metric">${openCount}</div></div><div class="card"><small>Closed today/history</small><div class="metric">${closedCount}</div></div><div class="card"><small>Snapshots imported</small><div class="metric">${Number(result.sync?.snapshots || 0)}</div></div><div class="card"><small>Last ledger event</small><strong>${html(lastTradeAt ? new Date(lastTradeAt).toLocaleString() : 'Waiting for Reporter')}</strong></div></div>
-      <section class="card" style="margin-top:18px"><div class="card-head"><div><span class="eyebrow">Data source</span><h3>${html(result.dataSource === 'mt4_reporter_ledger' ? 'MT4 Reporter trade ledger' : 'Waiting for Reporter trade data')}</h3></div><a class="btn ghost" href="/app/accounts">Check Reporter</a></div><p class="muted">The page records the lead and follower accounts independently. A Culture Lane open is not considered confirmed until the follower Reporter returns the actual MT4 ticket.</p></section>
-      <section class="card table-wrap" style="margin-top:18px"><table><thead><tr><th>Time</th><th>Account</th><th>Ticket</th><th>Symbol</th><th>Side</th><th>Lots</th><th>Status</th><th>P/L</th><th>Control</th></tr></thead><tbody>${trades.length ? trades.map((trade) => `<tr><td>${html(trade.opened_at || trade.updated_at || '')}</td><td>${html(trade.account_id)}</td><td>${html(trade.external_ticket || 'pending')}</td><td>${html(trade.symbol)}</td><td>${html(trade.side)}</td><td>${html(trade.lot_size)}</td><td>${html(trade.status)}</td><td class="${Number(trade.pnl || 0) >= 0 ? 'green' : 'red'}">${money(trade.pnl)}</td><td>${trade.status === 'open' ? `<button class="btn ghost" data-close="${html(trade.id)}">Close</button>` : ''}</td></tr>`).join('') : `<tr><td colspan="9"><div class="setup-note"><strong>No trade records yet</strong><p>Confirm the Reporter is v1.56+, the selected account is synchronized, the lead has an open market order, and the Culture Lane diagnostics show Relay registered and Receiver live.</p></div></td></tr>`}</tbody></table></section>`;
+      ${trackerCard(trackers[0])}
+      <section class="card" style="margin-top:18px"><div class="card-head"><div><span class="eyebrow">Execution authority</span><h3>Account-specific close controls</h3></div><a class="btn ghost" href="/app/accounts">Check Reporter</a></div><p class="muted">Close commands use priority 1000, immediate delivery, and a 10-minute execution window. Entry filters do not block close authority.</p></section>
+      <section class="card table-wrap" style="margin-top:18px"><table><thead><tr><th>Time</th><th>Account</th><th>Ticket</th><th>Symbol</th><th>Side</th><th>Lots</th><th>Status</th><th>P/L</th><th>Control</th></tr></thead><tbody>${trades.length ? trades.map((trade) => `<tr><td>${html(trade.opened_at || trade.updated_at || '')}</td><td>${html(trade.account_id)}</td><td>${html(trade.external_ticket || 'pending')}</td><td>${html(trade.symbol)}</td><td>${html(trade.side)}</td><td>${html(trade.lot_size)}</td><td>${html(trade.status)}</td><td class="${Number(trade.pnl || 0) >= 0 ? 'green' : 'red'}">${money(trade.pnl)}</td><td>${trade.status === 'open' ? `<button class="btn ghost" data-close="${html(trade.id)}">Close</button>` : ''}</td></tr>`).join('') : `<tr><td colspan="9"><div class="setup-note"><strong>No trade records yet</strong><p>Confirm the Reporter is current, synchronized, and returning MT4 open and closed history.</p></div></td></tr>`}</tbody></table></section>`;
     document.querySelector('#refresh-trades').onclick = drawTrades;
-    root().querySelectorAll('[data-close]').forEach((button) => button.onclick = async () => { if (!confirm('Queue a close for this ticket?')) return; try { await api(`/api/v2/trades/${encodeURIComponent(button.dataset.close)}/close`, { method: 'POST', body: JSON.stringify({ confirmation: 'confirmed' }) }); toast('Ticket close queued'); setTimeout(drawTrades, 1200); } catch (error) { toast(error.message, 'error'); } });
-    document.querySelector('#close-all').onclick = async () => { const target = selectedAccountId(); if (!target) return toast('Select the target account first.', 'warn'); if (!confirm('Close every open trade on the selected account?')) return; try { await api('/api/v2/trades/close-all', { method: 'POST', body: JSON.stringify({ account_id: target, confirmation: 'confirmed' }) }); toast('Account-specific Close All queued'); } catch (error) { toast(error.message, 'error'); } };
+    root().querySelectorAll('[data-close]').forEach((button) => button.onclick = async () => { if (!confirm('Queue an immediate close for this ticket?')) return; try { await api(`/api/v2/trades/${encodeURIComponent(button.dataset.close)}/close`, { method: 'POST', body: JSON.stringify({ confirmation: 'confirmed' }) }); toast('Ticket close queued'); setTimeout(drawTrades, 1200); } catch (error) { toast(error.message, 'error'); } });
+    root().querySelectorAll('[data-bulk-close]').forEach((button) => button.onclick = async () => {
+      const target = selectedAccountId(); const mode = button.dataset.bulkClose;
+      if (!target) return toast('Select the target account first.', 'warn');
+      const wording = mode === 'profitable' ? 'close profitable positions only and secure current winners' : mode === 'losing' ? 'close losing positions only' : 'close every open position';
+      if (!confirm(`Immediately ${wording} on the selected account?`)) return;
+      setBusy(button, true, 'Sending now…');
+      try { const response = await api('/api/v2/trades/close-bulk', { method: 'POST', body: JSON.stringify({ account_id: target, mode, confirmation: 'confirmed' }) }, 30000); toast(`${response.tracker?.label || 'Close command'} entered the immediate MT4 queue`); await drawTrades(); }
+      catch (error) { toast(error.message, 'error', 7000); }
+      finally { setBusy(button, false); }
+    });
   }
 
   async function drawAnalyzer() {
     const accountId = selectedAccountId();
     const accountQuery = accountId ? `&account_id=${encodeURIComponent(accountId)}` : '';
-    const [result, heat] = await Promise.all([
+    const [result, heat, trends] = await Promise.all([
       api(`/api/v2/analyzer/portfolio?period=month${accountQuery}`),
       api(`/api/v2/analyzer/heatmap?period=month${accountQuery}`),
+      api(`/api/v2/analyzer/trends?${accountId ? `account_id=${encodeURIComponent(accountId)}` : ''}`),
     ]);
     const series = result.series || [];
     const values = series.map((point) => Number(point.value || 0)).filter(Number.isFinite);
     const minimum = values.length ? Math.min(...values) : 0;
     const maximum = values.length ? Math.max(...values) : 0;
     const range = Math.max(1, maximum - minimum);
-    const chartBars = series.map((point) => {
-      const value = Number(point.value || 0);
-      const height = 20 + ((value - minimum) / range) * 225;
-      return `<i title="${html(`${point.date} · Equity ${money(value)} · Floating ${money(point.floatingPL || 0)} · Open ${point.openTradeCount || 0}`)}" style="height:${Math.max(8, Math.min(250, height))}px"></i>`;
-    }).join('');
-    root().innerHTML = `<div class="workspace-heading"><div><span class="eyebrow">WISDO Insight Engine</span><h1>Performance Intelligence</h1><p class="muted">Calculated from actual Reporter equity snapshots and closed trade records—not placeholder analytics.</p></div><div class="actions"><a class="btn ghost" href="/api/v2/analyzer/export.csv">Export CSV</a><button class="btn primary" id="risk-suggestion">AI risk suggestion</button></div></div>${accountMetrics(selectedAccount())}
-      <div class="grid4"><div class="card"><small>ROI</small><div class="metric ${Number(result.roi || 0) >= 0 ? 'green' : 'red'}">${Number(result.roi || 0).toFixed(2)}%</div></div><div class="card"><small>Win rate</small><div class="metric">${Number(result.winRate || 0).toFixed(1)}%</div></div><div class="card"><small>Max drawdown</small><div class="metric red">${Number(result.maxDrawdown || 0).toFixed(2)}%</div></div><div class="card"><small>Closed trades</small><div class="metric">${Number(result.closedTradeCount || result.tradeCount || 0)}</div></div></div>
-      <div class="grid4" style="margin-top:18px"><div class="card"><small>Open positions</small><div class="metric">${Number(result.openTradeCount || 0)}</div></div><div class="card"><small>Equity samples</small><div class="metric">${Number(result.telemetryPoints || 0)}</div></div><div class="card"><small>Data source</small><strong>${html(result.dataSource || 'waiting')}</strong></div><div class="card"><small>Reporter snapshots imported</small><div class="metric">${Number(result.sync?.snapshots || 0)}</div></div></div>
-      <div class="grid2" style="margin-top:18px"><section class="card"><div class="card-head"><div><span class="eyebrow">Live telemetry</span><h3>Equity curve</h3></div><span class="muted">${series.length} points</span></div>${series.length ? `<div class="mini-chart">${chartBars}</div><div class="account-line"><span>Low ${money(minimum)}</span><span>High ${money(maximum)}</span></div>` : '<div class="setup-note"><strong>Waiting for equity snapshots</strong><p>Reporter synchronization populates this chart automatically. Use Accounts → Sync after installing Reporter v1.56.</p></div>'}</section><section class="card"><div class="card-head"><div><span class="eyebrow">Closed trade evidence</span><h3>Symbol heatmap</h3></div><span class="muted">${html(heat.dataSource || '')}</span></div>${(heat.symbols || []).length ? heat.symbols.slice(0, 20).map((row) => `<div class="heat-row"><span>${html(row.symbol)} <small>· ${Number(row.trades || 0)} trades</small></span><strong class="${Number(row.pnl) >= 0 ? 'green' : 'red'}">${money(row.pnl)}</strong></div>`).join('') : '<div class="setup-note"><strong>No closed trades imported yet</strong><p>Win rate and symbol performance require confirmed closed trades. Open positions still appear in the Trade Log and equity telemetry.</p></div>'}</section></div><div id="insight"></div>`;
+    const chartBars = series.map((point) => { const value = Number(point.value || 0); const height = 20 + ((value - minimum) / range) * 225; return `<i title="${html(`${point.date} · Equity ${money(value)} · Floating ${money(point.floatingPL || 0)} · Open ${point.openTradeCount || 0}`)}" style="height:${Math.max(8, Math.min(250, height))}px"></i>`; }).join('');
+    const gauges = trends.gauges || {};
+    root().innerHTML = `<div class="workspace-heading"><div><span class="eyebrow">WISDO Insight Engine</span><h1>Daily + Weekly Trend Intelligence</h1><p class="muted">Persistent gauges and line charts calculated from MT4 Reporter equity snapshots and closed-trade history.</p></div><div class="actions"><a class="btn ghost" href="/api/v2/analyzer/export.csv">Export CSV</a><button class="btn primary" id="risk-suggestion">AI risk suggestion</button></div></div>${accountMetrics(selectedAccount())}
+      <div class="grid4">${gaugeCard('Daily trend', gauges.dailyTrend, { min: -100, max: 100 })}${gaugeCard('Weekly trend', gauges.weeklyTrend, { min: -100, max: 100 })}${gaugeCard('Compound score', gauges.compoundScore, { suffix: '/100' })}${gaugeCard('Risk pressure', gauges.riskPressure, { suffix: '/100', inverse: true })}</div>
+      <div class="grid3" style="margin-top:18px">${gaugeCard('Win rate', gauges.winRate, { suffix: '%' })}${gaugeCard('Consistency', gauges.consistency, { suffix: '%' })}${gaugeCard('Profit factor', Math.min(100, Number(gauges.profitFactor || 0) * 25), { suffix: '' })}</div>
+      <div class="grid2" style="margin-top:18px"><section class="card"><div class="card-head"><div><span class="eyebrow">Daily trend</span><h3>7-day compound line</h3></div><strong class="${Number(trends.daily?.pnl || 0) >= 0 ? 'green' : 'red'}">${money(trends.daily?.pnl)}</strong></div>${lineChart(trends.dailySeries, 'cumulative', 'Daily compound trend')}</section><section class="card"><div class="card-head"><div><span class="eyebrow">Weekly trend</span><h3>8-week compound line</h3></div><strong class="${Number(trends.weekly?.pnl || 0) >= 0 ? 'green' : 'red'}">${money(trends.weekly?.pnl)}</strong></div>${lineChart(trends.weeklySeries, 'cumulative', 'Weekly compound trend')}</section></div>
+      <div class="grid4" style="margin-top:18px"><div class="card"><small>ROI</small><div class="metric ${Number(result.roi || 0) >= 0 ? 'green' : 'red'}">${Number(result.roi || 0).toFixed(2)}%</div></div><div class="card"><small>Monthly P/L</small><div class="metric ${Number(trends.monthly?.pnl || 0) >= 0 ? 'green' : 'red'}">${money(trends.monthly?.pnl)}</div></div><div class="card"><small>Max drawdown</small><div class="metric red">${Number(trends.maxDrawdown || result.maxDrawdown || 0).toFixed(2)}%</div></div><div class="card"><small>Closed trades</small><div class="metric">${Number(result.closedTradeCount || result.tradeCount || 0)}</div></div></div>
+      <div class="grid2" style="margin-top:18px"><section class="card"><div class="card-head"><div><span class="eyebrow">Live telemetry</span><h3>Equity curve</h3></div><span class="muted">${series.length} points</span></div>${series.length ? `<div class="mini-chart">${chartBars}</div><div class="account-line"><span>Low ${money(minimum)}</span><span>High ${money(maximum)}</span></div>` : '<div class="setup-note"><strong>Waiting for equity snapshots</strong><p>Reporter synchronization populates this chart automatically.</p></div>'}</section><section class="card"><div class="card-head"><div><span class="eyebrow">Closed trade evidence</span><h3>Symbol heatmap</h3></div><span class="muted">${html(heat.dataSource || '')}</span></div>${(heat.symbols || []).length ? heat.symbols.slice(0, 20).map((row) => `<div class="heat-row"><span>${html(row.symbol)} <small>· ${Number(row.trades || 0)} trades</small></span><strong class="${Number(row.pnl) >= 0 ? 'green' : 'red'}">${money(row.pnl)}</strong></div>`).join('') : '<div class="setup-note"><strong>No closed trades imported yet</strong><p>Win rate and symbol performance require confirmed MT4 closed trades.</p></div>'}</section></div><div id="insight"></div>`;
     document.querySelector('#risk-suggestion').onclick = async () => { const target = selectedAccountId() || accounts[0]?.id; if (!target) return toast('Add an account first.', 'warn'); const suggestion = await api('/api/v2/ai/risk-suggestion', { method: 'POST', body: JSON.stringify({ account_id: target }) }); document.querySelector('#insight').innerHTML = `<div class="card"><h3>Suggested controls</h3><pre>${html(JSON.stringify(suggestion.suggestion, null, 2))}</pre><p>${html(suggestion.reason)}</p></div>`; };
   }
 
@@ -533,7 +587,7 @@
         if (document.querySelector('dialog[open]') || document.visibilityState !== 'visible') return;
         const previous = JSON.stringify(accounts.map((a) => [a.id, a.status, a.equity, a.last_sync_at]));
         try { await refreshAccounts(true, true); const next = JSON.stringify(accounts.map((a) => [a.id, a.status, a.equity, a.last_sync_at])); if (next !== previous && ['command-center', 'dashboard', 'analyzer', 'trades'].includes(currentPage)) await renderCurrentPage(); } catch {}
-      }, 15000);
+      }, 45000);
     } catch (error) {
       await finishDashboardBoot(false, 'Workspace recovery mode');
       root().innerHTML = `<div class="card"><h3>Could not load workspace</h3><p class="red">${html(error.message)}</p><button class="btn ghost" onclick="location.reload()">Retry</button></div>`;

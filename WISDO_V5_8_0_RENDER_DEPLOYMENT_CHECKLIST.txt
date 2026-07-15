@@ -1,0 +1,85 @@
+WISDO V5.8.0 RENDER DEPLOYMENT CHECKLIST
+
+1. DEPLOY SOURCE
+- Push/replace the root repository files with the V5.8.0 full build or patch.
+- Keep package-lock.json with package.json.
+- Do not upload node_modules, local data, .env files, or secrets.
+
+2. PRESERVE DURABLE STORAGE
+- Confirm Render disk name: wisdo-persistent-data
+- Mount path: /var/data
+- DATA_DIR=/var/data/wisdo
+- WISDO_STORAGE_PATH=/var/data/wisdo
+- WISDO_PERSISTENCE_MODE=json (or postgres with a valid DATABASE_URL)
+- Do not delete the disk during redeploy.
+
+3. REQUIRED SECURITY / MT4
+- SESSION_SECRET configured
+- ENCRYPTION_KEY configured
+- MT4_SYNC_API_KEY configured
+- MT4 Reporter allowed WebRequest URL points to the deployed origin
+- Reporter polls /mt4-command-poll
+- Reporter completes commands at /mt4-command-complete
+
+4. EMAIL COMPLETION NOTICES
+- RESEND_API_KEY configured
+- RESEND_FROM_EMAIL configured and verified
+- Optional WISDO_EMAIL_REPLY_TO configured
+- User has an email saved in WISDO profile/login record
+
+5. DISCORD DESK + PRIVATE MESSAGE
+- DISCORD_TOKEN configured
+- CLIENT_ID and GUILD_ID configured
+- Member website account linked to the correct Discord ID
+- Member private desk exists
+- Bot can View Channel, Send Messages, and DM the member
+- Optional DISCORD_NOTIFICATION_WEBHOOK_URL or WISDO_NOTIFICATION_WEBHOOK_URL configured
+
+6. POST-DEPLOY HEALTH
+- Open /api/public/health
+- Confirm version is 5.8.0
+- Confirm features include persistentAccountRoles, immediateBulkClose, compoundCloseTracker, and dailyWeeklyTrendGauges
+- Open /api/runtime-audit
+- Confirm persistentStorageConfigured=true
+
+7. ACCOUNT PERSISTENCE TEST
+- Open /app/accounts
+- Set an account to Culture Lead, Mirror Receiver, Dual Role, or Private Desk
+- Set visibility and save
+- Refresh, log out/in, and redeploy once
+- Confirm the saved role and visibility remain unchanged
+- Delete a test account and confirm the Reporter heartbeat does not re-create it automatically
+
+8. CLOSE CONTROL TEST ON DEMO ONLY
+- Select the exact demo account
+- Verify Reporter, terminal, and AutoTrading are online
+- Test Profit Secure with one winning and one losing demo trade
+- Confirm only the profitable trade closes
+- Test Close Losing Only
+- Confirm only the losing trade closes
+- Test Close All Now
+- Confirm the command appears immediately at priority 1000
+- Confirm the Compound Tracker shows queued then completed/failed status
+
+9. NOTIFICATION TEST
+- Confirm website alert appears after completion
+- Confirm email is delivered
+- Confirm Discord DM is delivered
+- Confirm private desk message is delivered
+- Confirm any configured webhook receives the result
+
+10. ANALYTICS TEST
+- Open /app/analyzer
+- Confirm Daily Trend and Weekly Trend gauges
+- Confirm Compound Score, Risk Pressure, Win Rate, Consistency, and Profit Factor gauges
+- Confirm 7-day and 8-week line charts
+- Confirm data source reports mt4_reporter_history after MT4 history is available
+
+11. SERVICE WORKER
+- Hard refresh once after deploy
+- Confirm the service-worker cache name is wisdo-shell-v5.8-persistent-close-intelligence
+
+12. ROLLBACK
+- Keep the previous V5.7.0 source archive
+- Do not delete /var/data/wisdo during rollback
+- V5.8.0 writes ecosystem.json.bak beside ecosystem.json for recovery

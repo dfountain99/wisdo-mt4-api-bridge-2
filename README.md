@@ -1,3 +1,17 @@
+# WISDO V5.8.0 — Persistent Account Controls + Immediate Close Intelligence
+
+## V5.8.0 release additions
+
+- Saves every account desk role, sharing mode, and community label in a dedicated durable account-control registry. Reporter re-imports no longer reset an account to Private.
+- Keeps account deletion intentional with persistent deletion tombstones. A deleted Reporter account does not silently reappear until the member adds it again; administrators have a separate permanent-delete route.
+- Hardens JSON persistence with serialized writes, a last-known-good in-memory state, and an `ecosystem.json.bak` recovery copy. A transient read or parse problem no longer causes the application to replace live state with an empty object.
+- Reduces unnecessary account-registry writes and changes the browser account refresh interval from 15 seconds to 45 seconds.
+- Adds automatic server wake/retry behavior for safe GET requests while never retrying dangerous POST close commands.
+- Adds immediate **Close All Now**, **Profit Secure**, and **Close Losing Only** controls. Bulk close commands use MT4 priority `1000`, immediate delivery, and a ten-minute execution window.
+- Creates a persistent Compound Tracker for each bulk close, recording the pre-close account picture, MT4 result, realized outcome, and post-close trend analysis.
+- Sends close completion results to the website Alert ledger, transactional email, Discord private message, private desk channel, and optional notification webhook when those integrations are configured.
+- Adds always-visible daily and weekly trend gauges, Compound Score, Risk Pressure, Win Rate, Consistency, Profit Factor, a 7-day line chart, and an 8-week line chart based on MT4 Reporter history.
+
 # WISDO V5.6.1 — Render Stability + Growth Funnel + Signup Email/SMS
 
 ## V5.6.1 stability and growth additions

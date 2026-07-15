@@ -7,19 +7,53 @@ export class JsonFilePersistenceAdapter {
   constructor({ dataDir, fileName, defaultState = () => ({}) }) {
     this.dataDir = dataDir || 'data/operator-desks';
     this.filePath = path.join(this.dataDir, fileName);
+    this.backupPath = `${this.filePath}.bak`;
     this.defaultState = defaultState;
+    this.lastKnownGood = null;
+    this.writeChain = Promise.resolve();
+  }
+
+  async readJson(filePath) {
+    const raw = await fs.readFile(filePath, 'utf8');
+    return JSON.parse(raw);
   }
 
   async load() {
     try {
-      return JSON.parse(await fs.readFile(this.filePath, 'utf8'));
-    } catch {
-      return this.defaultState();
+      const parsed = await this.readJson(this.filePath);
+      this.lastKnownGood = structuredClone(parsed);
+      return parsed;
+    } catch (primaryError) {
+      try {
+        const backup = await this.readJson(this.backupPath);
+        this.lastKnownGood = structuredClone(backup);
+        await atomicWriteJson(this.filePath, backup).catch(() => undefined);
+        return backup;
+      } catch (backupError) {
+        if (this.lastKnownGood) return structuredClone(this.lastKnownGood);
+        if (primaryError?.code === 'ENOENT' && backupError?.code === 'ENOENT') {
+          const initial = this.defaultState();
+          this.lastKnownGood = structuredClone(initial);
+          return initial;
+        }
+        const error = new Error(`Persistent state could not be read from ${this.filePath}; refusing to replace it with an empty state.`);
+        error.cause = primaryError;
+        throw error;
+      }
     }
   }
 
   async save(data) {
-    return atomicWriteJson(this.filePath, data);
+    const snapshot = structuredClone(data || {});
+    const operation = this.writeChain.then(async () => {
+      await fs.mkdir(this.dataDir, { recursive: true });
+      await atomicWriteJson(this.filePath, snapshot);
+      await atomicWriteJson(this.backupPath, snapshot);
+      this.lastKnownGood = structuredClone(snapshot);
+      return data;
+    });
+    this.writeChain = operation.catch(() => undefined);
+    return operation;
   }
 }
 

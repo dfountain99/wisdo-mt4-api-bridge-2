@@ -16,6 +16,8 @@ import { DiscordRoleSyncService } from '../services/discordRoleSyncService.js';
 import { SignalGridService } from '../services/signalGridService.js';
 import { SignalCopyService } from '../services/signalCopyService.js';
 import { DiscordSignalGridService } from '../services/discordSignalGridService.js';
+import { NotificationDeliveryService } from '../services/notificationDeliveryService.js';
+import { closeNotificationText, finalizeCloseTracker, isCloseCommand, queueCloseEmail } from '../services/tradeCloseIntelligence.js';
 import {
   DISCORD_ROLE_MAP,
   FUTURE_DISCORD_ROLE_MAP,
@@ -204,25 +206,37 @@ function oauthSetupPage(req, config) {
 }
 
 
+let ecosystemStateCache = null;
+let ecosystemStateLoadPromise = null;
+let ecosystemStateSaveQueue = Promise.resolve();
+
 async function loadEcosystemState() {
-  try {
+  if (ecosystemStateCache) return ecosystemStateCache;
+  if (ecosystemStateLoadPromise) return ecosystemStateLoadPromise;
+  ecosystemStateLoadPromise = (async () => {
     const repository = getWisdoPhase1Repository();
-    const state = ensureWisdoPhase1State(await repository.loadState());
-    let seeded = ensureWisdoEducationSeeds(state);
-    seeded = ensureWisdoAcademySeeds(state) || seeded;
-    if (seeded) await repository.saveState(state);
-    return state;
-  } catch {
-    const state = ensureWisdoStateCollections({ usersById: {}, ordersById: {}, licensesByUserId: {}, videosByUserId: {}, referralCodesByUserId: {}, referralLinksById: {}, referralVisits: [], conversions: [], commissionRulesById: {}, commissionLedgerById: {}, payoutsById: {}, subscriptionsById: {}, paymentPlansById: {}, vpsAssignmentsById: {}, paidLinkAccessById: {}, paidLinkAccessByUserId: {} });
-    ensureWisdoEducationSeeds(state);
-    ensureWisdoAcademySeeds(state);
-    return state;
-  }
+    try {
+      const state = ensureWisdoStateCollections(ensureWisdoPhase1State(await repository.loadState()));
+      let seeded = ensureWisdoEducationSeeds(state);
+      seeded = ensureWisdoAcademySeeds(state) || seeded;
+      ecosystemStateCache = state;
+      if (seeded) await repository.saveState(state);
+      return ecosystemStateCache;
+    } catch (error) {
+      if (ecosystemStateCache) return ecosystemStateCache;
+      throw error;
+    } finally {
+      ecosystemStateLoadPromise = null;
+    }
+  })();
+  return ecosystemStateLoadPromise;
 }
 
 async function saveEcosystemState(state) {
-  state = ensureWisdoStateCollections(state || {});
-  return getWisdoPhase1Repository().saveState(state);
+  ecosystemStateCache = ensureWisdoStateCollections(ensureWisdoPhase1State(state || ecosystemStateCache || {}));
+  const operation = ecosystemStateSaveQueue.then(() => getWisdoPhase1Repository().saveState(ecosystemStateCache));
+  ecosystemStateSaveQueue = operation.catch(() => undefined);
+  return operation;
 }
 
 function ensureWisdoStateCollections(state = {}) {
@@ -4070,6 +4084,9 @@ function createPaidLinkAccess({ buyerUserId, productId, status = 'pending_paymen
 }
 
 export async function startApiServer({ config, mt4SyncService, mt4CommandService, copyTradingService, tradeSignalService, deskDashboardService, rankService, announcementService, paymentService, logger, client = null, signalGridService: providedSignalGridService = null, signalCopyService: providedSignalCopyService = null, discordSignalGridService: providedDiscordSignalGridService = null }) {
+  ecosystemStateCache = null;
+  ecosystemStateLoadPromise = null;
+  ecosystemStateSaveQueue = Promise.resolve();
   wisdoPhase1Repository = createWisdoPhase1Repository(config);
   await wisdoPhase1Repository.seedDevelopmentData();
   const affiliateService = new AffiliateService({ config, repository: wisdoPhase1Repository });
@@ -4077,6 +4094,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   const signalGridService = providedSignalGridService || new SignalGridService({ config, repository: wisdoPhase1Repository, logger });
   const signalCopyService = providedSignalCopyService || new SignalCopyService({ repository: wisdoPhase1Repository, signalGridService, mt4SyncService, mt4CommandService, roleSyncService, logger });
   const discordSignalGridService = providedDiscordSignalGridService || new DiscordSignalGridService({ client, signalGridService, signalCopyService, logger });
+  const commandNotificationDeliveryService = new NotificationDeliveryService({ loadEcosystemState, saveEcosystemState, logger, publicBaseUrl: String(config?.api?.publicBaseUrl || process.env.PUBLIC_BASE_URL || '') });
   const app = express();
   app.set('trust proxy', true);
 
@@ -5824,6 +5842,9 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
         state.sync_events ||= [];
         const websiteUserId = commandOwnerId || Object.entries(state.discord_connections || {}).find(([, conn]) => String(conn.discordUserId) === String(pairing.discordUserId))?.[0] || String(pairing.requestedByUserId || pairing.discordUserId);
         const success = req.body?.result?.success !== false;
+        const closeTracker = finalizeCloseTracker(state,{command,result:req.body?.result||{},userId:websiteUserId,accountId:accountId||command?.accountId||''});
+        const profileEmail = state.profiles?.[websiteUserId]?.email || state.usersById?.[websiteUserId]?.email || '';
+        const closeEmail = closeTracker ? queueCloseEmail(state,{userId:websiteUserId,email:profileEmail,tracker:closeTracker,command,result:req.body?.result||{}}) : null;
         const gifPool = String(process.env.WISDO_WIN_GIF_URLS || '').split(',').map((v) => v.trim()).filter(Boolean);
         const winGifUrl = success && gifPool.length ? gifPool[Math.floor(Math.random() * gifPool.length)] : '';
         const notice = {
@@ -5836,7 +5857,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
           severity: success ? 'success' : 'danger',
           source: 'mt4_reporter',
           read_status: 'unread',
-          metadata: { commandId: req.body?.commandId, command: command?.command || '', result: req.body?.result || {}, winGifUrl },
+          metadata: { commandId: req.body?.commandId, command: command?.command || '', result: req.body?.result || {}, winGifUrl, ...(closeTracker ? { compoundTrackerId: closeTracker.id, closeMode: closeTracker.mode, compoundAnalysis: closeTracker.after } : {}) },
           createdAt: new Date().toISOString(),
         };
         state.notification_events.push(notice);
@@ -5858,6 +5879,21 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
         state.alerts[websiteUserId] = state.alerts[websiteUserId].slice(0, 1000);
         state.sync_events.push({ id: makeId('sync'), userId: websiteUserId, source: 'mt4_reporter', target: 'website_discord', action: 'command_complete', payload: notice, status: success ? 'completed' : 'failed', createdAt: new Date().toISOString() });
         await saveEcosystemState(state);
+        if(closeEmail) commandNotificationDeliveryService.deliverDueByIds([closeEmail.id]).catch((error)=>logger?.warn?.('Close-result email delivery failed',{message:error.message,notificationId:closeEmail.id}));
+        if(closeTracker&&isCloseCommand(command?.command)){
+          const content=closeNotificationText(closeTracker);
+          const discordUserId=String(pairing.discordUserId||'');
+          if(client&&discordUserId){
+            const discordUser=await client.users.fetch(discordUserId).catch(()=>null);
+            if(discordUser) await discordUser.send({content}).catch((error)=>logger?.warn?.('Close-result Discord DM failed',{discordUserId,message:error.message}));
+            const guildId=config.discordGuildId||config.guildId;
+            if(guildId&&deskDashboardService?.operatorDeskService){
+              const guild=await client.guilds.fetch(guildId).catch(()=>null);
+              const deskChannel=guild?await deskDashboardService.operatorDeskService.getDeskChannelForUser(guild,discordUserId).catch(()=>null):null;
+              if(deskChannel) await deskChannel.send({content}).catch((error)=>logger?.warn?.('Close-result desk message failed',{discordUserId,message:error.message}));
+            }
+          }
+        }
         const webhook = process.env.DISCORD_NOTIFICATION_WEBHOOK_URL || process.env.WISDO_NOTIFICATION_WEBHOOK_URL || '';
         if (webhook) {
           fetch(webhook, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'Wisdo Command Center', content: `${success ? '✅' : '⚠️'} **${notice.title}** — ${notice.message}`, embeds: [{ title: notice.title, description: notice.message, color: success ? 5763719 : 15548997, ...(winGifUrl ? { image: { url: winGifUrl } } : {}) }] }) }).catch(() => {});

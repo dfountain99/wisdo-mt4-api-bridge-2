@@ -19,6 +19,8 @@ import { calculateTradingTool, getEducationHubSummary, searchEducationResources 
 import { buildFallbackWebinar, buildHistoricalTeachingChart, buildTeachingChart, createWebinarSession, gradeWebinarQuiz, normalizeStrategyInput } from '../services/aiWebinarService.js';
 import { normalizeHistoricalCandles } from '../services/historicalMarketDataService.js';
 import { SquarePaymentGateway, decodeSquarePaymentNote, encodeSquarePaymentNote, verifySquareWebhookSignature } from '../services/squarePaymentService.js';
+import { JsonFilePersistenceAdapter } from '../services/persistenceAdapter.js';
+import { buildTrendAnalytics, createCloseTracker, finalizeCloseTracker } from '../services/tradeCloseIntelligence.js';
 
 process.env.NODE_ENV = 'test';
 process.env.WISDO_ALLOW_TEST_IDENTITY = 'true';
@@ -925,4 +927,108 @@ test('Square checkout creates hosted links and validates signed webhooks without
   const signature = crypto.createHmac('sha256', 'signature-key').update(`${notificationUrl}${rawBody}`, 'utf8').digest('base64');
   assert.equal(verifySquareWebhookSignature({ rawBody, signature, signatureKey: 'signature-key', notificationUrl }), true);
   assert.equal(verifySquareWebhookSignature({ rawBody, signature: 'wrong', signatureKey: 'signature-key', notificationUrl }), false);
+});
+
+
+test('account desk role and visibility survive Reporter re-import and deletion prevents automatic resurrection', async (t) => {
+  const reporterAccount = {
+    accountId: '90001:Broker-Live',
+    accountNumber: '90001',
+    server: 'Broker-Live',
+    platform: 'mt4',
+    balance: 1000,
+    equity: 1012,
+    floatingPL: 12,
+    openTrades: 1,
+    lastSyncAt: new Date().toISOString(),
+    terminalConnected: true,
+    expertEnabled: true,
+  };
+  const testServer = await createTestServer({}, {
+    mt4SyncService: {
+      repository: {
+        getMt4AccountId: (accountNumber, server = '') => `${accountNumber}:${server || 'server'}`,
+        getAccessibleMt4Accounts: async () => [reporterAccount],
+      },
+      issuePairingCode: async () => ({ pairingCode: 'CEM-ROLE-SAVE' }),
+    },
+  });
+  t.after(() => testServer.server.close());
+  const headers = { 'content-type': 'application/json', 'x-wisdo-test-user': 'role-user' };
+  const created = await jsonFetch(`${testServer.base}/api/v2/accounts`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ platform: 'mt4', broker: 'Broker', server: 'Broker-Live', account_number: '90001', nickname: 'Lead Desk', desk_role: 'lead', sharing_mode: 'community', community_name: 'Public Lead' }),
+  });
+  assert.equal(created.response.status, 201);
+  const synced = await jsonFetch(`${testServer.base}/api/v2/accounts`, { headers });
+  assert.equal(synced.payload.accounts[0].desk_role, 'lead');
+  assert.equal(synced.payload.accounts[0].sharing_mode, 'community');
+  assert.equal(testServer.getState().accountControlSettingsById['90001:Broker-Live'].desk_role, 'lead');
+
+  const deleted = await jsonFetch(`${testServer.base}/api/v2/accounts/90001%3ABroker-Live`, { method: 'DELETE', headers });
+  assert.equal(deleted.response.status, 200);
+  const afterDelete = await jsonFetch(`${testServer.base}/api/v2/accounts`, { headers });
+  assert.equal(afterDelete.payload.accounts.length, 0);
+  assert.ok(testServer.getState().deletedTradingAccounts['90001:Broker-Live']);
+});
+
+test('bulk close controls queue immediate priority commands and persist Compound Tracker analysis', async (t) => {
+  const seed = {
+    tradingAccounts: {
+      acct1: { id: 'acct1', user_id: 'close-user', account_number: '11', server: 'Demo', desk_role: 'private', sharing_mode: 'private', balance: 1000, equity: 970 },
+    },
+    trades: {
+      open1: { id: 'open1', user_id: 'close-user', account_id: 'acct1', status: 'open', pnl: 25, opened_at: new Date().toISOString() },
+      closed1: { id: 'closed1', user_id: 'close-user', account_id: 'acct1', status: 'closed', pnl: 40, opened_at: new Date(Date.now() - 3600000).toISOString(), closed_at: new Date().toISOString() },
+    },
+  };
+  const testServer = await createTestServer(seed);
+  t.after(() => testServer.server.close());
+  const headers = { 'content-type': 'application/json', 'x-wisdo-test-user': 'close-user' };
+  const response = await jsonFetch(`${testServer.base}/api/v2/trades/close-bulk`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ account_id: 'acct1', mode: 'profitable', confirmation: 'confirmed' }),
+  });
+  assert.equal(response.response.status, 200);
+  assert.equal(response.payload.command.command, 'CLOSE_ALL_PROFITS');
+  assert.equal(response.payload.command.immediate, true);
+  assert.equal(response.payload.command.priority, 1000);
+  assert.equal(response.payload.tracker.mode, 'profitable');
+  assert.ok(testServer.getState().compoundCloseTrackersById[response.payload.tracker.id]);
+
+  const trends = await jsonFetch(`${testServer.base}/api/v2/analyzer/trends?account_id=acct1`, { headers });
+  assert.equal(trends.response.status, 200);
+  assert.equal(trends.payload.dailySeries.length, 7);
+  assert.equal(trends.payload.weeklySeries.length, 8);
+  assert.equal(typeof trends.payload.gauges.compoundScore, 'number');
+});
+
+test('Compound Tracker finalizes against MT4 history and exposes daily and weekly gauges', () => {
+  const state = {
+    tradingAccounts: { acct: { id: 'acct', user_id: 'u1', balance: 1000, equity: 1020 } },
+    trades: {
+      t1: { id: 't1', user_id: 'u1', account_id: 'acct', status: 'closed', pnl: 50, closed_at: new Date().toISOString() },
+      t2: { id: 't2', user_id: 'u1', account_id: 'acct', status: 'closed', pnl: -10, closed_at: new Date().toISOString() },
+    },
+  };
+  const tracker = createCloseTracker(state, { userId: 'u1', accountId: 'acct', mode: 'all' });
+  tracker.command_id = 'cmd1';
+  const finalized = finalizeCloseTracker(state, { command: { id: 'cmd1', command: 'CLOSE_ALL_TRADES', payload: { compoundTrackerId: tracker.id } }, result: { success: true, closedCount: 2, realizedPnl: 40 }, userId: 'u1', accountId: 'acct' });
+  assert.equal(finalized.status, 'completed');
+  assert.equal(finalized.result.closedCount, 2);
+  assert.equal(finalized.after.dailySeries.length, 7);
+  assert.equal(finalized.after.weeklySeries.length, 8);
+  assert.equal(typeof buildTrendAnalytics(state, 'u1', 'acct').gauges.weeklyTrend, 'number');
+});
+
+test('JSON persistence restores a valid backup instead of silently resetting account settings', async () => {
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wisdo-persistence-'));
+  const adapter = new JsonFilePersistenceAdapter({ dataDir, fileName: 'ecosystem.json', defaultState: () => ({ empty: true }) });
+  const expected = { accountControlSettingsById: { acct: { desk_role: 'lead', sharing_mode: 'community' } } };
+  await adapter.save(expected);
+  await fs.writeFile(path.join(dataDir, 'ecosystem.json'), '{broken json', 'utf8');
+  const restored = await adapter.load();
+  assert.deepEqual(restored, expected);
+  const repaired = JSON.parse(await fs.readFile(path.join(dataDir, 'ecosystem.json'), 'utf8'));
+  assert.deepEqual(repaired, expected);
 });

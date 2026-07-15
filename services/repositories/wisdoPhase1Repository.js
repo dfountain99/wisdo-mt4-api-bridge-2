@@ -77,6 +77,13 @@ export function createWisdoPhase1State() {
     funnelLeadsById: {},
     funnelEvents: [],
     leads: [],
+    tradingAccounts: {},
+    accountControlSettingsById: {},
+    deletedTradingAccounts: {},
+    compoundCloseTrackersById: {},
+    accountTelemetry: {},
+    trades: {},
+    alerts: {},
   };
 }
 
@@ -100,20 +107,42 @@ export class WisdoPhase1Repository {
       namespace: 'wisdo_phase_1',
       defaultState: createWisdoPhase1State,
     });
+    this.stateChain = Promise.resolve();
+    this.lastKnownGood = null;
   }
 
   async loadState() {
-    return ensureWisdoPhase1State(await this.adapter.load());
+    try {
+      const state = ensureWisdoPhase1State(await this.adapter.load());
+      this.lastKnownGood = structuredClone(state);
+      return state;
+    } catch (error) {
+      if (this.lastKnownGood) return structuredClone(this.lastKnownGood);
+      throw error;
+    }
   }
 
   async saveState(state) {
-    return this.adapter.save(ensureWisdoPhase1State(state));
+    const snapshot = ensureWisdoPhase1State(state);
+    const operation = this.stateChain.then(async () => {
+      const saved = await this.adapter.save(snapshot);
+      this.lastKnownGood = structuredClone(snapshot);
+      return saved;
+    });
+    this.stateChain = operation.catch(() => undefined);
+    return operation;
   }
 
   async updateState(updater) {
-    const state = await this.loadState();
-    const next = await updater(state);
-    return this.saveState(next || state);
+    const operation = this.stateChain.then(async () => {
+      const state = await this.loadState();
+      const next = ensureWisdoPhase1State((await updater(state)) || state);
+      const saved = await this.adapter.save(next);
+      this.lastKnownGood = structuredClone(next);
+      return saved;
+    });
+    this.stateChain = operation.catch(() => undefined);
+    return operation;
   }
 
   async getDesk(userId) {
