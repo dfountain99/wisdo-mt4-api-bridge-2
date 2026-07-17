@@ -62,3 +62,13 @@ test('Trade Passports are finalized once and feed DNA/Intelligence confidence',(
   assert.ok(report.dnaSnapshotId);
   assert.ok(report.observations.length);
 });
+
+test('clickable symbol highlights enforce the saved allowed-symbol policy',()=>{
+  const s=state();
+  const lane=createCultureLane(s,'u1',{leaderAccountId:'lead',followerAccountIds:['follow']});
+  upsertBrokerSymbolInventory(s,'u1','follow',{symbols:['XAUUSD','EURUSD']});
+  setLaneSymbolPolicy(s,lane.laneId,'u1',{allowedSymbols:['XAUUSD'],blockedSymbols:['EURUSD'],autoMatch:true});
+  assert.equal(resolveLaneSymbol(s,lane.laneId,'follow','XAUUSD').eligible,true);
+  assert.equal(resolveLaneSymbol(s,lane.laneId,'follow','EURUSD').reason,'blocked_symbol');
+  assert.equal(resolveLaneSymbol(s,lane.laneId,'follow','GBPUSD').reason,'symbol_not_allowed');
+});

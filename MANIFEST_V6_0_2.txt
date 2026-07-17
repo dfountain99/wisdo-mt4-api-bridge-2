@@ -1,0 +1,31 @@
+WISDO v6.0.2 FULL REPOSITORY
+Visible Control Surfaces + Fast Close
+
+Core release changes
+- Parallel Culture Lane close fanout
+- Parallel Harvest close fanout
+- Priority account atomic basket sweep
+- Reporter v1.57 atomic ticket snapshot/sweep
+- Visible Culture Lane Vault page
+- Clickable leader-symbol allow/block highlights
+- Live Copier Engine route synchronization
+- Visible Harvest page
+- Visible Genome, Timeline, and Trade Passport page
+- Visible Lane DNA and Culture Intelligence page
+- Visible Compound Tracker page
+- Existing copier-rule Culture Lane backfill
+- Desktop sidebar scrolling
+- Mobile workspace page selector
+
+Validation
+- npm run check passed
+- 90 JavaScript files checked
+- 14 required production assets checked
+- 41 automated tests passed
+- 0 automated tests failed
+- no internal npm registry URLs
+
+Important
+- Deploy the whole repository, not as an overlay.
+- Keep .env values in Render; never commit production secrets.
+- Compile and install Reporter v1.57 in MetaEditor on every MT4 terminal.

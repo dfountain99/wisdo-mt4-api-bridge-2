@@ -1,6 +1,6 @@
-# WISDO v6.0.0 — Culture Lane Portfolio Operating System
+# WISDO v6.0.2 — Culture Lane Portfolio Operating System
 
-WISDO v6.0.0 combines the complete application with a hardened PostgreSQL/Redis relay foundation and the first operational Culture Lane OS APIs. The release adds multi-instance-safe section persistence, Redis Streams, command idempotency, retry/dead-letter recovery, durable acknowledgements and heartbeats, Culture Lane Vaults, Smart Symbol Routing, Harvest policies, Genomes, Timelines, Trade Passports, DNA, and Intelligence reports.
+WISDO v6.0.2 combines the complete application with a hardened PostgreSQL/Redis relay foundation and the first operational Culture Lane OS APIs. The release adds multi-instance-safe section persistence, Redis Streams, command idempotency, retry/dead-letter recovery, durable acknowledgements and heartbeats, Culture Lane Vaults, Smart Symbol Routing, Harvest policies, Genomes, Timelines, Trade Passports, DNA, and Intelligence reports.
 
 See `docs/RELEASE_NOTES_V6_0_0.md` and `WISDO_V6_0_0_DEPLOYMENT_CHECKLIST.md` before deployment.
 
@@ -245,6 +245,10 @@ The spin-wheel UI and preview/save mapping can remain enabled while execution su
 
 Trading and copy trading involve substantial risk of loss. Risk controls reduce operational exposure but cannot eliminate market, broker, connectivity, slippage, liquidity, or execution risk. No feature in this repository guarantees profitability.
 
+## v6.0.2 visible controls and fast close
+
+v6.0.2 makes the Culture Lane OS operational from the website: dedicated Culture Lane, Symbol Routing, Harvest, Audit, Intelligence, and Compound Tracker pages; automatic migration of existing copier routes; parallel lane/Harvest close fanout; click-to-allow leader-symbol highlights tied to the live relay; mobile page navigation; and Reporter v1.57 atomic basket sweep. See `docs/RELEASE_NOTES_V6_0_2.md`.
+
 ## V5.1.1 copier close authority
 
 V5.1.1 repairs the full lead-close path. Opening filters such as symbol allowlists, route pause, spread limits, drawdown gates, and max-open-trades apply only to new entries. A leader close remains authoritative for an existing mirrored position.
@@ -256,7 +260,7 @@ The server now sends and persists all close identities:
 - actual `followerTicket` returned by MT4 `OrderSend`
 - follower account ID and resolved follower symbol
 
-Reporter v1.56 supports immediate account synchronization and closes by the stored follower ticket first, then the stable source marker, then a safe unique symbol/side recovery. It never reports success when no position was closed.
+Reporter v1.57 supports immediate account synchronization and closes by the stored follower ticket first, then the stable source marker, then a safe unique symbol/side recovery. It never reports success when no position was closed.
 
 **Follower terminal upgrade is mandatory:** compile `mql4/CultureCoin_MT4_Reporter.mq4` in MetaEditor and replace the older Reporter EX4. The legacy compiled binary is archived and is not delivered as the active Reporter.
 

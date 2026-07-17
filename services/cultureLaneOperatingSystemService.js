@@ -123,10 +123,12 @@ export function resolveLaneSymbol(state, laneId, accountId, leaderSymbol) {
   const leader = normalizeSymbol(leaderSymbol);
   const policy = state.symbolPoliciesByLaneId[clean(laneId)] || { autoMatch: true, aliases: {} };
   if ((policy.blockedSymbols || []).includes(leader)) return { eligible: false, reason: 'blocked_symbol', leaderSymbol: leader };
+  if ((policy.allowedSymbols || []).length && !(policy.allowedSymbols || []).includes(leader)) return { eligible: false, reason: 'symbol_not_allowed', leaderSymbol: leader };
   const inventory = state.brokerSymbolInventoriesByAccountId[clean(accountId)];
   const offered = new Set((inventory?.symbols || []).filter((item) => item.tradeAllowed !== false).map((item) => item.symbol));
   const explicit = normalizeSymbol(policy.aliases?.[leader]);
-  const candidates = unique([leader, explicit, leader.replace('SPXUSD', 'US500'), leader.replace('NASUSD', 'NAS100'), leader.replace('XAUUSD', 'GOLD')]).filter(Boolean);
+  const autoCandidates = policy.autoMatch === false ? [] : [leader.replace('SPXUSD', 'US500'), leader.replace('NASUSD', 'NAS100'), leader.replace('XAUUSD', 'GOLD')];
+  const candidates = unique([leader, explicit, ...autoCandidates]).filter(Boolean);
   const followerSymbol = candidates.find((candidate) => offered.has(candidate)) || (!inventory && explicit) || (!inventory && leader);
   if (!followerSymbol) return { eligible: false, reason: 'no_compatible_symbol', leaderSymbol: leader, accountId: clean(accountId), candidates };
   return { eligible: true, leaderSymbol: leader, followerSymbol, translated: followerSymbol !== leader, accountId: clean(accountId), candidates };

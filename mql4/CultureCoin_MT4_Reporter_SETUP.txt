@@ -7,15 +7,15 @@ open/close commands stay responsive. Multiple Reporter copies on the same accoun
 create near-simultaneous sync requests; v5.6.2 coalesces them, but removing duplicates
 is still the correct setup.
 
-Culture Coin MT4 Reporter v1.56 — Sync Account + Close Authority Setup
+Culture Coin MT4 Reporter v1.57 — Sync Account + Close Authority Setup
 
 ACTIVE FILES
-- CultureCoin_MT4_Reporter.mq4  (v1.56 source — compile this in MetaEditor)
+- CultureCoin_MT4_Reporter.mq4  (v1.57 source — compile this in MetaEditor)
 - CultureCoin_MT4_Reporter_Package.zip
 
 IMPORTANT
 The older compiled EX4 from the previous package does NOT contain the lead-close repair.
-Every follower terminal must compile and install the v1.56 MQ4 source before testing.
+Every follower terminal must compile and install the v1.57 MQ4 source before testing.
 
 INSTALL / UPGRADE
 1. In MT4 choose File -> Open Data Folder.
@@ -30,7 +30,7 @@ INSTALL / UPGRADE
 10. Turn MT4 AutoTrading ON.
 11. In Tools -> Options -> Expert Advisors, allow WebRequest for the WISDO base URL only, for example:
     https://wisdo-mt4-api-bridge.onrender.com
-12. Confirm the Reporter dashboard displays v1.56 and FOLLOWER COPY ON.
+12. Confirm the Reporter dashboard displays v1.57 and FOLLOWER COPY ON.
 
 REQUIRED REPORTER URLS
 - Sync: <base-url>/mt4-sync
@@ -60,3 +60,9 @@ SYNC_ACCOUNT CERTIFICATION
 2. Confirm MT4 logs: SYNC_ACCOUNT -> Account synchronized.
 3. Confirm Dashboard balance, equity, positions, terminal and Expert status update immediately.
 4. Confirm the command history is completed rather than unsupported.
+
+
+V1.57 CLOSE SPEED UPGRADE
+- Close All, Profit Secure, and Close Losing use one atomic basket sweep command per account.
+- The Reporter snapshots all matching tickets first and closes the basket immediately without waiting for separate website commands.
+- Culture Lane close-all fans one sweep command to every account in parallel.

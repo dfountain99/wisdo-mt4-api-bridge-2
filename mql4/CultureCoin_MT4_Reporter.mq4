@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.56"
+#property version   "1.57"
 #property description "Culture Coin MT4 Reporter - WISDO sync-account + close-authority copy/manual/profit dashboard"
 
 input string PairingCode = "";
@@ -79,7 +79,7 @@ input color DashboardWarnColor = clrOrange;
 input color DashboardBadColor = clrTomato;
 input color DashboardTextColor = clrSilver;
 
-string REPORTER_VERSION = "1.56";
+string REPORTER_VERSION = "1.57";
 string STATUS_LABEL = "CultureCoinReporterStatus";
 string DASH_PREFIX = "CEM_WISDO_DASH_";
 string g_lastStatus = "Waiting";
@@ -1423,11 +1423,12 @@ bool ExecuteProfitCloseSweep(string commandJson, string mode, double percent, st
       message = "AutoTrading / Expert execution disabled for profit manager";
       return false;
    }
-   bool anyAttempt = false;
-   int closed = 0;
-   int failed = 0;
-   double secured = 0.0;
-   string details = "";
+
+   // Snapshot every matching ticket first. One WISDO command owns the complete basket,
+   // so the website never queues or waits for one close command per position.
+   int tickets[];
+   double profits[];
+   int matchCount = 0;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
    {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
@@ -1436,28 +1437,48 @@ bool ExecuteProfitCloseSweep(string commandJson, string mode, double percent, st
       bool shouldClose = false;
       if(mode == "winners") shouldClose = (p > 0.0);
       else if(mode == "losers") shouldClose = (p < 0.0 && ProfitAllowCloseLosses);
-      else if(mode == "all") shouldClose = true;
-      else if(mode == "basket") shouldClose = true;
+      else if(mode == "all" || mode == "basket") shouldClose = true;
       if(!shouldClose) continue;
-      anyAttempt = true;
-      double before = p;
-      int selectedTicket = OrderTicket();
+      ArrayResize(tickets, matchCount + 1);
+      ArrayResize(profits, matchCount + 1);
+      tickets[matchCount] = OrderTicket();
+      profits[matchCount] = p;
+      matchCount++;
+   }
+
+   if(matchCount == 0)
+   {
+      message = "No matching trades found for profit command";
+      return true;
+   }
+
+   int closed = 0;
+   int failed = 0;
+   double secured = 0.0;
+   string details = "";
+   for(int index = 0; index < matchCount; index++)
+   {
+      int selectedTicket = tickets[index];
+      if(!OrderSelect(selectedTicket, SELECT_BY_TICKET, MODE_TRADES))
+      {
+         failed++;
+         if(StringLen(details) < 220) details += "ticket " + IntegerToString(selectedTicket) + " unavailable; ";
+         continue;
+      }
       string detail = "";
+      RefreshRates();
       if(CloseSelectedOrderByPercent(percent, detail))
       {
          closed++;
-         secured += before;
+         secured += profits[index];
          lastTicket = selectedTicket;
       }
       else failed++;
       if(StringLen(details) < 220) details += detail + "; ";
    }
-   if(!anyAttempt)
-   {
-      message = "No matching trades found for profit command";
-      return true;
-   }
-   message = "Profit command closed " + IntegerToString(closed) + " trade(s), failed " + IntegerToString(failed) + ", approx secured " + DoubleToString(secured, 2) + ". " + details;
+
+   message = "Atomic basket sweep targeted " + IntegerToString(matchCount) + ", closed " + IntegerToString(closed) +
+             ", failed " + IntegerToString(failed) + ", approx secured " + DoubleToString(secured, 2) + ". " + details;
    return failed == 0;
 }
 

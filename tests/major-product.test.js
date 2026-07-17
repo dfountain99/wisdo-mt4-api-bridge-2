@@ -211,13 +211,15 @@ test('portable chart renderer produces a valid PNG without native canvas depende
   assert.ok(bytes.length > 1000);
 });
 
-test('Reporter v1.56 supports immediate account sync and retains close authority', async () => {
+test('Reporter v1.57 supports immediate account sync, atomic basket sweep, and retains close authority', async () => {
   const reporter = await fs.readFile(new URL('../mql4/CultureCoin_MT4_Reporter.mq4', import.meta.url), 'utf8');
-  assert.match(reporter, /#property version\s+"1\.56"/);
+  assert.match(reporter, /#property version\s+"1\.57"/);
   assert.match(reporter, /JsonGetInt\(commandJson, "followerTicket", -1\)/);
   assert.match(reporter, /JsonGetString\(commandJson, "leaderTicket", ""\)/);
   assert.match(reporter, /FindUniqueCopiedTradeByContext/);
   assert.match(reporter, /ExecuteSyncAccountCommand/);
+  assert.match(reporter, /Atomic basket sweep targeted/);
+  assert.match(reporter, /ArrayResize\(tickets, matchCount \+ 1\)/);
   assert.match(reporter, /command == "SYNC_ACCOUNT"/);
   assert.match(reporter, /SendSnapshot\(\);/);
   assert.match(reporter, /reporterCapabilities/);
@@ -992,7 +994,8 @@ test('bulk close controls queue immediate priority commands and persist Compound
   assert.equal(response.response.status, 200);
   assert.equal(response.payload.command.command, 'CLOSE_ALL_PROFITS');
   assert.equal(response.payload.command.immediate, true);
-  assert.equal(response.payload.command.priority, 1000);
+  assert.equal(response.payload.command.priority, 5000);
+  assert.equal(response.payload.atomicSweep, true);
   assert.equal(response.payload.tracker.mode, 'profitable');
   assert.ok(testServer.getState().compoundCloseTrackersById[response.payload.tracker.id]);
 
@@ -1031,4 +1034,96 @@ test('JSON persistence restores a valid backup instead of silently resetting acc
   assert.deepEqual(restored, expected);
   const repaired = JSON.parse(await fs.readFile(path.join(dataDir, 'ecosystem.json'), 'utf8'));
   assert.deepEqual(repaired, expected);
+});
+
+test('visible Culture Lane pages expose symbol history, Harvest, audit, intelligence, and parallel lane close', async (t) => {
+  const now = new Date().toISOString();
+  const seed = {
+    tradingAccounts: {
+      lead: { id: 'lead', user_id: 'lane-user', account_number: '100', server: 'Demo', desk_role: 'lead', reporter_connected: true, status: 'connected', balance: 1000, equity: 1010 },
+      follow: { id: 'follow', user_id: 'lane-user', account_number: '200', server: 'Demo', desk_role: 'receiver', reporter_connected: true, status: 'connected', balance: 500, equity: 505 },
+    },
+    cultureLanesById: {
+      lane_visible: { laneId: 'lane_visible', ownerUserId: 'lane-user', name: 'Visible Lane', leaderAccountId: 'lead', followerAccountIds: ['follow'], accountIds: ['lead', 'follow'], status: 'active', profile: 'custom', createdAt: now, updatedAt: now },
+    },
+    trades: {
+      leadTrade: { id: 'leadTrade', user_id: 'lane-user', account_id: 'lead', symbol: 'XAUUSD', status: 'closed', opened_at: now, closed_at: now, pnl: 10 },
+    },
+  };
+  const testServer = await createTestServer(seed);
+  t.after(() => testServer.server.close());
+  const headers = { 'x-wisdo-test-user': 'lane-user', accept: 'text/html' };
+  for (const page of ['culture-lanes', 'symbol-routing', 'harvest', 'lane-audit', 'lane-intelligence', 'compound-tracker']) {
+    const response = await fetch(`${testServer.base}/app/${page}`, { headers });
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    assert.match(body, /Culture Lanes/);
+    assert.match(body, /Harvest Mode/);
+  }
+  const overview = await jsonFetch(`${testServer.base}/api/v2/culture-lanes/lane_visible/overview`, { headers: { 'x-wisdo-test-user': 'lane-user' } });
+  assert.equal(overview.response.status, 200);
+  assert.equal(overview.payload.leaderSymbols[0].symbol, 'XAUUSD');
+  const close = await jsonFetch(`${testServer.base}/api/v2/culture-lanes/lane_visible/close-all`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-wisdo-test-user': 'lane-user' }, body: JSON.stringify({ confirmation: 'confirmed' }),
+  });
+  assert.equal(close.response.status, 202);
+  assert.equal(close.payload.parallel, true);
+  assert.equal(close.payload.commands.length, 2);
+});
+
+test('existing Copier Engine routes backfill automatically into visible Culture Lanes', async (t) => {
+  const seed = {
+    tradingAccounts: {
+      lead: { id: 'lead', user_id: 'backfill-user', account_number: '100', server: 'Demo', desk_role: 'lead', reporter_connected: true, status: 'connected' },
+      follow: { id: 'follow', user_id: 'backfill-user', account_number: '200', server: 'Demo', desk_role: 'receiver', reporter_connected: true, status: 'connected' },
+    },
+    copierRules: {
+      rule_old: { id: 'rule_old', user_id: 'backfill-user', master_id: 'lead', slave_id: 'follow', risk_type: 'multiplier', risk_value: 1, min_lot: 0.01, max_lot: 1, allowed_symbols: ['NAS100'], symbol_mapping: { NASUSD: 'NAS100' }, is_active: true },
+    },
+  };
+  const testServer = await createTestServer(seed);
+  t.after(() => testServer.server.close());
+  const result = await jsonFetch(`${testServer.base}/api/v2/culture-lanes`, { headers: { 'x-wisdo-test-user': 'backfill-user' } });
+  assert.equal(result.response.status, 200);
+  assert.equal(result.payload.lanes.length, 1);
+  assert.equal(result.payload.lanes[0].laneId, 'lane_rule_old');
+  assert.equal(testServer.getState().copierRules.rule_old.culture_lane_id, 'lane_rule_old');
+  assert.deepEqual(testServer.getState().symbolPoliciesByLaneId.lane_rule_old.allowedSymbols, ['NAS100']);
+});
+
+test('symbol highlight page updates the live relay allowlist and block-all remains restrictive', async (t) => {
+  const relayWrites = [];
+  const repository = {
+    getMt4State: async () => ({ connectionsByAccountId: {} }),
+    getMt4AccountId: (accountNumber, server = '') => `${accountNumber}:${server || 'server'}`,
+    upsertCopyRoute: async (userId, route) => { relayWrites.push({ userId, route: structuredClone(route) }); return route; },
+  };
+  const now = new Date().toISOString();
+  const seed = {
+    tradingAccounts: {
+      lead: { id: 'lead', user_id: 'symbol-user', account_number: '100', server: 'Demo', desk_role: 'lead', reporter_connected: true, status: 'connected' },
+      follow: { id: 'follow', user_id: 'symbol-user', account_number: '200', server: 'Demo', desk_role: 'receiver', reporter_connected: true, status: 'connected' },
+    },
+    cultureLanesById: {
+      lane_symbols: { laneId: 'lane_symbols', ownerUserId: 'symbol-user', name: 'Symbol Lane', leaderAccountId: 'lead', followerAccountIds: ['follow'], accountIds: ['lead', 'follow'], status: 'active', profile: 'custom', createdAt: now, updatedAt: now },
+    },
+    copierRules: {
+      rule_symbols: { id: 'rule_symbols', culture_lane_id: 'lane_symbols', user_id: 'symbol-user', master_id: 'lead', slave_id: 'follow', risk_type: 'multiplier', risk_value: 1, min_lot: 0.01, max_lot: 1, allowed_symbols: [], symbol_mapping: {}, is_active: true },
+    },
+  };
+  const testServer = await createTestServer(seed, { mt4SyncService: { repository } });
+  t.after(() => testServer.server.close());
+  const saved = await jsonFetch(`${testServer.base}/api/v2/culture-lanes/lane_symbols/symbol-policy`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', 'x-wisdo-test-user': 'symbol-user' },
+    body: JSON.stringify({ autoMatch: true, allowedSymbols: [], blockedSymbols: ['XAUUSD', 'NAS100'], aliases: {} }),
+  });
+  assert.equal(saved.response.status, 200);
+  const rule = testServer.getState().copierRules.rule_symbols;
+  assert.equal(rule.allow_only_highlighted, true);
+  assert.deepEqual(rule.allowed_symbols, []);
+  assert.deepEqual(rule.blocked_symbols, ['XAUUSD', 'NAS100']);
+  assert.equal(relayWrites.length, 1);
+  assert.equal(relayWrites[0].route.risk.allowOnlyHighlighted, true);
+  assert.deepEqual(relayWrites[0].route.risk.blockedSymbols, ['XAUUSD', 'NAS100']);
 });

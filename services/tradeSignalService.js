@@ -58,6 +58,7 @@ function normalizeCopyRisk(risk = {}) {
     allowedSymbols: Array.isArray(next.allowedSymbols) ? next.allowedSymbols.map((x) => String(x).toUpperCase()).filter(Boolean) : [],
     symbolMapping: next.symbolMapping && typeof next.symbolMapping === 'object' ? { ...next.symbolMapping } : {},
     blockedSymbols: Array.isArray(next.blockedSymbols) ? next.blockedSymbols.map((x) => String(x).toUpperCase()).filter(Boolean) : [],
+    allowOnlyHighlighted: next.allowOnlyHighlighted !== undefined ? Boolean(next.allowOnlyHighlighted) : false,
     copyBuys: next.copyBuys !== undefined ? Boolean(next.copyBuys) : true,
     copySells: next.copySells !== undefined ? Boolean(next.copySells) : true,
     copySLTP: next.copySLTP !== undefined ? Boolean(next.copySLTP) : false,
@@ -123,8 +124,9 @@ function riskAllowsSignal(signal, account = {}) {
   if (signal.side === 'BUY' && !risk.copyBuys) return { ok: false, reason: 'Buys are disabled for this copier.' };
   if (signal.side === 'SELL' && !risk.copySells) return { ok: false, reason: 'Sells are disabled for this copier.' };
   const sym = String(signal.symbol || '').toUpperCase();
-  if (risk.allowedSymbols.length && !risk.allowedSymbols.includes(sym)) return { ok: false, reason: `${sym} is not in allowed symbols.` };
   if (risk.blockedSymbols.includes(sym)) return { ok: false, reason: `${sym} is blocked.` };
+  if (risk.allowOnlyHighlighted && !risk.allowedSymbols.includes(sym)) return { ok: false, reason: `${sym} is not highlighted for this lane.` };
+  if (!risk.allowOnlyHighlighted && risk.allowedSymbols.length && !risk.allowedSymbols.includes(sym)) return { ok: false, reason: `${sym} is not in allowed symbols.` };
   const snap = account.latestSnapshot?.snapshot || {};
   if (risk.equityFloor > 0 && Number(snap.equity || 0) > 0 && Number(snap.equity || 0) < risk.equityFloor) return { ok: false, reason: 'Equity is below copier floor.' };
   if (risk.maxOpenTrades > 0 && Number(snap.openTradeCount || 0) >= risk.maxOpenTrades) return { ok: false, reason: 'Max open trades reached.' };
