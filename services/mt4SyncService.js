@@ -194,6 +194,8 @@ export class Mt4SyncService {
     this.wisdoMemoryService = wisdoMemoryService;
     this.requestTimestamps = new Map();
     this.productEventSink = null;
+    this.routePreparationByAccount = new Map();
+    this.lastHistoryAtByAccount = new Map();
   }
 
   attachWisdoMemoryService(service) {
@@ -482,9 +484,9 @@ export class Mt4SyncService {
     ].join('|');
   }
 
-  async processTradeSignals({ connectionRecord, latestSnapshotRecord }) {
+  async processTradeSignals({ connectionRecord, latestSnapshotRecord, priorTracking = undefined }) {
     if (!this.tradeSignalService) {
-      return { opened: 0, closed: 0, skipped: true, reason: 'tradeSignalService not attached' };
+      return { opened: 0, closed: 0, skipped: true, reason: 'tradeSignalService not attached', tracking: null };
     }
 
     const snapshot = latestSnapshotRecord?.snapshot || {};
@@ -493,113 +495,130 @@ export class Mt4SyncService {
     const eligible = this.isSignalEligibleAccount(connectionRecord);
 
     if (!eligible) {
-      return { opened: 0, closed: 0, skipped: true, reason: `account role ${connectionRecord.accountRole || 'private'} is not signal eligible` };
+      return { opened: 0, closed: 0, skipped: true, reason: `account role ${connectionRecord.accountRole || 'private'} is not signal eligible`, tracking: null };
     }
 
     let opened = 0;
     let closed = 0;
     const nowOpenKeys = openTrades.map((trade) => this.getTradeSignalKey(accountId, trade));
+    const managesTrackingPersistence = priorTracking === undefined;
+    if (managesTrackingPersistence) {
+      const liveState = await this.repository.getMt4State?.() || {};
+      priorTracking = liveState.signalTrackingByAccountId?.[accountId] || null;
+    }
+    const tracking = {
+      openKeys: Array.isArray(priorTracking?.openKeys) ? [...priorTracking.openKeys] : [],
+      tradeKeyToSignalId: { ...(priorTracking?.tradeKeyToSignalId || {}) },
+    };
+    const previousKeys = tracking.openKeys;
+    const previousSet = new Set(previousKeys);
+    const nowSet = new Set(nowOpenKeys);
 
-    await this.repository.updateMt4State(async (state) => {
-      state.signalTrackingByAccountId ||= {};
-      const tracking = state.signalTrackingByAccountId[accountId] || { openKeys: [], tradeKeyToSignalId: {} };
-      const previousKeys = Array.isArray(tracking.openKeys) ? tracking.openKeys : [];
-      const previousSet = new Set(previousKeys);
-      const nowSet = new Set(nowOpenKeys);
+    // Do network/command work outside a PostgreSQL advisory-lock transaction.
+    // v6.0.6 awaited signal creation while holding the live-state lock, which
+    // blocked every Reporter and every dashboard reader behind one heartbeat.
+    for (let i = 0; i < openTrades.length; i += 1) {
+      const trade = openTrades[i];
+      const key = nowOpenKeys[i];
+      if (!key || previousSet.has(key)) continue;
 
-      for (let i = 0; i < openTrades.length; i += 1) {
-        const trade = openTrades[i];
-        const key = nowOpenKeys[i];
-        if (!key || previousSet.has(key)) continue;
+      try {
+        const signal = await this.tradeSignalService.createSignal({
+          leaderUserId: connectionRecord.discordUserId,
+          leaderAccountId: accountId,
+          leaderAccountNumber: connectionRecord.accountNumber,
+          leaderServer: connectionRecord.brokerServer,
+          leaderChannelId: connectionRecord.channelId,
+          eaName: connectionRecord.eaName || snapshot.eaName,
+          eaVersion: connectionRecord.eaVersion || snapshot.eaVersion,
+          trade,
+          snapshot,
+        });
+        if (signal?.signalId) {
+          tracking.tradeKeyToSignalId[key] = signal.signalId;
+          opened += 1;
+        }
+      } catch (error) {
+        logger.warn('Trade signal creation failed during MT4 sync.', {
+          accountId,
+          ticket: trade?.ticket,
+          message: error.message,
+        });
+      }
+    }
 
+    for (const oldKey of previousKeys) {
+      if (nowSet.has(oldKey)) continue;
+      closed += 1;
+      const signalId = tracking.tradeKeyToSignalId?.[oldKey] || null;
+      const [, sourceTicket = ''] = String(oldKey).split('|');
+      const closedSymbol = String(oldKey).split('|')[3] || '';
+      const closedSide = String(oldKey).split('|')[4] || '';
+      if (this.tradeSignalService?.queueAutoCopyCloseRoutes && sourceTicket) {
         try {
-          const signal = await this.tradeSignalService.createSignal({
-            leaderUserId: connectionRecord.discordUserId,
+          await this.tradeSignalService.queueAutoCopyCloseRoutes({
+            signalId,
             leaderAccountId: accountId,
-            leaderAccountNumber: connectionRecord.accountNumber,
-            leaderServer: connectionRecord.brokerServer,
-            leaderChannelId: connectionRecord.channelId,
-            eaName: connectionRecord.eaName || snapshot.eaName,
-            eaVersion: connectionRecord.eaVersion || snapshot.eaVersion,
-            trade,
-            snapshot,
+            sourceTicket,
+            symbol: closedSymbol,
+            side: closedSide,
           });
-          if (signal?.signalId) {
-            tracking.tradeKeyToSignalId ||= {};
-            tracking.tradeKeyToSignalId[key] = signal.signalId;
-            opened += 1;
-          }
         } catch (error) {
-          logger.warn('Trade signal creation failed during MT4 sync.', {
+          logger.warn('Culture Lane close command creation failed during MT4 sync.', {
             accountId,
-            ticket: trade?.ticket,
+            sourceTicket,
             message: error.message,
           });
         }
       }
-
-      for (const oldKey of previousKeys) {
-        if (!nowSet.has(oldKey)) {
-          closed += 1;
-          const signalId = tracking.tradeKeyToSignalId?.[oldKey] || null;
-          const [, sourceTicket = ''] = String(oldKey).split('|');
-          const closedSymbol = String(oldKey).split('|')[3] || '';
-          const closedSide = String(oldKey).split('|')[4] || '';
-          if (this.tradeSignalService?.queueAutoCopyCloseRoutes && sourceTicket) {
-            try {
-              await this.tradeSignalService.queueAutoCopyCloseRoutes({
-                signalId,
-                leaderAccountId: accountId,
-                sourceTicket,
-                symbol: closedSymbol,
-                side: closedSide,
-              });
-            } catch (error) {
-              logger.warn('Culture Lane close command creation failed during MT4 sync.', {
-                accountId,
-                sourceTicket,
-                message: error.message,
-              });
-            }
-          }
-          if (this.copyTradingService && sourceTicket) {
-            try {
-              await this.copyTradingService.queueMasterSignal({
-                masterUserId: connectionRecord.discordUserId,
-                masterAccountNumber: connectionRecord.accountNumber,
-                sourceTicket,
-                symbol: closedSymbol,
-                side: closedSide,
-                lots: 0.01,
-                action: 'close',
-                signalId,
-              });
-            } catch (error) {
-              logger.warn('Copy close command creation failed during MT4 sync.', {
-                accountId,
-                sourceTicket,
-                message: error.message,
-              });
-            }
-          }
-          if (tracking.tradeKeyToSignalId) delete tracking.tradeKeyToSignalId[oldKey];
+      if (this.copyTradingService && sourceTicket) {
+        try {
+          await this.copyTradingService.queueMasterSignal({
+            masterUserId: connectionRecord.discordUserId,
+            masterAccountNumber: connectionRecord.accountNumber,
+            sourceTicket,
+            symbol: closedSymbol,
+            side: closedSide,
+            lots: 0.01,
+            action: 'close',
+            signalId,
+          });
+        } catch (error) {
+          logger.warn('Copy close command creation failed during MT4 sync.', {
+            accountId,
+            sourceTicket,
+            message: error.message,
+          });
         }
       }
+      delete tracking.tradeKeyToSignalId[oldKey];
+    }
 
-      const activeSignalMap = {};
-      for (const key of nowOpenKeys) {
-        if (tracking.tradeKeyToSignalId?.[key]) activeSignalMap[key] = tracking.tradeKeyToSignalId[key];
-      }
-      state.signalTrackingByAccountId[accountId] = {
-        openKeys: nowOpenKeys,
-        tradeKeyToSignalId: activeSignalMap,
-        updatedAt: new Date().toISOString(),
-      };
+    const activeSignalMap = {};
+    for (const key of nowOpenKeys) {
+      if (tracking.tradeKeyToSignalId?.[key]) activeSignalMap[key] = tracking.tradeKeyToSignalId[key];
+    }
 
-      return state;
-    });
+    const nextTracking = {
+      openKeys: nowOpenKeys,
+      tradeKeyToSignalId: activeSignalMap,
+      updatedAt: new Date().toISOString(),
+    };
+    if (managesTrackingPersistence) {
+      await this.repository.updateMt4State((state) => {
+        state.signalTrackingByAccountId ||= {};
+        state.signalTrackingByAccountId[accountId] = nextTracking;
+        return state;
+      });
+    }
 
-    return { opened, closed, skipped: false, reason: null };
+    return {
+      opened,
+      closed,
+      skipped: false,
+      reason: null,
+      tracking: nextTracking,
+    };
   }
 
   normalizeSnapshotPayload(payload) {
@@ -773,7 +792,6 @@ export class Mt4SyncService {
 
     if (pairingRecord.status !== 'connected' && this.isPairingExpired(pairingRecord)) {
       await this.expirePairingCode(snapshot.pairingCode);
-
       logger.warn('MT4 sync rejected because pairing code was expired.', {
         pairingCode: maskValue(snapshot.pairingCode),
         discordUserId: pairingRecord.discordUserId,
@@ -786,9 +804,6 @@ export class Mt4SyncService {
       : `${snapshot.accountNumber}:${snapshot.brokerServer}`;
     const rateLimit = this.checkRateLimit(`${snapshot.pairingCode}:${snapshot.accountNumber}`);
 
-    // Multiple Reporter copies can fire during the same timer tick when the EA is attached
-    // to more than one chart. Coalesce those near-simultaneous snapshots instead of returning
-    // HTTP 429, logging an error, and repeating all signal/persistence work.
     if (!rateLimit.allowed) {
       return {
         ok: true,
@@ -805,11 +820,13 @@ export class Mt4SyncService {
       };
     }
 
-    const existingConnection = await this.getConnection(pairingRecord.discordUserId);
+    // One cached live-state read replaces multiple full PostgreSQL namespace loads.
+    const mt4StateBeforeSnapshot = await this.repository.getMt4State?.() || {};
+    const existingConnection = mt4StateBeforeSnapshot.connectionsByAccountId?.[accountId]
+      || mt4StateBeforeSnapshot.connections?.[pairingRecord.discordUserId]
+      || null;
     const lockedAccountNumber = pairingRecord.accountNumber;
 
-    // Pairing codes are account-locked after first successful sync. The same Discord user
-    // may own multiple MT4 accounts, but every account must use its own pairing code.
     if (lockedAccountNumber && String(lockedAccountNumber) !== String(snapshot.accountNumber)) {
       logger.warn('MT4 sync rejected because account number did not match existing connection.', {
         discordUserId: pairingRecord.discordUserId,
@@ -821,8 +838,7 @@ export class Mt4SyncService {
 
     const receivedAt = new Date().toISOString();
     const nextStatus = pairingRecord.status === 'connected' ? 'updated' : 'connected';
-    const mt4StateBeforeSnapshot = await this.repository.getMt4State?.();
-    const existingAccountSettings = mt4StateBeforeSnapshot?.accountSettingsByAccountId?.[accountId] || {};
+    const existingAccountSettings = mt4StateBeforeSnapshot.accountSettingsByAccountId?.[accountId] || {};
     const connectionRecord = {
       discordUserId: pairingRecord.discordUserId,
       channelId: pairingRecord.channelId,
@@ -851,29 +867,12 @@ export class Mt4SyncService {
       receivedAt,
     };
 
-    // Register the current terminal identity before relay reconciliation. This lets a
-    // reconnecting follower repair the lane immediately and lets a reconnecting leader
-    // see every already-online receiver before new trade signals are processed.
-    await this.repository.updateMt4State((state) => {
-      state.connectionsByAccountId ||= {};
-      state.connectionsByAccountId[accountId] = {
-        ...(state.connectionsByAccountId[accountId] || {}),
-        ...connectionRecord,
-      };
-      return state;
+    const priorTracking = mt4StateBeforeSnapshot.signalTrackingByAccountId?.[accountId] || null;
+    const signalSummary = await this.processTradeSignals({
+      connectionRecord,
+      latestSnapshotRecord,
+      priorTracking,
     });
-
-    if (this.productEventSink?.prepareSnapshot) {
-      await this.productEventSink.prepareSnapshot({ connectionRecord, latestSnapshotRecord }).catch((error) => {
-        logger.warn('WISDO product relay preparation failed before MT4 signal processing.', {
-          discordUserId: pairingRecord.discordUserId,
-          accountId,
-          message: error.message,
-        });
-      });
-    }
-
-    const signalSummary = await this.processTradeSignals({ connectionRecord, latestSnapshotRecord });
 
     const historyRecord = {
       discordUserId: latestSnapshotRecord.discordUserId,
@@ -888,7 +887,22 @@ export class Mt4SyncService {
       signalSkipReason: signalSummary.reason,
     };
 
+    const historyIntervalMs = Math.max(5000, Number(process.env.WISDO_MT4_HISTORY_INTERVAL_MS || 15000));
+    const lastHistoryAt = Number(this.lastHistoryAtByAccount.get(accountId) || 0);
+    const shouldAppendHistory = nextStatus === 'connected'
+      || signalSummary.opened > 0
+      || signalSummary.closed > 0
+      || Date.now() - lastHistoryAt >= historyIntervalMs;
+
+    // One short authoritative transaction persists pairing, connection, latest snapshot,
+    // signal tracking and bounded history. v6.0.6 used up to three transactions per beat.
     await this.repository.updateMt4State((state) => {
+      state.pairingCodes ||= {};
+      state.connectionsByAccountId ||= {};
+      state.latestSnapshotsByAccountId ||= {};
+      state.activeAccountByUserId ||= {};
+      state.accountSettingsByAccountId ||= {};
+      state.signalTrackingByAccountId ||= {};
       state.pairingCodes[snapshot.pairingCode] = {
         ...pairingRecord,
         status: 'connected',
@@ -896,11 +910,10 @@ export class Mt4SyncService {
         accountNumber: String(snapshot.accountNumber),
         accountId,
       };
-      state.connectionsByAccountId ||= {};
-      state.latestSnapshotsByAccountId ||= {};
-      state.activeAccountByUserId ||= {};
-      state.accountSettingsByAccountId ||= {};
-      state.connectionsByAccountId[accountId] = connectionRecord;
+      state.connectionsByAccountId[accountId] = {
+        ...(state.connectionsByAccountId[accountId] || {}),
+        ...connectionRecord,
+      };
       state.latestSnapshotsByAccountId[accountId] = latestSnapshotRecord;
       state.accountSettingsByAccountId[accountId] = {
         ...(state.accountSettingsByAccountId[accountId] || {}),
@@ -910,36 +923,60 @@ export class Mt4SyncService {
         visibility: state.accountSettingsByAccountId[accountId]?.visibility || 'private',
         copyRisk: state.accountSettingsByAccountId[accountId]?.copyRisk || { enabled: false, mode: 'fixed_lot', fixedLot: 0.01, maxLot: 0.05, multiplier: 1, maxOpenTrades: 5, copyBuys: true, copySells: true, copySLTP: true },
       };
+      if (signalSummary.tracking) state.signalTrackingByAccountId[accountId] = signalSummary.tracking;
       if (!state.activeAccountByUserId[pairingRecord.discordUserId]) {
         state.activeAccountByUserId[pairingRecord.discordUserId] = accountId;
       }
-      if (state.activeAccountByUserId[pairingRecord.discordUserId] === accountId || !state.connections[pairingRecord.discordUserId]) {
+      if (state.activeAccountByUserId[pairingRecord.discordUserId] === accountId || !state.connections?.[pairingRecord.discordUserId]) {
+        state.connections ||= {};
+        state.latestSnapshots ||= {};
         state.connections[pairingRecord.discordUserId] = connectionRecord;
         state.latestSnapshots[pairingRecord.discordUserId] = latestSnapshotRecord;
       }
-      state.snapshotHistory = appendBoundedHistory(state.snapshotHistory, historyRecord);
+      if (shouldAppendHistory) state.snapshotHistory = appendBoundedHistory(state.snapshotHistory, historyRecord);
       return state;
     });
+    if (shouldAppendHistory) this.lastHistoryAtByAccount.set(accountId, Date.now());
 
-    if (this.wisdoMemoryService?.updateFromSnapshot) {
-      await this.wisdoMemoryService.updateFromSnapshot({ connectionRecord, latestSnapshotRecord }).catch((error) => {
-        logger.warn('WISDO memory update failed after MT4 sync.', {
-          discordUserId: pairingRecord.discordUserId,
-          accountId,
-          message: error.message,
+    // Route reconciliation and AI/product ledgers are important but must never hold the
+    // MT4 HTTP response open. They run immediately after the authoritative heartbeat.
+    const priorPreparation = this.routePreparationByAccount.get(accountId);
+    const prepareDue = !priorPreparation || Date.now() - Number(priorPreparation.preparedAt || 0) >= 60000;
+    if (prepareDue && this.productEventSink?.prepareSnapshot) {
+      const record = { preparedAt: Date.now(), promise: null };
+      record.promise = Promise.resolve()
+        .then(() => this.productEventSink.prepareSnapshot({ connectionRecord, latestSnapshotRecord }))
+        .catch((error) => {
+          this.routePreparationByAccount.delete(accountId);
+          logger.warn('WISDO product relay preparation failed after MT4 sync.', {
+            discordUserId: pairingRecord.discordUserId,
+            accountId,
+            message: error.message,
+          });
         });
-      });
+      this.routePreparationByAccount.set(accountId, record);
     }
 
-    if (this.productEventSink?.ingestSnapshot) {
-      await this.productEventSink.ingestSnapshot({ connectionRecord, latestSnapshotRecord, signalSummary }).catch((error) => {
-        logger.warn('WISDO product ledger update failed after MT4 sync.', {
-          discordUserId: pairingRecord.discordUserId,
-          accountId,
-          message: error.message,
+    setImmediate(() => {
+      if (this.wisdoMemoryService?.updateFromSnapshot) {
+        this.wisdoMemoryService.updateFromSnapshot({ connectionRecord, latestSnapshotRecord }).catch((error) => {
+          logger.warn('WISDO memory update failed after MT4 sync.', {
+            discordUserId: pairingRecord.discordUserId,
+            accountId,
+            message: error.message,
+          });
         });
-      });
-    }
+      }
+      if (this.productEventSink?.ingestSnapshot) {
+        this.productEventSink.ingestSnapshot({ connectionRecord, latestSnapshotRecord, signalSummary }).catch((error) => {
+          logger.warn('WISDO product ledger update failed after MT4 sync.', {
+            discordUserId: pairingRecord.discordUserId,
+            accountId,
+            message: error.message,
+          });
+        });
+      }
+    });
 
     logger.info('MT4 snapshot received', {
       discordUserId: pairingRecord.discordUserId,
@@ -965,6 +1002,7 @@ export class Mt4SyncService {
       signalSkipReason: signalSummary.reason,
     };
   }
+
 async resetUserAccount(discordUserId) {
   const userId = String(discordUserId || '').trim();
 

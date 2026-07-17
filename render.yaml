@@ -204,6 +204,16 @@ services:
         value: postgres
       - key: WISDO_DB_SSL
         value: "true"
+      - key: DB_POOL_MAX
+        value: "8"
+      - key: DB_POOL_MIN
+        value: "0"
+      - key: WISDO_DB_CACHE_TTL_MS
+        value: "2000"
+      - key: WISDO_DB_CACHE_MAX_STALE_MS
+        value: "30000"
+      - key: WISDO_MT4_HISTORY_INTERVAL_MS
+        value: "15000"
       - key: CTRADER_CLIENT_ID
         sync: false
       - key: CTRADER_CLIENT_SECRET
@@ -215,11 +225,11 @@ services:
       - key: WISDO_BACKGROUND_WORKERS_ENABLED
         value: "true"
       - key: WISDO_BROKER_SYNC_INTERVAL_SECONDS
-        value: "60"
+        value: "120"
       - key: WISDO_COACH_MIN_INTERVAL_MINUTES
         value: "15"
       - key: WISDO_COACH_POLL_INTERVAL_SECONDS
-        value: "60"
+        value: "180"
       - key: WISDO_NOTIFICATION_RETRY_INTERVAL_SECONDS
         value: "300"
       - key: REDIS_ENABLED

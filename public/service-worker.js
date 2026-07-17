@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wisdo-shell-v6.0.6-database-ai-broker';
+const CACHE_NAME = 'wisdo-shell-v6.0.7-performance-recovery';
 const SHELL = [
   '/', '/pricing', '/copier', '/analyzer', '/compare', '/academy',
   '/js/workspace.js', '/js/wisdo-assistant.js', '/js/df-sauce-academy.js', '/media/wisdo-og.svg', '/platforms/mt4.svg',

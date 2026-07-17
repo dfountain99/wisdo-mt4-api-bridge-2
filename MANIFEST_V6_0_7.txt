@@ -1,0 +1,14 @@
+WISDO v6.0.7 POSTGRESQL PERFORMANCE RECOVERY
+
+Core changes:
+- Shared process-wide PostgreSQL pool
+- Shared namespace cache and write queue
+- Stale-while-revalidate database reads
+- One live-state transaction per Reporter heartbeat
+- All Reporter accounts retained together
+- Signal work outside database advisory locks
+- Nonblocking Academy/Coach/product ingestion
+- 15-second compact MT4 history cadence
+- Single-flight background workers
+- Database-only runtime preserved
+- Reporter v1.58 remains compatible

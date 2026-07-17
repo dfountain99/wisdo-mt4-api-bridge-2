@@ -416,7 +416,14 @@ Educational information only. Trading involves risk.`,
 
   startRetryLoop(intervalMs = 5 * 60_000) {
     if (this.retryTimer) return;
-    this.retryTimer = setInterval(() => this.retryPending().catch((error) => this.logger?.warn?.('Notification retry loop failed.', { message: error.message })), intervalMs);
+    let running = false;
+    this.retryTimer = setInterval(async () => {
+      if (running) return;
+      running = true;
+      try { await this.retryPending(); }
+      catch (error) { this.logger?.warn?.('Notification retry loop failed.', { message: error.message }); }
+      finally { running = false; }
+    }, intervalMs);
     this.retryTimer.unref?.();
   }
 

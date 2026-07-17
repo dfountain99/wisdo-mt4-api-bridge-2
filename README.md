@@ -1,8 +1,17 @@
-# WISDO v6.0.6 — Database AI, Broker API Center, and Reporter v1.58
+# WISDO v6.0.7 — PostgreSQL Performance Recovery and All-Reporter Restore
 
-WISDO v6.0.6 is a database-only production release. PostgreSQL is the durable source of truth for member accounts, Culture Lanes, live Reporter pairing and snapshots, copier routes, signals, command confirmations, dashboards, Academy progress, WISDO memory, AI coach conversations, notifications, and business records. Production refuses to start without `DATABASE_URL`; it does not create active JSON state files.
+WISDO v6.0.7 keeps the database-only architecture from v6.0.6 while repairing the production slowdown that caused dashboard tabs to stall and every MT4 Reporter to time out. PostgreSQL remains the source of truth; the server now uses one shared connection pool, a process-wide read-through cache, short state mutations, and nonblocking AI/product ingestion.
 
-This release adds:
+This release repairs:
+
+- All connected Reporter accounts loading together from PostgreSQL instead of disappearing behind database timeouts.
+- MT4 heartbeat persistence reduced from up to three live-state transactions to one short transaction.
+- Signal creation and close relay work moved outside PostgreSQL advisory-lock transactions.
+- Academy, Lane Coach, product ledger, and route-reconciliation work no longer delays the MT4 HTTP response.
+- Dashboard and app-tab reads use a shared stale-while-revalidate cache instead of reloading every database namespace repeatedly.
+- Background broker and AI workers are single-flight and cannot overlap with their own previous cycle.
+
+The v6.0.6 capabilities remain included:
 
 - Reporter v1.58 connection grace, exponential retry backoff, and Connected/Degraded/Retrying/Offline health states.
 - Broker API onboarding in `/app/accounts` through MetaApi, cTrader OAuth account discovery, and a signed WISDO broker webhook.
@@ -331,3 +340,18 @@ See `docs/RELEASE_NOTES_V6_0_5.md`.
 - `/app/education` adds lane-aware AI lessons and shares database-backed learning memory with Lane Intelligence.
 - Reporter v1.58 preserves the last healthy heartbeat through transient failures and uses exponential retry backoff.
 - Every active runtime store uses PostgreSQL in production.
+
+
+## v6.0.7 PostgreSQL performance recovery
+
+- Uses one process-wide PostgreSQL pool instead of one pool per WISDO state namespace.
+- Shares one cache and one serialized write queue for every adapter using the same namespace.
+- Uses a 2-second fresh cache and a 30-second stale-while-revalidate window by default.
+- Keeps database writes authoritative while allowing safe cached reads in the single Render web process.
+- Persists all Reporter connections, pairing records, latest snapshots, signal tracking, and bounded history in one heartbeat mutation.
+- Records compact MT4 history every 15 seconds unless a trade opens/closes or a Reporter connects.
+- Defers WISDO memory, Academy, Lane Coach, product ledger, Harvest analysis, and route reconciliation until after the Reporter response.
+- Prevents overlapping proactive Coach, Broker API, and notification retry cycles.
+- Keeps Reporter v1.58 as the correct terminal bridge; no new MQL4 compilation is required.
+
+See `WISDO_V6_0_7_RELEASE_NOTES.md` and `WISDO_V6_0_7_DEPLOYMENT_AND_TEST_CHECKLIST.md`.
