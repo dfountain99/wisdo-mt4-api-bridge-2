@@ -82,18 +82,19 @@
   const selectedAccount = () => accounts.find((account) => account.id === selectedAccountId()) || null;
 
   async function api(path, options = {}, timeoutMs = 25000) {
-    const method = String(options.method || 'GET').toUpperCase();
+    const { retries, ...fetchOptions } = options || {};
+    const method = String(fetchOptions.method || 'GET').toUpperCase();
     const safeToRetry = ['GET', 'HEAD'].includes(method);
-    const attempts = safeToRetry ? 3 : 1;
+    const attempts = safeToRetry ? Math.max(1, Number(retries ?? 3)) : 1;
     let lastError = null;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(new Error('Request timed out')), timeoutMs + (attempt - 1) * 8000);
       try {
         const response = await fetch(path, {
-          ...options,
-          signal: options.signal || controller.signal,
-          headers: { 'content-type': 'application/json', ...(options.headers || {}) },
+          ...fetchOptions,
+          signal: fetchOptions.signal || controller.signal,
+          headers: { 'content-type': 'application/json', ...(fetchOptions.headers || {}) },
         });
         const contentType = response.headers.get('content-type') || '';
         const payload = contentType.includes('application/json') ? await response.json().catch(() => ({})) : { message: await response.text() };
@@ -190,7 +191,7 @@
 
   async function refreshAccounts(preserveSelection = true, silent = false) {
     const previous = preserveSelection ? (selectedAccountId() || sessionStorage.getItem('wisdo.selectedAccountId') || '') : '';
-    const result = await api('/api/v2/accounts?includeReporter=1', {}, 25000);
+    const result = await api('/api/v2/accounts?includeReporter=1', { retries: 1 }, 8000);
     accounts = result.accounts || [];
     const selector = document.querySelector('#mobile-account');
     if (selector) {

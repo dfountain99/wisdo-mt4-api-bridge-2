@@ -1,3 +1,7 @@
+## WISDO v6.0.9
+
+Accounts API fail-open recovery for member workspace boot. See `WISDO_V6_0_9_RELEASE_NOTES.md`.
+
 # WISDO v6.0.8 — Cloud-Only Recovery and Database Circuit Breaker
 
 WISDO v6.0.8 keeps the database-only architecture from v6.0.6 while repairing the production slowdown that caused dashboard tabs to stall and every MT4 Reporter to time out. PostgreSQL remains the source of truth; the server now uses one shared connection pool, a process-wide read-through cache, short state mutations, and nonblocking AI/product ingestion.
