@@ -205,13 +205,27 @@ services:
       - key: WISDO_DB_SSL
         value: "true"
       - key: DB_POOL_MAX
-        value: "8"
+        value: "4"
       - key: DB_POOL_MIN
         value: "0"
       - key: WISDO_DB_CACHE_TTL_MS
-        value: "2000"
+        value: "10000"
       - key: WISDO_DB_CACHE_MAX_STALE_MS
-        value: "30000"
+        value: "300000"
+      - key: WISDO_DB_FAIL_OPEN_READS
+        value: "true"
+      - key: WISDO_DB_BUFFER_LIVE_WRITES
+        value: "true"
+      - key: WISDO_DB_QUERY_TIMEOUT_MS
+        value: "5000"
+      - key: WISDO_DB_STATEMENT_TIMEOUT_MS
+        value: "4000"
+      - key: WISDO_DB_CIRCUIT_BREAKER_MS
+        value: "5000"
+      - key: WISDO_DB_WRITE_DEBOUNCE_MS
+        value: "100"
+      - key: WISDO_DB_RETRY_MS
+        value: "1500"
       - key: WISDO_MT4_HISTORY_INTERVAL_MS
         value: "15000"
       - key: CTRADER_CLIENT_ID
@@ -223,7 +237,7 @@ services:
       - key: METAAPI_DEFAULT_REGION
         value: new-york
       - key: WISDO_BACKGROUND_WORKERS_ENABLED
-        value: "true"
+        value: "false"
       - key: WISDO_BROKER_SYNC_INTERVAL_SECONDS
         value: "120"
       - key: WISDO_COACH_MIN_INTERVAL_MINUTES

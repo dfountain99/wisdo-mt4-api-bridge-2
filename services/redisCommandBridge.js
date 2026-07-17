@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { getSharedPostgresPool } from './persistenceAdapter.js';
 
 function nowIso() { return new Date().toISOString(); }
 function clean(value) { return String(value ?? '').trim(); }
@@ -59,14 +60,9 @@ export class RedisCommandBridge {
   async getDbPool() {
     if (!this.databaseUrl) return null;
     if (this.dbPool) return this.dbPool;
-    const pg = await import('pg');
-    this.dbPool = new pg.Pool({
-      connectionString: this.databaseUrl,
-      ssl: this.dbSsl ? { rejectUnauthorized: false } : false,
-      max: Math.max(2, Number(process.env.DB_POOL_MAX || 10)),
-      idleTimeoutMillis: Math.max(1000, Number(process.env.DB_IDLE_TIMEOUT_MS || 30000)),
-      connectionTimeoutMillis: Math.max(1000, Number(process.env.DB_CONNECT_TIMEOUT_MS || 10000)),
-    });
+    // Share the same bounded PostgreSQL pool as every other WISDO database service.
+    // The previous independent bridge pool could exhaust small Render databases.
+    this.dbPool = await getSharedPostgresPool({ databaseUrl: this.databaseUrl, ssl: this.dbSsl });
     await this.ensureDatabaseSchema();
     return this.dbPool;
   }

@@ -5,27 +5,52 @@ function parseBoolean(value, fallback = false) {
 }
 
 function clone(value) { return JSON.parse(JSON.stringify(value ?? {})); }
-
 function stableJson(value) { return JSON.stringify(value ?? null); }
 function integerEnv(name, fallback, minimum, maximum) {
   const parsed = Number(process.env[name]);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(minimum, Math.min(maximum, Math.trunc(parsed)));
 }
+function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+function timeoutError(label, ms) {
+  const error = new Error(`${label} timed out after ${ms}ms`);
+  error.code = 'WISDO_DB_TIMEOUT';
+  return error;
+}
+async function withTimeout(promise, ms, label = 'PostgreSQL operation') {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => { timer = setTimeout(() => reject(timeoutError(label, ms)), ms); timer.unref?.(); }),
+    ]);
+  } finally { if (timer) clearTimeout(timer); }
+}
+function isPlainObject(value) {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+function deepMerge(base, overlay) {
+  if (!isPlainObject(base) || !isPlainObject(overlay)) return clone(overlay);
+  const merged = clone(base);
+  for (const [key, value] of Object.entries(overlay)) {
+    merged[key] = isPlainObject(value) && isPlainObject(merged[key])
+      ? deepMerge(merged[key], value)
+      : clone(value);
+  }
+  return merged;
+}
 
-// v6.0.7: one process-wide PostgreSQL pool and one cache/write queue per namespace.
-// v6.0.6 created a pool for every store and reloaded every namespace on every read,
-// which saturated small Render/PostgreSQL plans and caused MT4 WebRequest timeouts.
+// v6.0.8 cloud recovery architecture:
+// - one process-wide PostgreSQL pool
+// - hot in-process mirrors for website reads and Reporter heartbeats
+// - bounded query/lock timeouts and a circuit breaker
+// - buffered live-relay writes that retry to PostgreSQL without using JSON files
+// PostgreSQL remains durable truth; process memory is only a disposable acceleration layer.
 const sharedPools = new Map();
 const sharedNamespaceRuntime = new Map();
 
-function poolKey(databaseUrl, ssl) {
-  return `${String(databaseUrl)}::ssl=${ssl ? '1' : '0'}`;
-}
-
-function namespaceKey(databaseUrl, ssl, namespace) {
-  return `${poolKey(databaseUrl, ssl)}::${String(namespace)}`;
-}
+function poolKey(databaseUrl, ssl) { return `${String(databaseUrl)}::ssl=${ssl ? '1' : '0'}`; }
+function namespaceKey(databaseUrl, ssl, namespace) { return `${poolKey(databaseUrl, ssl)}::${String(namespace)}`; }
 
 function getNamespaceRuntime(databaseUrl, ssl, namespace) {
   const key = namespaceKey(databaseUrl, ssl, namespace);
@@ -33,61 +58,159 @@ function getNamespaceRuntime(databaseUrl, ssl, namespace) {
     sharedNamespaceRuntime.set(key, {
       state: null,
       loadedAt: 0,
+      source: 'cold',
       pendingLoad: null,
       writeChain: Promise.resolve(),
+      localChain: Promise.resolve(),
       legacyImportPromise: null,
+      dirtySnapshot: null,
+      flushTimer: null,
+      flushPromise: null,
+      lastPersistedAt: null,
+      lastErrorAt: null,
+      lastError: '',
     });
   }
   return sharedNamespaceRuntime.get(key);
 }
 
-async function getSharedPool(databaseUrl, ssl) {
+function getPoolEntry(databaseUrl, ssl) {
   const key = poolKey(databaseUrl, ssl);
   if (!sharedPools.has(key)) {
-    const pg = await import('pg').catch(() => null);
-    if (!pg) throw new Error('Postgres persistence requires the pg package.');
-    const pool = new pg.Pool({
-      connectionString: databaseUrl,
-      ssl: ssl ? { rejectUnauthorized: false } : false,
-      // One shared pool for the whole WISDO process. Keep this conservative for
-      // Render starter databases; increasing it does not make serialized state faster.
-      max: integerEnv('DB_POOL_MAX', 8, 2, 40),
-      min: integerEnv('DB_POOL_MIN', 0, 0, 8),
-      idleTimeoutMillis: integerEnv('DB_IDLE_TIMEOUT_MS', 30000, 1000, 300000),
-      connectionTimeoutMillis: integerEnv('DB_CONNECT_TIMEOUT_MS', 10000, 1000, 60000),
-      allowExitOnIdle: false,
+    sharedPools.set(key, {
+      pool: null,
+      ready: null,
+      databaseUrl,
+      ssl,
+      failures: 0,
+      circuitOpenUntil: 0,
+      lastOkAt: null,
+      lastErrorAt: null,
+      lastError: '',
     });
-    const ready = (async () => {
-      await pool.query(`
-        create table if not exists wisdo_state_sections (
-          namespace text not null,
-          section text not null,
-          state jsonb not null default '{}'::jsonb,
-          revision bigint not null default 1,
-          updated_at timestamptz not null default now(),
-          primary key(namespace, section)
-        )
-      `);
-      await pool.query('create index if not exists wisdo_state_sections_updated_idx on wisdo_state_sections(updated_at desc)');
-      return pool;
-    })();
-    sharedPools.set(key, { pool, ready });
   }
-  const entry = sharedPools.get(key);
-  await entry.ready;
-  return entry.pool;
+  return sharedPools.get(key);
+}
+
+function markPoolOk(entry) {
+  entry.failures = 0;
+  entry.circuitOpenUntil = 0;
+  entry.lastOkAt = new Date().toISOString();
+  entry.lastError = '';
+}
+function markPoolError(entry, error) {
+  entry.failures += 1;
+  entry.lastErrorAt = new Date().toISOString();
+  entry.lastError = String(error?.message || error || 'PostgreSQL error').slice(0, 500);
+  const base = integerEnv('WISDO_DB_CIRCUIT_BREAKER_MS', 5000, 500, 60000);
+  entry.circuitOpenUntil = Date.now() + Math.min(60000, base * Math.max(1, Math.min(entry.failures, 6)));
+}
+
+async function createPool(entry) {
+  const pg = await import('pg').catch(() => null);
+  if (!pg) throw new Error('Postgres persistence requires the pg package.');
+  const statementTimeout = integerEnv('WISDO_DB_STATEMENT_TIMEOUT_MS', 4000, 500, 60000);
+  const queryTimeout = integerEnv('WISDO_DB_QUERY_TIMEOUT_MS', 5000, 500, 60000);
+  const pool = new pg.Pool({
+    connectionString: entry.databaseUrl,
+    ssl: entry.ssl ? { rejectUnauthorized: false } : false,
+    max: integerEnv('DB_POOL_MAX', 4, 1, 20),
+    min: integerEnv('DB_POOL_MIN', 0, 0, 4),
+    idleTimeoutMillis: integerEnv('DB_IDLE_TIMEOUT_MS', 30000, 1000, 300000),
+    connectionTimeoutMillis: integerEnv('DB_CONNECT_TIMEOUT_MS', 5000, 500, 30000),
+    statement_timeout: statementTimeout,
+    query_timeout: queryTimeout,
+    keepAlive: true,
+    allowExitOnIdle: false,
+  });
+  pool.on('error', (error) => markPoolError(entry, error));
+  await withTimeout(pool.query(`
+    create table if not exists wisdo_state_sections (
+      namespace text not null,
+      section text not null,
+      state jsonb not null default '{}'::jsonb,
+      revision bigint not null default 1,
+      updated_at timestamptz not null default now(),
+      primary key(namespace, section)
+    )
+  `), queryTimeout, 'WISDO state schema check');
+  await withTimeout(
+    pool.query('create index if not exists wisdo_state_sections_updated_idx on wisdo_state_sections(updated_at desc)'),
+    queryTimeout,
+    'WISDO state index check',
+  );
+  return pool;
+}
+
+async function getSharedPool(databaseUrl, ssl) {
+  const entry = getPoolEntry(databaseUrl, ssl);
+  if (entry.circuitOpenUntil > Date.now()) {
+    const error = new Error(`PostgreSQL circuit is cooling down: ${entry.lastError || 'recent database failure'}`);
+    error.code = 'WISDO_DB_CIRCUIT_OPEN';
+    throw error;
+  }
+  if (!entry.pool && !entry.ready) {
+    entry.ready = createPool(entry)
+      .then((pool) => { entry.pool = pool; markPoolOk(entry); return pool; })
+      .catch(async (error) => {
+        markPoolError(entry, error);
+        try { await entry.pool?.end?.(); } catch {}
+        entry.pool = null;
+        throw error;
+      })
+      .finally(() => { entry.ready = null; });
+  }
+  try {
+    const pool = entry.pool || await entry.ready;
+    markPoolOk(entry);
+    return pool;
+  } catch (error) {
+    markPoolError(entry, error);
+    throw error;
+  }
+}
+
+export async function getSharedPostgresPool({ databaseUrl = process.env.DATABASE_URL || '', ssl = false } = {}) {
+  if (!databaseUrl) return null;
+  return getSharedPool(databaseUrl, parseBoolean(ssl, false));
+}
+
+export function getDatabaseRuntimeHealth() {
+  const pools = [...sharedPools.values()];
+  const namespaces = [...sharedNamespaceRuntime.entries()].map(([key, runtime]) => ({
+    namespace: key.split('::').at(-1),
+    cached: Boolean(runtime.state),
+    source: runtime.source,
+    loadedAt: runtime.loadedAt ? new Date(runtime.loadedAt).toISOString() : null,
+    dirty: Boolean(runtime.dirtySnapshot),
+    lastPersistedAt: runtime.lastPersistedAt,
+    lastErrorAt: runtime.lastErrorAt,
+    lastError: runtime.lastError || null,
+  }));
+  const configured = Boolean(process.env.DATABASE_URL);
+  const circuitOpen = pools.some((entry) => entry.circuitOpenUntil > Date.now());
+  const lastError = pools.map((entry) => entry.lastError).find(Boolean) || null;
+  return {
+    configured,
+    mode: configured ? 'postgres-with-hot-cache' : 'memory-development',
+    status: !configured ? 'development' : circuitOpen ? 'degraded' : lastError ? 'recovering' : 'healthy',
+    poolCount: pools.filter((entry) => entry.pool).length,
+    namespaceCount: namespaces.length,
+    cachedNamespaces: namespaces.filter((row) => row.cached).length,
+    dirtyNamespaces: namespaces.filter((row) => row.dirty).length,
+    lastError,
+    namespaces,
+  };
 }
 
 export class MemoryPersistenceAdapter {
   constructor(defaultState = () => ({})) {
-    this.defaultState = defaultState;
-    this.state = defaultState();
+    this.defaultState = typeof defaultState === 'function' ? defaultState : () => clone(defaultState || {});
+    this.state = this.defaultState();
     this.writeChain = Promise.resolve();
   }
-
   async load() { return clone(this.state); }
   async save(data) { this.state = clone(data); return clone(this.state); }
-
   async atomicUpdate(updater, { normalize = (value) => value } = {}) {
     const operation = this.writeChain.then(async () => {
       const current = normalize(clone(this.state));
@@ -106,19 +229,22 @@ export class DatabasePersistenceAdapterPlaceholder {
 }
 
 export class PostgresKeyValuePersistenceAdapter {
-  constructor({ databaseUrl, namespace, ssl = false }) {
+  constructor({ databaseUrl, namespace, ssl = false, defaultState = () => ({}), bufferWrites = false }) {
     if (!databaseUrl) throw new Error('WISDO_PERSISTENCE_MODE=postgres requires DATABASE_URL.');
     this.databaseUrl = databaseUrl;
     this.namespace = String(namespace || 'wisdo');
     this.ssl = parseBoolean(ssl, false);
+    this.defaultState = typeof defaultState === 'function' ? defaultState : () => clone(defaultState || {});
+    this.bufferWrites = parseBoolean(bufferWrites, false);
+    this.allowDegradedReads = parseBoolean(process.env.WISDO_DB_FAIL_OPEN_READS, true);
     this.runtime = getNamespaceRuntime(this.databaseUrl, this.ssl, this.namespace);
-    this.cacheTtlMs = integerEnv('WISDO_DB_CACHE_TTL_MS', 2000, 0, 60000);
-    this.maxStaleMs = integerEnv('WISDO_DB_CACHE_MAX_STALE_MS', 30000, 1000, 300000);
+    this.cacheTtlMs = integerEnv('WISDO_DB_CACHE_TTL_MS', 10000, 0, 300000);
+    this.maxStaleMs = integerEnv('WISDO_DB_CACHE_MAX_STALE_MS', 300000, 1000, 3600000);
+    this.writeDebounceMs = integerEnv('WISDO_DB_WRITE_DEBOUNCE_MS', 100, 10, 5000);
+    this.retryMs = integerEnv('WISDO_DB_RETRY_MS', 1500, 250, 60000);
   }
 
-  async getPool() {
-    return getSharedPool(this.databaseUrl, this.ssl);
-  }
+  async getPool() { return getSharedPool(this.databaseUrl, this.ssl); }
 
   async importLegacyIfNeeded(pool) {
     if (!this.runtime.legacyImportPromise) {
@@ -129,11 +255,12 @@ export class PostgresKeyValuePersistenceAdapter {
         if (!legacyTable.rows[0]?.table_name) return;
         const legacy = await pool.query('select state from wisdo_kv_store where namespace = $1', [this.namespace]);
         const state = legacy.rows[0]?.state;
-        if (!state || typeof state !== 'object' || Array.isArray(state)) return;
+        if (!isPlainObject(state)) return;
         const client = await pool.connect();
         try {
           await client.query('begin');
-          await client.query('select pg_advisory_xact_lock(hashtext($1))', [this.namespace]);
+          const lock = await client.query('select pg_try_advisory_xact_lock(hashtext($1)) as acquired', [this.namespace]);
+          if (!lock.rows[0]?.acquired) throw Object.assign(new Error(`Database namespace busy: ${this.namespace}`), { code: 'WISDO_DB_BUSY' });
           for (const [section, value] of Object.entries(state)) {
             await client.query(
               `insert into wisdo_state_sections(namespace, section, state, revision, updated_at)
@@ -143,7 +270,7 @@ export class PostgresKeyValuePersistenceAdapter {
           }
           await client.query('commit');
         } catch (error) {
-          await client.query('rollback');
+          await client.query('rollback').catch(() => undefined);
           throw error;
         } finally { client.release(); }
       })().catch((error) => {
@@ -161,15 +288,16 @@ export class PostgresKeyValuePersistenceAdapter {
     );
     return result.rows;
   }
-
-  rowsToState(rows = []) {
-    return Object.fromEntries(rows.map((row) => [row.section, row.state]));
-  }
-
-  setCache(state) {
+  rowsToState(rows = []) { return Object.fromEntries(rows.map((row) => [row.section, row.state])); }
+  setCache(state, source = 'postgres') {
     this.runtime.state = clone(state);
     this.runtime.loadedAt = Date.now();
+    this.runtime.source = source;
     return clone(this.runtime.state);
+  }
+  recordRuntimeError(error) {
+    this.runtime.lastErrorAt = new Date().toISOString();
+    this.runtime.lastError = String(error?.message || error || 'PostgreSQL error').slice(0, 500);
   }
 
   async refreshFromDatabase() {
@@ -178,8 +306,9 @@ export class PostgresKeyValuePersistenceAdapter {
       const pool = await this.getPool();
       await this.importLegacyIfNeeded(pool);
       const state = this.rowsToState(await this.loadRows(pool));
-      return this.setCache(state);
-    })().finally(() => { this.runtime.pendingLoad = null; });
+      return this.setCache(state, 'postgres');
+    })().catch((error) => { this.recordRuntimeError(error); throw error; })
+      .finally(() => { this.runtime.pendingLoad = null; });
     return this.runtime.pendingLoad;
   }
 
@@ -187,20 +316,22 @@ export class PostgresKeyValuePersistenceAdapter {
     const force = Boolean(options?.force);
     const age = this.runtime.loadedAt ? Date.now() - this.runtime.loadedAt : Number.POSITIVE_INFINITY;
     if (!force && this.runtime.state && age <= this.cacheTtlMs) return clone(this.runtime.state);
-
-    // Stale-while-revalidate keeps dashboard tabs and Reporter pairing reads responsive.
-    // All writes in this process update this same shared cache, so normal WISDO changes
-    // remain immediately visible while a background refresh checks PostgreSQL.
+    // Stale-while-revalidate keeps tabs responsive while PostgreSQL refreshes.
     if (!force && this.runtime.state && age <= this.maxStaleMs) {
       this.refreshFromDatabase().catch(() => undefined);
       return clone(this.runtime.state);
     }
-
     try {
       return await this.refreshFromDatabase();
     } catch (error) {
       if (this.runtime.state) return clone(this.runtime.state);
-      throw error;
+      if (!this.allowDegradedReads) throw error;
+      // No files are used. This disposable in-process fallback keeps HTML/API routes alive
+      // while PostgreSQL recovers; a background refresh will hydrate durable records.
+      const fallback = clone(this.defaultState());
+      this.setCache(fallback, 'degraded-memory');
+      setTimeout(() => this.refreshFromDatabase().catch(() => undefined), this.retryMs).unref?.();
+      return clone(fallback);
     }
   }
 
@@ -226,35 +357,87 @@ export class PostgresKeyValuePersistenceAdapter {
     const client = await pool.connect();
     try {
       await client.query('begin');
-      await client.query('select pg_advisory_xact_lock(hashtext($1))', [this.namespace]);
-      // Always read inside the lock for zero-downtime deploy overlap safety. Reads are
-      // cached; writes remain authoritative and cannot overwrite another instance.
+      const lock = await client.query('select pg_try_advisory_xact_lock(hashtext($1)) as acquired', [this.namespace]);
+      if (!lock.rows[0]?.acquired) {
+        const error = new Error(`Database namespace busy: ${this.namespace}`);
+        error.code = 'WISDO_DB_BUSY';
+        throw error;
+      }
       const current = this.rowsToState(await this.loadRows(client));
       const next = await mutator(clone(current));
       const finalState = next || current;
       const changedSections = await this.persistChangedSections(client, current, finalState);
       await client.query('commit');
-      this.setCache(finalState);
+      this.runtime.lastPersistedAt = new Date().toISOString();
+      this.runtime.lastError = '';
+      this.setCache(finalState, 'postgres');
       return { state: clone(finalState), changedSections };
     } catch (error) {
-      await client.query('rollback');
+      await client.query('rollback').catch(() => undefined);
+      this.recordRuntimeError(error);
       throw error;
     } finally { client.release(); }
   }
 
-  async save(data) {
-    const snapshot = clone(data);
-    const operation = this.runtime.writeChain.then(async () => {
-      const result = await this.runLockedMutation(() => snapshot);
-      return result.state;
+  scheduleFlush(delay = this.writeDebounceMs) {
+    if (this.runtime.flushTimer || this.runtime.flushPromise || !this.runtime.dirtySnapshot) return;
+    this.runtime.flushTimer = setTimeout(() => {
+      this.runtime.flushTimer = null;
+      this.flushBufferedWrites().catch(() => undefined);
+    }, delay);
+    this.runtime.flushTimer.unref?.();
+  }
+
+  async flushBufferedWrites() {
+    if (this.runtime.flushPromise) return this.runtime.flushPromise;
+    const pending = this.runtime.dirtySnapshot;
+    if (!pending) return null;
+    this.runtime.dirtySnapshot = null;
+    this.runtime.flushPromise = this.runtime.writeChain.then(async () => {
+      try {
+        const result = await this.runLockedMutation((current) => deepMerge(current, pending));
+        return result.state;
+      } catch (error) {
+        this.runtime.dirtySnapshot = deepMerge(pending, this.runtime.dirtySnapshot || {});
+        this.scheduleFlush(this.retryMs);
+        return clone(this.runtime.state || pending);
+      }
+    }).finally(() => {
+      this.runtime.flushPromise = null;
+      if (this.runtime.dirtySnapshot) this.scheduleFlush();
     });
-    this.runtime.writeChain = operation.catch(() => undefined);
+    this.runtime.writeChain = this.runtime.flushPromise.catch(() => undefined);
+    return this.runtime.flushPromise;
+  }
+
+  async bufferedUpdate(updater, { normalize = (value) => value } = {}) {
+    const operation = this.runtime.localChain.then(async () => {
+      const loaded = this.runtime.state ? clone(this.runtime.state) : await this.load();
+      const normalized = normalize(loaded);
+      const next = normalize((await updater(clone(normalized))) || normalized);
+      this.setCache(next, this.runtime.source === 'postgres' ? 'hot-cache' : this.runtime.source);
+      this.runtime.dirtySnapshot = deepMerge(this.runtime.dirtySnapshot || {}, next);
+      this.scheduleFlush();
+      return clone(next);
+    });
+    this.runtime.localChain = operation.catch(() => undefined);
     return operation;
   }
 
+  async save(data) {
+    const snapshot = clone(data);
+    if (this.bufferWrites) return this.bufferedUpdate(() => snapshot);
+    const operation = this.runtime.writeChain.then(async () => (await this.runLockedMutation(() => snapshot)).state);
+    this.runtime.writeChain = operation.catch(() => undefined);
+    return operation;
+  }
   async saveSection(section, value) {
     const name = String(section || '').trim();
     if (!name) throw new Error('section is required');
+    if (this.bufferWrites) {
+      const state = await this.bufferedUpdate((current) => ({ ...current, [name]: clone(value) }));
+      return state[name];
+    }
     const operation = this.runtime.writeChain.then(async () => {
       const result = await this.runLockedMutation((current) => ({ ...current, [name]: clone(value) }));
       return result.state[name];
@@ -262,8 +445,8 @@ export class PostgresKeyValuePersistenceAdapter {
     this.runtime.writeChain = operation.catch(() => undefined);
     return operation;
   }
-
   async atomicUpdate(updater, { normalize = (value) => value } = {}) {
+    if (this.bufferWrites) return this.bufferedUpdate(updater, { normalize });
     const operation = this.runtime.writeChain.then(async () => {
       const result = await this.runLockedMutation(async (current) => {
         const normalized = normalize(current);
@@ -274,11 +457,7 @@ export class PostgresKeyValuePersistenceAdapter {
     this.runtime.writeChain = operation.catch(() => undefined);
     return operation;
   }
-
-  async close() {
-    // Pools are shared process-wide and are intentionally kept open until process exit.
-    // Closing one service store must not terminate every other namespace's connections.
-  }
+  async close() {}
 }
 
 export function createPersistenceAdapter(config = {}, options = {}) {
@@ -287,12 +466,8 @@ export function createPersistenceAdapter(config = {}, options = {}) {
   const databaseUrl = persistence.databaseUrl || config.databaseUrl || process.env.DATABASE_URL;
   const requestedMode = String(config.persistenceMode || persistence.mode || (databaseUrl ? 'postgres' : 'memory')).toLowerCase();
   const production = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-
-  // Development and tests use volatile memory only; production never writes JSON files.
   if (!databaseUrl && !production) return new MemoryPersistenceAdapter(options.defaultState);
-  if (!databaseUrl) {
-    throw new Error('WISDO database-only persistence requires DATABASE_URL. JSON file persistence is disabled.');
-  }
+  if (!databaseUrl) throw new Error('WISDO database-only persistence requires DATABASE_URL. JSON file persistence is disabled.');
   if (!['postgres', 'database', 'json', 'file'].includes(requestedMode)) {
     throw new Error(`Unsupported WISDO persistence mode: ${requestedMode}. Use postgres.`);
   }
@@ -300,5 +475,7 @@ export function createPersistenceAdapter(config = {}, options = {}) {
     databaseUrl,
     namespace: options.namespace || options.fileName || 'wisdo',
     ssl: parseBoolean(persistence.dbSsl ?? config.dbSsl ?? process.env.WISDO_DB_SSL, false),
+    defaultState: options.defaultState,
+    bufferWrites: false,
   });
 }

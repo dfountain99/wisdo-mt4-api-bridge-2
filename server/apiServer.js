@@ -19,6 +19,7 @@ import { DiscordSignalGridService } from '../services/discordSignalGridService.j
 import { NotificationDeliveryService } from '../services/notificationDeliveryService.js';
 import { closeNotificationText, finalizeCloseTracker, isCloseCommand, queueCloseEmail } from '../services/tradeCloseIntelligence.js';
 import { createRedisCommandBridge } from '../services/redisCommandBridge.js';
+import { getDatabaseRuntimeHealth } from '../services/persistenceAdapter.js';
 import {
   DISCORD_ROLE_MAP,
   FUTURE_DISCORD_ROLE_MAP,
@@ -4392,6 +4393,9 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
       publicBaseUrlConfigured: Boolean(publicBaseUrl),
       publicBaseUrlOriginOnly: publicOriginOk,
       mt4SyncPath: config.api.mt4SyncPath || '/mt4-sync',
+      database: getDatabaseRuntimeHealth(),
+      cloudOnly: true,
+      filePersistence: false,
     });
   });
   app.get('/health/mt4', async (req, res) => {
