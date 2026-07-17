@@ -4099,6 +4099,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   const signalCopyService = providedSignalCopyService || new SignalCopyService({ repository: wisdoPhase1Repository, signalGridService, mt4SyncService, mt4CommandService, roleSyncService, logger });
   const discordSignalGridService = providedDiscordSignalGridService || new DiscordSignalGridService({ client, signalGridService, signalCopyService, logger });
   const commandNotificationDeliveryService = new NotificationDeliveryService({ loadEcosystemState, saveEcosystemState, logger, publicBaseUrl: String(config?.api?.publicBaseUrl || process.env.PUBLIC_BASE_URL || '') });
+  if (process.env.NODE_ENV !== 'test') commandNotificationDeliveryService.startRetryLoop(Number(process.env.WISDO_NOTIFICATION_RETRY_INTERVAL_SECONDS || 300) * 1000);
   const app = express();
   app.set('trust proxy', true);
 
@@ -4169,6 +4170,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     mt4SyncService,
     mt4CommandService,
     copyTradingService,
+    notificationDeliveryService: commandNotificationDeliveryService,
     logger,
   });
 
@@ -6607,7 +6609,10 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
 
   const server = app.listen(config.api.port, () => logger.info('API/member portal listening', { port: config.api.port }));
   server.on('close', () => {
+    for (const timer of app.locals.wisdoBackgroundTimers || []) clearTimeout(timer);
+    commandNotificationDeliveryService.stopRetryLoop?.();
     redisCommandBridge.close().catch(() => undefined);
+    mt4SyncService?.repository?.close?.().catch?.(() => undefined);
     wisdoPhase1Repository?.adapter?.close?.().catch?.(() => undefined);
   });
   return server;

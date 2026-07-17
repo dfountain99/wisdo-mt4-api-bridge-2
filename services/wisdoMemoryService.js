@@ -1,7 +1,4 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-
-import { atomicWriteJson } from '../storage/atomicJsonFile.js';
+import { createDatabaseStateStore } from '../storage/stateStore.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -36,22 +33,16 @@ function normalizeState(raw) {
 
 export class WisdoMemoryService {
   constructor(config = {}, repository = null) {
-    this.dataDir = config.dataDir || 'data/operator-desks';
-    this.filePath = path.join(this.dataDir, 'wisdo-memory.json');
+    this.store = createDatabaseStateStore('wisdo_memory', defaultState);
     this.repository = repository;
   }
 
   async load() {
-    try {
-      const raw = await fs.readFile(this.filePath, 'utf8');
-      return normalizeState(JSON.parse(raw));
-    } catch {
-      return defaultState();
-    }
+    return normalizeState(await this.store.read());
   }
 
   async save(data) {
-    await atomicWriteJson(this.filePath, normalizeState(data));
+    return this.store.write(normalizeState(data));
   }
 
   async update(updater) {

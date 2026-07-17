@@ -46,6 +46,7 @@ export function ensureCloseIntelligenceState(state = {}) {
   state.accountControlSettingsById ||= {};
   state.deletedTradingAccounts ||= {};
   state.notificationOutboxById ||= {};
+  state.compoundTrackerGoalsByScope ||= {};
   return state;
 }
 
@@ -152,6 +153,7 @@ export function buildTrendAnalytics(state = {}, userId, accountId = '') {
     100,
   ));
   const riskPressure = Math.round(clamp(negativePressure * 8 + maxDrawdown * 4 + Math.min(30, open.length * 2), 0, 100));
+  const goals = getCompoundTrackerGoals(state, uid, { accountId: accountKey });
   return {
     generatedAt: nowIso(),
     accountId: accountKey || null,
@@ -171,10 +173,211 @@ export function buildTrendAnalytics(state = {}, userId, accountId = '') {
       profitFactor: Number(month.profitFactor.toFixed(2)),
       riskPressure,
       consistency: Number(consistency.toFixed(1)),
+      dailyProgress: progressPercent(day.pnl, goals.dailyTargetAmount),
+      weeklyProgress: progressPercent(week.pnl, goals.weeklyTargetAmount),
+      monthlyProgress: progressPercent(month.pnl, goals.monthlyTargetAmount),
     },
     dailySeries,
     weeklySeries,
     dataSource: trades.length || telemetry.length ? 'mt4_reporter_history' : 'waiting_for_mt4_history',
+  };
+}
+
+
+function cleanPeriod(value = '30d') {
+  const normalized = String(value || '30d').toLowerCase();
+  return ['today', '7d', '30d', '90d', 'year', 'all'].includes(normalized) ? normalized : '30d';
+}
+
+function periodStartMs(period = '30d') {
+  const normalized = cleanPeriod(period);
+  const now = new Date();
+  if (normalized === 'all') return 0;
+  if (normalized === 'today') { now.setHours(0, 0, 0, 0); return now.getTime(); }
+  const days = normalized === '7d' ? 7 : normalized === '90d' ? 90 : normalized === 'year' ? 365 : 30;
+  return Date.now() - days * 24 * 60 * 60 * 1000;
+}
+
+function scopeKey({ accountId = '', laneId = '' } = {}) {
+  if (laneId) return `lane:${String(laneId)}`;
+  if (accountId) return `account:${String(accountId)}`;
+  return 'portfolio';
+}
+
+function scopedAccounts(state = {}, userId = '', { accountId = '', laneId = '' } = {}) {
+  const uid = String(userId || '');
+  let ids = [];
+  if (laneId) {
+    const lane = state.cultureLanesById?.[String(laneId)] || null;
+    const allowed = lane && (String(lane.ownerUserId || lane.owner_user_id || '') === uid || (lane.adminUserIds || []).map(String).includes(uid));
+    if (!allowed) return [];
+    ids = (lane.accountIds || [lane.leaderAccountId, ...(lane.followerAccountIds || [])]).map(String).filter(Boolean);
+  } else if (accountId) ids = [String(accountId)];
+  const idSet = new Set(ids);
+  return Object.values(state.tradingAccounts || {}).filter((account) => {
+    const owner = String(account.user_id || account.ownerUserId || '');
+    return owner === uid && (!idSet.size || idSet.has(String(account.id)));
+  });
+}
+
+function tradeHoldMinutes(trade = {}) {
+  const opened = new Date(trade.opened_at || trade.openTime || trade.created_at || 0).getTime();
+  const closed = closedAt(trade);
+  return opened > 0 && closed >= opened ? (closed - opened) / 60000 : 0;
+}
+
+function richerPeriodStats(trades = [], sinceMs = 0) {
+  const closed = trades.filter((trade) => String(trade.status || '').toLowerCase() === 'closed' && closedAt(trade) >= sinceMs).sort((a, b) => closedAt(a) - closedAt(b));
+  const rows = closed.map((trade) => ({ trade, pnl: tradePnl(trade) }));
+  const wins = rows.filter((row) => row.pnl > 0);
+  const losses = rows.filter((row) => row.pnl < 0);
+  const breakeven = rows.filter((row) => row.pnl === 0);
+  const grossProfit = wins.reduce((sum, row) => sum + row.pnl, 0);
+  const grossLoss = Math.abs(losses.reduce((sum, row) => sum + row.pnl, 0));
+  const pnl = rows.reduce((sum, row) => sum + row.pnl, 0);
+  let cumulative = 0; let peak = 0; let maxDrawdown = 0;
+  let winStreak = 0; let lossStreak = 0; let maxWinStreak = 0; let maxLossStreak = 0;
+  for (const row of rows) {
+    cumulative += row.pnl;
+    peak = Math.max(peak, cumulative);
+    maxDrawdown = Math.max(maxDrawdown, peak - cumulative);
+    if (row.pnl > 0) { winStreak += 1; lossStreak = 0; maxWinStreak = Math.max(maxWinStreak, winStreak); }
+    else if (row.pnl < 0) { lossStreak += 1; winStreak = 0; maxLossStreak = Math.max(maxLossStreak, lossStreak); }
+    else { winStreak = 0; lossStreak = 0; }
+  }
+  const averageWin = wins.length ? grossProfit / wins.length : 0;
+  const averageLoss = losses.length ? -grossLoss / losses.length : 0;
+  const averageTrade = rows.length ? pnl / rows.length : 0;
+  const averageHoldMinutes = rows.length ? rows.reduce((sum, row) => sum + tradeHoldMinutes(row.trade), 0) / rows.length : 0;
+  return {
+    trades: rows.length, pnl: Number(pnl.toFixed(2)), wins: wins.length, losses: losses.length, breakeven: breakeven.length,
+    winRate: rows.length ? (wins.length / rows.length) * 100 : 0,
+    lossRate: rows.length ? (losses.length / rows.length) * 100 : 0,
+    grossProfit: Number(grossProfit.toFixed(2)), grossLoss: Number(grossLoss.toFixed(2)),
+    average: Number(averageTrade.toFixed(2)), averageWin: Number(averageWin.toFixed(2)), averageLoss: Number(averageLoss.toFixed(2)),
+    expectancy: Number(averageTrade.toFixed(2)), profitFactor: grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? 9.99 : 0,
+    payoffRatio: grossLoss > 0 && losses.length ? averageWin / Math.abs(averageLoss || 1) : averageWin > 0 ? 9.99 : 0,
+    largestWin: wins.length ? Math.max(...wins.map((row) => row.pnl)) : 0,
+    largestLoss: losses.length ? Math.min(...losses.map((row) => row.pnl)) : 0,
+    maxClosedDrawdown: Number(maxDrawdown.toFixed(2)), maxWinStreak, maxLossStreak,
+    averageHoldMinutes: Number(averageHoldMinutes.toFixed(1)),
+  };
+}
+
+function breakdownBy(trades = [], keyFn = () => 'Unknown') {
+  const groups = new Map();
+  for (const trade of trades) {
+    if (String(trade.status || '').toLowerCase() !== 'closed') continue;
+    const key = String(keyFn(trade) || 'Unknown');
+    const list = groups.get(key) || [];
+    list.push(trade); groups.set(key, list);
+  }
+  return [...groups.entries()].map(([key, rows]) => ({ key, ...richerPeriodStats(rows, 0), lots: Number(rows.reduce((sum, trade) => sum + num(trade.lot_size ?? trade.lots), 0).toFixed(2)) }))
+    .sort((a, b) => b.pnl - a.pnl);
+}
+
+export function getCompoundTrackerGoals(state = {}, userId = '', scope = {}) {
+  ensureCloseIntelligenceState(state);
+  const key = `${String(userId || '')}:${scopeKey(scope)}`;
+  const saved = state.compoundTrackerGoalsByScope[key] || {};
+  const lanePolicy = scope.laneId ? state.harvestPoliciesByLaneId?.[String(scope.laneId)] : null;
+  return {
+    scopeKey: scopeKey(scope),
+    dailyTargetAmount: Math.max(0, num(saved.dailyTargetAmount)),
+    weeklyTargetAmount: Math.max(0, num(saved.weeklyTargetAmount)),
+    monthlyTargetAmount: Math.max(0, num(saved.monthlyTargetAmount)),
+    inheritedHarvestGoal: lanePolicy ? { goalType: lanePolicy.goalType, goalValue: num(lanePolicy.goalValue), enabled: lanePolicy.enabled !== false } : null,
+    updatedAt: saved.updatedAt || null,
+  };
+}
+
+export function setCompoundTrackerGoals(state = {}, userId = '', scope = {}, input = {}) {
+  ensureCloseIntelligenceState(state);
+  const key = `${String(userId || '')}:${scopeKey(scope)}`;
+  const record = {
+    userId: String(userId || ''), scopeKey: scopeKey(scope), accountId: String(scope.accountId || ''), laneId: String(scope.laneId || ''),
+    dailyTargetAmount: Math.max(0, num(input.dailyTargetAmount ?? input.daily_target_amount)),
+    weeklyTargetAmount: Math.max(0, num(input.weeklyTargetAmount ?? input.weekly_target_amount)),
+    monthlyTargetAmount: Math.max(0, num(input.monthlyTargetAmount ?? input.monthly_target_amount)),
+    updatedAt: nowIso(),
+  };
+  state.compoundTrackerGoalsByScope[key] = record;
+  return record;
+}
+
+function progressPercent(pnl, goal) {
+  return goal > 0 ? Number(clamp((num(pnl) / goal) * 100, -999, 999).toFixed(1)) : null;
+}
+
+export function buildCompoundTrackerReport(state = {}, userId = '', { accountId = '', laneId = '', period = '30d', trackerLimit = 100 } = {}) {
+  ensureCloseIntelligenceState(state);
+  const uid = String(userId || '');
+  const normalizedPeriod = cleanPeriod(period);
+  const accounts = scopedAccounts(state, uid, { accountId, laneId });
+  const accountIds = new Set(accounts.map((account) => String(account.id)));
+  const scoped = Boolean(accountId || laneId);
+  const allTrades = Object.values(state.trades || {}).filter((trade) => String(trade.user_id || '') === uid && (!scoped || accountIds.has(String(trade.account_id))));
+  const since = periodStartMs(normalizedPeriod);
+  const selectedClosed = allTrades.filter((trade) => String(trade.status || '').toLowerCase() === 'closed' && closedAt(trade) >= since);
+  const openTrades = allTrades.filter((trade) => ['open', 'closing'].includes(String(trade.status || '').toLowerCase()));
+  const balance = accounts.reduce((sum, account) => sum + num(account.balance), 0);
+  const equity = accounts.reduce((sum, account) => sum + num(account.equity, num(account.balance)), 0);
+  const margin = accounts.reduce((sum, account) => sum + num(account.margin), 0);
+  const freeMargin = accounts.reduce((sum, account) => sum + num(account.free_margin ?? account.freeMargin), 0);
+  const floatingPnl = openTrades.reduce((sum, trade) => sum + tradePnl(trade), 0) || accounts.reduce((sum, account) => sum + num(account.floating_pl ?? account.floatingPL ?? account.floating_profit), 0);
+  const selected = richerPeriodStats(allTrades, since);
+  const today = richerPeriodStats(allTrades, periodStartMs('today'));
+  const weekly = richerPeriodStats(allTrades, periodStartMs('7d'));
+  const monthly = richerPeriodStats(allTrades, periodStartMs('30d'));
+  const allTime = richerPeriodStats(allTrades, 0);
+  const telemetry = [...accountIds].flatMap((idValue) => {
+    const raw = state.accountTelemetry?.[idValue] || [];
+    if (Array.isArray(raw)) return raw;
+    return [raw.latest, raw.snapshot, raw].filter(Boolean);
+  }).sort((a, b) => new Date(a.receivedAt || a.createdAt || 0) - new Date(b.receivedAt || b.createdAt || 0));
+  let peakEquity = 0; let maxEquityDrawdownPercent = 0;
+  for (const point of telemetry) {
+    const pointEquity = num(point.equity);
+    peakEquity = Math.max(peakEquity, pointEquity);
+    if (peakEquity > 0) maxEquityDrawdownPercent = Math.max(maxEquityDrawdownPercent, ((peakEquity - pointEquity) / peakEquity) * 100);
+  }
+  peakEquity = Math.max(peakEquity, equity);
+  const currentDrawdownPercent = peakEquity > 0 ? Math.max(0, ((peakEquity - equity) / peakEquity) * 100) : 0;
+  const goals = getCompoundTrackerGoals(state, uid, { accountId, laneId });
+  const trackers = listCloseTrackers(state, uid, accountId, trackerLimit).filter((tracker) => !laneId || accountIds.has(String(tracker.account_id)));
+  const trackerSummary = {
+    total: trackers.length,
+    completed: trackers.filter((tracker) => tracker.status === 'completed').length,
+    failed: trackers.filter((tracker) => ['failed', 'queue_failed'].includes(tracker.status)).length,
+    pending: trackers.filter((tracker) => !['completed', 'failed', 'queue_failed'].includes(tracker.status)).length,
+    closedOrders: trackers.reduce((sum, tracker) => sum + num(tracker.result?.closedCount), 0),
+    failedOrders: trackers.reduce((sum, tracker) => sum + num(tracker.result?.failedCount), 0),
+    realizedPnl: Number(trackers.reduce((sum, tracker) => sum + num(tracker.result?.realizedPnl), 0).toFixed(2)),
+    averageCompletionMs: (() => { const rows = trackers.map((tracker) => new Date(tracker.completed_at || 0) - new Date(tracker.requested_at || 0)).filter((value) => value > 0); return rows.length ? Math.round(rows.reduce((a, b) => a + b, 0) / rows.length) : 0; })(),
+  };
+  const dailySeries = buildDailySeries(allTrades, normalizedPeriod === '90d' ? 90 : normalizedPeriod === 'year' ? 365 : 30);
+  const weeklySeries = buildWeeklySeries(allTrades, normalizedPeriod === 'year' || normalizedPeriod === 'all' ? 52 : 12);
+  return {
+    generatedAt: nowIso(), period: normalizedPeriod, scope: { accountId: accountId || null, laneId: laneId || null }, dataSource: allTrades.length || telemetry.length ? 'mt4_reporter_history' : 'waiting_for_mt4_history',
+    accounts: accounts.map((account) => ({ id: account.id, nickname: account.nickname || account.account_number || account.id, accountNumber: account.account_number || '', broker: account.broker || '', balance: num(account.balance), equity: num(account.equity, num(account.balance)), status: account.status || (account.reporter_connected ? 'connected' : 'disconnected'), reporterConnected: Boolean(account.reporter_connected) })),
+    accountCount: accounts.length, connectedAccountCount: accounts.filter((account) => account.reporter_connected || account.status === 'connected').length,
+    balance: Number(balance.toFixed(2)), equity: Number(equity.toFixed(2)), margin: Number(margin.toFixed(2)), freeMargin: Number(freeMargin.toFixed(2)), floatingPnl: Number(floatingPnl.toFixed(2)),
+    openTradeCount: openTrades.length, peakEquity: Number(peakEquity.toFixed(2)), currentDrawdownPercent: Number(currentDrawdownPercent.toFixed(2)), maxEquityDrawdownPercent: Number(maxEquityDrawdownPercent.toFixed(2)),
+    selected, today, weekly, monthly, allTime,
+    returnPercent: balance > 0 ? Number(((selected.pnl / balance) * 100).toFixed(2)) : 0,
+    recoveryFactor: selected.maxClosedDrawdown > 0 ? Number((selected.pnl / selected.maxClosedDrawdown).toFixed(2)) : selected.pnl > 0 ? 9.99 : 0,
+    goals: { ...goals, dailyProgress: progressPercent(today.pnl, goals.dailyTargetAmount), weeklyProgress: progressPercent(weekly.pnl, goals.weeklyTargetAmount), monthlyProgress: progressPercent(monthly.pnl, goals.monthlyTargetAmount) },
+    gauges: {
+      winRate: Number(selected.winRate.toFixed(1)), profitFactor: Number(selected.profitFactor.toFixed(2)), riskPressure: Math.round(clamp(currentDrawdownPercent * 5 + Math.max(0, -floatingPnl / Math.max(1, balance) * 400) + openTrades.length * 2, 0, 100)),
+      consistency: (() => { const active = dailySeries.filter((row) => row.pnl !== 0); return active.length ? Number((active.filter((row) => row.pnl > 0).length / active.length * 100).toFixed(1)) : 0; })(),
+      dailyProgress: progressPercent(today.pnl, goals.dailyTargetAmount), weeklyProgress: progressPercent(weekly.pnl, goals.weeklyTargetAmount), monthlyProgress: progressPercent(monthly.pnl, goals.monthlyTargetAmount),
+    },
+    trackerSummary, trackers,
+    dailySeries, weeklySeries,
+    bySymbol: breakdownBy(selectedClosed, (trade) => trade.symbol || 'Unknown').slice(0, 50),
+    byAccount: breakdownBy(selectedClosed, (trade) => trade.account_id || 'Unknown').map((row) => ({ ...row, account: accounts.find((account) => String(account.id) === row.key)?.nickname || accounts.find((account) => String(account.id) === row.key)?.account_number || row.key })),
+    bySide: breakdownBy(selectedClosed, (trade) => String(trade.side || trade.type || 'unknown').toUpperCase()),
+    recentClosedTrades: selectedClosed.sort((a, b) => closedAt(b) - closedAt(a)).slice(0, 100).map((trade) => ({ id: trade.id, accountId: trade.account_id, symbol: trade.symbol, side: trade.side, lots: num(trade.lot_size ?? trade.lots), pnl: Number(tradePnl(trade).toFixed(2)), openedAt: trade.opened_at || trade.openTime || null, closedAt: trade.closed_at || trade.closeTime || null, holdMinutes: Number(tradeHoldMinutes(trade).toFixed(1)), ticket: trade.external_ticket || trade.ticket || null })),
   };
 }
 

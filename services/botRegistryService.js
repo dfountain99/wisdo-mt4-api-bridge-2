@@ -1,7 +1,4 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-
-import { atomicWriteJson } from '../storage/atomicJsonFile.js';
+import { createDatabaseStateStore } from '../storage/stateStore.js';
 
 function clean(value = '') {
   return String(value || '').trim();
@@ -23,24 +20,18 @@ function isFreshLane(lane, maxAgeMinutes = 30) {
 
 export class BotRegistryService {
   constructor(config = {}) {
-    this.dataDir = config.dataDir || 'data/operator-desks';
-    this.filePath = path.join(this.dataDir, 'cem-bot-registry.json');
+    this.store = createDatabaseStateStore('bot_registry', () => ({ lanesByUserId: {}, nicknamesByUserId: {} }));
   }
 
   async load() {
-    try {
-      const raw = await fs.readFile(this.filePath, 'utf8');
-      const data = JSON.parse(raw);
-      data.lanesByUserId ||= {};
-      data.nicknamesByUserId ||= {};
-      return data;
-    } catch {
-      return { lanesByUserId: {}, nicknamesByUserId: {} };
-    }
+    const data = await this.store.read();
+    data.lanesByUserId ||= {};
+    data.nicknamesByUserId ||= {};
+    return data;
   }
 
   async save(data) {
-    await atomicWriteJson(this.filePath, data);
+    return this.store.write(data);
   }
 
   normalizeLane(input = {}) {

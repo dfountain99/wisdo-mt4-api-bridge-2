@@ -19,8 +19,8 @@ import { calculateTradingTool, getEducationHubSummary, searchEducationResources 
 import { buildFallbackWebinar, buildHistoricalTeachingChart, buildTeachingChart, createWebinarSession, gradeWebinarQuiz, normalizeStrategyInput } from '../services/aiWebinarService.js';
 import { normalizeHistoricalCandles } from '../services/historicalMarketDataService.js';
 import { SquarePaymentGateway, decodeSquarePaymentNote, encodeSquarePaymentNote, verifySquareWebhookSignature } from '../services/squarePaymentService.js';
-import { JsonFilePersistenceAdapter } from '../services/persistenceAdapter.js';
-import { buildTrendAnalytics, createCloseTracker, finalizeCloseTracker } from '../services/tradeCloseIntelligence.js';
+import { OperatorDeskRepository } from '../storage/operatorDeskRepository.js';
+import { buildCompoundTrackerReport, buildTrendAnalytics, createCloseTracker, finalizeCloseTracker, setCompoundTrackerGoals } from '../services/tradeCloseIntelligence.js';
 
 process.env.NODE_ENV = 'test';
 process.env.WISDO_ALLOW_TEST_IDENTITY = 'true';
@@ -211,9 +211,13 @@ test('portable chart renderer produces a valid PNG without native canvas depende
   assert.ok(bytes.length > 1000);
 });
 
-test('Reporter v1.57 supports immediate account sync, atomic basket sweep, and retains close authority', async () => {
+test('Reporter v1.58 adds resilient connection backoff while retaining atomic basket sweep and close authority', async () => {
   const reporter = await fs.readFile(new URL('../mql4/CultureCoin_MT4_Reporter.mq4', import.meta.url), 'utf8');
-  assert.match(reporter, /#property version\s+"1\.57"/);
+  assert.match(reporter, /#property version\s+"1\.58"/);
+  assert.match(reporter, /NetworkFailureGraceCount/);
+  assert.match(reporter, /MarkNetworkFailure/);
+  assert.match(reporter, /g_lastStatus = "Degraded"/);
+  assert.match(reporter, /reporterConnectionState/);
   assert.match(reporter, /JsonGetInt\(commandJson, "followerTicket", -1\)/);
   assert.match(reporter, /JsonGetString\(commandJson, "leaderTicket", ""\)/);
   assert.match(reporter, /FindUniqueCopiedTradeByContext/);
@@ -1024,16 +1028,77 @@ test('Compound Tracker finalizes against MT4 history and exposes daily and weekl
   assert.equal(typeof buildTrendAnalytics(state, 'u1', 'acct').gauges.weeklyTrend, 'number');
 });
 
-test('JSON persistence restores a valid backup instead of silently resetting account settings', async () => {
-  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wisdo-persistence-'));
-  const adapter = new JsonFilePersistenceAdapter({ dataDir, fileName: 'ecosystem.json', defaultState: () => ({ empty: true }) });
-  const expected = { accountControlSettingsById: { acct: { desk_role: 'lead', sharing_mode: 'community' } } };
-  await adapter.save(expected);
-  await fs.writeFile(path.join(dataDir, 'ecosystem.json'), '{broken json', 'utf8');
-  const restored = await adapter.load();
-  assert.deepEqual(restored, expected);
-  const repaired = JSON.parse(await fs.readFile(path.join(dataDir, 'ecosystem.json'), 'utf8'));
-  assert.deepEqual(repaired, expected);
+
+test('Compound Tracker complete report exposes portfolio, lane, goals, attribution, drawdown and execution results', () => {
+  const now = new Date();
+  const earlier = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+  const state = {
+    tradingAccounts: {
+      lead: { id: 'lead', user_id: 'u1', nickname: 'Leader', balance: 1000, equity: 1015, reporter_connected: true, status: 'connected' },
+      follow: { id: 'follow', user_id: 'u1', nickname: 'Follower', balance: 500, equity: 505, reporter_connected: true, status: 'connected' },
+    },
+    cultureLanesById: { lane1: { laneId: 'lane1', ownerUserId: 'u1', leaderAccountId: 'lead', followerAccountIds: ['follow'], accountIds: ['lead', 'follow'] } },
+    trades: {
+      a: { id: 'a', user_id: 'u1', account_id: 'lead', symbol: 'XAUUSD', side: 'buy', lot_size: .1, status: 'closed', pnl: 80, opened_at: earlier, closed_at: now.toISOString() },
+      b: { id: 'b', user_id: 'u1', account_id: 'follow', symbol: 'XAUUSD', side: 'buy', lot_size: .05, status: 'closed', pnl: 40, opened_at: earlier, closed_at: now.toISOString() },
+      c: { id: 'c', user_id: 'u1', account_id: 'follow', symbol: 'GBPUSD', side: 'sell', lot_size: .05, status: 'closed', pnl: -20, opened_at: earlier, closed_at: now.toISOString() },
+      d: { id: 'd', user_id: 'u1', account_id: 'lead', symbol: 'NAS100', side: 'buy', lot_size: .1, status: 'open', pnl: -5, opened_at: earlier },
+    },
+    compoundCloseTrackersById: {
+      tracker: { id: 'tracker', user_id: 'u1', account_id: 'lead', status: 'completed', mode: 'all', requested_at: earlier, completed_at: now.toISOString(), result: { closedCount: 2, failedCount: 0, realizedPnl: 120 } },
+    },
+    accountTelemetry: {
+      lead: [{ equity: 1030, receivedAt: earlier }, { equity: 1015, receivedAt: now.toISOString() }],
+      follow: [{ equity: 510, receivedAt: earlier }, { equity: 505, receivedAt: now.toISOString() }],
+    },
+  };
+  setCompoundTrackerGoals(state, 'u1', { laneId: 'lane1' }, { dailyTargetAmount: 200, weeklyTargetAmount: 500, monthlyTargetAmount: 1000 });
+  const report = buildCompoundTrackerReport(state, 'u1', { laneId: 'lane1', period: '30d' });
+  assert.equal(report.accountCount, 2);
+  assert.equal(report.selected.trades, 3);
+  assert.equal(report.selected.pnl, 100);
+  assert.equal(report.openTradeCount, 1);
+  assert.equal(report.bySymbol[0].key, 'XAUUSD');
+  assert.equal(report.bySymbol[0].pnl, 120);
+  assert.equal(report.byAccount.length, 2);
+  assert.equal(report.recentClosedTrades.length, 3);
+  assert.equal(report.trackerSummary.completed, 1);
+  assert.equal(report.trackerSummary.closedOrders, 2);
+  assert.equal(report.goals.dailyProgress, 50);
+  assert.equal(typeof report.selected.expectancy, 'number');
+  assert.equal(typeof report.currentDrawdownPercent, 'number');
+});
+
+test('Compound Tracker API saves scoped goals and returns the expanded report', async (t) => {
+  const now = new Date().toISOString();
+  const seed = {
+    tradingAccounts: { acct: { id: 'acct', user_id: 'compound-user', account_number: '1', nickname: 'Compound', balance: 1000, equity: 1025, reporter_connected: true, status: 'connected' } },
+    trades: { trade: { id: 'trade', user_id: 'compound-user', account_id: 'acct', symbol: 'EURUSD', side: 'buy', lot_size: .1, status: 'closed', pnl: 25, opened_at: now, closed_at: now } },
+  };
+  const testServer = await createTestServer(seed);
+  t.after(() => testServer.server.close());
+  const headers = { 'content-type': 'application/json', 'x-wisdo-test-user': 'compound-user' };
+  const saved = await jsonFetch(`${testServer.base}/api/v2/trades/compound-goals`, { method: 'POST', headers, body: JSON.stringify({ account_id: 'acct', dailyTargetAmount: 50, weeklyTargetAmount: 200, monthlyTargetAmount: 500 }) });
+  assert.equal(saved.response.status, 200);
+  assert.equal(saved.payload.goals.dailyTargetAmount, 50);
+  const report = await jsonFetch(`${testServer.base}/api/v2/trades/compound-report?account_id=acct&period=30d`, { headers });
+  assert.equal(report.response.status, 200);
+  assert.equal(report.payload.report.selected.pnl, 25);
+  assert.equal(report.payload.report.goals.dailyProgress, 50);
+  assert.ok(Array.isArray(report.payload.report.bySymbol));
+  assert.ok(Array.isArray(report.payload.report.recentClosedTrades));
+});
+
+test('active runtime uses database or volatile memory and does not create JSON persistence files', async () => {
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wisdo-database-only-'));
+  const repository = new OperatorDeskRepository(dataDir);
+  await repository.updateMt4State((state) => {
+    state.accountSettingsByAccountId['acct'] = { desk_role: 'lead', sharing_mode: 'community' };
+    return state;
+  });
+  const restored = await repository.getMt4State();
+  assert.deepEqual(restored.accountSettingsByAccountId.acct, { desk_role: 'lead', sharing_mode: 'community' });
+  assert.deepEqual(await fs.readdir(dataDir), []);
 });
 
 test('Culture Lane setup lives in Copier Engine while dashboard owns the combined portfolio and Harvest controls', async (t) => {
@@ -1417,7 +1482,8 @@ test('Render production configuration promotes durable PostgreSQL state and dash
     fs.readFile(new URL('../public/js/workspace.js', import.meta.url), 'utf8'),
   ]);
   assert.match(renderSource, /key: WISDO_PERSISTENCE_MODE\s+value: postgres/);
-  assert.match(configSource, /hasDatabaseUrl && isProductionRuntime/);
+  assert.match(configSource, /databaseRequired = isProductionRuntime/);
+  assert.match(configSource, /productionPersistenceMode = hasDatabaseUrl/);
   assert.match(workspaceSource, /Close All Culture Lane/);
   assert.match(workspaceSource, /Close Leader Trades/);
 });

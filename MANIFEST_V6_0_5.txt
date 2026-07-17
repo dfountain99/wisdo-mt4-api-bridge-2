@@ -1,0 +1,15 @@
+WISDO v6.0.5 FULL REPOSITORY
+Release: Complete Compound Tracker Results
+
+Core additions:
+- Expanded Compound Tracker API and UI
+- Portfolio, Culture Lane, and account scopes
+- Today, 7d, 30d, 90d, year, all-time periods
+- Persistent daily/weekly/monthly dollar goals
+- Complete performance, drawdown, expectancy, streak, attribution, and execution metrics
+- MT4 close tracker before/after details and Reporter payload review
+- CSV export of visible closed trades
+
+Required Reporter: CultureCoin MT4 Reporter v1.57
+Production persistence: PostgreSQL when DATABASE_URL is configured
+Validation target: npm run check

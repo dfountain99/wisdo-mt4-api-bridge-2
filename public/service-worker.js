@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wisdo-shell-v6.0.4-relay-persistence-controls';
+const CACHE_NAME = 'wisdo-shell-v6.0.6-database-ai-broker';
 const SHELL = [
   '/', '/pricing', '/copier', '/analyzer', '/compare', '/academy',
   '/js/workspace.js', '/js/wisdo-assistant.js', '/js/df-sauce-academy.js', '/media/wisdo-og.svg', '/platforms/mt4.svg',

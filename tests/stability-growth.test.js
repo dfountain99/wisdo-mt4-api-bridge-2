@@ -76,8 +76,8 @@ test('MT4 history is compacted and does not retain full trade arrays', async () 
   assert.equal('openTrades' in state.snapshotHistory[0].snapshot, false);
   assert.equal('closedTradesToday' in state.snapshotHistory[0].snapshot, false);
   assert.deepEqual(state.signalTrackingByAccountId['10001:Demo'].tradeKeyToSignalId, { 'key-1': 'signal-1' });
-  const raw = await fs.readFile(path.join(dataDir, 'mt4.json'), 'utf8');
-  assert.ok(raw.length < 10_000);
+  const files = await fs.readdir(dataDir);
+  assert.deepEqual(files, [], 'The active live relay repository must not create JSON state files.');
 });
 
 test('growth funnel tracks attribution, deduplicates leads, and calculates the 1000-lead pace', async () => {

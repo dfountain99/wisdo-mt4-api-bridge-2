@@ -1,7 +1,4 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-
-import { atomicWriteJson } from '../storage/atomicJsonFile.js';
+import { createDatabaseStateStore } from '../storage/stateStore.js';
 
 function nowIso() { return new Date().toISOString(); }
 function addSeconds(s) { const d = new Date(); d.setSeconds(d.getSeconds() + Number(s || 60)); return d.toISOString(); }
@@ -11,19 +8,13 @@ const RED = new Set(['CLOSE_ALL', 'EMERGENCY_STOP', 'CUT_LOSERS', 'REMOVE_ACCOUN
 const YELLOW = new Set(['SET_GLOBALS', 'SET_CONTROL_MODE', 'SET_RISK_LIMIT', 'COPY_OPEN_TRADE', 'PAUSE_TRADING', 'RESUME_TRADING', 'SET_SELL_ONLY', 'SET_BUY_ONLY']);
 
 export class CommandSafetyService {
-  constructor(config = {}) {
-    this.dataDir = config.dataDir || 'data/operator-desks';
-    this.filePath = path.join(this.dataDir, 'wisdo-confirmations.json');
-  }
+  constructor(_config = {}) { this.store = createDatabaseStateStore('command_confirmations', () => ({ confirmations: {} })); }
 
   async load() {
-    try { return { confirmations: {}, ...JSON.parse(await fs.readFile(this.filePath, 'utf8')) }; }
-    catch { return { confirmations: {} }; }
+    return this.store.read();
   }
 
-  async save(data) {
-    await atomicWriteJson(this.filePath, data);
-  }
+  async save(data) { return this.store.write(data); }
 
   classify(command, payload = {}) {
     const name = String(command || '').toUpperCase();

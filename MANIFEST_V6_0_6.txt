@@ -1,0 +1,23 @@
+WISDO v6.0.6 DATABASE AI / BROKER API / REPORTER RESILIENCE
+
+Core additions:
+- services/brokerApiConnectionService.js
+- services/wisdoAiCoachService.js
+- storage/stateStore.js
+- tests/v606-database-ai-broker.test.js
+
+Core modifications:
+- Reporter v1.58 resilient heartbeat/backoff
+- Accounts Broker API center
+- Lane Intelligence active WISDO coach
+- Academy lane-aware AI and shared memory
+- PostgreSQL-only active production state
+- internal broker/coach/notification workers
+- email/SMS/Discord DM notification delivery
+
+Validation:
+- npm run check
+- 92 JavaScript files
+- 14 required assets
+- 58 tests passed
+- 0 tests failed

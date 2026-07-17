@@ -77,6 +77,7 @@ export class NotificationDeliveryService {
     return {
       emailConfigured: Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL),
       smsConfigured: Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER),
+      discordDmConfigured: Boolean(process.env.DISCORD_TOKEN),
       resendFrom: process.env.RESEND_FROM_EMAIL || '',
       twilioFromConfigured: Boolean(process.env.TWILIO_FROM_NUMBER),
       leadPortalSecretConfigured: Boolean(process.env.WISDO_LEAD_PORTAL_SECRET || process.env.SESSION_SECRET),
@@ -199,10 +200,32 @@ Educational information only. Trading involves risk.`,
     return { ok: true, providerId: payload.sid || '', providerStatus: payload.status || String(response.status) };
   }
 
+  async sendDiscordDm(event) {
+    const token = process.env.DISCORD_TOKEN || '';
+    if (!token) return { ok: false, retryable: true, providerStatus: 'provider_not_configured', error: 'DISCORD_TOKEN is required for WISDO coach DMs.' };
+    const createChannel = await fetchWithTimeout('https://discord.com/api/v10/users/@me/channels', {
+      method: 'POST',
+      headers: { authorization: `Bot ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ recipient_id: String(event.to) }),
+    });
+    const channel = await createChannel.json().catch(() => ({}));
+    if (!createChannel.ok || !channel.id) return { ok: false, retryable: createChannel.status === 429 || createChannel.status >= 500, providerStatus: String(createChannel.status), error: channel?.message || `Discord create-DM HTTP ${createChannel.status}` };
+    const send = await fetchWithTimeout(`https://discord.com/api/v10/channels/${encodeURIComponent(channel.id)}/messages`, {
+      method: 'POST',
+      headers: { authorization: `Bot ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ content: String(event.text || event.subject || 'WISDO update').slice(0, 2000), allowed_mentions: { parse: [] } }),
+    });
+    const payload = await send.json().catch(() => ({}));
+    if (!send.ok) return { ok: false, retryable: send.status === 429 || send.status >= 500, providerStatus: String(send.status), error: payload?.message || `Discord message HTTP ${send.status}` };
+    return { ok: true, providerId: payload.id || '', providerStatus: String(send.status) };
+  }
+
   async deliverEvent(event) {
     let result;
     try {
-      result = event.channel === 'sms' ? await this.sendSms(event) : await this.sendEmail(event);
+      if (event.channel === 'sms') result = await this.sendSms(event);
+      else if (event.channel === 'discord_dm') result = await this.sendDiscordDm(event);
+      else result = await this.sendEmail(event);
     } catch (error) {
       result = { ok: false, retryable: true, providerStatus: 'exception', error: error?.name === 'AbortError' ? 'Provider request timed out.' : error.message };
     }
@@ -395,6 +418,12 @@ Educational information only. Trading involves risk.`,
     if (this.retryTimer) return;
     this.retryTimer = setInterval(() => this.retryPending().catch((error) => this.logger?.warn?.('Notification retry loop failed.', { message: error.message })), intervalMs);
     this.retryTimer.unref?.();
+  }
+
+  stopRetryLoop() {
+    if (!this.retryTimer) return;
+    clearInterval(this.retryTimer);
+    this.retryTimer = null;
   }
 }
 

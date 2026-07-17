@@ -1,8 +1,19 @@
-# WISDO v6.0.4 — Durable Relay Recovery and Dashboard Close Authority
+# WISDO v6.0.6 — Database AI, Broker API Center, and Reporter v1.58
 
-WISDO v6.0.4 combines the complete application with a hardened PostgreSQL/Redis relay foundation and the first operational Culture Lane OS APIs. The release adds multi-instance-safe section persistence, Redis Streams, command idempotency, retry/dead-letter recovery, durable acknowledgements and heartbeats, Culture Lane Vaults, Smart Symbol Routing, Harvest policies, Genomes, Timelines, Trade Passports, DNA, and Intelligence reports.
+WISDO v6.0.6 is a database-only production release. PostgreSQL is the durable source of truth for member accounts, Culture Lanes, live Reporter pairing and snapshots, copier routes, signals, command confirmations, dashboards, Academy progress, WISDO memory, AI coach conversations, notifications, and business records. Production refuses to start without `DATABASE_URL`; it does not create active JSON state files.
 
-See `docs/RELEASE_NOTES_V6_0_0.md` and `WISDO_V6_0_0_DEPLOYMENT_CHECKLIST.md` before deployment.
+This release adds:
+
+- Reporter v1.58 connection grace, exponential retry backoff, and Connected/Degraded/Retrying/Offline health states.
+- Broker API onboarding in `/app/accounts` through MetaApi, cTrader OAuth account discovery, and a signed WISDO broker webhook.
+- An active Lane Intelligence coach grounded in current Culture Lane Vault metrics, confirmed trade history, timeline events, Trade Passports, and shared Academy memory.
+- Contextual Academy AI that can build lessons from the selected lane and shares approved educational memory with Lane Intelligence.
+- Opt-in email, SMS, and Discord DM coach notifications with a PostgreSQL outbox and retry worker.
+- Internal background workers for broker refresh and meaningful-change coach updates.
+
+Important execution boundary: Broker API accounts are monitoring/leader data sources by default. They are not eligible as execution receivers until a provider-specific trading adapter is explicitly implemented and enabled. Reporter v1.58 remains the MT4 execution bridge for copy and close commands.
+
+See `WISDO_V6_0_6_RELEASE_NOTES.md` and `WISDO_V6_0_6_DEPLOYMENT_AND_TEST_CHECKLIST.md` before deployment.
 
 # WISDO V5.8.0 — Persistent Account Controls + Immediate Close Intelligence
 
@@ -208,7 +219,7 @@ Discord and MT4 add `DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID`, `MT4_SYNC_API_KEY`
 
 ## Persistent storage
 
-The Render blueprint mounts `/var/data` and stores runtime state below `/var/data/wisdo`. JSON mode is the safe default for a single Render instance. PostgreSQL mode is available through `WISDO_PERSISTENCE_MODE=postgres` and `DATABASE_URL` after applying the V5 migration.
+Production is PostgreSQL-only. Set `DATABASE_URL`, `WISDO_PERSISTENCE_MODE=postgres`, and `WISDO_DB_SSL=true` on Render. The application refuses production startup without a database. Redis remains the low-latency command transport and recovery queue, but PostgreSQL is the durable state source. Local automated tests use volatile memory and do not create JSON state files.
 
 ## Database migration
 
@@ -297,3 +308,26 @@ v6.0.3 moves Culture Lane creation, multi-receiver selection, and click-to-allow
 - Auto-copy execution resolves the follower through the verified route identity instead of rejecting the website owner.
 - The dashboard exposes **Close All Culture Lane** and **Close Leader Trades** as separate priority atomic-sweep controls.
 - The service-worker cache is versioned so the new dashboard controls replace older cached JavaScript immediately.
+
+
+## v6.0.5 complete Compound Tracker
+
+- Fixes the missing daily and weekly progress values that previously rendered as zero because the API never returned them.
+- Adds portfolio, Culture Lane, and individual-account scope filters.
+- Adds Today, 7-day, 30-day, 90-day, 1-year, and all-time periods.
+- Shows combined balance, equity, floating P/L, realized P/L, return, open exposure, drawdown, expectancy, payoff ratio, recovery factor, streaks, and average hold time.
+- Adds configurable daily, weekly, and monthly dollar goals with persistent PostgreSQL-backed progress.
+- Adds symbol, account, and side contribution tables, recent closed trades, cumulative daily/weekly charts, and CSV export.
+- Expands every Compound Tracker event with command ID, MT4 result payload, completion latency, before/after performance, failed-order count, and close source.
+- Adds a full tracker execution summary for completed, failed, pending, closed-order, failed-order, realized, and average-confirmation results.
+
+See `docs/RELEASE_NOTES_V6_0_5.md`.
+
+
+## v6.0.6 database AI and Broker API release
+
+- `/app/accounts` includes MetaApi token/account onboarding, cTrader OAuth discovery, and signed webhook bridge creation.
+- `/app/lane-intelligence` is an active WISDO coach with persistent chat, live lane grounding, educational explanations, and opt-in outbound delivery.
+- `/app/education` adds lane-aware AI lessons and shares database-backed learning memory with Lane Intelligence.
+- Reporter v1.58 preserves the last healthy heartbeat through transient failures and uses exponential retry backoff.
+- Every active runtime store uses PostgreSQL in production.

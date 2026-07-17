@@ -81,6 +81,7 @@ export function createWisdoPhase1State() {
     accountControlSettingsById: {},
     deletedTradingAccounts: {},
     compoundCloseTrackersById: {},
+    compoundTrackerGoalsByScope: {},
     cultureLanesById: {},
     brokerSymbolInventoriesByAccountId: {},
     symbolPoliciesByLaneId: {},
@@ -91,6 +92,14 @@ export function createWisdoPhase1State() {
     laneGenomesById: {},
     laneDnaSnapshotsById: {},
     cultureIntelligenceReportsById: {},
+    brokerApiConnectionsById: {},
+    brokerApiOAuthStatesById: {},
+    brokerApiSyncEventsById: {},
+    wisdoCoachMessagesById: {},
+    wisdoCoachThreadsById: {},
+    wisdoSharedLearningMemoryById: {},
+    wisdoCoachPreferencesByUserId: {},
+    wisdoAiWorkQueueById: {},
     accountTelemetry: {},
     trades: {},
     alerts: {},
@@ -113,7 +122,7 @@ export class WisdoPhase1Repository {
   constructor(config = {}) {
     this.config = config;
     this.adapter = createPersistenceAdapter(config, {
-      fileName: 'ecosystem.json',
+      fileName: 'ecosystem',
       namespace: 'wisdo_phase_1',
       defaultState: createWisdoPhase1State,
     });

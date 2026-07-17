@@ -306,8 +306,8 @@ export class OperatorDeskService {
       health: selectedAccount ? calculateAccountHealth(selectedAccount) : { status: 'attention', issues: ['no_selected_account'] },
       updatedAt: new Date().toISOString(),
       persistence: {
-        adapter: 'json-file',
-        stores: ['desks.json', 'mt4.json'],
+        adapter: process.env.DATABASE_URL ? 'postgres' : 'volatile-memory',
+        stores: ['postgres:wisdo_live_desks', 'postgres:wisdo_live_mt4'],
       },
     };
   }

@@ -33,9 +33,10 @@ function routePath(value, fallback) {
 const configuredPersistenceMode = first('WISDO_PERSISTENCE_MODE').toLowerCase();
 const hasDatabaseUrl = Boolean(first('DATABASE_URL'));
 const isProductionRuntime = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-const productionPersistenceMode = hasDatabaseUrl && isProductionRuntime && (!configuredPersistenceMode || configuredPersistenceMode === 'json')
+const productionPersistenceMode = hasDatabaseUrl
   ? 'postgres'
-  : (configuredPersistenceMode || (hasDatabaseUrl ? 'postgres' : 'json'));
+  : (isProductionRuntime ? 'postgres' : (configuredPersistenceMode === 'memory' ? 'memory' : 'memory'));
+const databaseRequired = isProductionRuntime;
 
 export const config = {
   discordToken: first('DISCORD_TOKEN'),
@@ -51,6 +52,7 @@ export const config = {
   dataDir: first('WISDO_STORAGE_PATH', 'DATA_DIR') || './data/operator-desks',
   persistence: {
     mode: productionPersistenceMode.toLowerCase(),
+    databaseRequired,
     databaseUrl: first('DATABASE_URL'),
     storagePath: first('WISDO_STORAGE_PATH', 'DATA_DIR') || './data/operator-desks',
     dbSsl: bool(first('WISDO_DB_SSL'), false),

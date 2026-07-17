@@ -1,7 +1,4 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-
-import { atomicWriteJson } from '../storage/atomicJsonFile.js';
+import { createDatabaseStateStore } from '../storage/stateStore.js';
 
 const RANKS = [
   { key: 'UNRANKED', name: 'Unranked', emoji: '🌱', minGrowth: 0 },
@@ -20,29 +17,18 @@ export class RankService {
     this.config = config;
     this.mt4SyncService = mt4SyncService;
     this.logger = logger;
-    this.dataDir = config.dataDir || 'data/operator-desks';
-    this.filePath = path.join(this.dataDir, 'rank-state.json');
+    this.store = createDatabaseStateStore('rank_state', () => ({ ranksByUserId: {} }));
     this.minEquityHighPercent = Number(process.env.RANK_MIN_EQUITY_HIGH_PERCENT || 5);
     this.greenStreakTarget = Number(process.env.RANK_STREAK_GREEN_UPDATES || 3);
   }
 
   async load() {
-    try {
-      const raw = await fs.readFile(this.filePath, 'utf8');
-      const data = JSON.parse(raw);
-
-      return {
-        ranksByUserId: data.ranksByUserId || {},
-      };
-    } catch {
-      return {
-        ranksByUserId: {},
-      };
-    }
+    const data = await this.store.read();
+    return { ranksByUserId: data.ranksByUserId || {} };
   }
 
   async save(data) {
-    await atomicWriteJson(this.filePath, data);
+    return this.store.write(data);
   }
 
   async processSnapshot(discordUserId) {

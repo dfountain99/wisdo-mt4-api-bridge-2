@@ -1,7 +1,4 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-
-import { atomicWriteJson } from '../storage/atomicJsonFile.js';
+import { createDatabaseStateStore } from '../storage/stateStore.js';
 
 export class DeskDashboardService {
   constructor({
@@ -19,30 +16,19 @@ export class DeskDashboardService {
     this.chartRenderService = chartRenderService;
     this.logger = logger;
 
-    this.dataDir = config.dataDir || 'data/operator-desks';
-    this.filePath = path.join(this.dataDir, 'desk-dashboards.json');
+    this.store = createDatabaseStateStore('desk_dashboards', () => ({ dashboardsByUserId: {} }));
 
     this.minUpdateMs = Number(process.env.WISDO_DASHBOARD_UPDATE_SECONDS || 30) * 1000;
     this.inFlight = new Set();
   }
 
   async load() {
-    try {
-      const raw = await fs.readFile(this.filePath, 'utf8');
-      const data = JSON.parse(raw);
-
-      return {
-        dashboardsByUserId: data.dashboardsByUserId || {},
-      };
-    } catch {
-      return {
-        dashboardsByUserId: {},
-      };
-    }
+    const data = await this.store.read();
+    return { dashboardsByUserId: data.dashboardsByUserId || {} };
   }
 
   async save(data) {
-    await atomicWriteJson(this.filePath, data);
+    return this.store.write(data);
   }
 
   async updateDashboardForUser(discordUserId, options = {}) {

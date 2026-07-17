@@ -1,84 +1,11 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-
-import { atomicWriteJson } from '../storage/atomicJsonFile.js';
-
 function parseBoolean(value, fallback = false) {
   if (value === undefined || value === null || value === '') return fallback;
   if (typeof value === 'boolean') return value;
   return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase());
 }
 
-function clone(value) { return structuredClone(value ?? {}); }
+function clone(value) { return JSON.parse(JSON.stringify(value ?? {})); }
 function stableJson(value) { return JSON.stringify(value ?? null); }
-
-export class JsonFilePersistenceAdapter {
-  constructor({ dataDir, fileName, defaultState = () => ({}) }) {
-    this.dataDir = dataDir || 'data/operator-desks';
-    this.filePath = path.join(this.dataDir, fileName);
-    this.backupPath = `${this.filePath}.bak`;
-    this.defaultState = defaultState;
-    this.lastKnownGood = null;
-    this.writeChain = Promise.resolve();
-  }
-
-  async readJson(filePath) {
-    const raw = await fs.readFile(filePath, 'utf8');
-    return JSON.parse(raw);
-  }
-
-  async load() {
-    try {
-      const parsed = await this.readJson(this.filePath);
-      this.lastKnownGood = clone(parsed);
-      return parsed;
-    } catch (primaryError) {
-      try {
-        const backup = await this.readJson(this.backupPath);
-        this.lastKnownGood = clone(backup);
-        await atomicWriteJson(this.filePath, backup).catch(() => undefined);
-        return backup;
-      } catch (backupError) {
-        if (this.lastKnownGood) return clone(this.lastKnownGood);
-        if (primaryError?.code === 'ENOENT' && backupError?.code === 'ENOENT') {
-          const initial = this.defaultState();
-          this.lastKnownGood = clone(initial);
-          return initial;
-        }
-        const error = new Error(`Persistent state could not be read from ${this.filePath}; refusing to replace it with an empty state.`);
-        error.cause = primaryError;
-        throw error;
-      }
-    }
-  }
-
-  async save(data) {
-    const snapshot = clone(data);
-    const operation = this.writeChain.then(async () => {
-      await fs.mkdir(this.dataDir, { recursive: true });
-      await atomicWriteJson(this.filePath, snapshot);
-      await atomicWriteJson(this.backupPath, snapshot);
-      this.lastKnownGood = clone(snapshot);
-      return data;
-    });
-    this.writeChain = operation.catch(() => undefined);
-    return operation;
-  }
-
-  async atomicUpdate(updater, { normalize = (value) => value } = {}) {
-    const operation = this.writeChain.then(async () => {
-      const current = normalize(await this.load());
-      const next = normalize((await updater(current)) || current);
-      await fs.mkdir(this.dataDir, { recursive: true });
-      await atomicWriteJson(this.filePath, next);
-      await atomicWriteJson(this.backupPath, next);
-      this.lastKnownGood = clone(next);
-      return next;
-    });
-    this.writeChain = operation.catch(() => undefined);
-    return operation;
-  }
-}
 
 export class MemoryPersistenceAdapter {
   constructor(defaultState = () => ({})) {
@@ -273,18 +200,21 @@ export class PostgresKeyValuePersistenceAdapter {
 export function createPersistenceAdapter(config = {}, options = {}) {
   if (config.persistenceAdapter) return config.persistenceAdapter;
   const persistence = config.persistence || {};
-  const mode = String(config.persistenceMode || persistence.mode || 'json').toLowerCase();
-  const dataDir = config.dataDir || persistence.storagePath;
+  const databaseUrl = persistence.databaseUrl || config.databaseUrl || process.env.DATABASE_URL;
+  const requestedMode = String(config.persistenceMode || persistence.mode || (databaseUrl ? 'postgres' : 'memory')).toLowerCase();
+  const production = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
 
-  if (mode === 'memory') return new MemoryPersistenceAdapter(options.defaultState);
-  if (mode === 'database') return new DatabasePersistenceAdapterPlaceholder();
-  if (mode === 'postgres') {
-    return new PostgresKeyValuePersistenceAdapter({
-      databaseUrl: persistence.databaseUrl || config.databaseUrl || process.env.DATABASE_URL,
-      namespace: options.namespace || options.fileName || 'wisdo',
-      ssl: parseBoolean(persistence.dbSsl ?? config.dbSsl, false),
-    });
+  // Development and tests use volatile memory only; production never writes JSON files.
+  if (!databaseUrl && !production) return new MemoryPersistenceAdapter(options.defaultState);
+  if (!databaseUrl) {
+    throw new Error('WISDO database-only persistence requires DATABASE_URL. JSON file persistence is disabled.');
   }
-
-  return new JsonFilePersistenceAdapter({ dataDir, fileName: options.fileName, defaultState: options.defaultState });
+  if (!['postgres', 'database', 'json', 'file'].includes(requestedMode)) {
+    throw new Error(`Unsupported WISDO persistence mode: ${requestedMode}. Use postgres.`);
+  }
+  return new PostgresKeyValuePersistenceAdapter({
+    databaseUrl,
+    namespace: options.namespace || options.fileName || 'wisdo',
+    ssl: parseBoolean(persistence.dbSsl ?? config.dbSsl, false),
+  });
 }

@@ -1,7 +1,4 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-
-import { atomicWriteJson } from '../storage/atomicJsonFile.js';
+import { createDatabaseStateStore, createNamedDatabaseStateStore } from '../storage/stateStore.js';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { SignalCardService } from './signalCardService.js';
 
@@ -167,8 +164,8 @@ export class TradeSignalService {
     this.signalGridService = signalGridService;
     this.discordSignalGridService = discordSignalGridService;
     this.logger = logger;
-    this.dataDir = config?.dataDir || 'data/operator-desks';
-    this.filePath = path.join(this.dataDir, 'trade-signals.json');
+    this.store = createDatabaseStateStore('trade_signals', () => ({ signalsById: {}, signalIds: [] }));
+    this.productStateStore = createNamedDatabaseStateStore('wisdo_phase_1', () => ({}));
     this.ttlSeconds = Number(process.env.SIGNAL_BUTTON_TTL_SECONDS || 180);
     this.signalChannelId = process.env.SIGNAL_CHANNEL_ID || process.env.TRADE_SIGNAL_CHANNEL_ID || '';
     this.signalCardService = new SignalCardService();
@@ -176,18 +173,12 @@ export class TradeSignalService {
   }
 
   async load() {
-    try {
-      const raw = await fs.readFile(this.filePath, 'utf8');
-      const data = JSON.parse(raw);
-      return sanitizeSignalData(data);
-    } catch {
-      return { signalsById: {}, signalIds: [] };
-    }
+    return sanitizeSignalData(await this.store.read());
   }
 
   async save(data) {
     const sanitized = sanitizeSignalData(data);
-    const operation = this.writeChain.then(() => atomicWriteJson(this.filePath, sanitized));
+    const operation = this.writeChain.then(() => this.store.write(sanitized));
     this.writeChain = operation.catch(() => undefined);
     await operation;
     return sanitized;
@@ -248,8 +239,7 @@ export class TradeSignalService {
   async resolveSignalChannelId(signal) {
     if (this.signalChannelId) return this.signalChannelId;
     try {
-      const raw = await fs.readFile(path.join(this.dataDir, 'ecosystem.json'), 'utf8');
-      const state = JSON.parse(raw);
+      const state = await this.productStateStore.read();
       const byLeader = state.discordChannelSettingsByUserId?.[String(signal?.leaderUserId || '')]?.tradingSignalsChannelId || '';
       const global = state.discordGlobalChannels?.tradingSignalsChannelId || '';
       return byLeader || global || signal.leaderChannelId || '';

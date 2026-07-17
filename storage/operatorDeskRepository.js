@@ -1,7 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import path from 'node:path';
-
-import { JsonFileStore } from './jsonStore.js';
+import { createDatabaseStateStore } from './stateStore.js';
 
 function profileState() {
   return { profiles: {} };
@@ -223,12 +221,12 @@ function normalizeCommerceState(state) {
 }
 
 export class OperatorDeskRepository {
-  constructor(dataDir) {
-    this.profileStore = new JsonFileStore(path.join(dataDir, 'profiles.json'), profileState);
-    this.deskStore = new JsonFileStore(path.join(dataDir, 'desks.json'), deskState);
-    this.logStore = new JsonFileStore(path.join(dataDir, 'logs.json'), logState);
-    this.mt4Store = new JsonFileStore(path.join(dataDir, 'mt4.json'), mt4State);
-    this.commerceStore = new JsonFileStore(path.join(dataDir, 'commerce.json'), commerceState);
+  constructor(_dataDir) {
+    this.profileStore = createDatabaseStateStore('profiles', profileState);
+    this.deskStore = createDatabaseStateStore('desks', deskState);
+    this.logStore = createDatabaseStateStore('logs', logState);
+    this.mt4Store = createDatabaseStateStore('mt4', mt4State);
+    this.commerceStore = createDatabaseStateStore('commerce', commerceState);
   }
 
   async initialize() {
@@ -238,6 +236,16 @@ export class OperatorDeskRepository {
       this.logStore.ensure(),
       this.mt4Store.ensure(),
       this.commerceStore.ensure(),
+    ]);
+  }
+
+  async close() {
+    await Promise.all([
+      this.profileStore.close?.(),
+      this.deskStore.close?.(),
+      this.logStore.close?.(),
+      this.mt4Store.close?.(),
+      this.commerceStore.close?.(),
     ]);
   }
 

@@ -1,6 +1,6 @@
 #property strict
-#property version   "1.54"
-#property description "Culture Coin MT4 Reporter - WISDO copy/manual/profit/adaptive registry dashboard"
+#property version   "1.58"
+#property description "Culture Coin MT4 Reporter - WISDO sync-account + close-authority copy/manual/profit dashboard"
 
 input string PairingCode = "";
 input string SyncUrl = "";
@@ -8,6 +8,11 @@ input int ExportEverySeconds = 10;
 input int CommandPollEverySeconds = 1;
 input int CommandsPerPollTick = 3;
 input bool PollCommandsBeforeSnapshot = true;
+// Resilient connection health. One transient Render/ISP failure no longer flips a healthy Reporter to Error.
+input int NetworkFailureGraceCount = 3;
+input int NetworkBackoffBaseSeconds = 2;
+input int NetworkBackoffMaxSeconds = 60;
+input int NetworkOfflineAfterSeconds = 120;
 input int MagicNumberFilter = 0;
 input string SymbolFilter = "";
 input bool IncludeAllTrades = true;
@@ -79,6 +84,7 @@ input color DashboardWarnColor = clrOrange;
 input color DashboardBadColor = clrTomato;
 input color DashboardTextColor = clrSilver;
 
+string REPORTER_VERSION = "1.58";
 string STATUS_LABEL = "CultureCoinReporterStatus";
 string DASH_PREFIX = "CEM_WISDO_DASH_";
 string g_lastStatus = "Waiting";
@@ -91,6 +97,65 @@ datetime g_lastSendAt = 0;
 datetime g_lastCommandPollAt = 0;
 datetime g_lastSnapshotAt = 0;
 datetime g_lastFastPollAt = 0;
+int g_consecutiveNetworkFailures = 0;
+int g_lastNetworkErrorCode = 0;
+datetime g_lastNetworkSuccessAt = 0;
+datetime g_nextNetworkAttemptAt = 0;
+string g_lastNetworkSource = "";
+
+
+int SafeNetworkBackoffSeconds()
+{
+   int baseSeconds = NetworkBackoffBaseSeconds;
+   if(baseSeconds < 1) baseSeconds = 1;
+   int maxSeconds = NetworkBackoffMaxSeconds;
+   if(maxSeconds < baseSeconds) maxSeconds = baseSeconds;
+   int exponent = g_consecutiveNetworkFailures - 1;
+   if(exponent < 0) exponent = 0;
+   if(exponent > 10) exponent = 10;
+   double delay = baseSeconds * MathPow(2.0, exponent);
+   if(delay > maxSeconds) delay = maxSeconds;
+   return (int)delay;
+}
+
+bool NetworkAttemptAllowed()
+{
+   return g_nextNetworkAttemptAt == 0 || TimeCurrent() >= g_nextNetworkAttemptAt;
+}
+
+void MarkNetworkSuccess(string source)
+{
+   g_consecutiveNetworkFailures = 0;
+   g_lastNetworkErrorCode = 0;
+   g_lastNetworkSuccessAt = TimeCurrent();
+   g_nextNetworkAttemptAt = 0;
+   g_lastNetworkSource = source;
+   g_lastStatus = "Connected";
+   g_lastError = "";
+}
+
+void MarkNetworkFailure(string source, string detail, int errorCode)
+{
+   g_consecutiveNetworkFailures++;
+   g_lastNetworkErrorCode = errorCode;
+   g_lastNetworkSource = source;
+   int delaySeconds = SafeNetworkBackoffSeconds();
+   g_nextNetworkAttemptAt = TimeCurrent() + delaySeconds;
+   g_lastError = source + ": " + detail;
+
+   int grace = NetworkFailureGraceCount;
+   if(grace < 1) grace = 1;
+   bool recentlyHealthy = g_lastNetworkSuccessAt > 0 && (TimeCurrent() - g_lastNetworkSuccessAt) < NetworkOfflineAfterSeconds;
+   if(recentlyHealthy && g_consecutiveNetworkFailures <= grace)
+      g_lastStatus = "Degraded";
+   else if(g_consecutiveNetworkFailures <= grace)
+      g_lastStatus = "Retrying";
+   else
+      g_lastStatus = "Offline";
+
+   Print("CultureCoin Reporter network ", g_lastStatus, " [", source, "] ", detail,
+         ". Failure ", g_consecutiveNetworkFailures, ", retry in ", delaySeconds, "s.");
+}
 
 string EscapeJson(string value)
 {
@@ -289,7 +354,7 @@ string BuildCemAdaptiveRegistryJson()
    output += "]";
    return output;
 }
-}
+
 
 void AddUniqueString(string &items, string value)
 {
@@ -541,6 +606,8 @@ string BuildPayload()
 
    string payload = "{";
    payload += "\"pairingCode\":\"" + EscapeJson(PairingCode) + "\",";
+   payload += "\"reporterVersion\":\"" + EscapeJson(REPORTER_VERSION) + "\",";
+   payload += "\"reporterCapabilities\":[\"sync_account\",\"copy_open\",\"copy_close\",\"manual_trade\",\"profit_manager\",\"cem_globals\"],";
    payload += "\"accountNumber\":" + IntegerToString(AccountNumber()) + ",";
    payload += "\"accountName\":\"" + EscapeJson(AccountName()) + "\",";
    payload += "\"brokerServer\":\"" + EscapeJson(AccountServer()) + "\",";
@@ -569,7 +636,10 @@ string BuildPayload()
    payload += "\"adaptiveBots\":" + BuildCemAdaptiveRegistryJson() + ",";
    payload += "\"timestamp\":\"" + ToIsoString(TimeGMT()) + "\",";
    payload += "\"terminalConnected\":" + BoolToJson(terminalConnected) + ",";
-   payload += "\"expertEnabled\":" + BoolToJson(expertEnabled);
+   payload += "\"expertEnabled\":" + BoolToJson(expertEnabled) + ",";
+   payload += "\"reporterConnectionState\":\"" + EscapeJson(g_lastStatus) + "\",";
+   payload += "\"reporterNetworkFailures\":" + IntegerToString(g_consecutiveNetworkFailures) + ",";
+   payload += "\"reporterLastNetworkSuccessAt\":\"" + (g_lastNetworkSuccessAt > 0 ? ToIsoString(g_lastNetworkSuccessAt) : "") + "\"";
    payload += "}";
 
    return payload;
@@ -660,8 +730,8 @@ void UpdateWisdoDashboard()
 
    color statusColor = DashboardTextColor;
    if(g_lastStatus == "Connected") statusColor = DashboardGoodColor;
-   else if(g_lastStatus == "Error") statusColor = DashboardBadColor;
-   else if(g_lastStatus == "Sending") statusColor = DashboardWarnColor;
+   else if(g_lastStatus == "Offline" || g_lastStatus == "Error") statusColor = DashboardBadColor;
+   else if(g_lastStatus == "Degraded" || g_lastStatus == "Retrying" || g_lastStatus == "Connecting" || g_lastStatus == "Sending") statusColor = DashboardWarnColor;
 
    string syncTime = g_lastSendAt > 0 ? TimeToString(g_lastSendAt, TIME_SECONDS) : "never";
    string pollTime = g_lastCommandPollAt > 0 ? TimeToString(g_lastCommandPollAt, TIME_SECONDS) : "never";
@@ -676,7 +746,7 @@ void UpdateWisdoDashboard()
    color pnlColor = floatingPL >= 0.0 ? DashboardGoodColor : DashboardBadColor;
    color copiedPnlColor = copiedPL >= 0.0 ? DashboardGoodColor : DashboardBadColor;
 
-   SetDashboardLine(0,  "CEM CULTURE / WISDO PRO MANAGER DASHBOARD  v1.51", DashboardTitleColor);
+   SetDashboardLine(0,  "CEM CULTURE / WISDO PRO MANAGER DASHBOARD  v" + REPORTER_VERSION, DashboardTitleColor);
    SetDashboardLine(1,  "Status: " + g_lastStatus + " | Terminal: " + terminal + " | Last Sync: " + syncTime, statusColor);
    SetDashboardLine(2,  "Pairing: " + MaskPairingCode() + " | Account: " + IntegerToString(AccountNumber()) + " | Server: " + Shorten(AccountServer(), 28), DashboardTextColor);
    SetDashboardLine(3,  "Mode: " + copyMode + " | AutoTrading: " + autoTrading + " | Poll: " + pollTime, autoColor);
@@ -691,9 +761,11 @@ void UpdateWisdoDashboard()
    SetDashboardLine(12, "Poll URL: " + Shorten(ResolveCommandPollUrl(), 95), DashboardTextColor);
 
    if(StringLen(g_lastError) > 0)
-      SetDashboardLine(13, "ERROR: " + Shorten(g_lastError, 100), DashboardBadColor);
+      SetDashboardLine(13, "NETWORK: " + Shorten(g_lastError, 100), g_lastStatus == "Offline" ? DashboardBadColor : DashboardWarnColor);
    else
       SetDashboardLine(13, "Ready: report, copy, manual trade, and profit manager commands are separated by inputs.", DashboardGoodColor);
+   string retryText = g_nextNetworkAttemptAt > TimeCurrent() ? TimeToString(g_nextNetworkAttemptAt, TIME_SECONDS) : "now";
+   SetDashboardLine(14, "Connection Health: failures " + IntegerToString(g_consecutiveNetworkFailures) + " | last healthy " + (g_lastNetworkSuccessAt > 0 ? TimeToString(g_lastNetworkSuccessAt, TIME_SECONDS) : "never") + " | next attempt " + retryText, statusColor);
 }
 
 void UpdateStatusLabel()
@@ -711,8 +783,8 @@ void UpdateStatusLabel()
 
       color labelColor = clrSilver;
       if(g_lastStatus == "Connected") labelColor = clrLimeGreen;
-      else if(g_lastStatus == "Error") labelColor = clrTomato;
-      else if(g_lastStatus == "Sending") labelColor = clrGold;
+      else if(g_lastStatus == "Offline" || g_lastStatus == "Error") labelColor = clrTomato;
+      else if(g_lastStatus == "Degraded" || g_lastStatus == "Retrying" || g_lastStatus == "Connecting" || g_lastStatus == "Sending") labelColor = clrGold;
 
       string text = "CultureCoin Reporter: " + g_lastStatus;
       if(g_lastSendAt > 0) text += " | Last Send: " + TimeToString(g_lastSendAt, TIME_SECONDS);
@@ -879,10 +951,24 @@ bool JsonGetBool(string json, string key, bool fallback = false)
 
 string BuildCopyMarker(string sourceTicket)
 {
-   string marker = "WISDO_COPY:" + sourceTicket;
+   string clean = sourceTicket;
+   StringTrimLeft(clean);
+   StringTrimRight(clean);
+   string marker = "WISDO_COPY:" + clean;
    if(StringLen(marker) > 31)
       marker = StringSubstr(marker, 0, 31);
    return marker;
+}
+
+bool IsSelectedWisdoCopyTrade()
+{
+   if(OrderCloseTime() != 0)
+      return false;
+   if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+      return false;
+   if(OrderMagicNumber() == CopyMagicNumber)
+      return true;
+   return StringFind(OrderComment(), "WISDO_COPY:") >= 0;
 }
 
 bool IsCopyTradeAlreadyOpen(string sourceTicket)
@@ -895,7 +981,7 @@ bool IsCopyTradeAlreadyOpen(string sourceTicket)
    {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
-      if(OrderMagicNumber() != CopyMagicNumber)
+      if(!IsSelectedWisdoCopyTrade())
          continue;
       if(StringFind(OrderComment(), marker) >= 0)
          return true;
@@ -913,12 +999,66 @@ int FindCopiedTradeTicket(string sourceTicket)
    {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
-      if(OrderMagicNumber() != CopyMagicNumber)
+      if(!IsSelectedWisdoCopyTrade())
          continue;
       if(StringFind(OrderComment(), marker) >= 0)
          return OrderTicket();
    }
    return -1;
+}
+
+int FindExplicitFollowerTicket(string commandJson)
+{
+   int followerTicket = JsonGetInt(commandJson, "followerTicket", -1);
+   if(followerTicket <= 0)
+      followerTicket = JsonGetInt(commandJson, "copyTicket", -1);
+   if(followerTicket <= 0)
+      followerTicket = JsonGetInt(commandJson, "mirrorTicket", -1);
+   if(followerTicket <= 0)
+      return -1;
+
+   if(!OrderSelect(followerTicket, SELECT_BY_TICKET, MODE_TRADES))
+      return -1;
+   if(!IsSelectedWisdoCopyTrade())
+      return -1;
+   return followerTicket;
+}
+
+int FindUniqueCopiedTradeByContext(string commandJson)
+{
+   string requestedSymbol = JsonGetString(commandJson, "followerSymbol", "");
+   if(StringLen(requestedSymbol) == 0)
+      requestedSymbol = JsonGetString(commandJson, "symbol", "");
+   string resolvedSymbol = StringLen(requestedSymbol) > 0 ? ResolveTradeSymbol(requestedSymbol) : "";
+
+   string side = JsonGetString(commandJson, "side", "");
+   if(StringLen(side) == 0)
+      side = JsonGetString(commandJson, "direction", "");
+   StringToLower(side);
+
+   int expectedType = -1;
+   if(StringFind(side, "buy") >= 0 || side == "long") expectedType = OP_BUY;
+   if(StringFind(side, "sell") >= 0 || side == "short") expectedType = OP_SELL;
+
+   int foundTicket = -1;
+   int foundCount = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(!IsSelectedWisdoCopyTrade())
+         continue;
+      if(StringLen(resolvedSymbol) > 0 && OrderSymbol() != resolvedSymbol)
+         continue;
+      if(expectedType >= 0 && OrderType() != expectedType)
+         continue;
+      foundTicket = OrderTicket();
+      foundCount++;
+   }
+
+   // Never guess among multiple copied positions. The fallback is only safe
+   // when the command context identifies exactly one WISDO copy position.
+   return foundCount == 1 ? foundTicket : -1;
 }
 
 double NormalizeCopyLots(string symbol, double requestedLots)
@@ -1476,19 +1616,19 @@ bool ExecuteCopyOpenTrade(string commandJson, string &message, int &ticket)
       return false;
    }
 
-   string requestedSymbol = JsonGetString(commandJson, "symbol", Symbol());
+   string requestedSymbol = JsonGetString(commandJson, "followerSymbol", "");
+   if(StringLen(requestedSymbol) == 0)
+      requestedSymbol = JsonGetString(commandJson, "symbol", Symbol());
    string symbol = ResolveTradeSymbol(requestedSymbol);
    string side = JsonGetString(commandJson, "side", "");
-   if(StringLen(side) == 0)
-      side = JsonGetString(commandJson, "direction", "");
    if(StringLen(side) == 0)
       side = JsonGetString(commandJson, "type", "");
    StringToLower(side);
 
    int orderType = -1;
-   if(StringFind(side, "buy") >= 0 || side == "long")
+   if(StringFind(side, "buy") >= 0)
       orderType = OP_BUY;
-   if(StringFind(side, "sell") >= 0 || side == "short")
+   if(StringFind(side, "sell") >= 0)
       orderType = OP_SELL;
 
    if(orderType != OP_BUY && orderType != OP_SELL)
@@ -1524,13 +1664,19 @@ bool ExecuteCopyOpenTrade(string commandJson, string &message, int &ticket)
 
    string sourceTicket = JsonGetString(commandJson, "sourceTicket", "");
    if(StringLen(sourceTicket) == 0)
+      sourceTicket = JsonGetString(commandJson, "leaderTicket", "");
+   if(StringLen(sourceTicket) == 0)
+      sourceTicket = JsonGetString(commandJson, "masterTicket", "");
+   if(StringLen(sourceTicket) == 0)
+      sourceTicket = JsonGetString(commandJson, "copyKey", "");
+   if(StringLen(sourceTicket) == 0)
       sourceTicket = JsonGetString(commandJson, "signalId", "");
    if(StringLen(sourceTicket) == 0)
       sourceTicket = JsonGetString(commandJson, "commandId", JsonGetString(commandJson, "id", ""));
 
    if(StringLen(sourceTicket) == 0)
    {
-      message = "Copy command missing sourceTicket/signalId/commandId";
+      message = "Copy command missing sourceTicket/leaderTicket/copyKey";
       return false;
    }
 
@@ -1540,11 +1686,7 @@ bool ExecuteCopyOpenTrade(string commandJson, string &message, int &ticket)
       return true;
    }
 
-   double requestedLots = JsonGetDouble(commandJson, "lots", 0.0);
-   if(requestedLots <= 0.0)
-      requestedLots = JsonGetDouble(commandJson, "lot", 0.0);
-   if(requestedLots <= 0.0)
-      requestedLots = JsonGetDouble(commandJson, "volume", CopyFixedLotFallback);
+   double requestedLots = JsonGetDouble(commandJson, "lots", CopyFixedLotFallback);
    double lots = NormalizeCopyLots(symbol, requestedLots);
    double price = (orderType == OP_BUY) ? MarketInfo(symbol, MODE_ASK) : MarketInfo(symbol, MODE_BID);
    int digits = GetPriceDigits(symbol);
@@ -1555,11 +1697,7 @@ bool ExecuteCopyOpenTrade(string commandJson, string &message, int &ticket)
    if(CopyUseSLTP)
    {
       sl = JsonGetDouble(commandJson, "stopLoss", 0.0);
-      if(sl <= 0.0)
-         sl = JsonGetDouble(commandJson, "sl", 0.0);
       tp = JsonGetDouble(commandJson, "takeProfit", 0.0);
-      if(tp <= 0.0)
-         tp = JsonGetDouble(commandJson, "tp", 0.0);
       if(sl > 0.0) sl = NormalizeDouble(sl, digits);
       if(tp > 0.0) tp = NormalizeDouble(tp, digits);
    }
@@ -1595,15 +1733,40 @@ bool ExecuteCopyCloseTrade(string commandJson, string &message, int &ticket)
       return false;
    }
 
+   if(CopyRequireAutoTrading && !IsExpertEnabled())
+   {
+      message = "MT4 AutoTrading / Expert execution is disabled";
+      return false;
+   }
+
    string sourceTicket = JsonGetString(commandJson, "sourceTicket", "");
+   if(StringLen(sourceTicket) == 0)
+      sourceTicket = JsonGetString(commandJson, "leaderTicket", "");
+   if(StringLen(sourceTicket) == 0)
+      sourceTicket = JsonGetString(commandJson, "masterTicket", "");
+   if(StringLen(sourceTicket) == 0)
+      sourceTicket = JsonGetString(commandJson, "copyKey", "");
    if(StringLen(sourceTicket) == 0)
       sourceTicket = JsonGetString(commandJson, "signalId", "");
 
-   ticket = FindCopiedTradeTicket(sourceTicket);
+   // Strongest match first: the server-recorded follower ticket returned by
+   // OrderSend. This also closes legacy positions whose MT4 comment used an
+   // older command-id marker.
+   ticket = FindExplicitFollowerTicket(commandJson);
+
+   // Stable leader/source ticket marker used by Reporter v1.55+.
+   if(ticket <= 0 && StringLen(sourceTicket) > 0)
+      ticket = FindCopiedTradeTicket(sourceTicket);
+
+   // Safe legacy recovery: only close when symbol/side resolves to exactly
+   // one WISDO copied position. Never choose one position from several.
+   if(ticket <= 0)
+      ticket = FindUniqueCopiedTradeByContext(commandJson);
+
    if(ticket <= 0)
    {
-      message = "No copied trade found for source " + sourceTicket;
-      return true;
+      message = "Close not executed: no unique copied trade matched source " + sourceTicket + ". Expected followerTicket or stable leader ticket.";
+      return false;
    }
 
    if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
@@ -1613,6 +1776,11 @@ bool ExecuteCopyCloseTrade(string commandJson, string &message, int &ticket)
    }
 
    int type = OrderType();
+   if(type != OP_BUY && type != OP_SELL)
+   {
+      message = "Matched ticket is not a market position";
+      return false;
+   }
    double closePrice = (type == OP_BUY) ? MarketInfo(OrderSymbol(), MODE_BID) : MarketInfo(OrderSymbol(), MODE_ASK);
    closePrice = NormalizeDouble(closePrice, GetPriceDigits(OrderSymbol()));
 
@@ -1962,6 +2130,30 @@ bool ExecuteWisdoControlCommand(string command, string commandJson, string &mess
 }
 // ======================= END WISDO WAKE WORD DECIPHER + CONTROL COMMANDS =======================
 
+// Forward declaration used by account-refresh commands.
+void SendSnapshot();
+
+bool ExecuteSyncAccountCommand(string commandJson, string &message, int &ticket)
+{
+   ticket = -1;
+   SendSnapshot();
+   g_lastSnapshotAt = TimeCurrent();
+
+   if(g_lastStatus == "Connected")
+   {
+      message = "Account synchronized: " + IntegerToString(AccountNumber()) +
+                " | Balance " + DoubleToString(AccountBalance(), 2) +
+                " | Equity " + DoubleToString(AccountEquity(), 2) +
+                " | Open trades " + IntegerToString(OrdersTotal());
+      return true;
+   }
+
+   message = "Account synchronization failed";
+   if(StringLen(g_lastError) > 0)
+      message += ": " + g_lastError;
+   return false;
+}
+
 void PollAndExecuteCommands()
 {
    if(!ValidateInputs())
@@ -1969,6 +2161,8 @@ void PollAndExecuteCommands()
 
    string pollUrl = ResolveCommandPollUrl();
    if(StringLen(pollUrl) == 0)
+      return;
+   if(!NetworkAttemptAllowed())
       return;
 
    string payload = "{";
@@ -1991,8 +2185,8 @@ void PollAndExecuteCommands()
    int httpCode = WebRequest("POST", pollUrl, headers, 10000, postData, result, resultHeaders);
    if(httpCode == -1)
    {
-      g_lastStatus = "Error";
-      g_lastError = "Cmd Poll failed (" + IntegerToString(GetLastError()) + ")";
+      int errorCode = GetLastError();
+      MarkNetworkFailure("Command poll", "WebRequest failed (" + IntegerToString(errorCode) + ")", errorCode);
       UpdateStatusLabel();
       return;
    }
@@ -2000,16 +2194,13 @@ void PollAndExecuteCommands()
    string response = CharArrayToString(result);
    if(httpCode < 200 || httpCode >= 300)
    {
-      string serverError = JsonGetString(response, "error", "");
-      g_lastStatus = "Error";
-      g_lastError = "Cmd Poll HTTP " + IntegerToString(httpCode);
-      if(StringLen(serverError) > 0)
-         g_lastError += " " + TruncateText(serverError, 70);
-      Print("CultureCoin Reporter command poll HTTP ", httpCode, ". Response: ", response);
+      MarkNetworkFailure("Command poll", "HTTP " + IntegerToString(httpCode) + " " + TruncateText(response, 60), httpCode);
       UpdateStatusLabel();
       return;
    }
 
+   MarkNetworkSuccess("Command poll");
+   g_lastCommandPollAt = TimeCurrent();
    bool hasCommand = JsonGetBool(response, "hasCommand", false);
    if(!hasCommand)
       return;
@@ -2026,7 +2217,9 @@ void PollAndExecuteCommands()
    g_lastCommand = command;
    g_lastCommandId = commandId;
 
-   if(command == "COPY_OPEN_TRADE")
+   if(command == "SYNC_ACCOUNT" || command == "ACCOUNT_SYNC" || command == "REFRESH_ACCOUNT" || command == "REQUEST_SNAPSHOT" || command == "SYNC_NOW")
+      success = ExecuteSyncAccountCommand(response, message, ticket);
+   else if(command == "COPY_OPEN_TRADE")
       success = ExecuteCopyOpenTrade(response, message, ticket);
    else if(command == "COPY_CLOSE_TRADE")
       success = ExecuteCopyCloseTrade(response, message, ticket);
@@ -2051,8 +2244,15 @@ void PollAndExecuteCommands()
 
    string completeResult = SendCommandComplete(commandId, success, message, ticket);
    Print("CultureCoin command ", originalCommand, " resolved ", command, " -> ", message, " | ", completeResult);
-   g_lastStatus = success ? "Connected" : "Error";
-   g_lastError = success ? "" : message;
+   if(success)
+   {
+      if(g_lastStatus != "Connected") MarkNetworkSuccess("Command completion");
+   }
+   else
+   {
+      // A broker/order rejection is a command result, not a network disconnect.
+      g_lastCopyMessage = message;
+   }
    UpdateStatusLabel();
 }
 
@@ -2061,8 +2261,13 @@ void SendSnapshot()
    if(!ValidateInputs())
       return;
 
-   g_lastStatus = "Sending";
-   g_lastError = "";
+   if(!NetworkAttemptAllowed())
+   {
+      UpdateStatusLabel();
+      return;
+   }
+
+   if(g_lastNetworkSuccessAt == 0) g_lastStatus = "Connecting";
    UpdateStatusLabel();
 
    string payload = BuildPayload();
@@ -2084,30 +2289,20 @@ void SendSnapshot()
    if(httpCode == -1)
    {
       int errorCode = GetLastError();
-      g_lastStatus = "Error";
-      g_lastError = "WebRequest failed (" + IntegerToString(errorCode) + ")";
-      Print("CultureCoin Reporter WebRequest failed. Error code: ", errorCode, ". Check MT4 WebRequest permissions and SyncUrl.");
+      MarkNetworkFailure("Snapshot", "WebRequest failed (" + IntegerToString(errorCode) + ")", errorCode);
       UpdateStatusLabel();
       return;
    }
 
    if(httpCode >= 200 && httpCode < 300)
    {
-      g_lastStatus = "Connected";
-      g_lastError = "";
+      MarkNetworkSuccess("Snapshot");
       g_lastSendAt = TimeCurrent();
    }
    else
    {
       string responseText = CharArrayToString(result);
-      string serverError = JsonGetString(responseText, "error", "");
-      g_lastStatus = "Error";
-      g_lastError = "HTTP " + IntegerToString(httpCode);
-      if(StringLen(serverError) > 0)
-         g_lastError += " " + TruncateText(serverError, 70);
-      else if(StringLen(responseText) > 0)
-         g_lastError += " " + TruncateText(responseText, 70);
-      Print("CultureCoin Reporter received HTTP ", httpCode, ". Response: ", responseText);
+      MarkNetworkFailure("Snapshot", "HTTP " + IntegerToString(httpCode) + " " + TruncateText(responseText, 60), httpCode);
    }
 
    UpdateStatusLabel();
@@ -2126,9 +2321,14 @@ int OnInit()
    g_lastCommandId = "";
    g_lastCopyMessage = "";
    g_lastCopyTicket = -1;
+   g_consecutiveNetworkFailures = 0;
+   g_lastNetworkErrorCode = 0;
+   g_lastNetworkSuccessAt = 0;
+   g_nextNetworkAttemptAt = 0;
+   g_lastNetworkSource = "";
    UpdateStatusLabel();
 
-   Print("CultureCoin Reporter V1.54 initialized with fast polling, wake-word decipher, WISDO copy/manual/profit/adaptive control dashboard.");
+   Print("CultureCoin Reporter V" + REPORTER_VERSION + " initialized with resilient heartbeat/backoff, immediate account sync, atomic basket sweep, close-authority ticket binding, and WISDO control dashboard.");
    Print("Copy trading execution: ", EnableCopyTrading ? "ENABLED" : "DISABLED");
    Print("Sync URL: ", SyncUrl);
    Print("Command poll URL: ", ResolveCommandPollUrl());

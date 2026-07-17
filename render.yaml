@@ -187,7 +187,7 @@ services:
       - key: WISDO_MARKET_DATA_TIMEOUT_MS
         value: "12000"
       - key: WISDO_AI_MODEL
-        value: gpt-4.1-mini
+        value: gpt-5-mini
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
@@ -204,6 +204,24 @@ services:
         value: postgres
       - key: WISDO_DB_SSL
         value: "true"
+      - key: CTRADER_CLIENT_ID
+        sync: false
+      - key: CTRADER_CLIENT_SECRET
+        sync: false
+      - key: CTRADER_REDIRECT_URI
+        value: https://wisdo-mt4-api-bridge.onrender.com/api/v2/broker-api/ctrader/callback
+      - key: METAAPI_DEFAULT_REGION
+        value: new-york
+      - key: WISDO_BACKGROUND_WORKERS_ENABLED
+        value: "true"
+      - key: WISDO_BROKER_SYNC_INTERVAL_SECONDS
+        value: "60"
+      - key: WISDO_COACH_MIN_INTERVAL_MINUTES
+        value: "15"
+      - key: WISDO_COACH_POLL_INTERVAL_SECONDS
+        value: "60"
+      - key: WISDO_NOTIFICATION_RETRY_INTERVAL_SECONDS
+        value: "300"
       - key: REDIS_ENABLED
         value: "true"
       - key: REDIS_URL

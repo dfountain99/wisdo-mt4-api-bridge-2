@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.57"
+#property version   "1.58"
 #property description "Culture Coin MT4 Reporter - WISDO sync-account + close-authority copy/manual/profit dashboard"
 
 input string PairingCode = "";
@@ -8,6 +8,11 @@ input int ExportEverySeconds = 10;
 input int CommandPollEverySeconds = 1;
 input int CommandsPerPollTick = 3;
 input bool PollCommandsBeforeSnapshot = true;
+// Resilient connection health. One transient Render/ISP failure no longer flips a healthy Reporter to Error.
+input int NetworkFailureGraceCount = 3;
+input int NetworkBackoffBaseSeconds = 2;
+input int NetworkBackoffMaxSeconds = 60;
+input int NetworkOfflineAfterSeconds = 120;
 input int MagicNumberFilter = 0;
 input string SymbolFilter = "";
 input bool IncludeAllTrades = true;
@@ -79,7 +84,7 @@ input color DashboardWarnColor = clrOrange;
 input color DashboardBadColor = clrTomato;
 input color DashboardTextColor = clrSilver;
 
-string REPORTER_VERSION = "1.57";
+string REPORTER_VERSION = "1.58";
 string STATUS_LABEL = "CultureCoinReporterStatus";
 string DASH_PREFIX = "CEM_WISDO_DASH_";
 string g_lastStatus = "Waiting";
@@ -92,6 +97,65 @@ datetime g_lastSendAt = 0;
 datetime g_lastCommandPollAt = 0;
 datetime g_lastSnapshotAt = 0;
 datetime g_lastFastPollAt = 0;
+int g_consecutiveNetworkFailures = 0;
+int g_lastNetworkErrorCode = 0;
+datetime g_lastNetworkSuccessAt = 0;
+datetime g_nextNetworkAttemptAt = 0;
+string g_lastNetworkSource = "";
+
+
+int SafeNetworkBackoffSeconds()
+{
+   int baseSeconds = NetworkBackoffBaseSeconds;
+   if(baseSeconds < 1) baseSeconds = 1;
+   int maxSeconds = NetworkBackoffMaxSeconds;
+   if(maxSeconds < baseSeconds) maxSeconds = baseSeconds;
+   int exponent = g_consecutiveNetworkFailures - 1;
+   if(exponent < 0) exponent = 0;
+   if(exponent > 10) exponent = 10;
+   double delay = baseSeconds * MathPow(2.0, exponent);
+   if(delay > maxSeconds) delay = maxSeconds;
+   return (int)delay;
+}
+
+bool NetworkAttemptAllowed()
+{
+   return g_nextNetworkAttemptAt == 0 || TimeCurrent() >= g_nextNetworkAttemptAt;
+}
+
+void MarkNetworkSuccess(string source)
+{
+   g_consecutiveNetworkFailures = 0;
+   g_lastNetworkErrorCode = 0;
+   g_lastNetworkSuccessAt = TimeCurrent();
+   g_nextNetworkAttemptAt = 0;
+   g_lastNetworkSource = source;
+   g_lastStatus = "Connected";
+   g_lastError = "";
+}
+
+void MarkNetworkFailure(string source, string detail, int errorCode)
+{
+   g_consecutiveNetworkFailures++;
+   g_lastNetworkErrorCode = errorCode;
+   g_lastNetworkSource = source;
+   int delaySeconds = SafeNetworkBackoffSeconds();
+   g_nextNetworkAttemptAt = TimeCurrent() + delaySeconds;
+   g_lastError = source + ": " + detail;
+
+   int grace = NetworkFailureGraceCount;
+   if(grace < 1) grace = 1;
+   bool recentlyHealthy = g_lastNetworkSuccessAt > 0 && (TimeCurrent() - g_lastNetworkSuccessAt) < NetworkOfflineAfterSeconds;
+   if(recentlyHealthy && g_consecutiveNetworkFailures <= grace)
+      g_lastStatus = "Degraded";
+   else if(g_consecutiveNetworkFailures <= grace)
+      g_lastStatus = "Retrying";
+   else
+      g_lastStatus = "Offline";
+
+   Print("CultureCoin Reporter network ", g_lastStatus, " [", source, "] ", detail,
+         ". Failure ", g_consecutiveNetworkFailures, ", retry in ", delaySeconds, "s.");
+}
 
 string EscapeJson(string value)
 {
@@ -572,7 +636,10 @@ string BuildPayload()
    payload += "\"adaptiveBots\":" + BuildCemAdaptiveRegistryJson() + ",";
    payload += "\"timestamp\":\"" + ToIsoString(TimeGMT()) + "\",";
    payload += "\"terminalConnected\":" + BoolToJson(terminalConnected) + ",";
-   payload += "\"expertEnabled\":" + BoolToJson(expertEnabled);
+   payload += "\"expertEnabled\":" + BoolToJson(expertEnabled) + ",";
+   payload += "\"reporterConnectionState\":\"" + EscapeJson(g_lastStatus) + "\",";
+   payload += "\"reporterNetworkFailures\":" + IntegerToString(g_consecutiveNetworkFailures) + ",";
+   payload += "\"reporterLastNetworkSuccessAt\":\"" + (g_lastNetworkSuccessAt > 0 ? ToIsoString(g_lastNetworkSuccessAt) : "") + "\"";
    payload += "}";
 
    return payload;
@@ -663,8 +730,8 @@ void UpdateWisdoDashboard()
 
    color statusColor = DashboardTextColor;
    if(g_lastStatus == "Connected") statusColor = DashboardGoodColor;
-   else if(g_lastStatus == "Error") statusColor = DashboardBadColor;
-   else if(g_lastStatus == "Sending") statusColor = DashboardWarnColor;
+   else if(g_lastStatus == "Offline" || g_lastStatus == "Error") statusColor = DashboardBadColor;
+   else if(g_lastStatus == "Degraded" || g_lastStatus == "Retrying" || g_lastStatus == "Connecting" || g_lastStatus == "Sending") statusColor = DashboardWarnColor;
 
    string syncTime = g_lastSendAt > 0 ? TimeToString(g_lastSendAt, TIME_SECONDS) : "never";
    string pollTime = g_lastCommandPollAt > 0 ? TimeToString(g_lastCommandPollAt, TIME_SECONDS) : "never";
@@ -694,9 +761,11 @@ void UpdateWisdoDashboard()
    SetDashboardLine(12, "Poll URL: " + Shorten(ResolveCommandPollUrl(), 95), DashboardTextColor);
 
    if(StringLen(g_lastError) > 0)
-      SetDashboardLine(13, "ERROR: " + Shorten(g_lastError, 100), DashboardBadColor);
+      SetDashboardLine(13, "NETWORK: " + Shorten(g_lastError, 100), g_lastStatus == "Offline" ? DashboardBadColor : DashboardWarnColor);
    else
       SetDashboardLine(13, "Ready: report, copy, manual trade, and profit manager commands are separated by inputs.", DashboardGoodColor);
+   string retryText = g_nextNetworkAttemptAt > TimeCurrent() ? TimeToString(g_nextNetworkAttemptAt, TIME_SECONDS) : "now";
+   SetDashboardLine(14, "Connection Health: failures " + IntegerToString(g_consecutiveNetworkFailures) + " | last healthy " + (g_lastNetworkSuccessAt > 0 ? TimeToString(g_lastNetworkSuccessAt, TIME_SECONDS) : "never") + " | next attempt " + retryText, statusColor);
 }
 
 void UpdateStatusLabel()
@@ -714,8 +783,8 @@ void UpdateStatusLabel()
 
       color labelColor = clrSilver;
       if(g_lastStatus == "Connected") labelColor = clrLimeGreen;
-      else if(g_lastStatus == "Error") labelColor = clrTomato;
-      else if(g_lastStatus == "Sending") labelColor = clrGold;
+      else if(g_lastStatus == "Offline" || g_lastStatus == "Error") labelColor = clrTomato;
+      else if(g_lastStatus == "Degraded" || g_lastStatus == "Retrying" || g_lastStatus == "Connecting" || g_lastStatus == "Sending") labelColor = clrGold;
 
       string text = "CultureCoin Reporter: " + g_lastStatus;
       if(g_lastSendAt > 0) text += " | Last Send: " + TimeToString(g_lastSendAt, TIME_SECONDS);
@@ -2093,6 +2162,8 @@ void PollAndExecuteCommands()
    string pollUrl = ResolveCommandPollUrl();
    if(StringLen(pollUrl) == 0)
       return;
+   if(!NetworkAttemptAllowed())
+      return;
 
    string payload = "{";
    payload += "\"pairingCode\":\"" + EscapeJson(PairingCode) + "\",";
@@ -2114,8 +2185,8 @@ void PollAndExecuteCommands()
    int httpCode = WebRequest("POST", pollUrl, headers, 10000, postData, result, resultHeaders);
    if(httpCode == -1)
    {
-      g_lastStatus = "Error";
-      g_lastError = "Cmd Poll failed (" + IntegerToString(GetLastError()) + ")";
+      int errorCode = GetLastError();
+      MarkNetworkFailure("Command poll", "WebRequest failed (" + IntegerToString(errorCode) + ")", errorCode);
       UpdateStatusLabel();
       return;
    }
@@ -2123,13 +2194,13 @@ void PollAndExecuteCommands()
    string response = CharArrayToString(result);
    if(httpCode < 200 || httpCode >= 300)
    {
-      g_lastStatus = "Error";
-      g_lastError = "Cmd Poll HTTP " + IntegerToString(httpCode);
-      Print("CultureCoin Reporter command poll HTTP ", httpCode, ". Response: ", response);
+      MarkNetworkFailure("Command poll", "HTTP " + IntegerToString(httpCode) + " " + TruncateText(response, 60), httpCode);
       UpdateStatusLabel();
       return;
    }
 
+   MarkNetworkSuccess("Command poll");
+   g_lastCommandPollAt = TimeCurrent();
    bool hasCommand = JsonGetBool(response, "hasCommand", false);
    if(!hasCommand)
       return;
@@ -2173,8 +2244,15 @@ void PollAndExecuteCommands()
 
    string completeResult = SendCommandComplete(commandId, success, message, ticket);
    Print("CultureCoin command ", originalCommand, " resolved ", command, " -> ", message, " | ", completeResult);
-   g_lastStatus = success ? "Connected" : "Error";
-   g_lastError = success ? "" : message;
+   if(success)
+   {
+      if(g_lastStatus != "Connected") MarkNetworkSuccess("Command completion");
+   }
+   else
+   {
+      // A broker/order rejection is a command result, not a network disconnect.
+      g_lastCopyMessage = message;
+   }
    UpdateStatusLabel();
 }
 
@@ -2183,8 +2261,13 @@ void SendSnapshot()
    if(!ValidateInputs())
       return;
 
-   g_lastStatus = "Sending";
-   g_lastError = "";
+   if(!NetworkAttemptAllowed())
+   {
+      UpdateStatusLabel();
+      return;
+   }
+
+   if(g_lastNetworkSuccessAt == 0) g_lastStatus = "Connecting";
    UpdateStatusLabel();
 
    string payload = BuildPayload();
@@ -2206,27 +2289,20 @@ void SendSnapshot()
    if(httpCode == -1)
    {
       int errorCode = GetLastError();
-      g_lastStatus = "Error";
-      g_lastError = "WebRequest failed (" + IntegerToString(errorCode) + ")";
-      Print("CultureCoin Reporter WebRequest failed. Error code: ", errorCode, ". Check MT4 WebRequest permissions and SyncUrl.");
+      MarkNetworkFailure("Snapshot", "WebRequest failed (" + IntegerToString(errorCode) + ")", errorCode);
       UpdateStatusLabel();
       return;
    }
 
    if(httpCode >= 200 && httpCode < 300)
    {
-      g_lastStatus = "Connected";
-      g_lastError = "";
+      MarkNetworkSuccess("Snapshot");
       g_lastSendAt = TimeCurrent();
    }
    else
    {
       string responseText = CharArrayToString(result);
-      g_lastStatus = "Error";
-      g_lastError = "HTTP " + IntegerToString(httpCode);
-      if(StringLen(responseText) > 0)
-         g_lastError += " " + TruncateText(responseText, 40);
-      Print("CultureCoin Reporter received HTTP ", httpCode, ". Response: ", responseText);
+      MarkNetworkFailure("Snapshot", "HTTP " + IntegerToString(httpCode) + " " + TruncateText(responseText, 60), httpCode);
    }
 
    UpdateStatusLabel();
@@ -2245,9 +2321,14 @@ int OnInit()
    g_lastCommandId = "";
    g_lastCopyMessage = "";
    g_lastCopyTicket = -1;
+   g_consecutiveNetworkFailures = 0;
+   g_lastNetworkErrorCode = 0;
+   g_lastNetworkSuccessAt = 0;
+   g_nextNetworkAttemptAt = 0;
+   g_lastNetworkSource = "";
    UpdateStatusLabel();
 
-   Print("CultureCoin Reporter V" + REPORTER_VERSION + " initialized with immediate account sync, close-authority ticket binding, fast polling, wake-word decipher, and WISDO control dashboard.");
+   Print("CultureCoin Reporter V" + REPORTER_VERSION + " initialized with resilient heartbeat/backoff, immediate account sync, atomic basket sweep, close-authority ticket binding, and WISDO control dashboard.");
    Print("Copy trading execution: ", EnableCopyTrading ? "ENABLED" : "DISABLED");
    Print("Sync URL: ", SyncUrl);
    Print("Command poll URL: ", ResolveCommandPollUrl());

@@ -45,6 +45,7 @@ import {
 } from '../services/aiWebinarService.js';
 import { HistoricalMarketDataService } from '../services/historicalMarketDataService.js';
 import { verifyLeadAccessToken } from '../services/growthFunnelService.js';
+import { ensureWisdoCoachState } from '../services/wisdoAiCoachService.js';
 
 const ACADEMY_TRACKS = [
   { id: 'foundation', title: 'Trading and Investing Foundations', lessons: ['candlesticks-price-bars', 'market-structure', 'order-types-execution', 'position-sizing', 'trading-plan'] },
@@ -1269,10 +1270,23 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
     const keyword = message.toLowerCase().match(/candlestick|risk|money|forex|stock|futures|options|crypto|psychology|backtest|copier|drawdown|portfolio|retirement|budget|order|trend|range/)?.[0] || '';
     const recommendations = keyword ? searchAcademyCourses({ query: keyword, level: profile.experience || 'starter', limit: 4 }).courses.map((item) => ({ id: item.id, title: item.title, level: item.level, category: item.category })) : [];
     await mutate(loadEcosystemState, saveEcosystemState, (nextState) => {
+      ensureWisdoCoachState(nextState);
       const thread = nextState.academyTutorThreads[req.wisdoUser.id] ||= [];
       thread.push({ id: id('academy_msg'), role: 'user', content: message, courseId: course?.id || null, selectedAccountId: selectedAccount?.id || null, createdAt: nowIso() });
       thread.push({ id: id('academy_msg'), role: 'assistant', content: answer, provider, courseId: course?.id || null, createdAt: nowIso() });
       nextState.academyTutorThreads[req.wisdoUser.id] = thread.slice(-100);
+      const memoryId = id('academy_memory');
+      nextState.wisdoSharedLearningMemoryById[memoryId] = {
+        id: memoryId,
+        userId: String(req.wisdoUser.id),
+        laneId: String(req.body?.laneId || ''),
+        accountId: selectedAccount?.id || null,
+        source: 'academy_tutor',
+        title: course?.title || `Academy lesson: ${keyword || 'trading education'}`,
+        content: String(answer || '').slice(0, 6000),
+        confidence: provider === 'openai' ? 70 : 45,
+        createdAt: nowIso(),
+      };
       audit(nextState, req.wisdoUser.id, 'academy.tutor.answered', 'AcademyTutorThread', req.wisdoUser.id, { provider, courseId: course?.id || null, selectedAccountId: selectedAccount?.id || null });
       return true;
     });
