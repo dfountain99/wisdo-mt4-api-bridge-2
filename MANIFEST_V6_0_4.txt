@@ -1,0 +1,12 @@
+WISDO v6.0.4 FULL REPOSITORY
+
+Primary changes:
+- PostgreSQL redeploy persistence for accounts and Culture Lanes
+- Live relay self-repair on Reporter reconnect
+- Website/Reporter identity bridge for copy execution
+- Follower route lookup repair
+- Reporter connection registration before signal processing
+- Dashboard Close All Culture Lane
+- Dashboard Close Leader Trades
+- Service-worker cache refresh
+- 50 passing tests

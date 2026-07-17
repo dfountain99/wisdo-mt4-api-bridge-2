@@ -434,8 +434,16 @@ export class TradeSignalService {
     const routes = await this.repository.getActiveCopyRoutesForLeader(signal.leaderAccountId);
     const queued = [];
     for (const route of routes) {
-      const account = await this.repository.getMt4ConnectionByAccountId(route.ownerUserId, route.followerAccountId);
-      if (!account) continue;
+      const account = this.repository.getMt4ConnectionForCopyRoute
+        ? await this.repository.getMt4ConnectionForCopyRoute(route)
+        : await this.repository.getMt4ConnectionByAccountId(route.ownerUserId, route.followerAccountId);
+      if (!account) {
+        this.logger?.warn?.('Auto copy route skipped because the live follower connection is unavailable or not authorized.', {
+          routeId: route.routeId,
+          followerAccountId: route.followerAccountId,
+        });
+        continue;
+      }
       const accountWithRisk = { ...account, copyRisk: route.risk || account.copyRisk || {} };
       const allowed = riskAllowsSignal(signal, accountWithRisk);
       if (!allowed.ok) {

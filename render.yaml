@@ -201,7 +201,7 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: WISDO_PERSISTENCE_MODE
-        value: json
+        value: postgres
       - key: WISDO_DB_SSL
         value: "true"
       - key: REDIS_ENABLED

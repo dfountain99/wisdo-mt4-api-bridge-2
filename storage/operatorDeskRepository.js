@@ -967,14 +967,16 @@ export class OperatorDeskRepository {
     let saved = null;
     await this.updateMt4State((state) => {
       const follower = state.connectionsByAccountId?.[route.followerAccountId];
-      if (!follower || String(follower.discordUserId) !== userId) return state;
+      const authorizedOwnerUserIds = new Set([userId, ...(Array.isArray(route.authorizedOwnerUserIds) ? route.authorizedOwnerUserIds : [])].map((value) => String(value || '')).filter(Boolean));
+      if (!follower || !authorizedOwnerUserIds.has(String(follower.discordUserId || follower.ownerUserId || ''))) return state;
       const leader = state.connectionsByAccountId?.[route.leaderAccountId];
       const leaderSettings = state.accountSettingsByAccountId?.[route.leaderAccountId] || {};
       const hasSharedLeader = Object.values(state.accountSharesById || {}).some((share) =>
         String(share.targetUserId) === userId && String(share.accountId) === String(route.leaderAccountId) && ['copy_allowed','control_allowed','admin','signal_only'].includes(normalizePermission(share.permission)) && String(share.status || 'active') === 'active'
       );
       const communityVisible = ['community','public','copy_allowed'].includes(String(leaderSettings.visibility || leaderSettings.copyPermission || leader.copyPermission || '').toLowerCase());
-      if (!leader || (String(leader.discordUserId) !== userId && !hasSharedLeader && !communityVisible)) return state;
+      const leaderOwnedByAuthorizedIdentity = authorizedOwnerUserIds.has(String(leader?.discordUserId || leader?.ownerUserId || ''));
+      if (!leader || (!leaderOwnedByAuthorizedIdentity && !hasSharedLeader && !communityVisible)) return state;
       state.copyRoutesById ||= {};
       const previous = state.copyRoutesById[routeId] || {};
       saved = {
@@ -983,6 +985,8 @@ export class OperatorDeskRepository {
         ownerUserId: userId,
         leaderAccountId: String(route.leaderAccountId || ''),
         followerAccountId: String(route.followerAccountId || ''),
+        productLeaderAccountId: String(route.productLeaderAccountId || previous.productLeaderAccountId || route.leaderAccountId || ''),
+        productFollowerAccountId: String(route.productFollowerAccountId || previous.productFollowerAccountId || route.followerAccountId || ''),
         status: String(route.status || previous.status || 'active').toLowerCase(),
         risk: normalizeCopyRisk(route.risk || route.copyRisk || {}, previous.risk || {}),
         createdAt: previous.createdAt || now,
@@ -1005,6 +1009,20 @@ export class OperatorDeskRepository {
     return Object.values(state.copyRoutesById || {}).filter((route) =>
       String(route.leaderAccountId) === String(leaderAccountId) && String(route.status || 'active') === 'active'
     );
+  }
+
+  async getMt4ConnectionForCopyRoute(route = {}) {
+    const state = await this.getMt4State();
+    const accountId = String(route.followerAccountId || '');
+    const record = state.connectionsByAccountId?.[accountId] || null;
+    if (!record) return null;
+    const authorized = new Set([
+      route.ownerUserId,
+      ...(Array.isArray(route.authorizedOwnerUserIds) ? route.authorizedOwnerUserIds : []),
+    ].map((value) => String(value || '')).filter(Boolean));
+    const liveOwner = String(record.discordUserId || record.ownerUserId || '');
+    if (authorized.size && !authorized.has(liveOwner)) return null;
+    return this.hydrateMt4Account(state, record, String(route.ownerUserId || liveOwner), { shared: false });
   }
 
   async deleteCopyRoute(discordUserId, routeId) {

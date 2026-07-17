@@ -293,7 +293,7 @@
     const accountById = Object.fromEntries(accounts.map((account) => [String(account.id), account]));
     const laneAccounts = vault.accounts || [];
     root().innerHTML = `
-      <div class="workspace-heading"><div><span class="eyebrow">Multi-account portfolio profile</span><h1>${html(lane.name || 'Culture Lane')}</h1><p class="muted">WISDO combines the leader and every receiver into one large account view while keeping execution isolated per broker account.</p></div><label>Culture Lane<select class="input" id="dashboard-lane-select">${lanes.map((item) => `<option value="${html(item.laneId)}" ${item.laneId === lane.laneId ? 'selected' : ''}>${html(item.name || item.laneId)}</option>`).join('')}</select></label></div>
+      <div class="workspace-heading"><div><span class="eyebrow">Multi-account portfolio profile</span><h1>${html(lane.name || 'Culture Lane')}</h1><p class="muted">WISDO combines the leader and every receiver into one large account view while keeping execution isolated per broker account.</p></div><div><label>Culture Lane<select class="input" id="dashboard-lane-select">${lanes.map((item) => `<option value="${html(item.laneId)}" ${item.laneId === lane.laneId ? 'selected' : ''}>${html(item.name || item.laneId)}</option>`).join('')}</select></label><div class="actions compact"><button class="btn danger" id="dashboard-close-lane">Close All Culture Lane</button><button class="btn ghost" id="dashboard-close-leader">Close Leader Trades</button></div></div></div>
       <section class="card portfolio-hero"><div class="card-head"><div><span class="eyebrow">Collective lane equity</span><div class="portfolio-total">${money(vault.equity)}</div><p class="muted">Combined balance ${money(vault.balance)} across ${Number(vault.totalAccounts || 0)} account(s)</p></div><span class="status-pill ${(vault.disconnectedAccountIds || []).length ? 'waiting' : 'connected'}">${html(vault.executionStatus || lane.status || 'waiting')}</span></div><div class="grid4"><div><small>Floating P/L</small><strong class="${Number(vault.floatingProfit || 0) >= 0 ? 'green' : 'red'}">${money(vault.floatingProfit)}</strong></div><div><small>Closed today</small><strong class="${Number(vault.closedProfit || 0) >= 0 ? 'green' : 'red'}">${money(vault.closedProfit)}</strong></div><div><small>Combined P/L</small><strong class="${Number(vault.combinedProfit || 0) >= 0 ? 'green' : 'red'}">${money(vault.combinedProfit)}</strong></div><div><small>Daily return</small><strong>${Number(vault.dailyReturnPercent || 0).toFixed(2)}%</strong></div><div><small>Drawdown</small><strong class="${Number(vault.currentDrawdownPercent || 0) > 10 ? 'red' : ''}">${Number(vault.currentDrawdownPercent || 0).toFixed(2)}%</strong></div><div><small>Open trades</small><strong>${Number(vault.openTrades || 0)}</strong></div><div><small>Connected</small><strong>${Number(vault.connectedAccounts || 0)}/${Number(vault.totalAccounts || 0)}</strong></div><div><small>Harvest count</small><strong>${Number(vault.harvestCount || 0)}</strong></div></div></section>
       <div class="grid2" style="margin-top:18px">
         <section class="card"><div class="card-head"><div><span class="eyebrow">One portfolio · separate execution</span><h3>Account breakdown</h3></div><a class="btn ghost" href="/app/copier-engine">Edit lane</a></div><div class="lane-account-breakdown">${laneAccounts.map((metric) => { const account = accountById[String(metric.accountId)] || {}; return `<div class="account-line"><div><strong>${html(account.nickname || account.account_number || metric.accountId)}</strong><br><small class="muted">${String(metric.accountId) === String(lane.leaderAccountId) ? 'Culture Lead' : 'Mirror Receiver'} · ${metric.connected ? 'Reporter live' : 'Disconnected'}</small></div><div><strong>${money(metric.equity)}</strong><br><small class="${Number(metric.floatingProfit || 0) >= 0 ? 'green' : 'red'}">${money(metric.floatingProfit)} floating</small></div></div>`; }).join('')}</div></section>
@@ -302,6 +302,18 @@
       <div class="grid4" style="margin-top:18px"><div class="card"><small>Portfolio ROI</small><div class="metric green">${Number(stats.roi || 0).toFixed(2)}%</div></div><div class="card"><small>Win rate</small><div class="metric">${Number(stats.winRate || 0).toFixed(1)}%</div></div><div class="card"><small>Analyzer max drawdown</small><div class="metric red">${Number(stats.maxDrawdown || 0).toFixed(2)}%</div></div><div class="card"><small>Peak lane equity</small><div class="metric">${money(vault.peakEquity)}</div></div></div>`;
 
     document.querySelector('#dashboard-lane-select').onchange = async (event) => { sessionStorage.setItem('wisdo.selectedLaneId', event.target.value); await drawDashboard(); };
+    document.querySelector('#dashboard-close-lane').onclick = async (event) => {
+      if (!confirm('Close every open trade on the Culture Lead and all receiver accounts now?')) return;
+      const button=event.currentTarget; setBusy(button,true,'Closing lane…');
+      try { const result=await api(`/api/v2/culture-lanes/${encodeURIComponent(lane.laneId)}/close-all`,{method:'POST',body:JSON.stringify({confirmation:'confirmed'})},30000); toast(`Culture Lane close queued across ${Number(result.accountIds?.length||0)} account(s).`,result.failures?.length?'warn':'ok',9000); }
+      catch(error){toast(error.message,'error',9000)} finally{setBusy(button,false)}
+    };
+    document.querySelector('#dashboard-close-leader').onclick = async (event) => {
+      if (!confirm('Close every open trade on the Culture Lead only? Receiver trades remain open until the normal leader-close relay confirms each matching ticket.')) return;
+      const button=event.currentTarget; setBusy(button,true,'Closing leader…');
+      try { await api(`/api/v2/culture-lanes/${encodeURIComponent(lane.laneId)}/close-leader`,{method:'POST',body:JSON.stringify({confirmation:'confirmed'})},30000); toast('Leader atomic close sweep queued. Matching receiver closes will follow through the lane relay.','ok',9000); }
+      catch(error){toast(error.message,'error',9000)} finally{setBusy(button,false)}
+    };
     const harvestForm = document.querySelector('#dashboard-harvest-form');
     harvestForm.onsubmit = async (event) => {
       event.preventDefault(); const data = new FormData(harvestForm); const payload = Object.fromEntries(data); payload.enabled = data.has('enabled'); payload.resetBaseline = true; payload.goalValue = Number(payload.goalValue); payload.stairSteps = String(payload.stairSteps || '').split(/[;,\s]+/).map(Number).filter((value) => value > 0);
@@ -416,7 +428,7 @@
     }
     const noRouteReady = !leaders.length || !receivers.length;
     root().innerHTML = `
-      <div class="workspace-heading"><div><span class="eyebrow">Culture Relay Engine</span><h1>Build a Culture Lane</h1><p class="muted">Choose one Culture Lead, select every receiver account that belongs in the lane, then click the leader symbols that are allowed to relay.</p></div><button class="btn ghost" id="refresh-copier-options">Refresh relay state</button></div>
+      <div class="workspace-heading"><div><span class="eyebrow">Culture Relay Engine</span><h1>Build a Culture Lane</h1><p class="muted">Choose one Culture Lead, select every receiver account that belongs in the lane, then click the leader symbols that are allowed to relay.</p></div><div class="actions compact"><button class="btn primary" id="repair-live-relay">Repair Live Relay</button><button class="btn ghost" id="refresh-copier-options">Refresh relay state</button></div></div>
       <div class="grid4"><div class="card"><small>Owned accounts</small><div class="metric">${Number(options.summary?.owned || 0)}</div></div><div class="card"><small>Available leads</small><div class="metric">${Number(options.summary?.leads || 0)}</div></div><div class="card"><small>Receivers</small><div class="metric">${Number(options.summary?.receivers || 0)}</div></div><div class="card"><small>Live receivers</small><div class="metric green">${Number(options.summary?.executableReceivers || 0)}</div></div></div>
       ${diagnostics.length ? `<section class="card" style="margin-top:18px"><span class="eyebrow">Account capability diagnostics</span><div class="path-list">${diagnostics.map((item) => `<div class="path-item"><small>${html(item.code || item.severity || 'notice')}</small><strong>${html(item.message)}</strong>${item.accountId ? `<a href="/app/accounts">Fix account role</a>` : ''}</div>`).join('')}</div></section>` : ''}
       <section class="card" style="margin-top:18px"><form id="rule-form" class="grid2">
@@ -491,6 +503,14 @@
     masterSelect.onchange = () => loadLeaderSymbols(masterSelect.value).catch((error) => { status.className = 'form-status error full'; status.textContent = error.message; });
     document.querySelector('#allow-all-symbols').onclick = () => { allowedSymbols = new Set(leaderSymbols.map((item) => item.symbol)); renderSymbols(); };
     document.querySelector('#block-all-symbols').onclick = () => { allowedSymbols.clear(); renderSymbols(); };
+    document.querySelector('#repair-live-relay').onclick = async (event) => {
+      const button=event.currentTarget; setBusy(button,true,'Repairing routes…');
+      try{
+        const repaired=await api('/api/v2/copier/repair-relay',{method:'POST',body:'{}'},60000);
+        toast(repaired.failedCount?`Registered ${repaired.registered}; ${repaired.failedCount} route(s) still need Reporter attention.`:`Live relay repaired across ${repaired.registered} route(s).`,repaired.failedCount?'warn':'ok',9000);
+        await drawRules();
+      }catch(error){toast(error.message,'error',9000)}finally{setBusy(button,false)}
+    };
     document.querySelector('#refresh-copier-options').onclick = async () => { await refreshAccounts(true, true); drawRules(); };
 
     const resetForm = () => { formNode.reset(); formNode.elements.lane_id.value = ''; leaderSymbols = []; allowedSymbols = new Set(); renderSymbols(); formNode.querySelectorAll('input[name="slave_ids"]').forEach((input) => { input.checked = false; }); updateReceiverCount(); cancelEdit.hidden = true; saveButton.textContent = 'Save and arm multi-account lane'; status.className = 'form-status full'; status.textContent = 'Choose a leader, receivers, and highlighted symbols.'; };
@@ -543,7 +563,8 @@
         status.className = 'form-status success full';
         status.textContent = `Culture Lane saved with ${routeCount} receiver route(s). Highlighted symbols now govern every new entry.`;
         toast(`Culture Lane armed across ${routeCount} receiver account(s)`, saved.executionReady === false ? 'warn' : 'ok', 7000);
-        setTimeout(() => drawRules(), 350);
+        if(saved.executionReady===false) api('/api/v2/copier/repair-relay',{method:'POST',body:'{}'},60000).catch(()=>null);
+        setTimeout(() => drawRules(), saved.executionReady===false?1200:350);
       } catch (error) { status.className = 'form-status error full'; status.textContent = error.message; }
       finally { setBusy(saveButton, false); }
     };

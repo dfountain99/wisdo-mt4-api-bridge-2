@@ -190,3 +190,24 @@ test('consenting funnel leads receive an immediate learning-room email plus four
     if (value === undefined) delete process.env[key]; else process.env[key] = value;
   }
 });
+
+test('live relay repository accepts verified linked identities while preserving website route ownership', async (t) => {
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wisdo-relay-alias-'));
+  t.after(() => fs.rm(dataDir, { recursive: true, force: true }));
+  const repository = new OperatorDeskRepository(dataDir);
+  await repository.initialize();
+  await repository.updateMt4State((state) => {
+    state.connectionsByAccountId['100:Demo'] = { accountId: '100:Demo', accountNumber: '100', brokerServer: 'Demo', discordUserId: 'discord-linked' };
+    state.connectionsByAccountId['200:Demo'] = { accountId: '200:Demo', accountNumber: '200', brokerServer: 'Demo', discordUserId: 'discord-linked' };
+    return state;
+  });
+  const rejected = await repository.upsertCopyRoute('website-user', { routeId: 'route-rejected', leaderAccountId: '100:Demo', followerAccountId: '200:Demo', status: 'active', risk: {} });
+  assert.equal(rejected, null);
+  const saved = await repository.upsertCopyRoute('website-user', { routeId: 'route-linked', leaderAccountId: '100:Demo', followerAccountId: '200:Demo', authorizedOwnerUserIds: ['discord-linked'], status: 'active', risk: {} });
+  assert.equal(saved.ownerUserId, 'website-user');
+  assert.equal(saved.leaderAccountId, '100:Demo');
+  assert.equal(saved.followerAccountId, '200:Demo');
+  const routes = await repository.getCopyRoutesForUser('website-user');
+  assert.equal(routes.length, 1);
+  assert.equal(routes[0].routeId, 'route-linked');
+});

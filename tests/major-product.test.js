@@ -1306,3 +1306,118 @@ test('symbol highlight page updates the live relay allowlist and block-all remai
   assert.equal(relayWrites[0].route.risk.allowOnlyHighlighted, true);
   assert.deepEqual(relayWrites[0].route.risk.blockedSymbols, ['XAUUSD', 'NAS100']);
 });
+
+test('copier diagnostics repairs durable lanes into the live relay repository and bridges linked Reporter identity', async (t) => {
+  const liveState = {
+    connectionsByAccountId: {
+      '100:Demo': { accountId: '100:Demo', accountNumber: '100', brokerServer: 'Demo', discordUserId: 'discord-owner' },
+      '200:Demo': { accountId: '200:Demo', accountNumber: '200', brokerServer: 'Demo', discordUserId: 'discord-owner' },
+    },
+  };
+  const routes = new Map();
+  const repository = {
+    getMt4State: async () => structuredClone(liveState),
+    getMt4AccountId: (accountNumber, server = '') => `${accountNumber}:${server || 'server'}`,
+    getAccessibleMt4Accounts: async () => [],
+    getCopyRoutesForUser: async (userId) => [...routes.values()].filter((route) => route.ownerUserId === String(userId)),
+    upsertCopyRoute: async (userId, route) => {
+      assert.ok(route.authorizedOwnerUserIds.includes('discord-owner'));
+      const saved = { ...structuredClone(route), ownerUserId: String(userId) };
+      routes.set(saved.routeId, saved);
+      return saved;
+    },
+  };
+  const fixture = await createTestServer({
+    tradingAccounts: {
+      productLead: { id: 'productLead', user_id: 'website-owner', account_number: '100', server: 'Demo', reporter_account_id: '100:Demo', reporter_owner_user_id: 'discord-owner', desk_role: 'lead', role: 'master', reporter_connected: true, terminal_connected: true, expert_enabled: true },
+      productFollower: { id: 'productFollower', user_id: 'website-owner', account_number: '200', server: 'Demo', reporter_account_id: '200:Demo', reporter_owner_user_id: 'discord-owner', desk_role: 'receiver', role: 'slave', reporter_connected: true, terminal_connected: true, expert_enabled: true },
+    },
+    copierRules: {
+      ruleRepair: { id: 'ruleRepair', user_id: 'website-owner', master_id: 'productLead', slave_id: 'productFollower', risk_type: 'multiplier', risk_value: 1, min_lot: 0.01, max_lot: 1, allowed_symbols: ['XAUUSD'], is_active: true },
+    },
+  }, { mt4SyncService: { repository } });
+  t.after(() => fixture.server.close());
+  const headers = { 'content-type': 'application/json', 'x-wisdo-test-user': 'website-owner' };
+  const diagnostics = await jsonFetch(`${fixture.base}/api/v2/copier/diagnostics`, { headers });
+  assert.equal(diagnostics.response.status, 200);
+  assert.equal(diagnostics.payload.rules[0].relayRegistered, true);
+  assert.equal(diagnostics.payload.rules[0].executionReady, true);
+  assert.equal(diagnostics.payload.relaySync[0].status, 'registered');
+  const route = routes.get('ruleRepair');
+  assert.equal(route.leaderAccountId, '100:Demo');
+  assert.equal(route.followerAccountId, '200:Demo');
+  assert.equal(route.ownerUserId, 'website-owner');
+
+  routes.clear();
+  const repaired = await jsonFetch(`${fixture.base}/api/v2/copier/repair-relay`, { method: 'POST', headers, body: '{}' });
+  assert.equal(repaired.response.status, 200);
+  assert.equal(repaired.payload.ok, true);
+  assert.equal(repaired.payload.registered, 1);
+});
+
+test('linked Reporter identity can execute auto-copy routes owned by the website member', async () => {
+  const config = await tempConfig();
+  const commandService = new Mt4CommandService(config);
+  const route = {
+    routeId: 'linked-route',
+    ownerUserId: 'website-member',
+    authorizedOwnerUserIds: ['website-member', 'discord-reporter-owner'],
+    leaderAccountId: '100:Demo',
+    followerAccountId: '200:Demo',
+    status: 'active',
+    risk: { enabled: true, mode: 'fixed_lot', fixedLot: 0.03, maxLot: 1, maxOpenTrades: 10, copyBuys: true, copySells: true },
+  };
+  const repository = {
+    getActiveCopyRoutesForLeader: async (accountId) => accountId === '100:Demo' ? [route] : [],
+    getMt4ConnectionForCopyRoute: async (candidate) => candidate.routeId === route.routeId ? {
+      accountId: '200:Demo', accountNumber: '200', pairingCode: 'PAIR-200', discordUserId: 'discord-reporter-owner',
+      copyRisk: route.risk, latestSnapshot: { snapshot: { equity: 5000, balance: 5000, openTradeCount: 0 } },
+    } : null,
+    getMt4ConnectionByAccountId: async () => { throw new Error('legacy ownership lookup should not be used'); },
+  };
+  const service = new TradeSignalService({ config, client: null, repository, mt4CommandService: commandService, copyTradingService: null, operatorDeskService: null, logger: { info() {}, warn() {}, error() {} } });
+  const signal = await service.createSignal({
+    leaderUserId: 'discord-reporter-owner', leaderAccountId: '100:Demo', leaderAccountNumber: '100', leaderServer: 'Demo', leaderChannelId: '', eaName: 'Lead EA', eaVersion: '1.57',
+    trade: { ticket: 'L-604', symbol: 'XAUUSD', type: 'buy', lots: 0.2, openPrice: 2400 }, snapshot: { balance: 10000, equity: 10000 },
+  });
+  const saved = await service.getSignal(signal.signalId);
+  assert.equal(saved.autoTakes.length, 1);
+  const command = await commandService.getCommandStatus('website-member', saved.autoTakes[0].commandId, '200:Demo');
+  assert.equal(command.command, 'COPY_OPEN_TRADE');
+  assert.equal(command.accountId, '200:Demo');
+});
+
+test('dashboard can close the Culture Lead only without sweeping receiver accounts', async (t) => {
+  const now = new Date().toISOString();
+  const fixture = await createTestServer({
+    tradingAccounts: {
+      lead: { id: 'lead', user_id: 'dashboard-user', account_number: '100', server: 'Demo', desk_role: 'lead' },
+      receiver: { id: 'receiver', user_id: 'dashboard-user', account_number: '200', server: 'Demo', desk_role: 'receiver' },
+    },
+    cultureLanesById: {
+      lane_close: { laneId: 'lane_close', ownerUserId: 'dashboard-user', name: 'Close Controls', leaderAccountId: 'lead', followerAccountIds: ['receiver'], accountIds: ['lead', 'receiver'], status: 'active', createdAt: now, updatedAt: now },
+    },
+  });
+  t.after(() => fixture.server.close());
+  const result = await jsonFetch(`${fixture.base}/api/v2/culture-lanes/lane_close/close-leader`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-wisdo-test-user': 'dashboard-user' }, body: JSON.stringify({ confirmation: 'confirmed' }),
+  });
+  assert.equal(result.response.status, 202);
+  assert.equal(result.payload.leaderOnly, true);
+  assert.equal(result.payload.leaderAccountId, 'lead');
+  const queue = await fixture.commands.load();
+  const closes = queue.commandQueue.filter((command) => command.command === 'CLOSE_ALL_TRADES');
+  assert.deepEqual(closes.map((command) => command.accountId), ['lead']);
+});
+
+test('Render production configuration promotes durable PostgreSQL state and dashboard exposes both close authorities', async () => {
+  const [renderSource, configSource, workspaceSource] = await Promise.all([
+    fs.readFile(new URL('../render.yaml', import.meta.url), 'utf8'),
+    fs.readFile(new URL('../config.js', import.meta.url), 'utf8'),
+    fs.readFile(new URL('../public/js/workspace.js', import.meta.url), 'utf8'),
+  ]);
+  assert.match(renderSource, /key: WISDO_PERSISTENCE_MODE\s+value: postgres/);
+  assert.match(configSource, /hasDatabaseUrl && isProductionRuntime/);
+  assert.match(workspaceSource, /Close All Culture Lane/);
+  assert.match(workspaceSource, /Close Leader Trades/);
+});

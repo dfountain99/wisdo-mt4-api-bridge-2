@@ -30,6 +30,13 @@ function routePath(value, fallback) {
   return clean.startsWith('/') ? clean : `/${clean}`;
 }
 
+const configuredPersistenceMode = first('WISDO_PERSISTENCE_MODE').toLowerCase();
+const hasDatabaseUrl = Boolean(first('DATABASE_URL'));
+const isProductionRuntime = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+const productionPersistenceMode = hasDatabaseUrl && isProductionRuntime && (!configuredPersistenceMode || configuredPersistenceMode === 'json')
+  ? 'postgres'
+  : (configuredPersistenceMode || (hasDatabaseUrl ? 'postgres' : 'json'));
+
 export const config = {
   discordToken: first('DISCORD_TOKEN'),
   clientId: first('CLIENT_ID'),
@@ -43,7 +50,7 @@ export const config = {
   archiveCategoryName: first('OPERATOR_DESK_ARCHIVE_CATEGORY_NAME', 'ARCHIVE_CATEGORY_NAME') || '\u{1F4E6} CULTURE COIN ARCHIVED DESKS',
   dataDir: first('WISDO_STORAGE_PATH', 'DATA_DIR') || './data/operator-desks',
   persistence: {
-    mode: (first('WISDO_PERSISTENCE_MODE') || 'json').toLowerCase(),
+    mode: productionPersistenceMode.toLowerCase(),
     databaseUrl: first('DATABASE_URL'),
     storagePath: first('WISDO_STORAGE_PATH', 'DATA_DIR') || './data/operator-desks',
     dbSsl: bool(first('WISDO_DB_SSL'), false),

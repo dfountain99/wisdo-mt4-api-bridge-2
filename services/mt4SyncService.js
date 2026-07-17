@@ -851,6 +851,18 @@ export class Mt4SyncService {
       receivedAt,
     };
 
+    // Register the current terminal identity before relay reconciliation. This lets a
+    // reconnecting follower repair the lane immediately and lets a reconnecting leader
+    // see every already-online receiver before new trade signals are processed.
+    await this.repository.updateMt4State((state) => {
+      state.connectionsByAccountId ||= {};
+      state.connectionsByAccountId[accountId] = {
+        ...(state.connectionsByAccountId[accountId] || {}),
+        ...connectionRecord,
+      };
+      return state;
+    });
+
     if (this.productEventSink?.prepareSnapshot) {
       await this.productEventSink.prepareSnapshot({ connectionRecord, latestSnapshotRecord }).catch((error) => {
         logger.warn('WISDO product relay preparation failed before MT4 signal processing.', {

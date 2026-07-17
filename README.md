@@ -1,6 +1,6 @@
-# WISDO v6.0.3 — Unified Multi-Account Culture Lane
+# WISDO v6.0.4 — Durable Relay Recovery and Dashboard Close Authority
 
-WISDO v6.0.3 combines the complete application with a hardened PostgreSQL/Redis relay foundation and the first operational Culture Lane OS APIs. The release adds multi-instance-safe section persistence, Redis Streams, command idempotency, retry/dead-letter recovery, durable acknowledgements and heartbeats, Culture Lane Vaults, Smart Symbol Routing, Harvest policies, Genomes, Timelines, Trade Passports, DNA, and Intelligence reports.
+WISDO v6.0.4 combines the complete application with a hardened PostgreSQL/Redis relay foundation and the first operational Culture Lane OS APIs. The release adds multi-instance-safe section persistence, Redis Streams, command idempotency, retry/dead-letter recovery, durable acknowledgements and heartbeats, Culture Lane Vaults, Smart Symbol Routing, Harvest policies, Genomes, Timelines, Trade Passports, DNA, and Intelligence reports.
 
 See `docs/RELEASE_NOTES_V6_0_0.md` and `WISDO_V6_0_0_DEPLOYMENT_CHECKLIST.md` before deployment.
 
@@ -285,3 +285,15 @@ The v5.9 patch adds eager, sectioned PostgreSQL persistence and a Redis-backed M
 ## v6.0.3 unified lane workflow
 
 v6.0.3 moves Culture Lane creation, multi-receiver selection, and click-to-allow symbol routing into `/app/copier-engine`. The main dashboard now presents each Culture Lane as one combined portfolio profile and includes working inline Harvest controls. Automatic Harvest evaluates every Reporter snapshot, queues one parallel atomic sweep per account, confirms the lane is flat, records the cycle, resets the next baseline, and pauses Harvest Once lanes. Leader closes gain a deterministic Reporter-snapshot failsafe that relays closes when the ticket appears in closed history or disappears from a complete open-trade snapshot. Reporter v1.57 remains the required MT4 execution bridge. See `docs/RELEASE_NOTES_V6_0_3.md`.
+
+
+## v6.0.4 relay recovery and redeploy durability
+
+- Production promotes the WISDO ecosystem state to PostgreSQL whenever `DATABASE_URL` is available.
+- Trading accounts, Culture Lanes, symbol highlights, Harvest policies, lane timelines, Genomes, Passports, and portfolio metrics survive Render redeploys.
+- Signed Reporter pairing codes recover after service replacement.
+- Live copy routes reconcile whenever either the leader or receiver Reporter reconnects.
+- Website-member route ownership can safely bridge to linked Reporter/Discord identities.
+- Auto-copy execution resolves the follower through the verified route identity instead of rejecting the website owner.
+- The dashboard exposes **Close All Culture Lane** and **Close Leader Trades** as separate priority atomic-sweep controls.
+- The service-worker cache is versioned so the new dashboard controls replace older cached JavaScript immediately.
