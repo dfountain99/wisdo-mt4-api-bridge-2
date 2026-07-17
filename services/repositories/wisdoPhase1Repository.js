@@ -81,6 +81,16 @@ export function createWisdoPhase1State() {
     accountControlSettingsById: {},
     deletedTradingAccounts: {},
     compoundCloseTrackersById: {},
+    cultureLanesById: {},
+    brokerSymbolInventoriesByAccountId: {},
+    symbolPoliciesByLaneId: {},
+    harvestPoliciesByLaneId: {},
+    harvestCyclesById: {},
+    tradePassportsById: {},
+    laneTimelineEventsById: {},
+    laneGenomesById: {},
+    laneDnaSnapshotsById: {},
+    cultureIntelligenceReportsById: {},
     accountTelemetry: {},
     trades: {},
     alerts: {},
@@ -135,6 +145,11 @@ export class WisdoPhase1Repository {
 
   async updateState(updater) {
     const operation = this.stateChain.then(async () => {
+      if (typeof this.adapter.atomicUpdate === 'function') {
+        const saved = await this.adapter.atomicUpdate(updater, { normalize: ensureWisdoPhase1State });
+        this.lastKnownGood = structuredClone(saved);
+        return saved;
+      }
       const state = await this.loadState();
       const next = ensureWisdoPhase1State((await updater(state)) || state);
       const saved = await this.adapter.save(next);

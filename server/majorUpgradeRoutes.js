@@ -1,6 +1,12 @@
 import crypto from 'node:crypto';
 import { getSessionUser, verifyHmacSha256, encryptCredential, sessionSecurityStatus, safeReturnPath } from './security.js';
 import { attachCloseTrackerCommand, buildTrendAnalytics, commandForCloseMode, createCloseTracker, ensureCloseIntelligenceState, listCloseTrackers } from '../services/tradeCloseIntelligence.js';
+import {
+  appendLaneTimelineEvent, buildCultureIntelligenceReport, calculateLaneDna, computeCultureLaneVault,
+  createCultureLane, createHarvestCycle, createLaneGenome, createTradePassport, ensureCultureLaneState,
+  evaluateLaneHarvest, finalizeTradePassport, laneAccessibleTo, resolveLaneSymbol, setHarvestPolicy,
+  setLaneSymbolPolicy, updateCultureLane, upsertBrokerSymbolInventory,
+} from '../services/cultureLaneOperatingSystemService.js';
 
 const PLATFORMS = ['mt4','mt5','ctrader','matchtrader','tradelocker','dxtrade','ninjatrader','tradovate','projectx','rithmic'];
 const RISK_TYPES = ['fixed_lot','multiplier','equity_ratio','balance_ratio'];
@@ -46,6 +52,7 @@ function requireAdmin(req,res,next){ if(!isAdmin(req.wisdoUser||currentUser(req)
 function ensureMajorState(state={}){
   state.profiles ||= {}; state.userRoles ||= {}; state.tradingAccounts ||= {}; state.accountShares ||= {}; state.copierRules ||= {}; state.trades ||= {}; state.subscriptions ||= {}; state.alerts ||= {}; state.firms ||= {}; state.passwordResetTokens ||= {}; state.marketCache ||= {}; state.pushSubscriptions ||= {}; state.aiThreads ||= {}; state.affiliates ||= {}; state.affiliateConversions ||= {}; state.auditLog ||= []; state.accountTelemetry ||= {}; state.liveTradeEventKeys ||= {}; state.accountHealthState ||= {}; state.relayDiagnostics ||= []; state.accountControlSettingsById ||= {}; state.deletedTradingAccounts ||= {}; state.compoundCloseTrackersById ||= {};
   ensureCloseIntelligenceState(state);
+  ensureCultureLaneState(state);
   for(const firm of FIRMS) state.firms[firm.id] ||= firm;
   return state;
 }
@@ -941,14 +948,133 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     res.json({ok:true,...result});
   });
 
+
+  // WISDO v6 Culture Lane Portfolio Operating System foundation.
+  app.get('/api/v2/culture-lanes',requireUser,async(req,res)=>{
+    const state=ensureMajorState(await loadEcosystemState());
+    const lanes=Object.values(state.cultureLanesById).filter(lane=>laneAccessibleTo(lane,req.wisdoUser.id));
+    res.json({ok:true,lanes,source:'culture-lane-os-v6'});
+  });
+  app.post('/api/v2/culture-lanes',requireUser,async(req,res)=>{
+    try{
+      const lane=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+        const leaderId=String(req.body?.leaderAccountId||'');
+        const followerIds=Array.isArray(req.body?.followerAccountIds)?req.body.followerAccountIds:[];
+        if(!canAccessLeader(state,req.wisdoUser.id,leaderId))return mutationResult({error:'Leader account is not owned/shared to this member.'});
+        const invalid=followerIds.find(accountId=>!ownAccount(state,req.wisdoUser.id,String(accountId)));
+        if(invalid)return mutationResult({error:`Follower account ${invalid} is not owned by this member.`});
+        const created=createCultureLane(state,req.wisdoUser.id,req.body||{});
+        audit(state,req.wisdoUser.id,'culture_lane.created','CultureLane',created.laneId,{accountIds:created.accountIds});
+        return created;
+      });
+      if(lane?.error)return res.status(403).json({ok:false,error:lane.error});
+      res.status(201).json({ok:true,lane});
+    }catch(error){res.status(400).json({ok:false,error:error.message});}
+  });
+  app.patch('/api/v2/culture-lanes/:laneId',requireUser,async(req,res)=>{
+    const lane=await mutate(loadEcosystemState,saveEcosystemState,state=>updateCultureLane(state,req.params.laneId,req.wisdoUser.id,req.body||{}));
+    if(!lane)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    res.json({ok:true,lane});
+  });
+  app.get('/api/v2/culture-lanes/:laneId/vault',requireUser,async(req,res)=>{
+    const state=ensureMajorState(await loadEcosystemState());
+    const vault=computeCultureLaneVault(state,req.params.laneId,req.wisdoUser.id);
+    if(!vault)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    res.json({ok:true,vault});
+  });
+  app.post('/api/v2/accounts/:accountId/symbol-inventory',requireUser,async(req,res)=>{
+    const inventory=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+      if(!ownAccount(state,req.wisdoUser.id,req.params.accountId))return null;
+      return upsertBrokerSymbolInventory(state,req.wisdoUser.id,req.params.accountId,req.body||{});
+    });
+    if(!inventory)return res.status(404).json({ok:false,error:'Account not found.'});
+    res.json({ok:true,inventory});
+  });
+  app.put('/api/v2/culture-lanes/:laneId/symbol-policy',requireUser,async(req,res)=>{
+    const policy=await mutate(loadEcosystemState,saveEcosystemState,state=>setLaneSymbolPolicy(state,req.params.laneId,req.wisdoUser.id,req.body||{}));
+    if(!policy)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    res.json({ok:true,policy});
+  });
+  app.get('/api/v2/culture-lanes/:laneId/symbol-resolution',requireUser,async(req,res)=>{
+    const state=ensureMajorState(await loadEcosystemState());
+    const lane=state.cultureLanesById[req.params.laneId];
+    if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    const result=resolveLaneSymbol(state,lane.laneId,String(req.query.accountId||''),String(req.query.symbol||''));
+    res.json({ok:true,result});
+  });
+  app.put('/api/v2/culture-lanes/:laneId/harvest-policy',requireUser,async(req,res)=>{
+    const policy=await mutate(loadEcosystemState,saveEcosystemState,state=>setHarvestPolicy(state,req.params.laneId,req.wisdoUser.id,req.body||{}));
+    if(!policy)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    res.json({ok:true,policy});
+  });
+  app.post('/api/v2/culture-lanes/:laneId/harvest/evaluate',requireUser,async(req,res)=>{
+    const state=ensureMajorState(await loadEcosystemState());
+    const evaluation=evaluateLaneHarvest(state,req.params.laneId,req.wisdoUser.id);
+    if(!evaluation)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    if(!evaluation.triggered||req.body?.execute!==true)return res.json({ok:true,evaluation,executed:false});
+    if(req.body?.confirmation!=='confirmed')return res.status(409).json({ok:false,error:'confirmation_required',evaluation,requiredConfirmation:'confirmed'});
+    if(evaluation.vault.disconnectedAccountIds.length)return res.status(409).json({ok:false,error:'receiver_health_degraded',evaluation});
+    const commandIds=[]; const failures=[];
+    for(const account of evaluation.vault.accounts){
+      try{
+        const command=await mt4CommandService.queueCommandForAccount(req.wisdoUser.id,account.accountId,'CLOSE_ALL_TRADES',{accountId:account.accountId,confirmation:'confirmed',immediate:true,priority:2000,ttlMinutes:2,requestedFrom:'culture_lane_harvest',laneId:req.params.laneId});
+        commandIds.push(command.id);
+      }catch(error){failures.push({accountId:account.accountId,error:error.message});}
+    }
+    const cycle=await mutate(loadEcosystemState,saveEcosystemState,working=>{
+      const refreshed=evaluateLaneHarvest(working,req.params.laneId,req.wisdoUser.id)||evaluation;
+      const created=createHarvestCycle(working,req.params.laneId,req.wisdoUser.id,refreshed,commandIds);
+      created.failures=failures; created.status=failures.length?'partially_queued':'commands_queued'; created.updatedAt=nowIso();
+      return created;
+    });
+    res.status(failures.length?207:202).json({ok:failures.length===0,evaluation,cycle,commandIds,failures});
+  });
+  app.post('/api/v2/culture-lanes/:laneId/genomes',requireUser,async(req,res)=>{
+    const genome=await mutate(loadEcosystemState,saveEcosystemState,state=>createLaneGenome(state,req.params.laneId,req.wisdoUser.id,req.body||{}));
+    if(!genome)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    res.status(201).json({ok:true,genome});
+  });
+  app.get('/api/v2/culture-lanes/:laneId/genomes',requireUser,async(req,res)=>{
+    const state=ensureMajorState(await loadEcosystemState()); const lane=state.cultureLanesById[req.params.laneId];
+    if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    const genomes=Object.values(state.laneGenomesById).filter(item=>item.laneId===lane.laneId).sort((a,b)=>b.sequence-a.sequence);
+    res.json({ok:true,genomes});
+  });
+  app.post('/api/v2/culture-lanes/:laneId/passports',requireUser,async(req,res)=>{
+    const passport=await mutate(loadEcosystemState,saveEcosystemState,state=>createTradePassport(state,req.params.laneId,req.wisdoUser.id,req.body||{}));
+    if(!passport)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    res.status(201).json({ok:true,passport});
+  });
+  app.post('/api/v2/trade-passports/:passportId/finalize',requireUser,async(req,res)=>{
+    const passport=await mutate(loadEcosystemState,saveEcosystemState,state=>finalizeTradePassport(state,req.params.passportId,req.wisdoUser.id,req.body?.result||req.body||{}));
+    if(!passport)return res.status(404).json({ok:false,error:'Trade Passport not found, not authorized, or already finalized.'});
+    res.json({ok:true,passport});
+  });
+  app.get('/api/v2/culture-lanes/:laneId/timeline',requireUser,async(req,res)=>{
+    const state=ensureMajorState(await loadEcosystemState()); const lane=state.cultureLanesById[req.params.laneId];
+    if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    const events=Object.values(state.laneTimelineEventsById).filter(item=>item.laneId===lane.laneId).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,Math.min(500,Math.max(1,num(req.query.limit,100))));
+    res.json({ok:true,events});
+  });
+  app.post('/api/v2/culture-lanes/:laneId/dna',requireUser,async(req,res)=>{
+    const dna=await mutate(loadEcosystemState,saveEcosystemState,state=>calculateLaneDna(state,req.params.laneId,req.wisdoUser.id));
+    if(!dna)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    res.json({ok:true,dna});
+  });
+  app.post('/api/v2/culture-lanes/:laneId/intelligence',requireUser,async(req,res)=>{
+    const report=await mutate(loadEcosystemState,saveEcosystemState,state=>buildCultureIntelligenceReport(state,req.params.laneId,req.wisdoUser.id));
+    if(!report)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    res.json({ok:true,report});
+  });
+
   const cronGuard=(req,res,next)=>{const expected=String(process.env.CRON_SECRET||'');const supplied=String(req.headers.authorization||'').replace(/^Bearer\s+/i,'');if(!expected||supplied!==expected)return res.status(401).json({ok:false,error:'Invalid cron token.'});next()};
   app.post('/api/public/cron/sync-accounts',cronGuard,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());const accounts=Object.values(state.tradingAccounts).filter(a=>a.status!=='disconnected');let queued=0;for(const a of accounts){try{await mt4CommandService.queueCommandForAccount(a.user_id,a.id,'SYNC_ACCOUNT',{accountId:a.id,immediate:false,ttlMinutes:2});queued++}catch{}}res.json({ok:true,queued,accounts:accounts.length})});
   app.post('/api/public/cron/refresh-market',cronGuard,async(req,res)=>{await mutate(loadEcosystemState,saveEcosystemState,state=>{state.marketCache={refreshedAt:nowIso(),providerConfigured:Boolean(process.env.FINNHUB_API_KEY||process.env.TRADING_ECONOMICS_API_KEY||process.env.FIRECRAWL_API_KEY)};return true});res.json({ok:true,refreshedAt:nowIso()})});
-  app.get('/api/public/health',async(req,res)=>{const security=sessionSecurityStatus();res.json({ok:true,service:'WISDO Major Product Pass',version:'5.8.0',time:nowIso(),persistence:config.persistence?.mode||'json',security,integrations:{discord:Boolean(process.env.DISCORD_TOKEN&&process.env.CLIENT_ID),square:Boolean(process.env.SQUARE_ACCESS_TOKEN&&process.env.SQUARE_LOCATION_ID),resend:Boolean(process.env.RESEND_API_KEY&&process.env.RESEND_FROM_EMAIL),sms:Boolean(process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN&&process.env.TWILIO_FROM_NUMBER),market:Boolean(process.env.FINNHUB_API_KEY||process.env.TRADING_ECONOMICS_API_KEY||process.env.FIRECRAWL_API_KEY),ai:Boolean(process.env.OPENAI_API_KEY||process.env.GOOGLE_AI_API_KEY),postgres:Boolean(process.env.DATABASE_URL)},features:{premiumPublicSite:true,pricingConfigurator:true,operationalApi:true,signedBrokerWebhook:true,accountSpecificCommands:true,academy:true,affiliate:true,unifiedCopierOptions:true,protectedPrivateStrategies:true,aiWebinarRoom:true,adminStrategyStudio:true,browserNarration:true,chartTeacher:true,tradingViewLessons:true,realHistoricalExamples:true,fakeChartFallbackDisabled:true,squareCheckout:true,renderMemoryRepair:true,growthFunnel:true,signupEmailSms:true,personalLearningRoom:true,educationDripSequence:true,portableLeadAi:true,videoEngagementTracking:true,persistentAccountRoles:true,persistenceBackupRecovery:true,immediateBulkClose:true,closeProfitableOnly:true,closeLosingOnly:true,compoundCloseTracker:true,dailyWeeklyTrendGauges:true,closeEmailDiscordNotifications:true}})});
-  app.get('/api/runtime-audit',async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,version:'5.8.0',source:'wisdo-persistent-close-intelligence-v5.8.0.zip',checks:{rootRoute:true,publicProductPages:true,loginReturnTo:true,signedSessions:sessionSecurityStatus().signedSessions,credentialEncryptionReady:sessionSecurityStatus().credentialEncryptionConfigured,copierRules:Object.keys(state.copierRules).length,accounts:Object.keys(state.tradingAccounts).length,trades:Object.keys(state.trades).length,closeSignalsBypassEntryFilters:true,followerSymbolGuaranteed:true,persistentStorageConfigured:Boolean(config.persistence?.storagePath),executionAutomatchEnabled:parseBool(process.env.WISDO_SYMBOL_AUTOMATCH_EXECUTION_ENABLED),unifiedCopierOptions:true,privateStrategySourcePublic:false,aiWebinarRoom:true,adminStrategyStudio:true,browserNarration:true,chartTeacher:true,tradingViewLessons:true,realHistoricalExamples:true,fakeChartFallbackDisabled:true,squareCheckout:true,renderMemoryRepair:true,growthFunnel:true,signupEmailSms:true,personalLearningRoom:true,educationDripSequence:true,portableLeadAi:true,videoEngagementTracking:true,persistentAccountRoles:true,persistenceBackupRecovery:true,immediateBulkClose:true,closeProfitableOnly:true,closeLosingOnly:true,compoundCloseTracker:true,dailyWeeklyTrendGauges:true,closeEmailDiscordNotifications:true}})});
+  app.get('/api/public/health',async(req,res)=>{const security=sessionSecurityStatus();res.json({ok:true,service:'WISDO Major Product Pass',version:'6.0.0',time:nowIso(),persistence:config.persistence?.mode||'json',security,integrations:{discord:Boolean(process.env.DISCORD_TOKEN&&process.env.CLIENT_ID),square:Boolean(process.env.SQUARE_ACCESS_TOKEN&&process.env.SQUARE_LOCATION_ID),resend:Boolean(process.env.RESEND_API_KEY&&process.env.RESEND_FROM_EMAIL),sms:Boolean(process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN&&process.env.TWILIO_FROM_NUMBER),market:Boolean(process.env.FINNHUB_API_KEY||process.env.TRADING_ECONOMICS_API_KEY||process.env.FIRECRAWL_API_KEY),ai:Boolean(process.env.OPENAI_API_KEY||process.env.GOOGLE_AI_API_KEY),postgres:Boolean(process.env.DATABASE_URL)},features:{premiumPublicSite:true,pricingConfigurator:true,operationalApi:true,signedBrokerWebhook:true,accountSpecificCommands:true,academy:true,affiliate:true,unifiedCopierOptions:true,protectedPrivateStrategies:true,aiWebinarRoom:true,adminStrategyStudio:true,browserNarration:true,chartTeacher:true,tradingViewLessons:true,realHistoricalExamples:true,fakeChartFallbackDisabled:true,squareCheckout:true,renderMemoryRepair:true,growthFunnel:true,signupEmailSms:true,personalLearningRoom:true,educationDripSequence:true,portableLeadAi:true,videoEngagementTracking:true,persistentAccountRoles:true,persistenceBackupRecovery:true,immediateBulkClose:true,closeProfitableOnly:true,closeLosingOnly:true,compoundCloseTracker:true,dailyWeeklyTrendGauges:true,closeEmailDiscordNotifications:true,cultureLaneVault:true,smartSymbolRouting:true,harvestMode:true,laneGenomes:true,laneTimeline:true,tradePassports:true,laneDna:true,cultureIntelligence:true,redisStreamsRelay:true,commandDeadLetterRecovery:true}})});
+  app.get('/api/runtime-audit',async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,version:'6.0.0',source:'wisdo-culture-lane-os-v6.0.0.zip',checks:{rootRoute:true,publicProductPages:true,loginReturnTo:true,signedSessions:sessionSecurityStatus().signedSessions,credentialEncryptionReady:sessionSecurityStatus().credentialEncryptionConfigured,copierRules:Object.keys(state.copierRules).length,accounts:Object.keys(state.tradingAccounts).length,trades:Object.keys(state.trades).length,closeSignalsBypassEntryFilters:true,followerSymbolGuaranteed:true,persistentStorageConfigured:Boolean(config.persistence?.storagePath),executionAutomatchEnabled:parseBool(process.env.WISDO_SYMBOL_AUTOMATCH_EXECUTION_ENABLED),unifiedCopierOptions:true,privateStrategySourcePublic:false,aiWebinarRoom:true,adminStrategyStudio:true,browserNarration:true,chartTeacher:true,tradingViewLessons:true,realHistoricalExamples:true,fakeChartFallbackDisabled:true,squareCheckout:true,renderMemoryRepair:true,growthFunnel:true,signupEmailSms:true,personalLearningRoom:true,educationDripSequence:true,portableLeadAi:true,videoEngagementTracking:true,persistentAccountRoles:true,persistenceBackupRecovery:true,immediateBulkClose:true,closeProfitableOnly:true,closeLosingOnly:true,compoundCloseTracker:true,dailyWeeklyTrendGauges:true,closeEmailDiscordNotifications:true,cultureLaneVault:true,smartSymbolRouting:true,harvestMode:true,laneGenomes:true,laneTimeline:true,tradePassports:true,laneDna:true,cultureIntelligence:true,redisStreamsRelay:true,commandDeadLetterRecovery:true}})});
 
   app.get('/api/v2/admin/stats',requireUser,requireAdmin,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,users:Object.keys(state.profiles).length,accounts:Object.keys(state.tradingAccounts).length,rules:Object.keys(state.copierRules).length,trades:Object.keys(state.trades).length,subscriptions:Object.keys(state.subscriptions).length,alerts:Object.values(state.alerts).flat().length})});
   app.post('/api/v2/admin/firms',requireUser,requireAdmin,async(req,res)=>{const firm=await mutate(loadEcosystemState,saveEcosystemState,state=>{const firm={id:req.body.id||id('firm'),name:String(req.body.name||'').trim(),type:req.body.type==='broker'?'broker':'prop',logo_url:req.body.logo_url||'',max_drawdown_pct:num(req.body.max_drawdown_pct,null),daily_drawdown_pct:num(req.body.daily_drawdown_pct,null),profit_split_pct:num(req.body.profit_split_pct,null),refund_policy:req.body.refund_policy||'',min_trading_days:num(req.body.min_trading_days,0),supported_platforms:(req.body.supported_platforms||[]).filter(x=>PLATFORMS.includes(x)),rating:num(req.body.rating,0),updated_at:nowIso()};state.firms[firm.id]=firm;audit(state,req.wisdoUser.id,'firm.upserted','Firm',firm.id);return firm});res.json({ok:true,firm})});
 
-  logger?.info?.('WISDO major upgrade routes registered', { source: 'wisdo-persistent-close-intelligence-v5.8.0.zip', version: '5.8.0' });
+  logger?.info?.('WISDO major upgrade routes registered', { source: 'wisdo-culture-lane-os-v6.0.0.zip', version: '6.0.0' });
 }

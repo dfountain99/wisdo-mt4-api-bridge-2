@@ -1,6 +1,6 @@
 {
   "name": "culture-coin-operator-desks-bot",
-  "version": "5.8.0",
+  "version": "6.0.1",
   "description": "WISDO multi-account trading command center, Square checkout, copier engine, analyzer, academy, affiliate, Discord and MT4 relay.",
   "type": "module",
   "private": true,
@@ -12,7 +12,8 @@
     "dev:web": "node --watch scripts/startWebOnly.js",
     "test": "node --test tests/*.test.js",
     "check": "node scripts/checkBuild.js && npm test",
-    "prestart": "node scripts/repairPersistentState.js"
+    "prestart": "node scripts/repairPersistentState.js",
+    "migrate:postgres": "node scripts/migratePostgres.js"
   },
   "engines": {
     "node": "22.x"
@@ -22,6 +23,7 @@
     "dotenv": "^16.6.1",
     "express": "^5.2.1",
     "pg": "^8.22.0",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "redis": "^5.8.2"
   }
 }

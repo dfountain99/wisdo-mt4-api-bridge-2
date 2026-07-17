@@ -204,6 +204,20 @@ services:
         value: json
       - key: WISDO_DB_SSL
         value: "true"
+      - key: REDIS_ENABLED
+        value: "true"
+      - key: REDIS_URL
+        sync: false
+      - key: REDIS_PREFIX
+        value: wisdo
+      - key: REDIS_HEALTH_TTL_SECONDS
+        value: "90"
+      - key: REDIS_RECOVERY_INTERVAL_MS
+        value: "15000"
+      - key: REDIS_VISIBILITY_TIMEOUT_MS
+        value: "30000"
+      - key: REDIS_MAX_DELIVERY_ATTEMPTS
+        value: "5"
       - key: CLIENT_SECRET
         sync: false
       - key: DISCORD_CLIENT_SECRET

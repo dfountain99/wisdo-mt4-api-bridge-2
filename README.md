@@ -1,3 +1,9 @@
+# WISDO v6.0.0 — Culture Lane Portfolio Operating System
+
+WISDO v6.0.0 combines the complete application with a hardened PostgreSQL/Redis relay foundation and the first operational Culture Lane OS APIs. The release adds multi-instance-safe section persistence, Redis Streams, command idempotency, retry/dead-letter recovery, durable acknowledgements and heartbeats, Culture Lane Vaults, Smart Symbol Routing, Harvest policies, Genomes, Timelines, Trade Passports, DNA, and Intelligence reports.
+
+See `docs/RELEASE_NOTES_V6_0_0.md` and `WISDO_V6_0_0_DEPLOYMENT_CHECKLIST.md` before deployment.
+
 # WISDO V5.8.0 — Persistent Account Controls + Immediate Close Intelligence
 
 ## V5.8.0 release additions
@@ -266,3 +272,7 @@ WISDO_AI_VIDEO_WEBHOOK_SECRET=
 ```
 
 Without external AI or video-rendering credentials, the internal adaptive tutor, calculators, resource library, scenario labs, and browser-narrated AI Webinar Room remain available. The optional renderer is used only when a downloadable MP4 provider is deliberately configured.
+
+## v5.9 PostgreSQL + Redis infrastructure
+
+The v5.9 patch adds eager, sectioned PostgreSQL persistence and a Redis-backed MT4 command bridge. It intentionally does not use lazy loading. See `WISDO_V5_9_POSTGRES_REDIS_DEPLOYMENT.md` and verify `/api/copier-infrastructure-health` after deployment.

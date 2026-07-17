@@ -48,6 +48,15 @@ export const config = {
     storagePath: first('WISDO_STORAGE_PATH', 'DATA_DIR') || './data/operator-desks',
     dbSsl: bool(first('WISDO_DB_SSL'), false),
   },
+  redis: {
+    enabled: bool(first('REDIS_ENABLED'), true),
+    url: first('REDIS_URL'),
+    prefix: first('REDIS_PREFIX') || 'wisdo',
+    healthTtlSeconds: num(first('REDIS_HEALTH_TTL_SECONDS'), 90),
+    recoveryIntervalMs: num(first('REDIS_RECOVERY_INTERVAL_MS'), 15000),
+    visibilityTimeoutMs: num(first('REDIS_VISIBILITY_TIMEOUT_MS'), 30000),
+    maxDeliveryAttempts: num(first('REDIS_MAX_DELIVERY_ATTEMPTS'), 5),
+  },
   createPrivateVoiceChannels: bool(first('CREATE_PRIVATE_VOICE_CHANNELS'), false),
   api: {
     port: num(first('PORT', 'API_PORT'), 3000),

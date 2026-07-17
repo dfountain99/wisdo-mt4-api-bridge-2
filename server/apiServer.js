@@ -18,6 +18,7 @@ import { SignalCopyService } from '../services/signalCopyService.js';
 import { DiscordSignalGridService } from '../services/discordSignalGridService.js';
 import { NotificationDeliveryService } from '../services/notificationDeliveryService.js';
 import { closeNotificationText, finalizeCloseTracker, isCloseCommand, queueCloseEmail } from '../services/tradeCloseIntelligence.js';
+import { createRedisCommandBridge } from '../services/redisCommandBridge.js';
 import {
   DISCORD_ROLE_MAP,
   FUTURE_DISCORD_ROLE_MAP,
@@ -4089,6 +4090,9 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   ecosystemStateSaveQueue = Promise.resolve();
   wisdoPhase1Repository = createWisdoPhase1Repository(config);
   await wisdoPhase1Repository.seedDevelopmentData();
+  const redisCommandBridge = createRedisCommandBridge(config, logger);
+  await redisCommandBridge.connect();
+  redisCommandBridge.decorate(mt4CommandService);
   const affiliateService = new AffiliateService({ config, repository: wisdoPhase1Repository });
   const roleSyncService = new DiscordRoleSyncService({ config, client, repository: wisdoPhase1Repository, logger });
   const signalGridService = providedSignalGridService || new SignalGridService({ config, repository: wisdoPhase1Repository, logger });
@@ -4105,6 +4109,26 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   // registerDeadshotCommandCenterRoutes so broad legacy /member/* redirects do
   // not intercept /member/command-center, /education, /simulator, /social, etc.
   app.use(express.json({ limit: '200mb', verify: (req, res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
+
+  app.get('/api/copier-infrastructure-health', async (_req, res) => {
+    const redis = await redisCommandBridge.health();
+    let postgres = { connected: false, mode: String(config?.persistenceMode || config?.persistence?.mode || 'json') };
+    try {
+      const adapter = wisdoPhase1Repository?.adapter;
+      if (adapter?.getPool) {
+        const pool = await adapter.getPool();
+        const result = await pool.query('select now() as server_time');
+        postgres = { connected: true, mode: 'postgres', serverTime: result.rows[0]?.server_time || null };
+      }
+    } catch (error) { postgres = { connected: false, mode: 'postgres', error: error.message }; }
+    res.status(postgres.connected && (!redis.enabled || redis.connected) ? 200 : 503).json({
+      ok: postgres.connected && (!redis.enabled || redis.connected),
+      postgres,
+      redis,
+      noLazyLoading: true,
+      persistenceStrategy: 'eager sectioned PostgreSQL state plus Redis command delivery',
+    });
+  });
 
   app.get('/api/signal-health', async (req, res) => {
     const configuredChannel = process.env.SIGNAL_CHANNEL_ID || process.env.TRADE_SIGNAL_CHANNEL_ID || '';
@@ -5799,6 +5823,13 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
       if (!pairing?.discordUserId) return res.status(400).json({ ok: false, error: 'Unknown pairing code' });
       const accountId = pairing.accountId || null;
       const accountNumber = String(req.body?.accountNumber || pairing.accountNumber || '').trim();
+      await redisCommandBridge.heartbeat({
+        userId: pairing.discordUserId || pairing.requestedByUserId || '',
+        accountId,
+        terminal: String(req.body?.terminal || req.body?.platform || 'MT4'),
+        receiverId: String(req.body?.receiverId || req.body?.terminalId || pairingCode),
+        meta: { accountNumber, reporterVersion: req.body?.reporterVersion || '', poll: true },
+      }).catch(() => undefined);
       const deliveryUserIds = await resolveMt4DeliveryUserIds(loadEcosystemState, pairing);
       const { userId: commandOwnerId, command } = await findMt4QueuedCommand(mt4CommandService, deliveryUserIds, { accountId, accountNumber, pairingCode });
       if (command) {
@@ -5825,6 +5856,13 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
       const pairing = await mt4SyncService.repository.getPairingCode(String(req.body?.pairingCode || '').trim());
       if (!pairing?.discordUserId) return res.status(400).json({ ok: false, error: 'Unknown pairing code' });
       const accountId = pairing.accountId || null;
+      await redisCommandBridge.heartbeat({
+        userId: pairing.discordUserId || pairing.requestedByUserId || '',
+        accountId,
+        terminal: String(req.body?.terminal || req.body?.platform || 'MT4'),
+        receiverId: String(req.body?.receiverId || req.body?.terminalId || req.body?.pairingCode || ''),
+        meta: { commandComplete: true, commandId: req.body?.commandId || '' },
+      }).catch(() => undefined);
       const deliveryUserIds = await resolveMt4DeliveryUserIds(loadEcosystemState, pairing);
       const completed = await markMt4CommandCompleteForAnyOwner(mt4CommandService, deliveryUserIds, req.body?.commandId, req.body?.result || {}, accountId);
       let command = completed.command;
@@ -6568,5 +6606,9 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   app.get('/member/:page', (req, res) => res.status(404).send(htmlShell('Not Found', `${sectionHero('Page not found', `The module <strong>${esc(req.params.page)}</strong> is not registered yet.`)}<section class="card full"><a class="btn primary" href="/member">Return Home</a></section>`, 'home')));
 
   const server = app.listen(config.api.port, () => logger.info('API/member portal listening', { port: config.api.port }));
+  server.on('close', () => {
+    redisCommandBridge.close().catch(() => undefined);
+    wisdoPhase1Repository?.adapter?.close?.().catch?.(() => undefined);
+  });
   return server;
 }

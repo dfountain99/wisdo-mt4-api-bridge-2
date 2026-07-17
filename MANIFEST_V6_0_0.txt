@@ -1,0 +1,34 @@
+WISDO v6.0.0 FULL REPOSITORY
+
+BASE
+- Full WISDO v5.8.0 repository
+- PostgreSQL + Redis v5.9.0 overlay
+
+V6 CORE FILES
+- services/persistenceAdapter.js
+- services/redisCommandBridge.js
+- services/cultureLaneOperatingSystemService.js
+- services/repositories/wisdoPhase1Repository.js
+- server/apiServer.js
+- server/majorUpgradeRoutes.js
+- scripts/migratePostgres.js
+- config.js
+- render.yaml
+- .env.example
+
+V6 TESTS
+- tests/postgres-redis-upgrade.test.js
+- tests/culture-lane-os.test.js
+- Existing complete test suite retained
+
+V6 DOCUMENTATION
+- docs/RELEASE_NOTES_V6_0_0.md
+- docs/WISDO_V5_9_0_TECHNICAL_AUDIT_AND_PRODUCT_BLUEPRINT.md
+- WISDO_V6_0_0_DEPLOYMENT_CHECKLIST.md
+- WISDO_V6_0_0_TECHNICAL_AUDIT.md
+- MANIFEST_V6_0_0.txt
+
+VERIFICATION
+- npm run check: PASS
+- automated tests: 37 PASS
+- production build asset scan: PASS
