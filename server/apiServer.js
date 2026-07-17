@@ -210,7 +210,6 @@ function oauthSetupPage(req, config) {
 
 let ecosystemStateCache = null;
 let ecosystemStateLoadPromise = null;
-let ecosystemStateSaveQueue = Promise.resolve();
 
 async function loadEcosystemState() {
   if (ecosystemStateCache) return ecosystemStateCache;
@@ -236,9 +235,9 @@ async function loadEcosystemState() {
 
 async function saveEcosystemState(state) {
   ecosystemStateCache = ensureWisdoStateCollections(ensureWisdoPhase1State(state || ecosystemStateCache || {}));
-  const operation = ecosystemStateSaveQueue.then(() => getWisdoPhase1Repository().saveState(ecosystemStateCache));
-  ecosystemStateSaveQueue = operation.catch(() => undefined);
-  return operation;
+  // The repository writes through the hot cloud mirror and flushes to PostgreSQL.
+  // No global promise tail is allowed to hold unrelated HTTP requests.
+  return getWisdoPhase1Repository().saveState(ecosystemStateCache);
 }
 
 function ensureWisdoStateCollections(state = {}) {
@@ -2907,26 +2906,27 @@ function connectionOnboardingPage() {
 }
 
 
-function feedStorePaths() {
-  const base = path.join(process.env.WISDO_STORAGE_PATH || process.env.DATA_DIR || path.join(process.cwd(), 'data', 'operator-desks'), 'uploads', 'feed');
-  return { base, media: path.join(base, 'media'), index: path.join(base, 'feed-posts.json') };
-}
-
 async function loadFeedPosts() {
-  const paths = feedStorePaths();
-  try {
-    const raw = await fs.readFile(paths.index, 'utf8');
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed.posts) ? parsed.posts : [];
-  } catch {
-    return [];
-  }
+  const state = ensureWisdoStateCollections(await loadEcosystemState());
+  return Object.values(state.socialPostsById || {})
+    .filter((post) => post && post.deletedAt == null)
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+    .slice(0, 500);
 }
 
-async function saveFeedPosts(posts) {
-  const paths = feedStorePaths();
-  await fs.mkdir(paths.base, { recursive: true });
-  await fs.writeFile(paths.index, JSON.stringify({ posts: posts.slice(0, 500) }, null, 2));
+async function saveFeedPost(post = {}) {
+  const state = ensureWisdoStateCollections(await loadEcosystemState());
+  const id = String(post.id || post.postId || makeId('post'));
+  const record = {
+    ...post,
+    id,
+    postId: id,
+    createdAt: post.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  state.socialPostsById[id] = record;
+  await saveEcosystemState(state);
+  return record;
 }
 
 function feedUploadPage() {
@@ -4088,7 +4088,6 @@ function createPaidLinkAccess({ buyerUserId, productId, status = 'pending_paymen
 export async function startApiServer({ config, mt4SyncService, mt4CommandService, copyTradingService, tradeSignalService, deskDashboardService, rankService, announcementService, paymentService, logger, client = null, signalGridService: providedSignalGridService = null, signalCopyService: providedSignalCopyService = null, discordSignalGridService: providedDiscordSignalGridService = null }) {
   ecosystemStateCache = null;
   ecosystemStateLoadPromise = null;
-  ecosystemStateSaveQueue = Promise.resolve();
   wisdoPhase1Repository = createWisdoPhase1Repository(config);
   await wisdoPhase1Repository.seedDevelopmentData();
   const redisCommandBridge = createRedisCommandBridge(config, logger);
@@ -5465,12 +5464,54 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     }
   });
   app.patch('/api/profile', (req, res) => res.json({ ok: true, profile: req.body || {} }));
-  app.get('/api/feed', (req, res) => res.json({ ok: true, posts: [] }));
-  app.post('/api/feed', (req, res) => res.json({ ok: true, post: { id: makeId('post'), ...(req.body || {}) } }));
-  app.post('/api/feed/:id/like', (req, res) => res.json({ ok: true, id: req.params.id, action: 'like' }));
-  app.post('/api/feed/:id/save', (req, res) => res.json({ ok: true, id: req.params.id, action: 'save' }));
-  app.post('/api/feed/:id/share', (req, res) => res.json({ ok: true, id: req.params.id, action: 'share' }));
-  app.post('/api/feed/:id/comment', (req, res) => res.json({ ok: true, id: req.params.id, comment: req.body || {} }));
+  app.get('/api/feed', async (req, res) => {
+    const posts = await loadFeedPosts();
+    res.json({ ok: true, posts, source: 'postgres-hot-cache' });
+  });
+  app.post('/api/feed', async (req, res) => {
+    const identity = getIdentity(req);
+    const post = await saveFeedPost({
+      ...(req.body || {}),
+      userId: identity.userId,
+      trader: req.body?.trader || identity.displayName || identity.username || 'CultureCoin Trader',
+    });
+    res.json({ ok: true, post, source: 'postgres-hot-cache' });
+  });
+  app.post('/api/feed/:id/like', async (req, res) => {
+    const identity = getIdentity(req);
+    const state = ensureWisdoStateCollections(await loadEcosystemState());
+    state.likesByUserId[identity.userId] ||= {};
+    state.likesByUserId[identity.userId][req.params.id] = { likedAt: new Date().toISOString() };
+    await saveEcosystemState(state);
+    res.json({ ok: true, id: req.params.id, action: 'like' });
+  });
+  app.post('/api/feed/:id/save', async (req, res) => {
+    const identity = getIdentity(req);
+    const state = ensureWisdoStateCollections(await loadEcosystemState());
+    state.usersById[identity.userId] ||= { id: identity.userId };
+    state.usersById[identity.userId].savedPostIds ||= [];
+    if (!state.usersById[identity.userId].savedPostIds.includes(req.params.id)) state.usersById[identity.userId].savedPostIds.push(req.params.id);
+    await saveEcosystemState(state);
+    res.json({ ok: true, id: req.params.id, action: 'save' });
+  });
+  app.post('/api/feed/:id/share', async (req, res) => {
+    const state = ensureWisdoStateCollections(await loadEcosystemState());
+    const post = state.socialPostsById?.[req.params.id];
+    if (post) {
+      post.shareCount = Number(post.shareCount || 0) + 1;
+      post.updatedAt = new Date().toISOString();
+      await saveEcosystemState(state);
+    }
+    res.json({ ok: true, id: req.params.id, action: 'share' });
+  });
+  app.post('/api/feed/:id/comment', async (req, res) => {
+    const identity = getIdentity(req);
+    const state = ensureWisdoStateCollections(await loadEcosystemState());
+    const comment = { id: makeId('comment'), postId: req.params.id, userId: identity.userId, body: req.body || {}, createdAt: new Date().toISOString() };
+    state.commentsById[comment.id] = comment;
+    await saveEcosystemState(state);
+    res.json({ ok: true, id: req.params.id, comment });
+  });
   app.post('/api/wisdo/command', async (req, res) => {
     const requester = await getRequestAccess(req);
     const bodyUserId = String(req.body?.userId || '').trim();

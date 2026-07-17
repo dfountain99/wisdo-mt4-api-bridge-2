@@ -1,7 +1,7 @@
 {
   "name": "culture-coin-operator-desks-bot",
-  "version": "6.0.9",
-  "description": "WISDO database-only multi-account trading OS with resilient Reporter, Broker API connections, AI Academy and proactive Lane Intelligence.",
+  "version": "6.1.0",
+  "description": "WISDO v6.1.0 cloud-only trading OS with full request-queue audit, bounded APIs, PostgreSQL hot cache, resilient Reporter and AI education.",
   "type": "module",
   "private": true,
   "scripts": {

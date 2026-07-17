@@ -58,19 +58,14 @@ export class NotificationDeliveryService {
     this.saveEcosystemState = saveEcosystemState;
     this.logger = logger;
     this.publicBaseUrl = String(publicBaseUrl || process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
-    this.stateChain = Promise.resolve();
     this.retryTimer = null;
   }
 
   async mutate(updater) {
-    const operation = this.stateChain.then(async () => {
-      const state = ensureDeliveryState(await this.loadEcosystemState());
-      const result = await updater(state);
-      await this.saveEcosystemState(state);
-      return result;
-    });
-    this.stateChain = operation.catch(() => undefined);
-    return operation;
+    const state = ensureDeliveryState(await this.loadEcosystemState());
+    const result = await updater(state);
+    await this.saveEcosystemState(state);
+    return result;
   }
 
   providerHealth() {

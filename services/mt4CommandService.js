@@ -2,19 +2,6 @@ import { randomUUID } from 'node:crypto';
 
 import { createPersistenceAdapter } from './persistenceAdapter.js';
 
-const commandMutationQueues = new Map();
-
-async function runCommandMutation(key, task) {
-  const previous = commandMutationQueues.get(key) || Promise.resolve();
-  const current = previous.catch(() => undefined).then(task);
-  commandMutationQueues.set(key, current);
-  try {
-    return await current;
-  } finally {
-    if (commandMutationQueues.get(key) === current) commandMutationQueues.delete(key);
-  }
-}
-
 function nowIso() { return new Date().toISOString(); }
 function addMinutes(minutes) { const d = new Date(); d.setMinutes(d.getMinutes() + minutes); return d.toISOString(); }
 function isExpired(record) { return record?.expiresAt && new Date(record.expiresAt).getTime() < Date.now(); }
@@ -82,16 +69,21 @@ export class Mt4CommandService {
       fileName: 'mt4-commands.json',
       defaultState: () => ({}),
     });
-    this.mutationKey = this.persistence.filePath || `mt4-commands:${this.dataDir}`;
   }
 
   async mutate(mutator) {
-    return runCommandMutation(this.mutationKey, async () => {
-      const data = await this.load();
-      const result = await mutator(data);
-      await this.save(data);
-      return result;
+    let result;
+    await this.persistence.atomicUpdate(async (raw) => {
+      const data = {
+        commandsByUserId: raw?.commandsByUserId || {},
+        commandsByAccountId: raw?.commandsByAccountId || {},
+        commandQueue: Array.isArray(raw?.commandQueue) ? raw.commandQueue : [],
+        commandAuditLog: Array.isArray(raw?.commandAuditLog) ? raw.commandAuditLog : [],
+      };
+      result = await mutator(data);
+      return data;
     });
+    return result;
   }
 
   async load() {

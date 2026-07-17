@@ -226,6 +226,10 @@ services:
         value: "100"
       - key: WISDO_DB_RETRY_MS
         value: "1500"
+      - key: WISDO_ACCOUNTS_API_BUDGET_MS
+        value: "1500"
+      - key: WISDO_ACCOUNTS_RESPONSE_CACHE_MS
+        value: "5000"
       - key: WISDO_MT4_HISTORY_INTERVAL_MS
         value: "15000"
       - key: CTRADER_CLIENT_ID
@@ -247,7 +251,7 @@ services:
       - key: WISDO_NOTIFICATION_RETRY_INTERVAL_SECONDS
         value: "300"
       - key: REDIS_ENABLED
-        value: "true"
+        value: "false"
       - key: REDIS_URL
         sync: false
       - key: REDIS_PREFIX
@@ -287,7 +291,3 @@ services:
       - key: DISCORD_CONNECTION_CHANNEL_ID
         sync: false
 
-    disk:
-      name: wisdo-persistent-data
-      mountPath: /var/data
-      sizeGB: 10

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wisdo-shell-v6.0.9-accounts-fail-open';
+const CACHE_NAME = 'wisdo-shell-v6.1.0-full-queue-audit';
 const SHELL = [
   '/', '/pricing', '/copier', '/analyzer', '/compare', '/academy',
   '/js/workspace.js', '/js/wisdo-assistant.js', '/js/df-sauce-academy.js', '/media/wisdo-og.svg', '/platforms/mt4.svg',
@@ -20,6 +20,9 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
+  // Never intercept or cache large video/range traffic. Decorative media must not
+  // compete with account APIs, scripts, or service-worker storage.
+  if (url.pathname.endsWith('.mp4') || request.headers.has('range')) return;
   event.respondWith(fetch(request).then((response) => {
     if (response.ok && response.type === 'basic') {
       const copy = response.clone();

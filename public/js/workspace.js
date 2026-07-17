@@ -85,7 +85,7 @@
     const { retries, ...fetchOptions } = options || {};
     const method = String(fetchOptions.method || 'GET').toUpperCase();
     const safeToRetry = ['GET', 'HEAD'].includes(method);
-    const attempts = safeToRetry ? Math.max(1, Number(retries ?? 3)) : 1;
+    const attempts = safeToRetry ? Math.max(1, Number(retries ?? 1)) : 1;
     let lastError = null;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       const controller = new AbortController();
@@ -153,9 +153,26 @@
     document.documentElement.dataset.background = background;
     localStorage.setItem('wisdo.theme', theme);
     localStorage.setItem('wisdo.background', background);
-    document.querySelectorAll('.workspace-bg-video').forEach((video) => video.classList.remove('active'));
-    if (background === 'motion-a') document.querySelector('#workspace-video-a')?.classList.add('active');
-    if (background === 'motion-b') document.querySelector('#workspace-video-b')?.classList.add('active');
+    const selectedVideo = background === 'motion-a'
+      ? document.querySelector('#workspace-video-a')
+      : background === 'motion-b'
+        ? document.querySelector('#workspace-video-b')
+        : null;
+    document.querySelectorAll('.workspace-bg-video').forEach((video) => {
+      const active = video === selectedVideo;
+      video.classList.toggle('active', active);
+      if (!active) {
+        video.pause?.();
+        // Decorative video bytes are released when the user is not using a motion theme.
+        if (video.getAttribute('src')) { video.removeAttribute('src'); video.load?.(); }
+        return;
+      }
+      if (!video.getAttribute('src') && video.dataset.src) {
+        video.setAttribute('src', video.dataset.src);
+        video.load?.();
+      }
+      video.play?.().catch(() => undefined);
+    });
   }
 
   function reporterFresh(account) {
@@ -193,6 +210,7 @@
     const previous = preserveSelection ? (selectedAccountId() || sessionStorage.getItem('wisdo.selectedAccountId') || '') : '';
     const result = await api('/api/v2/accounts?includeReporter=1', { retries: 1 }, 8000);
     accounts = result.accounts || [];
+    try { sessionStorage.setItem('wisdo.accountSnapshot', JSON.stringify(accounts)); } catch {}
     const selector = document.querySelector('#mobile-account');
     if (selector) {
       selector.innerHTML = '<option value="">Portfolio / choose an account</option>' + accounts.map((account) =>
@@ -400,7 +418,12 @@ ${result.secret}`)}catch(error){status.className='form-status error';status.text
     root().querySelectorAll('[data-role-account]').forEach((form) => form.onsubmit = async (event) => {
       event.preventDefault(); const button = form.querySelector('button[type="submit"]'); const payload = Object.fromEntries(new FormData(form));
       setBusy(button, true, 'Saving role…');
-      try { await api(`/api/v2/accounts/${encodeURIComponent(form.dataset.roleAccount)}/desk-role`, { method: 'PATCH', body: JSON.stringify(payload) }); toast('Account capabilities updated'); await refreshAccounts(true, true); drawAccounts(); }
+      try {
+        const result = await api(`/api/v2/accounts/${encodeURIComponent(form.dataset.roleAccount)}/desk-role`, { method: 'PATCH', body: JSON.stringify(payload) }, 8000);
+        accounts = accounts.map((account) => account.id === result.account?.id ? { ...account, ...result.account } : account);
+        toast(`Account capabilities updated in ${Number(result.responseMs || 0)}ms`);
+        drawAccounts();
+      }
       catch (error) { toast(error.message, 'error', 7000); }
       finally { setBusy(button, false); }
     });
@@ -975,7 +998,14 @@ ${result.secret}`)}catch(error){status.className='form-status error';status.text
       if (pageNav) pageNav.addEventListener('change', () => { if (pageNav.value) location.href = pageNav.value; });
       const mePromise = api('/api/v2/me').catch(() => null);
       if (bootingDashboard) setDashboardBootStage('Synchronizing connected Reporter accounts…', 38, 'Relay 03');
-      await refreshAccounts(true, true);
+      try {
+        await refreshAccounts(true, true);
+      } catch (accountError) {
+        try { accounts = JSON.parse(sessionStorage.getItem('wisdo.accountSnapshot') || '[]'); } catch { accounts = []; }
+        const status = document.querySelector('#workspace-account-status');
+        if (status) status.textContent = accounts.length ? `${accounts.length} cached account(s) · live refresh recovering` : 'Account service recovering';
+        toast(`Account refresh is recovering: ${accountError.message}`, 'warn', 6000);
+      }
       if (bootingDashboard) setDashboardBootStage(`${accounts.length} account${accounts.length === 1 ? '' : 's'} hydrated · checking command authority…`, 62, 'Accounts 04');
       const me = await mePromise;
       if (me?.profile) applyTheme(me.profile);

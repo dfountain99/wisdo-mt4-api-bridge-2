@@ -169,7 +169,6 @@ export class TradeSignalService {
     this.ttlSeconds = Number(process.env.SIGNAL_BUTTON_TTL_SECONDS || 180);
     this.signalChannelId = process.env.SIGNAL_CHANNEL_ID || process.env.TRADE_SIGNAL_CHANNEL_ID || '';
     this.signalCardService = new SignalCardService();
-    this.writeChain = Promise.resolve();
   }
 
   async load() {
@@ -178,9 +177,7 @@ export class TradeSignalService {
 
   async save(data) {
     const sanitized = sanitizeSignalData(data);
-    const operation = this.writeChain.then(() => this.store.write(sanitized));
-    this.writeChain = operation.catch(() => undefined);
-    await operation;
+    await this.store.write(sanitized);
     return sanitized;
   }
 

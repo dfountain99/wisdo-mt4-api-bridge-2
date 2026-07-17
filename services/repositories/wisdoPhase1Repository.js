@@ -126,7 +126,6 @@ export class WisdoPhase1Repository {
       namespace: 'wisdo_phase_1',
       defaultState: createWisdoPhase1State,
     });
-    this.stateChain = Promise.resolve();
     this.lastKnownGood = null;
   }
 
@@ -143,30 +142,22 @@ export class WisdoPhase1Repository {
 
   async saveState(state) {
     const snapshot = ensureWisdoPhase1State(state);
-    const operation = this.stateChain.then(async () => {
-      const saved = await this.adapter.save(snapshot);
-      this.lastKnownGood = structuredClone(snapshot);
-      return saved;
-    });
-    this.stateChain = operation.catch(() => undefined);
-    return operation;
+    const saved = await this.adapter.save(snapshot);
+    this.lastKnownGood = structuredClone(snapshot);
+    return saved;
   }
 
   async updateState(updater) {
-    const operation = this.stateChain.then(async () => {
-      if (typeof this.adapter.atomicUpdate === 'function') {
-        const saved = await this.adapter.atomicUpdate(updater, { normalize: ensureWisdoPhase1State });
-        this.lastKnownGood = structuredClone(saved);
-        return saved;
-      }
-      const state = await this.loadState();
-      const next = ensureWisdoPhase1State((await updater(state)) || state);
-      const saved = await this.adapter.save(next);
-      this.lastKnownGood = structuredClone(next);
+    if (typeof this.adapter.atomicUpdate === 'function') {
+      const saved = await this.adapter.atomicUpdate(updater, { normalize: ensureWisdoPhase1State });
+      this.lastKnownGood = structuredClone(saved);
       return saved;
-    });
-    this.stateChain = operation.catch(() => undefined);
-    return operation;
+    }
+    const state = await this.loadState();
+    const next = ensureWisdoPhase1State((await updater(state)) || state);
+    const saved = await this.adapter.save(next);
+    this.lastKnownGood = structuredClone(next);
+    return saved;
   }
 
   async getDesk(userId) {

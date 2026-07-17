@@ -136,18 +136,13 @@ export class GrowthFunnelService {
     this.loadEcosystemState = loadEcosystemState;
     this.saveEcosystemState = saveEcosystemState;
     this.logger = logger;
-    this.stateChain = Promise.resolve();
   }
 
   async mutate(updater) {
-    const operation = this.stateChain.then(async () => {
-      const state = ensureFunnelState(await this.loadEcosystemState());
-      const result = await updater(state);
-      await this.saveEcosystemState(state);
-      return result;
-    });
-    this.stateChain = operation.catch(() => undefined);
-    return operation;
+    const state = ensureFunnelState(await this.loadEcosystemState());
+    const result = await updater(state);
+    await this.saveEcosystemState(state);
+    return result;
   }
 
   monthlyTarget() {

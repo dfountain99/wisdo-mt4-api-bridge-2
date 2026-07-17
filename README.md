@@ -1,6 +1,10 @@
-## WISDO v6.0.9
+## WISDO v6.1.0 — Full Queue Audit and Performance Recovery
 
-Accounts API fail-open recovery for member workspace boot. See `WISDO_V6_0_9_RELEASE_NOTES.md`.
+This release audits every production JavaScript file for request-blocking global promise tails and removes cross-account serialization from the website, MT4 command path, notification delivery, Phase 1 state, trade signals, growth funnel, and PostgreSQL hot-state adapters. Required concurrency controls are now scoped single-flight guards or nonblocking database try-locks.
+
+It also bounds live Reporter reconciliation on read-only pages, returns stored PostgreSQL state when live refresh is delayed, lazy-loads motion videos only when selected, bypasses MP4 range traffic in the service worker, and stores Culture Feed metadata in PostgreSQL instead of a JSON index. PostgreSQL remains durable truth; there is no laptop or JSON runtime-state fallback, and Redis remains optional.
+
+See `WISDO_V6_1_0_RELEASE_NOTES.md` and `WISDO_V6_1_0_DEPLOYMENT_AND_TEST_CHECKLIST.md`.
 
 # WISDO v6.0.8 — Cloud-Only Recovery and Database Circuit Breaker
 

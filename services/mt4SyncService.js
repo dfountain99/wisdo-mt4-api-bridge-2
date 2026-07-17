@@ -944,8 +944,7 @@ export class Mt4SyncService {
     const prepareDue = !priorPreparation || Date.now() - Number(priorPreparation.preparedAt || 0) >= 60000;
     if (prepareDue && this.productEventSink?.prepareSnapshot) {
       const record = { preparedAt: Date.now(), promise: null };
-      record.promise = Promise.resolve()
-        .then(() => this.productEventSink.prepareSnapshot({ connectionRecord, latestSnapshotRecord }))
+      record.promise = (async () => this.productEventSink.prepareSnapshot({ connectionRecord, latestSnapshotRecord }))()
         .catch((error) => {
           this.routePreparationByAccount.delete(accountId);
           logger.warn('WISDO product relay preparation failed after MT4 sync.', {

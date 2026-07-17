@@ -60,8 +60,7 @@ function getNamespaceRuntime(databaseUrl, ssl, namespace) {
       loadedAt: 0,
       source: 'cold',
       pendingLoad: null,
-      writeChain: Promise.resolve(),
-      localChain: Promise.resolve(),
+      revision: 0,
       legacyImportPromise: null,
       dirtySnapshot: null,
       flushTimer: null,
@@ -207,19 +206,23 @@ export class MemoryPersistenceAdapter {
   constructor(defaultState = () => ({})) {
     this.defaultState = typeof defaultState === 'function' ? defaultState : () => clone(defaultState || {});
     this.state = this.defaultState();
-    this.writeChain = Promise.resolve();
+    this.revision = 0;
   }
   async load() { return clone(this.state); }
-  async save(data) { this.state = clone(data); return clone(this.state); }
+  async save(data) { this.state = clone(data); this.revision += 1; return clone(this.state); }
   async atomicUpdate(updater, { normalize = (value) => value } = {}) {
-    const operation = this.writeChain.then(async () => {
+    for (let attempt = 0; attempt < 256; attempt += 1) {
+      const revision = this.revision;
       const current = normalize(clone(this.state));
-      const next = normalize((await updater(current)) || current);
+      const candidate = updater(current);
+      const resolved = candidate && typeof candidate.then === 'function' ? await candidate : candidate;
+      const next = normalize(resolved || current);
+      if (revision !== this.revision) continue;
       this.state = clone(next);
-      return clone(next);
-    });
-    this.writeChain = operation.catch(() => undefined);
-    return operation;
+      this.revision += 1;
+      return clone(this.state);
+    }
+    throw new Error('Memory state changed too frequently to complete the update.');
   }
 }
 
@@ -293,6 +296,7 @@ export class PostgresKeyValuePersistenceAdapter {
     this.runtime.state = clone(state);
     this.runtime.loadedAt = Date.now();
     this.runtime.source = source;
+    this.runtime.revision = Number(this.runtime.revision || 0) + 1;
     return clone(this.runtime.state);
   }
   recordRuntimeError(error) {
@@ -306,6 +310,8 @@ export class PostgresKeyValuePersistenceAdapter {
       const pool = await this.getPool();
       await this.importLegacyIfNeeded(pool);
       const state = this.rowsToState(await this.loadRows(pool));
+      // Never replace newer hot state with an older database snapshot while a flush is pending.
+      if (this.runtime.dirtySnapshot) return clone(this.runtime.state || state);
       return this.setCache(state, 'postgres');
     })().catch((error) => { this.recordRuntimeError(error); throw error; })
       .finally(() => { this.runtime.pendingLoad = null; });
@@ -393,43 +399,49 @@ export class PostgresKeyValuePersistenceAdapter {
     const pending = this.runtime.dirtySnapshot;
     if (!pending) return null;
     this.runtime.dirtySnapshot = null;
-    this.runtime.flushPromise = this.runtime.writeChain.then(async () => {
+    this.runtime.flushPromise = (async () => {
       try {
-        const result = await this.runLockedMutation((current) => deepMerge(current, pending));
+        // A buffered snapshot is authoritative, including deletions. Do not deep-merge it
+        // into an older database image or removed accounts/routes can reappear.
+        const result = await this.runLockedMutation(() => pending);
         return result.state;
       } catch (error) {
-        this.runtime.dirtySnapshot = deepMerge(pending, this.runtime.dirtySnapshot || {});
+        // Keep the newest complete snapshot. A later mutation may already contain more
+        // recent state than the failed pending snapshot.
+        this.runtime.dirtySnapshot = clone(this.runtime.state || this.runtime.dirtySnapshot || pending);
         this.scheduleFlush(this.retryMs);
         return clone(this.runtime.state || pending);
       }
-    }).finally(() => {
+    })().finally(() => {
       this.runtime.flushPromise = null;
       if (this.runtime.dirtySnapshot) this.scheduleFlush();
     });
-    this.runtime.writeChain = this.runtime.flushPromise.catch(() => undefined);
     return this.runtime.flushPromise;
   }
 
   async bufferedUpdate(updater, { normalize = (value) => value } = {}) {
-    const operation = this.runtime.localChain.then(async () => {
+    for (let attempt = 0; attempt < 256; attempt += 1) {
       const loaded = this.runtime.state ? clone(this.runtime.state) : await this.load();
+      const revision = Number(this.runtime.revision || 0);
       const normalized = normalize(loaded);
-      const next = normalize((await updater(clone(normalized))) || normalized);
+      const candidate = updater(clone(normalized));
+      const resolved = candidate && typeof candidate.then === 'function' ? await candidate : candidate;
+      const next = normalize(resolved || normalized);
+      if (revision !== Number(this.runtime.revision || 0)) continue;
       this.setCache(next, this.runtime.source === 'postgres' ? 'hot-cache' : this.runtime.source);
-      this.runtime.dirtySnapshot = deepMerge(this.runtime.dirtySnapshot || {}, next);
+      this.runtime.dirtySnapshot = clone(next);
       this.scheduleFlush();
       return clone(next);
-    });
-    this.runtime.localChain = operation.catch(() => undefined);
-    return operation;
+    }
+    const error = new Error(`Hot state changed too frequently: ${this.namespace}`);
+    error.code = 'WISDO_HOT_STATE_CONTENTION';
+    throw error;
   }
 
   async save(data) {
     const snapshot = clone(data);
     if (this.bufferWrites) return this.bufferedUpdate(() => snapshot);
-    const operation = this.runtime.writeChain.then(async () => (await this.runLockedMutation(() => snapshot)).state);
-    this.runtime.writeChain = operation.catch(() => undefined);
-    return operation;
+    return (await this.runLockedMutation(() => snapshot)).state;
   }
   async saveSection(section, value) {
     const name = String(section || '').trim();
@@ -438,24 +450,16 @@ export class PostgresKeyValuePersistenceAdapter {
       const state = await this.bufferedUpdate((current) => ({ ...current, [name]: clone(value) }));
       return state[name];
     }
-    const operation = this.runtime.writeChain.then(async () => {
-      const result = await this.runLockedMutation((current) => ({ ...current, [name]: clone(value) }));
-      return result.state[name];
-    });
-    this.runtime.writeChain = operation.catch(() => undefined);
-    return operation;
+    const result = await this.runLockedMutation((current) => ({ ...current, [name]: clone(value) }));
+    return result.state[name];
   }
   async atomicUpdate(updater, { normalize = (value) => value } = {}) {
     if (this.bufferWrites) return this.bufferedUpdate(updater, { normalize });
-    const operation = this.runtime.writeChain.then(async () => {
-      const result = await this.runLockedMutation(async (current) => {
-        const normalized = normalize(current);
-        return normalize((await updater(normalized)) || normalized);
-      });
-      return result.state;
+    const result = await this.runLockedMutation(async (current) => {
+      const normalized = normalize(current);
+      return normalize((await updater(normalized)) || normalized);
     });
-    this.runtime.writeChain = operation.catch(() => undefined);
-    return operation;
+    return result.state;
   }
   async close() {}
 }
@@ -476,6 +480,8 @@ export function createPersistenceAdapter(config = {}, options = {}) {
     namespace: options.namespace || options.fileName || 'wisdo',
     ssl: parseBoolean(persistence.dbSsl ?? config.dbSsl ?? process.env.WISDO_DB_SSL, false),
     defaultState: options.defaultState,
-    bufferWrites: false,
+    // Production requests update a disposable hot mirror immediately and flush the
+    // complete authoritative snapshot to PostgreSQL in the background. No files are used.
+    bufferWrites: parseBoolean(options.bufferWrites ?? persistence.bufferWrites ?? process.env.WISDO_DB_BUFFER_LIVE_WRITES, production),
   });
 }
