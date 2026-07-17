@@ -246,6 +246,16 @@ export class Mt4CommandService {
       throw error;
     }
     return this.mutate(async (data) => {
+      const deterministicId = payload?.commandId ? `wisdo_${payload.commandId}` : '';
+      if (deterministicId) {
+        const existing = (data.commandQueue || []).find((item) =>
+          String(item?.id || '') === deterministicId &&
+          String(item?.accountId || '') === String(validation.accountId || '') &&
+          String(item?.command || '').toUpperCase() === String(validation.command || '').toUpperCase() &&
+          !['failed', 'expired', 'cancelled'].includes(String(item?.status || '').toLowerCase())
+        );
+        if (existing) return existing;
+      }
       const record = {
         ...this.buildRecord(userId, validation.accountId, validation.command, payload),
         validation,

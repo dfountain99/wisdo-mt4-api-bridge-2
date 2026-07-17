@@ -1036,7 +1036,7 @@ test('JSON persistence restores a valid backup instead of silently resetting acc
   assert.deepEqual(repaired, expected);
 });
 
-test('visible Culture Lane pages expose symbol history, Harvest, audit, intelligence, and parallel lane close', async (t) => {
+test('Culture Lane setup lives in Copier Engine while dashboard owns the combined portfolio and Harvest controls', async (t) => {
   const now = new Date().toISOString();
   const seed = {
     tradingAccounts: {
@@ -1053,13 +1053,32 @@ test('visible Culture Lane pages expose symbol history, Harvest, audit, intellig
   const testServer = await createTestServer(seed);
   t.after(() => testServer.server.close());
   const headers = { 'x-wisdo-test-user': 'lane-user', accept: 'text/html' };
-  for (const page of ['culture-lanes', 'symbol-routing', 'harvest', 'lane-audit', 'lane-intelligence', 'compound-tracker']) {
+
+  const dashboardRedirect = await fetch(`${testServer.base}/app/culture-lanes`, { headers });
+  assert.equal(dashboardRedirect.status, 200);
+  assert.equal(new URL(dashboardRedirect.url).pathname, '/app/dashboard');
+  assert.match(await dashboardRedirect.text(), /Combined Dashboard/);
+
+  const symbolsRedirect = await fetch(`${testServer.base}/app/symbol-routing`, { headers });
+  assert.equal(symbolsRedirect.status, 200);
+  assert.equal(new URL(symbolsRedirect.url).pathname, '/app/copier-engine');
+  assert.match(await symbolsRedirect.text(), /Copier Engine/);
+
+  const harvestRedirect = await fetch(`${testServer.base}/app/harvest`, { headers });
+  assert.equal(harvestRedirect.status, 200);
+  assert.equal(new URL(harvestRedirect.url).pathname, '/app/dashboard');
+
+  for (const page of ['lane-audit', 'lane-intelligence', 'compound-tracker']) {
     const response = await fetch(`${testServer.base}/app/${page}`, { headers });
     assert.equal(response.status, 200);
-    const body = await response.text();
-    assert.match(body, /Culture Lanes/);
-    assert.match(body, /Harvest Mode/);
   }
+
+  const workspaceSource = await fs.readFile(path.join(process.cwd(), 'public/js/workspace.js'), 'utf8');
+  assert.match(workspaceSource, /name="slave_ids"/);
+  assert.match(workspaceSource, /symbol-highlight/);
+  assert.match(workspaceSource, /Dashboard Harvest Mode/);
+  assert.match(workspaceSource, /Collective lane equity/);
+
   const overview = await jsonFetch(`${testServer.base}/api/v2/culture-lanes/lane_visible/overview`, { headers: { 'x-wisdo-test-user': 'lane-user' } });
   assert.equal(overview.response.status, 200);
   assert.equal(overview.payload.leaderSymbols[0].symbol, 'XAUUSD');
@@ -1069,6 +1088,166 @@ test('visible Culture Lane pages expose symbol history, Harvest, audit, intellig
   assert.equal(close.response.status, 202);
   assert.equal(close.payload.parallel, true);
   assert.equal(close.payload.commands.length, 2);
+});
+
+
+test('Copier Engine creates one Culture Lane with multiple receiver execution routes and highlighted symbols', async (t) => {
+  const relayWrites = [];
+  const repository = {
+    getMt4State: async () => ({ connectionsByAccountId: {} }),
+    getMt4AccountId: (accountNumber, server = '') => `${accountNumber}:${server || 'server'}`,
+    upsertCopyRoute: async (userId, route) => { relayWrites.push({ userId, route: structuredClone(route) }); return route; },
+  };
+  const seed = {
+    tradingAccounts: {
+      lead: { id: 'lead', user_id: 'multi-user', account_number: '100', server: 'Demo', desk_role: 'lead', reporter_connected: true, status: 'connected' },
+      follow1: { id: 'follow1', user_id: 'multi-user', account_number: '201', server: 'Demo', desk_role: 'receiver', reporter_connected: true, status: 'connected' },
+      follow2: { id: 'follow2', user_id: 'multi-user', account_number: '202', server: 'Demo', desk_role: 'receiver', reporter_connected: true, status: 'connected' },
+    },
+    trades: {
+      priorGold: { id: 'priorGold', user_id: 'multi-user', account_id: 'lead', external_ticket: '10', symbol: 'XAUUSD', status: 'closed', opened_at: new Date().toISOString(), closed_at: new Date().toISOString(), pnl: 5 },
+      priorNas: { id: 'priorNas', user_id: 'multi-user', account_id: 'lead', external_ticket: '11', symbol: 'NAS100', status: 'closed', opened_at: new Date().toISOString(), closed_at: new Date().toISOString(), pnl: 3 },
+    },
+  };
+  const testServer = await createTestServer(seed, { mt4SyncService: { repository } });
+  t.after(() => testServer.server.close());
+  const headers = { 'content-type': 'application/json', 'x-wisdo-test-user': 'multi-user' };
+  const history = await jsonFetch(`${testServer.base}/api/v2/leaders/lead/symbol-history`, { headers });
+  assert.deepEqual(history.payload.symbols.map((row) => row.symbol).sort(), ['NAS100', 'XAUUSD']);
+
+  const created = await jsonFetch(`${testServer.base}/api/v2/copier-rules`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ lane_name: 'Portfolio Lane', master_id: 'lead', slave_ids: ['follow1', 'follow2'], allowed_symbols: ['XAUUSD'], blocked_symbols: ['NAS100'], allow_only_highlighted: true, risk_type: 'multiplier', risk_value: 1 }),
+  });
+  assert.equal(created.response.status, 201);
+  assert.equal(created.payload.receiverCount, 2);
+  assert.equal(created.payload.rules.length, 2);
+  assert.equal(new Set(created.payload.rules.map((rule) => rule.culture_lane_id)).size, 1);
+  assert.deepEqual(created.payload.cultureLane.followerAccountIds.sort(), ['follow1', 'follow2']);
+  assert.equal(Object.values(testServer.getState().copierRules).length, 2);
+  assert.equal(relayWrites.length, 2);
+  assert.ok(relayWrites.every((write) => write.route.risk.allowedSymbols.includes('XAUUSD')));
+});
+
+test('dashboard Harvest queues one parallel sweep for the leader and every receiver', async (t) => {
+  const now = new Date().toISOString();
+  const seed = {
+    tradingAccounts: {
+      lead: { id: 'lead', user_id: 'harvest-user', account_number: '100', server: 'Demo', desk_role: 'lead', reporter_connected: true, status: 'connected', balance: 1000, equity: 1010 },
+      follow1: { id: 'follow1', user_id: 'harvest-user', account_number: '201', server: 'Demo', desk_role: 'receiver', reporter_connected: true, status: 'connected', balance: 500, equity: 505 },
+      follow2: { id: 'follow2', user_id: 'harvest-user', account_number: '202', server: 'Demo', desk_role: 'receiver', reporter_connected: true, status: 'connected', balance: 500, equity: 505 },
+    },
+    cultureLanesById: {
+      lane_harvest: { laneId: 'lane_harvest', ownerUserId: 'harvest-user', name: 'Harvest Portfolio', leaderAccountId: 'lead', followerAccountIds: ['follow1', 'follow2'], accountIds: ['lead', 'follow1', 'follow2'], status: 'active', profile: 'custom', createdAt: now, updatedAt: now },
+    },
+  };
+  const testServer = await createTestServer(seed);
+  t.after(() => testServer.server.close());
+  const result = await jsonFetch(`${testServer.base}/api/v2/culture-lanes/lane_harvest/harvest/execute`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-wisdo-test-user': 'harvest-user' }, body: JSON.stringify({ confirmation: 'confirmed' }),
+  });
+  assert.equal(result.response.status, 202);
+  assert.equal(result.payload.manual, true);
+  assert.equal(result.payload.commandIds.length, 3);
+  const queued = await testServer.commands.load();
+  const accountCommands = queued.commandQueue.filter((command) => command.command === 'CLOSE_ALL_TRADES');
+  assert.deepEqual(accountCommands.map((command) => command.accountId).sort(), ['follow1', 'follow2', 'lead']);
+  assert.ok(accountCommands.every((command) => command.priority === 10000 && command.payload.fanoutMode === 'parallel_lane_atomic_sweep'));
+});
+
+test('Reporter close snapshots and missing leader tickets relay deterministic priority closes to every receiver', async (t) => {
+  let productSink = null;
+  const mt4SyncService = {
+    attachProductEventSink(sink) { productSink = sink; },
+    repository: { getMt4State: async () => ({ connectionsByAccountId: {} }), getMt4AccountId: (accountNumber, server = '') => `${accountNumber}:${server || 'server'}` },
+  };
+  const now = new Date().toISOString();
+  const seed = {
+    tradingAccounts: {
+      lead: { id: 'lead', user_id: 'relay-user', account_number: '100', server: 'Demo', desk_role: 'lead', reporter_connected: true, status: 'connected' },
+      follow1: { id: 'follow1', user_id: 'relay-user', account_number: '201', server: 'Demo', desk_role: 'receiver', reporter_connected: true, status: 'connected' },
+      follow2: { id: 'follow2', user_id: 'relay-user', account_number: '202', server: 'Demo', desk_role: 'receiver', reporter_connected: true, status: 'connected' },
+    },
+    cultureLanesById: {
+      lane_relay: { laneId: 'lane_relay', ownerUserId: 'relay-user', name: 'Relay Lane', leaderAccountId: 'lead', followerAccountIds: ['follow1', 'follow2'], accountIds: ['lead', 'follow1', 'follow2'], status: 'active', profile: 'custom', createdAt: now, updatedAt: now },
+    },
+    copierRules: {
+      rule1: { id: 'rule1', culture_lane_id: 'lane_relay', user_id: 'relay-user', master_id: 'lead', slave_id: 'follow1', is_active: true, symbol_mapping: {} },
+      rule2: { id: 'rule2', culture_lane_id: 'lane_relay', user_id: 'relay-user', master_id: 'lead', slave_id: 'follow2', is_active: true, symbol_mapping: {} },
+    },
+    trades: {
+      masterTrade: { id: 'masterTrade', user_id: 'relay-user', account_id: 'lead', copier_rule_id: null, external_ticket: 'L100', symbol: 'XAUUSD', side: 'buy', status: 'open', opened_at: now },
+      copy1: { id: 'copy1', user_id: 'relay-user', account_id: 'follow1', copier_rule_id: 'rule1', source_trade_id: 'masterTrade', external_ticket: 'F201', symbol: 'XAUUSD', side: 'buy', status: 'open', opened_at: now },
+      copy2: { id: 'copy2', user_id: 'relay-user', account_id: 'follow2', copier_rule_id: 'rule2', source_trade_id: 'masterTrade', external_ticket: 'F202', symbol: 'XAUUSD', side: 'buy', status: 'open', opened_at: now },
+    },
+  };
+  const testServer = await createTestServer(seed, { mt4SyncService });
+  t.after(() => testServer.server.close());
+  assert.ok(productSink?.ingestSnapshot);
+  await productSink.ingestSnapshot({
+    connectionRecord: { accountId: 'lead', discordUserId: 'relay-user', accountNumber: '100', brokerServer: 'Demo' },
+    latestSnapshotRecord: { receivedAt: new Date().toISOString(), snapshot: { balance: 1000, equity: 1000, floatingPL: 0, openTradeCount: 0, openTrades: [], closedTradesToday: [], terminalConnected: true, expertEnabled: true } },
+    signalSummary: {},
+  });
+  const queue = await testServer.commands.load();
+  const closes = queue.commandQueue.filter((command) => command.command === 'COPY_CLOSE_TRADE');
+  assert.equal(closes.length, 2);
+  assert.deepEqual(closes.map((command) => command.accountId).sort(), ['follow1', 'follow2']);
+  assert.ok(closes.every((command) => command.priority === 10000 && command.payload.closeAuthority === true));
+  assert.deepEqual(closes.map((command) => command.id).sort(), ['wisdo_copy-close-rule1-L100', 'wisdo_copy-close-rule2-L100']);
+
+  // A later explicit MT4 history close must not duplicate the same receiver close commands.
+  await productSink.ingestSnapshot({
+    connectionRecord: { accountId: 'lead', discordUserId: 'relay-user', accountNumber: '100', brokerServer: 'Demo' },
+    latestSnapshotRecord: { receivedAt: new Date().toISOString(), snapshot: { balance: 1000, equity: 1000, floatingPL: 0, openTradeCount: 0, openTrades: [], closedTradesToday: [{ ticket: 'L100', symbol: 'XAUUSD', type: 'buy', lots: 0.1, openTime: now, closeTime: new Date().toISOString(), profit: 5 }], terminalConnected: true, expertEnabled: true } },
+    signalSummary: {},
+  });
+  const afterHistory = await testServer.commands.load();
+  assert.equal(afterHistory.commandQueue.filter((command) => command.command === 'COPY_CLOSE_TRADE').length, 2);
+});
+
+test('automatic dashboard Harvest evaluates Reporter snapshots and queues the full lane', async (t) => {
+  let productSink = null;
+  const mt4SyncService = {
+    attachProductEventSink(sink) { productSink = sink; },
+    repository: { getMt4State: async () => ({ connectionsByAccountId: {} }), getMt4AccountId: (accountNumber, server = '') => `${accountNumber}:${server || 'server'}` },
+  };
+  const now = new Date().toISOString();
+  const seed = {
+    tradingAccounts: {
+      lead: { id: 'lead', user_id: 'auto-harvest-user', account_number: '100', server: 'Demo', desk_role: 'lead', reporter_connected: true, status: 'connected', balance: 1000, equity: 1000 },
+      follow: { id: 'follow', user_id: 'auto-harvest-user', account_number: '200', server: 'Demo', desk_role: 'receiver', reporter_connected: true, status: 'connected', balance: 500, equity: 500 },
+    },
+    cultureLanesById: {
+      lane_auto: { laneId: 'lane_auto', ownerUserId: 'auto-harvest-user', name: 'Auto Harvest Lane', leaderAccountId: 'lead', followerAccountIds: ['follow'], accountIds: ['lead', 'follow'], status: 'active', profile: 'custom', createdAt: now, updatedAt: now },
+    },
+    harvestPoliciesByLaneId: {
+      lane_auto: { laneId: 'lane_auto', enabled: true, mode: 'harvest_once', goalType: 'floating_profit', goalValue: 5, referencePoint: 'start_of_day_balance', stairSteps: [], updatedAt: now },
+    },
+  };
+  const testServer = await createTestServer(seed, { mt4SyncService });
+  t.after(() => testServer.server.close());
+  await productSink.ingestSnapshot({
+    connectionRecord: { accountId: 'lead', discordUserId: 'auto-harvest-user', accountNumber: '100', brokerServer: 'Demo' },
+    latestSnapshotRecord: { receivedAt: new Date().toISOString(), snapshot: { balance: 1000, equity: 1010, floatingPL: 10, openTradeCount: 1, openTrades: [{ ticket: 'A1', symbol: 'XAUUSD', type: 'buy', lots: 0.1, openTime: now, profit: 10 }], closedTradesToday: [], terminalConnected: true, expertEnabled: true } },
+    signalSummary: {},
+  });
+  const queue = await testServer.commands.load();
+  assert.deepEqual(queue.commandQueue.filter((command) => command.command === 'CLOSE_ALL_TRADES').map((command) => command.accountId).sort(), ['follow', 'lead']);
+  const cycles = Object.values(testServer.getState().harvestCyclesById || {});
+  assert.equal(cycles.length, 1);
+  assert.equal(cycles[0].automatic, true);
+  assert.equal(cycles[0].status, 'commands_queued');
+
+  await productSink.ingestSnapshot({
+    connectionRecord: { accountId: 'lead', discordUserId: 'auto-harvest-user', accountNumber: '100', brokerServer: 'Demo' },
+    latestSnapshotRecord: { receivedAt: new Date().toISOString(), snapshot: { balance: 1010, equity: 1010, floatingPL: 0, openTradeCount: 0, openTrades: [], closedTradesToday: [{ ticket: 'A1', symbol: 'XAUUSD', type: 'buy', lots: 0.1, openTime: now, closeTime: new Date().toISOString(), profit: 10 }], terminalConnected: true, expertEnabled: true } },
+    signalSummary: {},
+  });
+  const completedState = testServer.getState();
+  const completedCycle = Object.values(completedState.harvestCyclesById)[0];
+  assert.equal(completedCycle.status, 'completed');
+  assert.equal(completedState.cultureLanesById.lane_auto.status, 'paused');
 });
 
 test('existing Copier Engine routes backfill automatically into visible Culture Lanes', async (t) => {

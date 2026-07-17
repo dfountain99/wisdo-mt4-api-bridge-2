@@ -1,6 +1,6 @@
-# WISDO v6.0.2 — Culture Lane Portfolio Operating System
+# WISDO v6.0.3 — Unified Multi-Account Culture Lane
 
-WISDO v6.0.2 combines the complete application with a hardened PostgreSQL/Redis relay foundation and the first operational Culture Lane OS APIs. The release adds multi-instance-safe section persistence, Redis Streams, command idempotency, retry/dead-letter recovery, durable acknowledgements and heartbeats, Culture Lane Vaults, Smart Symbol Routing, Harvest policies, Genomes, Timelines, Trade Passports, DNA, and Intelligence reports.
+WISDO v6.0.3 combines the complete application with a hardened PostgreSQL/Redis relay foundation and the first operational Culture Lane OS APIs. The release adds multi-instance-safe section persistence, Redis Streams, command idempotency, retry/dead-letter recovery, durable acknowledgements and heartbeats, Culture Lane Vaults, Smart Symbol Routing, Harvest policies, Genomes, Timelines, Trade Passports, DNA, and Intelligence reports.
 
 See `docs/RELEASE_NOTES_V6_0_0.md` and `WISDO_V6_0_0_DEPLOYMENT_CHECKLIST.md` before deployment.
 
@@ -280,3 +280,8 @@ Without external AI or video-rendering credentials, the internal adaptive tutor,
 ## v5.9 PostgreSQL + Redis infrastructure
 
 The v5.9 patch adds eager, sectioned PostgreSQL persistence and a Redis-backed MT4 command bridge. It intentionally does not use lazy loading. See `WISDO_V5_9_POSTGRES_REDIS_DEPLOYMENT.md` and verify `/api/copier-infrastructure-health` after deployment.
+
+
+## v6.0.3 unified lane workflow
+
+v6.0.3 moves Culture Lane creation, multi-receiver selection, and click-to-allow symbol routing into `/app/copier-engine`. The main dashboard now presents each Culture Lane as one combined portfolio profile and includes working inline Harvest controls. Automatic Harvest evaluates every Reporter snapshot, queues one parallel atomic sweep per account, confirms the lane is flat, records the cycle, resets the next baseline, and pauses Harvest Once lanes. Leader closes gain a deterministic Reporter-snapshot failsafe that relays closes when the ticket appears in closed history or disappears from a complete open-trade snapshot. Reporter v1.57 remains the required MT4 execution bridge. See `docs/RELEASE_NOTES_V6_0_3.md`.

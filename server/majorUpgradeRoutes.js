@@ -50,7 +50,7 @@ function isAdmin(user){ return Boolean(user?.admin || user?.role==='admin' || (u
 function requireAdmin(req,res,next){ if(!isAdmin(req.wisdoUser||currentUser(req))) return res.status(403).json({ok:false,error:'Admin role required.'}); next(); }
 
 function ensureMajorState(state={}){
-  state.profiles ||= {}; state.userRoles ||= {}; state.tradingAccounts ||= {}; state.accountShares ||= {}; state.copierRules ||= {}; state.trades ||= {}; state.subscriptions ||= {}; state.alerts ||= {}; state.firms ||= {}; state.passwordResetTokens ||= {}; state.marketCache ||= {}; state.pushSubscriptions ||= {}; state.aiThreads ||= {}; state.affiliates ||= {}; state.affiliateConversions ||= {}; state.auditLog ||= []; state.accountTelemetry ||= {}; state.liveTradeEventKeys ||= {}; state.accountHealthState ||= {}; state.relayDiagnostics ||= []; state.accountControlSettingsById ||= {}; state.deletedTradingAccounts ||= {}; state.compoundCloseTrackersById ||= {};
+  state.profiles ||= {}; state.userRoles ||= {}; state.tradingAccounts ||= {}; state.accountShares ||= {}; state.copierRules ||= {}; state.trades ||= {}; state.subscriptions ||= {}; state.alerts ||= {}; state.firms ||= {}; state.passwordResetTokens ||= {}; state.marketCache ||= {}; state.pushSubscriptions ||= {}; state.aiThreads ||= {}; state.affiliates ||= {}; state.affiliateConversions ||= {}; state.auditLog ||= []; state.accountTelemetry ||= {}; state.liveTradeEventKeys ||= {}; state.accountHealthState ||= {}; state.relayDiagnostics ||= []; state.accountControlSettingsById ||= {}; state.deletedTradingAccounts ||= {}; state.compoundCloseTrackersById ||= {}; state.leaderCloseDetectionByTicket ||= {};
   ensureCloseIntelligenceState(state);
   ensureCultureLaneState(state);
   for(const firm of FIRMS) state.firms[firm.id] ||= firm;
@@ -331,6 +331,7 @@ export async function ingestReporterSnapshotToProductState({ connectionRecord, l
       balance: num(snapshot.balance, account.balance),
       equity: num(snapshot.equity, account.equity),
       floating_pl: num(snapshot.floatingPL, account.floating_pl),
+      daily_closed_pl: num(snapshot.dailyClosedPL, account.daily_closed_pl),
       open_trades: num(snapshot.openTradeCount, account.open_trades),
       reporter_connected: true,
       terminal_connected: snapshot.terminalConnected !== false,
@@ -362,6 +363,15 @@ export async function ingestReporterSnapshotToProductState({ connectionRecord, l
     let openUpserts = 0;
     let closedUpserts = 0;
     let alerts = 0;
+    const newlyClosedLeaderTrades = [];
+    const previousLeaderOpenTrades = Object.values(state.trades || {}).filter((trade) =>
+      String(trade.account_id || '') === accountId &&
+      !trade.copier_rule_id &&
+      ['open', 'closing'].includes(String(trade.status || '')) &&
+      String(trade.external_ticket || '').trim()
+    );
+    const snapshotOpenTickets = new Set((Array.isArray(snapshot.openTrades) ? snapshot.openTrades : []).map((trade) => String(trade?.ticket ?? '').trim()).filter(Boolean));
+    const snapshotClosedTickets = new Set((Array.isArray(snapshot.closedTradesToday) ? snapshot.closedTradesToday : []).map((trade) => String(trade?.ticket ?? '').trim()).filter(Boolean));
     for (const trade of Array.isArray(snapshot.openTrades) ? snapshot.openTrades : []) {
       const result = upsertSnapshotTrade(state, { userId, accountId, trade, closed: false, receivedAt });
       if (!result.trade) continue;
@@ -381,6 +391,16 @@ export async function ingestReporterSnapshotToProductState({ connectionRecord, l
       if (!result.trade) continue;
       closedUpserts += 1;
       if (result.changedToClosed) {
+        if (!result.trade.copier_rule_id) {
+          newlyClosedLeaderTrades.push({
+            tradeId: result.trade.id,
+            accountId,
+            sourceTicket: String(result.trade.external_ticket || result.trade.id || ''),
+            symbol: result.trade.symbol,
+            side: result.trade.side,
+            closedAt: result.trade.closed_at || receivedAt,
+          });
+        }
         const eventKey = `trade-close:${accountId}:${result.trade.external_ticket}:${result.trade.closed_at}`;
         if (appendMemberAlert(state, userId, {
           type: 'trade_closed',
@@ -388,6 +408,35 @@ export async function ingestReporterSnapshotToProductState({ connectionRecord, l
           body: `${result.trade.symbol} ticket ${result.trade.external_ticket} closed · net P/L ${result.trade.pnl.toFixed(2)}`,
           metadata: { accountId, tradeId: result.trade.id, ticket: result.trade.external_ticket, symbol: result.trade.symbol, pnl: result.trade.pnl },
         }, eventKey)) alerts += 1;
+      }
+    }
+
+    // Reporter snapshots are complete account snapshots. If an open leader ticket disappears
+    // and is not already present in today's closed history, treat that disappearance as close
+    // authority immediately. The deterministic command ID prevents duplication when MT4 history
+    // reports the same close on the next heartbeat.
+    const reportedOpenCount = Number(snapshot.openTradeCount);
+    const completeOpenSnapshot = Array.isArray(snapshot.openTrades) && (!Number.isFinite(reportedOpenCount) || reportedOpenCount === snapshotOpenTickets.size);
+    if (completeOpenSnapshot) {
+      for (const trade of previousLeaderOpenTrades) {
+        const sourceTicket = String(trade.external_ticket || '').trim();
+        if (!sourceTicket || snapshotOpenTickets.has(sourceTicket) || snapshotClosedTickets.has(sourceTicket)) continue;
+        const detectionKey = `${accountId}:${sourceTicket}`;
+        if (state.leaderCloseDetectionByTicket[detectionKey]) continue;
+        state.leaderCloseDetectionByTicket[detectionKey] = { accountId, sourceTicket, detectedAt: receivedAt, source: 'complete_open_snapshot_absence' };
+        trade.status = 'closed_pending_history';
+        trade.close_detected_at = receivedAt;
+        trade.close_detection_source = 'complete_open_snapshot_absence';
+        trade.updated_at = receivedAt;
+        newlyClosedLeaderTrades.push({
+          tradeId: trade.id,
+          accountId,
+          sourceTicket,
+          symbol: trade.symbol,
+          side: trade.side,
+          closedAt: receivedAt,
+          detectionSource: 'complete_open_snapshot_absence',
+        });
       }
     }
 
@@ -421,7 +470,7 @@ export async function ingestReporterSnapshotToProductState({ connectionRecord, l
       });
       state.relayDiagnostics = state.relayDiagnostics.slice(0, 2000);
     }
-    return { openUpserts, closedUpserts, alerts, accountId, userId };
+    return { openUpserts, closedUpserts, alerts, accountId, userId, newlyClosedLeaderTrades };
   });
 }
 
@@ -495,6 +544,249 @@ async function synchronizeCopierRulesToRelay({ userId, mt4SyncService, loadEcosy
   return results;
 }
 
+
+function leaderSymbolHistoryFromState(state, leaderAccountId) {
+  const stats = {};
+  for (const trade of Object.values(state.trades || {})) {
+    if (String(trade?.account_id || '') !== String(leaderAccountId || '') || !trade?.symbol) continue;
+    const symbol = normalizeSymbol(trade.symbol);
+    if (!symbol) continue;
+    const row = stats[symbol] || { symbol, count: 0, lastTradedAt: null, openCount: 0, closedCount: 0 };
+    row.count += 1;
+    if (String(trade.status || '').toLowerCase() === 'open') row.openCount += 1;
+    else row.closedCount += 1;
+    const stamp = trade.opened_at || trade.updated_at || trade.closed_at || null;
+    if (stamp && (!row.lastTradedAt || new Date(stamp) > new Date(row.lastTradedAt))) row.lastTradedAt = stamp;
+    stats[symbol] = row;
+  }
+  return Object.values(stats).sort((a, b) => b.count - a.count || new Date(b.lastTradedAt || 0) - new Date(a.lastTradedAt || 0));
+}
+
+function buildCopierRuleRecord(state, userId, master, follower, input = {}, { laneId = '', existing = null } = {}) {
+  const risk = RISK_TYPES.includes(input.risk_type) ? input.risk_type : (existing?.risk_type || 'multiplier');
+  const allowedSymbols = parseSymbols(input.allowed_symbols ?? existing?.allowed_symbols ?? []);
+  const rule = {
+    ...(existing || {}),
+    id: existing?.id || id('rule'),
+    user_id: String(userId),
+    master_id: String(master.id),
+    slave_id: String(follower.id),
+    risk_type: risk,
+    risk_value: num(input.risk_value, existing?.risk_value ?? 1),
+    min_lot: num(input.min_lot, existing?.min_lot ?? .01),
+    max_lot: num(input.max_lot, existing?.max_lot ?? 100),
+    equity_protection_pct: input.equity_protection_pct === '' ? null : num(input.equity_protection_pct, existing?.equity_protection_pct ?? null),
+    max_daily_loss: input.max_daily_loss === '' ? null : num(input.max_daily_loss, existing?.max_daily_loss ?? null),
+    max_open_trades: input.max_open_trades === '' ? null : num(input.max_open_trades, existing?.max_open_trades ?? null),
+    max_spread_points: input.max_spread_points === '' ? null : num(input.max_spread_points, existing?.max_spread_points ?? null),
+    max_slippage_points: input.max_slippage_points === '' ? null : num(input.max_slippage_points, existing?.max_slippage_points ?? null),
+    allowed_symbols: allowedSymbols,
+    blocked_symbols: parseSymbols(input.blocked_symbols ?? existing?.blocked_symbols ?? []),
+    allow_only_highlighted: input.allow_only_highlighted === undefined ? Boolean(existing?.allow_only_highlighted || allowedSymbols.length) : parseBool(input.allow_only_highlighted),
+    symbol_mapping: normalizeMap(input.symbol_mapping ?? existing?.symbol_mapping ?? {}),
+    trading_hours_start: input.trading_hours_start || existing?.trading_hours_start || null,
+    trading_hours_end: input.trading_hours_end || existing?.trading_hours_end || null,
+    is_active: input.is_active === undefined ? (existing?.is_active ?? true) : parseBool(input.is_active),
+    reverse_signals: input.reverse_signals === undefined ? Boolean(existing?.reverse_signals) : parseBool(input.reverse_signals),
+    copy_sl_tp: input.copy_sl_tp === undefined ? (existing?.copy_sl_tp ?? true) : parseBool(input.copy_sl_tp),
+    copy_pending_orders: input.copy_pending_orders === undefined ? Boolean(existing?.copy_pending_orders) : parseBool(input.copy_pending_orders),
+    culture_lane_id: laneId || existing?.culture_lane_id || null,
+    created_at: existing?.created_at || nowIso(),
+    updated_at: nowIso(),
+  };
+  state.copierRules[rule.id] = rule;
+  return rule;
+}
+
+async function queueLaneSweep({ mt4CommandService, lane, userId, reason = 'culture_lane_close', cycleId = '', force = false }) {
+  const accountIds = [...new Set((lane.accountIds || [lane.leaderAccountId, ...(lane.followerAccountIds || [])]).map(String).filter(Boolean))];
+  const startedAt = Date.now();
+  const results = await Promise.allSettled(accountIds.map((accountId) => mt4CommandService.queueCommandForAccount(userId, accountId, 'CLOSE_ALL_TRADES', {
+    accountId,
+    confirmation: 'confirmed',
+    immediate: true,
+    priority: 10000,
+    ttlMinutes: 2,
+    commandId: `${reason}-${cycleId || lane.laneId}-${accountId}`,
+    fanoutMode: 'parallel_lane_atomic_sweep',
+    requestedFrom: reason,
+    laneId: lane.laneId,
+    harvestCycleId: cycleId || undefined,
+    force: Boolean(force),
+  })));
+  const commands = [];
+  const failures = [];
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') commands.push({ accountId: accountIds[index], commandId: result.value.id, command: result.value });
+    else failures.push({ accountId: accountIds[index], error: String(result.reason?.message || result.reason || 'Queue failed') });
+  });
+  return { accountIds, commands, failures, fanoutMs: Date.now() - startedAt };
+}
+
+async function queueFollowerClosesFromLedger({ closedTrades = [], mt4CommandService, loadEcosystemState, saveEcosystemState, logger }) {
+  if (!closedTrades.length || !mt4CommandService?.queueCommandForAccount) return { queued: [], failures: [] };
+  const state = ensureMajorState(await loadEcosystemState());
+  const tasks = [];
+  for (const closed of closedTrades) {
+    const masterTrade = state.trades?.[closed.tradeId] || Object.values(state.trades || {}).find((trade) =>
+      !trade?.copier_rule_id && String(trade.account_id || '') === String(closed.accountId || '') && String(trade.external_ticket || trade.id || '') === String(closed.sourceTicket || '')
+    );
+    const sourceTicket = String(closed.sourceTicket || masterTrade?.external_ticket || masterTrade?.id || '');
+    if (!sourceTicket) continue;
+    const rules = Object.values(state.copierRules || {}).filter((rule) => String(rule.master_id || '') === String(closed.accountId || masterTrade?.account_id || '')); // Closing authority bypasses paused entry routing.
+    for (const rule of rules) {
+      const copied = Object.values(state.trades || {}).find((trade) =>
+        String(trade.copier_rule_id || '') === String(rule.id) &&
+        String(trade.account_id || '') === String(rule.slave_id) &&
+        (String(trade.source_trade_id || '') === String(masterTrade?.id || '') || String(trade.source_ticket || '') === sourceTicket)
+      );
+      if (copied?.status === 'closed') continue;
+      if (copied?.status === 'closing' && copied?.close_command_id) continue;
+      tasks.push({
+        rule,
+        copiedTradeId: copied?.id || null,
+        ownerUserId: String(rule.user_id),
+        followerAccountId: String(rule.slave_id),
+        leaderAccountId: String(rule.master_id),
+        leaderTicket: sourceTicket,
+        followerTicket: copied?.external_ticket ? String(copied.external_ticket) : '',
+        leaderSymbol: normalizeSymbol(masterTrade?.symbol || closed.symbol || ''),
+        followerSymbol: normalizeSymbol(copied?.symbol || resolveFollowerSymbol(masterTrade?.symbol || closed.symbol || '', rule)),
+        side: masterTrade?.side || closed.side || '',
+        laneId: rule.culture_lane_id || `lane_${rule.id}`,
+      });
+    }
+  }
+  const results = await Promise.allSettled(tasks.map((task) => mt4CommandService.queueCommandForAccount(task.ownerUserId, task.followerAccountId, 'COPY_CLOSE_TRADE', {
+    accountId: task.followerAccountId,
+    followerAccountId: task.followerAccountId,
+    leaderAccountId: task.leaderAccountId,
+    routeId: task.rule.id,
+    laneId: task.laneId,
+    sourceTicket: task.leaderTicket,
+    leaderTicket: task.leaderTicket,
+    masterTicket: task.leaderTicket,
+    followerTicket: task.followerTicket || undefined,
+    leaderSymbol: task.leaderSymbol,
+    masterSymbol: task.leaderSymbol,
+    followerSymbol: task.followerSymbol,
+    symbol: task.followerSymbol,
+    side: task.side,
+    copyKey: `${task.rule.id}:${task.leaderTicket}`,
+    commandId: `copy-close-${task.rule.id}-${task.leaderTicket}`,
+    confirmation: 'confirmed',
+    closeAuthority: true,
+    immediate: true,
+    priority: 10000,
+    ttlMinutes: 2,
+    requestedFrom: 'reporter_leader_close_failsafe',
+  })));
+  const queued = [];
+  const failures = [];
+  results.forEach((result, index) => {
+    const task = tasks[index];
+    if (result.status === 'fulfilled') queued.push({ ...task, commandId: result.value.id });
+    else failures.push({ ...task, error: String(result.reason?.message || result.reason || 'Queue failed') });
+  });
+  if (queued.length || failures.length) {
+    await mutate(loadEcosystemState, saveEcosystemState, (working) => {
+      for (const item of queued) {
+        if (item.copiedTradeId && working.trades[item.copiedTradeId]) {
+          working.trades[item.copiedTradeId].status = 'closing';
+          working.trades[item.copiedTradeId].close_requested_at = nowIso();
+          working.trades[item.copiedTradeId].close_command_id = item.commandId;
+          working.trades[item.copiedTradeId].close_requested_from = 'reporter_leader_close_failsafe';
+        }
+        if (working.cultureLanesById[item.laneId]) appendLaneTimelineEvent(working, item.laneId, 'leader.close_relay_queued', { routeId: item.rule.id, leaderTicket: item.leaderTicket, followerAccountId: item.followerAccountId, commandId: item.commandId });
+      }
+      return true;
+    });
+  }
+  if (failures.length) logger?.warn?.('Follower close failsafe had queue failures.', { failures });
+  return { queued, failures };
+}
+
+async function queueAutomaticHarvestsForAccount({ accountId, mt4CommandService, mt4SyncService, loadEcosystemState, saveEcosystemState, logger }) {
+  const outcome = await mutate(loadEcosystemState, saveEcosystemState, (state) => {
+    const reservations = [];
+    const pausedRules = [];
+    for (const lane of Object.values(state.cultureLanesById || {})) {
+      if (!(lane.accountIds || []).map(String).includes(String(accountId || ''))) continue;
+      const vault = computeCultureLaneVault(state, lane.laneId, lane.ownerUserId);
+      const activeCycles = Object.values(state.harvestCyclesById || {}).filter((cycle) => cycle.laneId === lane.laneId && ['queueing', 'commands_queued', 'partially_queued', 'awaiting_confirmation'].includes(cycle.status));
+      let completedCycle = false;
+      if (vault && vault.openTrades === 0 && activeCycles.length) {
+        const policy = state.harvestPoliciesByLaneId?.[lane.laneId] || {};
+        for (const cycle of activeCycles) {
+          cycle.status = 'completed';
+          cycle.completedAt = nowIso();
+          cycle.updatedAt = cycle.completedAt;
+          cycle.confirmedFlatAccountIds = (vault.accounts || []).map((item) => item.accountId);
+          cycle.finalBalance = vault.balance;
+          cycle.finalEquity = vault.equity;
+          cycle.finalClosedProfit = vault.closedProfit;
+        }
+        policy.baselineBalance = vault.balance;
+        policy.baselineEquity = vault.equity;
+        policy.baselineClosedProfit = vault.closedProfit;
+        policy.baselineCombinedProfit = vault.combinedProfit;
+        policy.baselineCapturedAt = nowIso();
+        policy.lastHarvestAt = nowIso();
+        if (policy.mode === 'harvest_once') {
+          lane.status = 'paused';
+          lane.updatedAt = nowIso();
+          for (const rule of Object.values(state.copierRules || {})) {
+            if (String(rule.culture_lane_id || '') !== String(lane.laneId)) continue;
+            rule.is_active = false;
+            rule.updated_at = nowIso();
+            pausedRules.push({ ...rule });
+          }
+        }
+        appendLaneTimelineEvent(state, lane.laneId, 'harvest.flat_confirmed', { cycleIds: activeCycles.map((cycle) => cycle.cycleId), accountIds: vault.accounts.map((item) => item.accountId), mode: policy.mode || 'manual' });
+        completedCycle = true;
+      }
+      if (completedCycle) continue;
+      const policy = state.harvestPoliciesByLaneId?.[lane.laneId];
+      if (!policy?.enabled || lane.status === 'paused' || activeCycles.length) continue;
+      const evaluation = evaluateLaneHarvest(state, lane.laneId, lane.ownerUserId);
+      if (!evaluation?.triggered || evaluation.vault.openTrades <= 0 || evaluation.vault.disconnectedAccountIds.length) continue;
+      const cycle = createHarvestCycle(state, lane.laneId, lane.ownerUserId, evaluation, []);
+      cycle.status = 'queueing';
+      cycle.automatic = true;
+      cycle.triggerAccountId = String(accountId || '');
+      cycle.updatedAt = nowIso();
+      reservations.push({ lane: { ...lane }, ownerUserId: lane.ownerUserId, evaluation, cycleId: cycle.cycleId });
+    }
+    return { reservations, pausedRules };
+  });
+  if (outcome.pausedRules.length) await Promise.allSettled(outcome.pausedRules.map((rule) => syncCopierRuleToRelay(mt4SyncService, rule)));
+  for (const reservation of outcome.reservations) {
+    try {
+      const fanout = await queueLaneSweep({ mt4CommandService, lane: reservation.lane, userId: reservation.ownerUserId, reason: 'automatic_harvest', cycleId: reservation.cycleId });
+      await mutate(loadEcosystemState, saveEcosystemState, (state) => {
+        const cycle = state.harvestCyclesById?.[reservation.cycleId];
+        if (!cycle) return false;
+        cycle.commandIds = fanout.commands.map((item) => item.commandId);
+        cycle.failures = fanout.failures;
+        cycle.parallelFanout = true;
+        cycle.fanoutMs = fanout.fanoutMs;
+        cycle.status = fanout.failures.length ? 'partially_queued' : 'commands_queued';
+        cycle.updatedAt = nowIso();
+        appendLaneTimelineEvent(state, reservation.lane.laneId, 'harvest.automatic_close_queued', { cycleId: cycle.cycleId, commandIds: cycle.commandIds, failures: cycle.failures, fanoutMs: cycle.fanoutMs });
+        return true;
+      });
+    } catch (error) {
+      logger?.warn?.('Automatic Harvest queue failed.', { laneId: reservation.lane.laneId, message: error.message });
+      await mutate(loadEcosystemState, saveEcosystemState, (state) => {
+        const cycle = state.harvestCyclesById?.[reservation.cycleId];
+        if (cycle) { cycle.status = 'queue_failed'; cycle.error = error.message; cycle.updatedAt = nowIso(); }
+        return true;
+      });
+    }
+  }
+  return outcome.reservations;
+}
+
 async function synchronizeCopierRulesForAccount({ accountId, mt4SyncService, loadEcosystemState }) {
   const normalizedAccountId = String(accountId || '');
   if (!normalizedAccountId) return [];
@@ -556,11 +848,11 @@ function publicShell({title,description,path,body,active=path,scripts='',schema=
 }
 
 const PUBLIC_CSS = `
-:root{--bg:#03060b;--panel:#09111c;--panel2:#0d1928;--line:rgba(116,255,211,.16);--green:#68f7c4;--blue:#59a8ff;--purple:#9b7bff;--gold:#ffcc74;--text:#f6fbff;--muted:#94a9bb;--red:#ff6f82}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 15% 0,rgba(39,154,255,.13),transparent 33%),radial-gradient(circle at 85% 12%,rgba(104,247,196,.10),transparent 29%),var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;overflow-x:hidden}.noise{position:fixed;inset:0;pointer-events:none;opacity:.16;z-index:9;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.12'/%3E%3C/svg%3E")}.top{height:82px;display:flex;align-items:center;gap:24px;padding:0 max(24px,calc((100vw - 1280px)/2));position:sticky;top:0;z-index:20;background:rgba(3,6,11,.72);backdrop-filter:blur(22px);border-bottom:1px solid rgba(255,255,255,.07)}.brand{display:flex;align-items:center;gap:10px;color:white;text-decoration:none;font-weight:950;letter-spacing:.08em}.brand img{width:40px;height:40px;object-fit:contain}.brand small{font-size:9px;color:var(--muted);letter-spacing:.18em;margin-left:4px}.top nav{display:flex;gap:4px;margin-left:auto}.top nav a,.nav-actions a{color:#cfe0ed;text-decoration:none;padding:10px 12px;border-radius:12px;font-weight:750;font-size:14px}.top nav a:hover,.top nav a.active{background:rgba(104,247,196,.08);color:var(--green)}.nav-actions{display:flex;align-items:center;gap:7px}.btn{border:1px solid rgba(255,255,255,.13);background:rgba(255,255,255,.04);color:white;text-decoration:none;padding:11px 16px;border-radius:12px;font-weight:850;display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer}.btn.primary{background:linear-gradient(135deg,var(--green),#2ccba5);color:#03120f;border-color:transparent;box-shadow:0 13px 40px rgba(104,247,196,.18)}.btn.ghost:hover{border-color:var(--green);color:var(--green)}.mobile-menu{display:none}.hero{min-height:720px;display:grid;grid-template-columns:1.05fr .95fr;align-items:center;gap:60px;max-width:1280px;margin:auto;padding:80px 24px 64px;position:relative}.hero:before{content:'';position:absolute;inset:0;background:linear-gradient(125deg,transparent 20%,rgba(89,168,255,.05),transparent 57%);transform:skewX(-13deg);pointer-events:none}.eyebrow{color:var(--green);font-size:12px;text-transform:uppercase;letter-spacing:.2em;font-weight:900}.hero h1,.page-hero h1{font-size:clamp(50px,7vw,92px);line-height:.92;letter-spacing:-.065em;margin:18px 0;max-width:900px}.gradient{background:linear-gradient(100deg,#fff 10%,var(--green) 50%,var(--blue));-webkit-background-clip:text;color:transparent}.lead{color:var(--muted);font-size:19px;line-height:1.72;max-width:680px}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:30px}.hero-console{background:linear-gradient(180deg,rgba(14,28,44,.95),rgba(5,12,20,.94));border:1px solid rgba(104,247,196,.22);border-radius:26px;box-shadow:0 45px 120px rgba(0,0,0,.45),0 0 90px rgba(89,168,255,.09);padding:18px;position:relative;transform:perspective(1000px) rotateY(-5deg) rotateX(2deg)}.hero-console:after{content:'';position:absolute;inset:-1px;border-radius:26px;background:linear-gradient(135deg,rgba(104,247,196,.3),transparent 25%,transparent 75%,rgba(89,168,255,.25));z-index:-1}.console-head{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,.08);padding:6px 4px 15px}.live{color:var(--green);font-size:12px}.live:before{content:'';display:inline-block;width:8px;height:8px;background:var(--green);border-radius:50%;box-shadow:0 0 18px var(--green);margin-right:7px}.account-row,.metric-grid,.route{display:grid;gap:10px}.account-row{grid-template-columns:1fr auto;align-items:center;padding:14px 4px}.select{background:#081522;border:1px solid rgba(255,255,255,.1);color:white;border-radius:12px;padding:10px}.metric-grid{grid-template-columns:repeat(3,1fr)}.metric{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:15px}.metric small{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.12em}.metric strong{font-size:23px;display:block;margin-top:7px}.green{color:var(--green)}.red{color:var(--red)}.route{grid-template-columns:1fr auto 1fr;align-items:center;margin-top:12px;padding:18px;border-radius:18px;background:linear-gradient(90deg,rgba(89,168,255,.07),rgba(104,247,196,.07))}.route-arrow{width:55px;height:2px;background:linear-gradient(90deg,var(--blue),var(--green));position:relative}.route-arrow:after{content:'›';position:absolute;right:-2px;top:-15px;color:var(--green);font-size:26px}.trust{border-block:1px solid rgba(255,255,255,.07);display:grid;grid-template-columns:repeat(4,1fr);max-width:1280px;margin:auto}.trust div{padding:25px;text-align:center;border-right:1px solid rgba(255,255,255,.07)}.trust div:last-child{border:0}.trust strong{font-size:30px}.trust small{display:block;color:var(--muted);margin-top:4px}.section{max-width:1280px;margin:auto;padding:100px 24px}.section-head{display:flex;justify-content:space-between;gap:30px;align-items:end;margin-bottom:34px}.section h2,.page-section h2{font-size:clamp(34px,4.7vw,62px);letter-spacing:-.055em;line-height:1;margin:10px 0}.section-head p{max-width:560px;color:var(--muted);line-height:1.65}.grid2,.grid3,.grid4{display:grid;gap:18px}.grid2{grid-template-columns:repeat(2,1fr)}.grid3{grid-template-columns:repeat(3,1fr)}.grid4{grid-template-columns:repeat(4,1fr)}.card{background:linear-gradient(180deg,rgba(13,25,40,.82),rgba(6,13,22,.88));border:1px solid rgba(255,255,255,.08);border-radius:21px;padding:24px;position:relative;overflow:hidden;transition:.25s transform,.25s border,.25s box-shadow}.card:hover{transform:translateY(-5px);border-color:rgba(104,247,196,.28);box-shadow:0 30px 70px rgba(0,0,0,.25)}.card h3{font-size:20px;margin:7px 0}.card p,.muted{color:var(--muted);line-height:1.65}.icon{width:48px;height:48px;border-radius:15px;background:linear-gradient(145deg,rgba(104,247,196,.16),rgba(89,168,255,.11));display:grid;place-items:center;font-size:22px;border:1px solid rgba(104,247,196,.15)}.platform-strip{display:flex;gap:16px;overflow:hidden;mask-image:linear-gradient(90deg,transparent,#000 10%,#000 90%,transparent)}.platform-track{display:flex;gap:16px;animation:marquee 36s linear infinite;min-width:max-content}.platform-track img{width:144px;height:58px;object-fit:contain;filter:grayscale(1) brightness(1.9);opacity:.72;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:12px}@keyframes marquee{to{transform:translateX(-50%)}}.market-grid{display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:18px}.sentiment{height:12px;background:#111d29;border-radius:999px;overflow:hidden;display:flex}.sentiment span:first-child{background:var(--green)}.sentiment span:last-child{background:var(--red)}table{width:100%;border-collapse:collapse}th,td{padding:13px;text-align:left;border-bottom:1px solid rgba(255,255,255,.07);font-size:14px}th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.1em}.impact{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 12px var(--red)}.price-layout{display:grid;grid-template-columns:1.15fr .85fr;gap:22px}.control{padding:18px 0;border-bottom:1px solid rgba(255,255,255,.07)}.control label{display:block;font-weight:850;margin-bottom:12px}.segments{display:flex;gap:7px;flex-wrap:wrap}.segments button,.stepper button{background:#091522;border:1px solid rgba(255,255,255,.1);color:white;border-radius:11px;padding:10px 13px;cursor:pointer}.segments button.active{background:rgba(104,247,196,.13);border-color:var(--green);color:var(--green)}.stepper{display:flex;align-items:center;gap:12px}.stepper output{font-size:24px;font-weight:950;min-width:45px;text-align:center}.check{display:flex;justify-content:space-between;align-items:center;padding:13px;border:1px solid rgba(255,255,255,.08);border-radius:14px;margin-top:9px}.price-card{position:sticky;top:105px}.price-total{font-size:56px;letter-spacing:-.05em;margin:10px 0}.price-breakdown{list-style:none;padding:0}.price-breakdown li{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid rgba(255,255,255,.07);color:var(--muted)}.page-hero{max-width:1280px;margin:auto;padding:105px 24px 70px;text-align:center}.page-hero h1{margin-inline:auto;max-width:1000px}.page-hero .lead{margin-inline:auto}.page-section{max-width:1280px;margin:auto;padding:55px 24px 100px}.compare-controls{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:22px}.input,select,textarea{width:100%;background:#07121d;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:12px;color:white}.auth-wrap{min-height:calc(100vh - 82px);display:grid;place-items:center;padding:50px 20px}.auth-card{width:min(520px,100%);background:rgba(9,17,28,.92);border:1px solid rgba(104,247,196,.18);border-radius:24px;padding:30px;box-shadow:0 40px 100px rgba(0,0,0,.4)}.auth-card form{display:grid;gap:13px}.auth-card label{font-size:13px;font-weight:800}.testimonials{display:flex;overflow:auto;scroll-snap-type:x mandatory;gap:18px;padding-bottom:10px}.testimonial{min-width:min(430px,90vw);scroll-snap-align:start}.stars{color:var(--gold)}footer{max-width:1280px;margin:70px auto 0;padding:45px 24px;border-top:1px solid rgba(255,255,255,.08);display:grid;grid-template-columns:1fr auto;gap:24px;color:var(--muted)}footer a{color:#cfe0ed;text-decoration:none;margin-left:18px}.risk{grid-column:1/-1;font-size:12px}.cookie{position:fixed;z-index:100;left:22px;right:22px;bottom:22px;background:rgba(8,17,27,.96);border:1px solid rgba(104,247,196,.18);border-radius:18px;padding:16px;display:none;align-items:center;gap:12px;box-shadow:0 30px 80px rgba(0,0,0,.5)}.cookie div{margin-right:auto}.cookie p{margin:4px 0;color:var(--muted)}.reveal{opacity:0;transform:translateY(24px);transition:.7s ease}.reveal.visible{opacity:1;transform:none}.workspace{display:grid;grid-template-columns:250px 1fr;min-height:100vh;background:#050910}.workspace aside{padding:22px;border-right:1px solid rgba(255,255,255,.07);position:sticky;top:0;height:100vh;background:#07101a;overflow-y:auto;overscroll-behavior:contain}.workspace main{padding:28px;min-width:0}.workspace aside a{display:block;color:#c9d8e5;text-decoration:none;padding:11px 12px;border-radius:10px;margin:4px 0}.workspace aside a.active,.workspace aside a:hover{background:rgba(104,247,196,.1);color:var(--green)}.workspace .mobile-account,.workspace .mobile-page-nav{display:none}.toast{position:fixed;right:20px;bottom:20px;background:#0b1b29;border:1px solid var(--green);padding:14px;border-radius:13px;z-index:100}@media(max-width:980px){.top nav{display:none}.brand small{display:none}.mobile-menu{display:block;background:transparent;color:white;border:0;font-size:24px}.hero{grid-template-columns:1fr;min-height:auto}.hero-console{transform:none}.grid3,.grid4,.market-grid{grid-template-columns:1fr 1fr}.price-layout{grid-template-columns:1fr}.price-card{position:relative;top:auto}.workspace{grid-template-columns:1fr}.workspace aside{display:none}.workspace .mobile-account,.workspace .mobile-page-nav{display:block}.trust{grid-template-columns:1fr 1fr}}@media(max-width:640px){.academy-course-grid,.academy-profile-grid,.command-map,.lesson-progress-nav,.lesson-context-grid,.lesson-vocabulary{grid-template-columns:1fr}.academy-filter{grid-template-columns:1fr}.scenario-actions{grid-template-columns:1fr 1fr}.tutor-compose{grid-template-columns:1fr}.academy-stat-grid{grid-template-columns:1fr 1fr}.top{padding:0 16px}.nav-actions .ghost{display:none}.hero,.section,.page-hero,.page-section{padding-inline:17px}.hero h1,.page-hero h1{font-size:48px}.metric-grid,.grid2,.grid3,.grid4,.market-grid{grid-template-columns:1fr}.trust{grid-template-columns:1fr 1fr}.trust div{padding:17px}.route{grid-template-columns:1fr}.route-arrow{transform:rotate(90deg);margin:12px auto}.section-head{display:block}.cookie{display:grid;left:10px;right:10px}.workspace main{padding:16px}}
+:root{--bg:#03060b;--panel:#09111c;--panel2:#0d1928;--line:rgba(116,255,211,.16);--green:#68f7c4;--blue:#59a8ff;--purple:#9b7bff;--gold:#ffcc74;--text:#f6fbff;--muted:#94a9bb;--red:#ff6f82}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 15% 0,rgba(39,154,255,.13),transparent 33%),radial-gradient(circle at 85% 12%,rgba(104,247,196,.10),transparent 29%),var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;overflow-x:hidden}.noise{position:fixed;inset:0;pointer-events:none;opacity:.16;z-index:9;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.12'/%3E%3C/svg%3E")}.top{height:82px;display:flex;align-items:center;gap:24px;padding:0 max(24px,calc((100vw - 1280px)/2));position:sticky;top:0;z-index:20;background:rgba(3,6,11,.72);backdrop-filter:blur(22px);border-bottom:1px solid rgba(255,255,255,.07)}.brand{display:flex;align-items:center;gap:10px;color:white;text-decoration:none;font-weight:950;letter-spacing:.08em}.brand img{width:40px;height:40px;object-fit:contain}.brand small{font-size:9px;color:var(--muted);letter-spacing:.18em;margin-left:4px}.top nav{display:flex;gap:4px;margin-left:auto}.top nav a,.nav-actions a{color:#cfe0ed;text-decoration:none;padding:10px 12px;border-radius:12px;font-weight:750;font-size:14px}.top nav a:hover,.top nav a.active{background:rgba(104,247,196,.08);color:var(--green)}.nav-actions{display:flex;align-items:center;gap:7px}.btn{border:1px solid rgba(255,255,255,.13);background:rgba(255,255,255,.04);color:white;text-decoration:none;padding:11px 16px;border-radius:12px;font-weight:850;display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer}.btn.primary{background:linear-gradient(135deg,var(--green),#2ccba5);color:#03120f;border-color:transparent;box-shadow:0 13px 40px rgba(104,247,196,.18)}.btn.ghost:hover{border-color:var(--green);color:var(--green)}.mobile-menu{display:none}.hero{min-height:720px;display:grid;grid-template-columns:1.05fr .95fr;align-items:center;gap:60px;max-width:1280px;margin:auto;padding:80px 24px 64px;position:relative}.hero:before{content:'';position:absolute;inset:0;background:linear-gradient(125deg,transparent 20%,rgba(89,168,255,.05),transparent 57%);transform:skewX(-13deg);pointer-events:none}.eyebrow{color:var(--green);font-size:12px;text-transform:uppercase;letter-spacing:.2em;font-weight:900}.hero h1,.page-hero h1{font-size:clamp(50px,7vw,92px);line-height:.92;letter-spacing:-.065em;margin:18px 0;max-width:900px}.gradient{background:linear-gradient(100deg,#fff 10%,var(--green) 50%,var(--blue));-webkit-background-clip:text;color:transparent}.lead{color:var(--muted);font-size:19px;line-height:1.72;max-width:680px}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:30px}.hero-console{background:linear-gradient(180deg,rgba(14,28,44,.95),rgba(5,12,20,.94));border:1px solid rgba(104,247,196,.22);border-radius:26px;box-shadow:0 45px 120px rgba(0,0,0,.45),0 0 90px rgba(89,168,255,.09);padding:18px;position:relative;transform:perspective(1000px) rotateY(-5deg) rotateX(2deg)}.hero-console:after{content:'';position:absolute;inset:-1px;border-radius:26px;background:linear-gradient(135deg,rgba(104,247,196,.3),transparent 25%,transparent 75%,rgba(89,168,255,.25));z-index:-1}.console-head{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,.08);padding:6px 4px 15px}.live{color:var(--green);font-size:12px}.live:before{content:'';display:inline-block;width:8px;height:8px;background:var(--green);border-radius:50%;box-shadow:0 0 18px var(--green);margin-right:7px}.account-row,.metric-grid,.route{display:grid;gap:10px}.account-row{grid-template-columns:1fr auto;align-items:center;padding:14px 4px}.select{background:#081522;border:1px solid rgba(255,255,255,.1);color:white;border-radius:12px;padding:10px}.metric-grid{grid-template-columns:repeat(3,1fr)}.metric{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:15px}.metric small{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.12em}.metric strong{font-size:23px;display:block;margin-top:7px}.green{color:var(--green)}.red{color:var(--red)}.route{grid-template-columns:1fr auto 1fr;align-items:center;margin-top:12px;padding:18px;border-radius:18px;background:linear-gradient(90deg,rgba(89,168,255,.07),rgba(104,247,196,.07))}.route-arrow{width:55px;height:2px;background:linear-gradient(90deg,var(--blue),var(--green));position:relative}.route-arrow:after{content:'›';position:absolute;right:-2px;top:-15px;color:var(--green);font-size:26px}.trust{border-block:1px solid rgba(255,255,255,.07);display:grid;grid-template-columns:repeat(4,1fr);max-width:1280px;margin:auto}.trust div{padding:25px;text-align:center;border-right:1px solid rgba(255,255,255,.07)}.trust div:last-child{border:0}.trust strong{font-size:30px}.trust small{display:block;color:var(--muted);margin-top:4px}.section{max-width:1280px;margin:auto;padding:100px 24px}.section-head{display:flex;justify-content:space-between;gap:30px;align-items:end;margin-bottom:34px}.section h2,.page-section h2{font-size:clamp(34px,4.7vw,62px);letter-spacing:-.055em;line-height:1;margin:10px 0}.section-head p{max-width:560px;color:var(--muted);line-height:1.65}.grid2,.grid3,.grid4{display:grid;gap:18px}.grid2{grid-template-columns:repeat(2,1fr)}.grid3{grid-template-columns:repeat(3,1fr)}.grid4{grid-template-columns:repeat(4,1fr)}.card{background:linear-gradient(180deg,rgba(13,25,40,.82),rgba(6,13,22,.88));border:1px solid rgba(255,255,255,.08);border-radius:21px;padding:24px;position:relative;overflow:hidden;transition:.25s transform,.25s border,.25s box-shadow}.card:hover{transform:translateY(-5px);border-color:rgba(104,247,196,.28);box-shadow:0 30px 70px rgba(0,0,0,.25)}.card h3{font-size:20px;margin:7px 0}.card p,.muted{color:var(--muted);line-height:1.65}.icon{width:48px;height:48px;border-radius:15px;background:linear-gradient(145deg,rgba(104,247,196,.16),rgba(89,168,255,.11));display:grid;place-items:center;font-size:22px;border:1px solid rgba(104,247,196,.15)}.platform-strip{display:flex;gap:16px;overflow:hidden;mask-image:linear-gradient(90deg,transparent,#000 10%,#000 90%,transparent)}.platform-track{display:flex;gap:16px;animation:marquee 36s linear infinite;min-width:max-content}.platform-track img{width:144px;height:58px;object-fit:contain;filter:grayscale(1) brightness(1.9);opacity:.72;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:12px}@keyframes marquee{to{transform:translateX(-50%)}}.market-grid{display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:18px}.sentiment{height:12px;background:#111d29;border-radius:999px;overflow:hidden;display:flex}.sentiment span:first-child{background:var(--green)}.sentiment span:last-child{background:var(--red)}table{width:100%;border-collapse:collapse}th,td{padding:13px;text-align:left;border-bottom:1px solid rgba(255,255,255,.07);font-size:14px}th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.1em}.impact{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 12px var(--red)}.price-layout{display:grid;grid-template-columns:1.15fr .85fr;gap:22px}.control{padding:18px 0;border-bottom:1px solid rgba(255,255,255,.07)}.control label{display:block;font-weight:850;margin-bottom:12px}.segments{display:flex;gap:7px;flex-wrap:wrap}.segments button,.stepper button{background:#091522;border:1px solid rgba(255,255,255,.1);color:white;border-radius:11px;padding:10px 13px;cursor:pointer}.segments button.active{background:rgba(104,247,196,.13);border-color:var(--green);color:var(--green)}.stepper{display:flex;align-items:center;gap:12px}.stepper output{font-size:24px;font-weight:950;min-width:45px;text-align:center}.check{display:flex;justify-content:space-between;align-items:center;padding:13px;border:1px solid rgba(255,255,255,.08);border-radius:14px;margin-top:9px}.price-card{position:sticky;top:105px}.price-total{font-size:56px;letter-spacing:-.05em;margin:10px 0}.price-breakdown{list-style:none;padding:0}.price-breakdown li{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid rgba(255,255,255,.07);color:var(--muted)}.page-hero{max-width:1280px;margin:auto;padding:105px 24px 70px;text-align:center}.page-hero h1{margin-inline:auto;max-width:1000px}.page-hero .lead{margin-inline:auto}.page-section{max-width:1280px;margin:auto;padding:55px 24px 100px}.compare-controls{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:22px}.input,select,textarea{width:100%;background:#07121d;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:12px;color:white}.auth-wrap{min-height:calc(100vh - 82px);display:grid;place-items:center;padding:50px 20px}.auth-card{width:min(520px,100%);background:rgba(9,17,28,.92);border:1px solid rgba(104,247,196,.18);border-radius:24px;padding:30px;box-shadow:0 40px 100px rgba(0,0,0,.4)}.auth-card form{display:grid;gap:13px}.auth-card label{font-size:13px;font-weight:800}.testimonials{display:flex;overflow:auto;scroll-snap-type:x mandatory;gap:18px;padding-bottom:10px}.testimonial{min-width:min(430px,90vw);scroll-snap-align:start}.stars{color:var(--gold)}footer{max-width:1280px;margin:70px auto 0;padding:45px 24px;border-top:1px solid rgba(255,255,255,.08);display:grid;grid-template-columns:1fr auto;gap:24px;color:var(--muted)}footer a{color:#cfe0ed;text-decoration:none;margin-left:18px}.risk{grid-column:1/-1;font-size:12px}.cookie{position:fixed;z-index:100;left:22px;right:22px;bottom:22px;background:rgba(8,17,27,.96);border:1px solid rgba(104,247,196,.18);border-radius:18px;padding:16px;display:none;align-items:center;gap:12px;box-shadow:0 30px 80px rgba(0,0,0,.5)}.cookie div{margin-right:auto}.cookie p{margin:4px 0;color:var(--muted)}.reveal{opacity:0;transform:translateY(24px);transition:.7s ease}.reveal.visible{opacity:1;transform:none}.workspace{display:grid;grid-template-columns:250px 1fr;min-height:100vh;background:#050910}.workspace aside{padding:22px;border-right:1px solid rgba(255,255,255,.07);position:sticky;top:0;height:100vh;background:#07101a;overflow-y:auto;overscroll-behavior:contain}.workspace main{padding:28px;min-width:0}.workspace aside a{display:block;color:#c9d8e5;text-decoration:none;padding:11px 12px;border-radius:10px;margin:4px 0}.workspace aside a.active,.workspace aside a:hover{background:rgba(104,247,196,.1);color:var(--green)}.workspace .mobile-account,.workspace .mobile-page-nav{display:none}.toast{position:fixed;right:20px;bottom:20px;background:#0b1b29;border:1px solid var(--green);padding:14px;border-radius:13px;z-index:100}@media(max-width:980px){.top nav{display:none}.brand small{display:none}.mobile-menu{display:block;background:transparent;color:white;border:0;font-size:24px}.hero{grid-template-columns:1fr;min-height:auto}.hero-console{transform:none}.grid3,.grid4,.market-grid{grid-template-columns:1fr 1fr}.price-layout{grid-template-columns:1fr}.price-card{position:relative;top:auto}.workspace{grid-template-columns:1fr}.workspace aside{display:none}.workspace .mobile-account,.workspace .mobile-page-nav{display:block}.trust{grid-template-columns:1fr 1fr}}@media(max-width:640px){.receiver-grid{grid-template-columns:1fr}.academy-course-grid,.academy-profile-grid,.command-map,.lesson-progress-nav,.lesson-context-grid,.lesson-vocabulary{grid-template-columns:1fr}.academy-filter{grid-template-columns:1fr}.scenario-actions{grid-template-columns:1fr 1fr}.tutor-compose{grid-template-columns:1fr}.academy-stat-grid{grid-template-columns:1fr 1fr}.top{padding:0 16px}.nav-actions .ghost{display:none}.hero,.section,.page-hero,.page-section{padding-inline:17px}.hero h1,.page-hero h1{font-size:48px}.metric-grid,.grid2,.grid3,.grid4,.market-grid{grid-template-columns:1fr}.trust{grid-template-columns:1fr 1fr}.trust div{padding:17px}.route{grid-template-columns:1fr}.route-arrow{transform:rotate(90deg);margin:12px auto}.section-head{display:block}.cookie{display:grid;left:10px;right:10px}.workspace main{padding:16px}}
 .btn.danger{border-color:rgba(255,111,130,.45);color:#ff9bab;background:rgba(255,111,130,.08)}.btn.danger:hover{background:rgba(255,111,130,.16)}dialog{border:0;padding:0;background:transparent;color:inherit;max-width:720px;width:min(94vw,720px)}dialog::backdrop{background:rgba(0,0,0,.76);backdrop-filter:blur(7px)}.dialog-form{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-height:88vh;overflow:auto}.dialog-form h3,.dialog-form p,.dialog-form .actions{grid-column:1/-1}.dialog-form label{display:grid;gap:7px;color:#cfe0ed;font-weight:700}.full{grid-column:1/-1}.account-line{display:flex;justify-content:space-between;gap:15px;align-items:center;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.07)}.feature-list{padding-left:20px;color:var(--muted);line-height:1.9}.table-wrap{overflow:auto}.mini-chart{display:flex;align-items:end;height:270px;gap:6px}.mini-chart i{flex:1;min-width:5px;background:linear-gradient(var(--green),var(--blue));border-radius:6px 6px 0 0}.danger-zone{margin-top:18px;border-color:rgba(255,111,130,.25)}.toast.warn{border-color:var(--gold)}pre{white-space:pre-wrap;overflow:auto}.workspace label{display:grid;gap:7px}.workspace input[type=checkbox]{accent-color:var(--green)}@media(max-width:640px){.academy-course-grid,.academy-profile-grid,.command-map,.lesson-progress-nav,.lesson-context-grid,.lesson-vocabulary{grid-template-columns:1fr}.academy-filter{grid-template-columns:1fr}.scenario-actions{grid-template-columns:1fr 1fr}.tutor-compose{grid-template-columns:1fr}.academy-stat-grid{grid-template-columns:1fr 1fr}.dialog-form{grid-template-columns:1fr}.account-line{align-items:flex-start;flex-direction:column}}
 
 html[data-theme="cobalt"]{--bg:#020817;--panel:#08162c;--panel2:#0d2240;--green:#66d9ff;--blue:#508cff;--purple:#9a7cff;--gold:#8ed8ff;--line:rgba(102,217,255,.18)}html[data-theme="emerald"]{--bg:#03110d;--panel:#082019;--panel2:#0b2a20;--green:#5cffb2;--blue:#54d6c7;--purple:#9cead0;--gold:#d5ff7a;--line:rgba(92,255,178,.18)}html[data-theme="violet"]{--bg:#0a0614;--panel:#171027;--panel2:#21163a;--green:#d09aff;--blue:#8e8cff;--purple:#c368ff;--gold:#ffb3eb;--line:rgba(208,154,255,.2)}html[data-theme="gold"]{--bg:#0d0902;--panel:#1b1307;--panel2:#2a1b08;--green:#ffcc74;--blue:#eaa64e;--purple:#d79654;--gold:#ffd36e;--line:rgba(255,204,116,.2)}html[data-theme="ember"]{--bg:#100506;--panel:#210b0e;--panel2:#321116;--green:#ff9e75;--blue:#ff6f82;--purple:#d86190;--gold:#ffc06a;--line:rgba(255,111,130,.22)}html[data-theme="light"]{--bg:#eef4fb;--panel:#ffffff;--panel2:#e7f0fa;--green:#087f68;--blue:#1767d7;--purple:#7147c7;--gold:#9a5b00;--text:#07111e;--muted:#526577;--red:#bb2744;--line:rgba(23,103,215,.18)}html[data-theme="light"] body,html[data-theme="light"] .workspace{color:var(--text)}html[data-theme="light"] .card,html[data-theme="light"] .workspace aside,html[data-theme="light"] .workspace-topbar{background:rgba(255,255,255,.9);color:var(--text)}html[data-theme="light"] .input,html[data-theme="light"] select,html[data-theme="light"] textarea{background:#fff;color:#07111e;border-color:rgba(7,17,30,.15)}
-.workspace-bg-video{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:-4;opacity:0;transition:opacity .6s;filter:saturate(1.05) brightness(.34)}.workspace-bg-video.active{opacity:.55}.workspace-bg-overlay{position:fixed;inset:0;z-index:-3;background:radial-gradient(circle at 15% 0,rgba(89,168,255,.16),transparent 34%),radial-gradient(circle at 86% 8%,rgba(104,247,196,.12),transparent 32%),linear-gradient(145deg,rgba(3,6,11,.96),rgba(7,16,26,.88));pointer-events:none}html[data-background="terminal"] .workspace-bg-overlay{background:repeating-linear-gradient(0deg,rgba(104,247,196,.025) 0 1px,transparent 1px 5px),#020604}html[data-background="solid"] .workspace-bg-overlay{background:var(--bg)}html[data-background="motion-a"] .workspace-bg-overlay,html[data-background="motion-b"] .workspace-bg-overlay{background:linear-gradient(145deg,rgba(3,6,11,.88),rgba(7,16,26,.7))}.workspace{background:transparent}.workspace aside{display:flex;flex-direction:column;background:color-mix(in srgb,var(--panel) 88%,transparent);backdrop-filter:blur(22px);border-color:var(--line);z-index:4}.member-identity{padding:14px 10px 18px;border-bottom:1px solid var(--line);margin-bottom:8px}.member-identity small{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.14em}.member-identity strong{display:block;margin-top:5px;overflow:hidden;text-overflow:ellipsis}.aside-spacer{flex:1}.workspace main{padding:0 28px 32px}.workspace-topbar{position:sticky;top:0;z-index:5;min-height:82px;display:flex;align-items:center;justify-content:space-between;gap:20px;padding:14px 0;background:color-mix(in srgb,var(--bg) 78%,transparent);backdrop-filter:blur(20px);border-bottom:1px solid var(--line);margin-bottom:25px}.workspace-topbar strong{display:block;font-size:20px}.topbar-account{display:flex;align-items:center;gap:12px;min-width:min(560px,55vw)}.topbar-account>span{font-size:12px;color:var(--muted);white-space:nowrap}.workspace .mobile-account{display:block}.workspace-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:22px}.workspace-heading h1{font-size:clamp(34px,5vw,58px);letter-spacing:-.055em;line-height:1;margin:8px 0}.live-chip,.status-pill{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;padding:7px 10px;font-size:12px;color:var(--green);background:color-mix(in srgb,var(--green) 8%,transparent)}.status-pill.connected{color:var(--green)}.status-pill.waiting{color:var(--gold)}.selected-account-banner{display:flex;justify-content:space-between;align-items:center;gap:24px;margin-bottom:18px;border-color:var(--line)}.mini-metrics{display:grid;grid-template-columns:repeat(4,minmax(90px,1fr));gap:10px}.mini-metrics>div{padding:10px 12px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);border-radius:13px}.mini-metrics small{display:block;color:var(--muted)}.mini-metrics strong{display:block;margin-top:5px}.card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.account-select-line{width:100%;background:transparent;color:var(--text);border:0;text-align:left;cursor:pointer}.account-select-line:hover{background:rgba(255,255,255,.025)}.account-heartbeat{display:flex;justify-content:space-between;gap:12px;padding:12px 0;margin-top:10px;border-top:1px solid rgba(255,255,255,.07);font-size:12px}.account-heartbeat span{color:var(--muted)}.capability-row{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0}.account-role-form{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.07)}.account-role-form .full{grid-column:1/-1}.account-role-form label{font-size:12px;color:var(--muted)}.account-role-form .input{margin-top:5px}.pairing-code{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:8px;padding:12px;background:rgba(104,247,196,.06);border:1px solid var(--line);border-radius:14px;margin-top:12px}.pairing-code small{grid-column:1/-1;color:var(--muted)}.pairing-code code{overflow:auto}.setup-note,.form-status{padding:13px 15px;border:1px solid var(--line);border-radius:14px;background:rgba(89,168,255,.06)}.setup-note{grid-column:1/-1}.setup-note p{margin:5px 0 0}.form-status{grid-column:1/-1;color:var(--muted)}.form-status.working{color:var(--blue)}.form-status.success{color:var(--green);background:rgba(104,247,196,.07)}.form-status.error{color:var(--red);background:rgba(255,111,130,.07);border-color:rgba(255,111,130,.3)}.dialog-x{border:0;background:transparent;color:var(--text);font-size:26px;cursor:pointer}.dialog-form details{grid-column:1/-1;border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:13px}.dialog-form summary{cursor:pointer;font-weight:850}.toast.error{border-color:var(--red)}button:disabled{opacity:.55;cursor:wait}.heat-row{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid rgba(255,255,255,.07)}.appearance-panel{padding:18px;border:1px solid var(--line);border-radius:17px}.theme-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:9px;margin-top:14px}.theme-choice{cursor:pointer;text-align:center}.theme-choice input{position:absolute;opacity:0}.theme-choice span{display:block;height:46px;border-radius:12px;border:2px solid transparent;background:linear-gradient(135deg,#050910,#68f7c4)}.theme-choice.cobalt span{background:linear-gradient(135deg,#020817,#508cff)}.theme-choice.emerald span{background:linear-gradient(135deg,#03110d,#5cffb2)}.theme-choice.violet span{background:linear-gradient(135deg,#0a0614,#c368ff)}.theme-choice.gold span{background:linear-gradient(135deg,#0d0902,#ffd36e)}.theme-choice.ember span{background:linear-gradient(135deg,#100506,#ff6f82)}.theme-choice.light span{background:linear-gradient(135deg,#fff,#1767d7)}.theme-choice input:checked+span{border-color:var(--text);box-shadow:0 0 0 3px color-mix(in srgb,var(--green) 32%,transparent)}.theme-choice strong{font-size:11px;text-transform:capitalize}.background-choice{display:inline-flex!important;cursor:pointer}.background-choice input{position:absolute;opacity:0}.background-choice span{padding:10px 13px;border:1px solid var(--line);border-radius:12px;text-transform:capitalize}.background-choice input:checked+span{background:color-mix(in srgb,var(--green) 15%,transparent);color:var(--green)}
+.workspace-bg-video{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:-4;opacity:0;transition:opacity .6s;filter:saturate(1.05) brightness(.34)}.workspace-bg-video.active{opacity:.55}.workspace-bg-overlay{position:fixed;inset:0;z-index:-3;background:radial-gradient(circle at 15% 0,rgba(89,168,255,.16),transparent 34%),radial-gradient(circle at 86% 8%,rgba(104,247,196,.12),transparent 32%),linear-gradient(145deg,rgba(3,6,11,.96),rgba(7,16,26,.88));pointer-events:none}html[data-background="terminal"] .workspace-bg-overlay{background:repeating-linear-gradient(0deg,rgba(104,247,196,.025) 0 1px,transparent 1px 5px),#020604}html[data-background="solid"] .workspace-bg-overlay{background:var(--bg)}html[data-background="motion-a"] .workspace-bg-overlay,html[data-background="motion-b"] .workspace-bg-overlay{background:linear-gradient(145deg,rgba(3,6,11,.88),rgba(7,16,26,.7))}.workspace{background:transparent}.workspace aside{display:flex;flex-direction:column;background:color-mix(in srgb,var(--panel) 88%,transparent);backdrop-filter:blur(22px);border-color:var(--line);z-index:4}.member-identity{padding:14px 10px 18px;border-bottom:1px solid var(--line);margin-bottom:8px}.member-identity small{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.14em}.member-identity strong{display:block;margin-top:5px;overflow:hidden;text-overflow:ellipsis}.aside-spacer{flex:1}.workspace main{padding:0 28px 32px}.workspace-topbar{position:sticky;top:0;z-index:5;min-height:82px;display:flex;align-items:center;justify-content:space-between;gap:20px;padding:14px 0;background:color-mix(in srgb,var(--bg) 78%,transparent);backdrop-filter:blur(20px);border-bottom:1px solid var(--line);margin-bottom:25px}.workspace-topbar strong{display:block;font-size:20px}.topbar-account{display:flex;align-items:center;gap:12px;min-width:min(560px,55vw)}.topbar-account>span{font-size:12px;color:var(--muted);white-space:nowrap}.workspace .mobile-account{display:block}.workspace-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:22px}.workspace-heading h1{font-size:clamp(34px,5vw,58px);letter-spacing:-.055em;line-height:1;margin:8px 0}.live-chip,.status-pill{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;padding:7px 10px;font-size:12px;color:var(--green);background:color-mix(in srgb,var(--green) 8%,transparent)}.status-pill.connected{color:var(--green)}.status-pill.waiting{color:var(--gold)}.selected-account-banner{display:flex;justify-content:space-between;align-items:center;gap:24px;margin-bottom:18px;border-color:var(--line)}.mini-metrics{display:grid;grid-template-columns:repeat(4,minmax(90px,1fr));gap:10px}.mini-metrics>div{padding:10px 12px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);border-radius:13px}.mini-metrics small{display:block;color:var(--muted)}.mini-metrics strong{display:block;margin-top:5px}.card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.account-select-line{width:100%;background:transparent;color:var(--text);border:0;text-align:left;cursor:pointer}.account-select-line:hover{background:rgba(255,255,255,.025)}.account-heartbeat{display:flex;justify-content:space-between;gap:12px;padding:12px 0;margin-top:10px;border-top:1px solid rgba(255,255,255,.07);font-size:12px}.account-heartbeat span{color:var(--muted)}.capability-row{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0}.account-role-form{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.07)}.account-role-form .full{grid-column:1/-1}.account-role-form label{font-size:12px;color:var(--muted)}.account-role-form .input{margin-top:5px}.pairing-code{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:8px;padding:12px;background:rgba(104,247,196,.06);border:1px solid var(--line);border-radius:14px;margin-top:12px}.pairing-code small{grid-column:1/-1;color:var(--muted)}.pairing-code code{overflow:auto}.setup-note,.form-status{padding:13px 15px;border:1px solid var(--line);border-radius:14px;background:rgba(89,168,255,.06)}.setup-note{grid-column:1/-1}.setup-note p{margin:5px 0 0}.form-status{grid-column:1/-1;color:var(--muted)}.form-status.working{color:var(--blue)}.form-status.success{color:var(--green);background:rgba(104,247,196,.07)}.form-status.error{color:var(--red);background:rgba(255,111,130,.07);border-color:rgba(255,111,130,.3)}.dialog-x{border:0;background:transparent;color:var(--text);font-size:26px;cursor:pointer}.dialog-form details{grid-column:1/-1;border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:13px}.dialog-form summary{cursor:pointer;font-weight:850}.toast.error{border-color:var(--red)}button:disabled{opacity:.55;cursor:wait}.heat-row{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid rgba(255,255,255,.07)}.appearance-panel{padding:18px;border:1px solid var(--line);border-radius:17px}.theme-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:9px;margin-top:14px}.theme-choice{cursor:pointer;text-align:center}.theme-choice input{position:absolute;opacity:0}.theme-choice span{display:block;height:46px;border-radius:12px;border:2px solid transparent;background:linear-gradient(135deg,#050910,#68f7c4)}.theme-choice.cobalt span{background:linear-gradient(135deg,#020817,#508cff)}.theme-choice.emerald span{background:linear-gradient(135deg,#03110d,#5cffb2)}.theme-choice.violet span{background:linear-gradient(135deg,#0a0614,#c368ff)}.theme-choice.gold span{background:linear-gradient(135deg,#0d0902,#ffd36e)}.theme-choice.ember span{background:linear-gradient(135deg,#100506,#ff6f82)}.theme-choice.light span{background:linear-gradient(135deg,#fff,#1767d7)}.theme-choice input:checked+span{border-color:var(--text);box-shadow:0 0 0 3px color-mix(in srgb,var(--green) 32%,transparent)}.theme-choice strong{font-size:11px;text-transform:capitalize}.background-choice{display:inline-flex!important;cursor:pointer}.background-choice input{position:absolute;opacity:0}.background-choice span{padding:10px 13px;border:1px solid var(--line);border-radius:12px;text-transform:capitalize}.background-choice input:checked+span{background:color-mix(in srgb,var(--green) 15%,transparent);color:var(--green)}.receiver-picker,.symbol-builder{grid-column:1/-1;padding:18px;border:1px solid var(--line);border-radius:18px;background:rgba(255,255,255,.025)}.receiver-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px}.receiver-choice{display:flex!important;gap:12px;align-items:center;padding:14px;border:1px solid rgba(255,255,255,.09);border-radius:14px;cursor:pointer;background:rgba(255,255,255,.02)}.receiver-choice:has(input:checked){border-color:var(--green);background:color-mix(in srgb,var(--green) 10%,transparent)}.receiver-choice span{display:grid;gap:3px}.receiver-choice small{color:var(--muted)}.symbol-highlight-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-top:14px}.symbol-highlight{display:grid;gap:5px;text-align:left;padding:14px;border-radius:14px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.025);color:var(--muted);cursor:pointer}.symbol-highlight.allowed{border-color:var(--green);background:color-mix(in srgb,var(--green) 14%,transparent);color:var(--green);box-shadow:0 0 24px color-mix(in srgb,var(--green) 13%,transparent)}.symbol-highlight.blocked{filter:saturate(.45);opacity:.72}.symbol-highlight small{font-size:10px}.actions.compact{margin-top:0}.portfolio-hero{border-color:color-mix(in srgb,var(--green) 38%,transparent);background:radial-gradient(circle at 100% 0,color-mix(in srgb,var(--green) 14%,transparent),transparent 38%),linear-gradient(180deg,rgba(13,25,40,.92),rgba(6,13,22,.92))}.portfolio-total{font-size:clamp(42px,7vw,76px);letter-spacing:-.06em;margin:8px 0}.lane-account-breakdown{display:grid;gap:8px}.harvest-inline{border-color:color-mix(in srgb,var(--gold) 30%,transparent)}
 
 .wisdo-boot{position:fixed;inset:0;z-index:10000;display:none;place-items:center;overflow:hidden;background:radial-gradient(circle at 50% 42%,color-mix(in srgb,var(--green) 20%,transparent),transparent 25%),radial-gradient(circle at 50% 50%,#071526 0,#03070d 56%,#010204 100%);color:#fff}.wisdo-boot.active{display:grid}.wisdo-boot-grid{position:absolute;inset:-20%;opacity:.25;background-image:linear-gradient(color-mix(in srgb,var(--green) 15%,transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb,var(--blue) 13%,transparent) 1px,transparent 1px);background-size:52px 52px;transform:perspective(550px) rotateX(62deg) translateY(35%);animation:wisdoGridMove 5s linear infinite}.wisdo-boot-stars{position:absolute;inset:0;background-image:radial-gradient(circle,#fff 0 1px,transparent 1.5px);background-size:79px 83px;opacity:.25;animation:wisdoStars 9s linear infinite}.wisdo-boot-shell{position:relative;width:min(720px,calc(100vw - 30px));padding:36px 30px 28px;text-align:center;border:1px solid color-mix(in srgb,var(--green) 28%,transparent);border-radius:30px;background:linear-gradient(180deg,rgba(7,20,34,.84),rgba(2,7,13,.92));box-shadow:0 0 110px color-mix(in srgb,var(--green) 20%,transparent),0 40px 100px rgba(0,0,0,.6);backdrop-filter:blur(20px)}.wisdo-boot-orb{position:relative;width:168px;height:168px;margin:0 auto 24px;display:grid;place-items:center}.wisdo-boot-orb:before,.wisdo-boot-orb:after{content:'';position:absolute;border-radius:50%;inset:0;border:1px solid color-mix(in srgb,var(--green) 55%,transparent);box-shadow:inset 0 0 40px color-mix(in srgb,var(--green) 18%,transparent),0 0 45px color-mix(in srgb,var(--green) 22%,transparent);animation:wisdoBootRing 2.1s ease-in-out infinite}.wisdo-boot-orb:after{inset:17px;border-color:color-mix(in srgb,var(--blue) 55%,transparent);animation-delay:-.7s;animation-direction:reverse}.wisdo-boot-core{position:relative;width:92px;height:92px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 35% 25%,#ecfff8,var(--green) 23%,#087f68 58%,#02150e 100%);box-shadow:0 0 35px var(--green),0 0 90px color-mix(in srgb,var(--green) 55%,transparent);animation:wisdoBootCore 1.55s ease-in-out infinite}.wisdo-boot-core img{width:64px;height:64px;object-fit:contain;filter:drop-shadow(0 4px 12px rgba(0,0,0,.35))}.wisdo-boot h1{font-size:clamp(30px,5vw,52px);letter-spacing:.18em;margin:0;text-transform:uppercase}.wisdo-boot-kicker{display:block;margin:9px 0 22px;color:var(--green);font-size:11px;font-weight:900;letter-spacing:.25em;text-transform:uppercase}.wisdo-boot-status{min-height:26px;color:#d8eafa;font-weight:800}.wisdo-boot-track{height:8px;margin:18px auto 13px;overflow:hidden;border:1px solid rgba(255,255,255,.12);border-radius:999px;background:rgba(255,255,255,.055)}.wisdo-boot-track span{display:block;width:4%;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--blue),var(--green),#fff);box-shadow:0 0 18px var(--green);transition:width .38s ease}.wisdo-boot-meta{display:flex;justify-content:space-between;gap:12px;color:#8297aa;font:700 11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.07em;text-transform:uppercase}.wisdo-boot-skip{position:absolute;right:18px;top:18px;border:1px solid rgba(255,255,255,.13);background:rgba(255,255,255,.05);color:#d9e7f2;border-radius:999px;padding:8px 12px;cursor:pointer}.wisdo-boot.ready .wisdo-boot-core{background:radial-gradient(circle at 35% 25%,#fff,var(--green) 30%,#0c9f78 65%,#02150e 100%)}.wisdo-boot.error .wisdo-boot-core{background:radial-gradient(circle at 35% 25%,#fff,#ff9bab 30%,#a51f3c 65%,#21030a 100%);box-shadow:0 0 35px var(--red)}@keyframes wisdoBootRing{0%,100%{transform:scale(.88) rotate(0);opacity:.45}50%{transform:scale(1.06) rotate(180deg);opacity:1}}@keyframes wisdoBootCore{50%{transform:scale(1.07);filter:saturate(1.25)}}@keyframes wisdoGridMove{to{background-position:0 104px,104px 0}}@keyframes wisdoStars{to{transform:translate3d(-79px,83px,0)}}@media(prefers-reduced-motion:reduce){.wisdo-boot-grid,.wisdo-boot-stars,.wisdo-boot-orb:before,.wisdo-boot-orb:after,.wisdo-boot-core{animation:none}}
 .academy-hero{display:grid;grid-template-columns:1fr auto;gap:24px;align-items:center;background:linear-gradient(135deg,color-mix(in srgb,var(--green) 11%,var(--panel)),color-mix(in srgb,var(--blue) 9%,var(--panel)))}.academy-hero h1{font-size:clamp(34px,5vw,64px);letter-spacing:-.055em;line-height:.98;margin:10px 0}.academy-score{min-width:160px;text-align:center;border:1px solid var(--line);border-radius:20px;padding:20px}.academy-score small,.academy-score span{color:var(--muted)}.academy-score strong{font-size:54px;display:block}.academy-panel{margin-top:18px}.academy-replay-grid,.academy-video-grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(310px,.7fr);gap:18px}.chart-card{padding:14px}.academy-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}.academy-toolbar .input{width:auto;min-width:150px}.chart-card canvas{width:100%;height:440px;background:#03070d;border:1px solid rgba(255,255,255,.08);border-radius:15px}.replay-progress{height:7px;background:rgba(255,255,255,.08);border-radius:999px;overflow:hidden;margin-top:10px}.replay-progress span{display:block;height:100%;background:linear-gradient(90deg,var(--green),var(--blue));width:0}.brain-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0}.brain-grid>div,.card.mini{padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:13px;background:rgba(255,255,255,.025)}.brain-grid small{display:block;color:var(--muted)}.decision-box{padding:15px;border:1px solid var(--line);border-radius:16px;background:rgba(104,247,196,.045)}.video-stage{padding:12px}.video-stage video{display:block;width:100%;max-height:520px;border-radius:15px;background:#000}.video-prompt{position:absolute;left:28px;right:28px;bottom:28px;background:rgba(3,6,11,.86);backdrop-filter:blur(15px);border:1px solid var(--line);border-radius:16px;padding:16px}.chapter{display:block;width:100%;text-align:left;padding:13px;border:1px solid rgba(255,255,255,.08);background:transparent;color:var(--text);border-radius:12px;margin:8px 0;cursor:pointer}.chapter.active,.chapter:hover{border-color:var(--green);background:rgba(104,247,196,.07)}.tv-frame{width:100%;height:650px;border:1px solid var(--line);border-radius:16px;background:#07121d}.lesson-map{color:var(--muted);line-height:1.8}.track-card{padding:14px;border:1px solid rgba(255,255,255,.08);border-radius:15px;background:rgba(255,255,255,.025)}.academy-progress{text-align:right}.academy-progress strong{font-size:32px;display:block}.academy-progress span{color:var(--muted)}
@@ -614,7 +906,7 @@ function authPage(mode='login',message='',options={}){
 }
 
 function workspaceShell(page,user){
- const nav=[['command-center','Command Center'],['dashboard','Dashboard'],['accounts','Accounts'],['copier-engine','Copier Engine'],['culture-lanes','Culture Lanes'],['symbol-routing','Symbol Routing'],['harvest','Harvest Mode'],['lane-audit','Lane Audit'],['lane-intelligence','Lane Intelligence'],['compound-tracker','Compound Tracker'],['trades','Trades'],['analyzer','Insight Engine'],['alerts','Alerts'],['education','Academy'],['affiliate','Affiliate'],['settings','Settings'],['settings/billing','Billing']];
+ const nav=[['command-center','Command Center'],['dashboard','Combined Dashboard'],['accounts','Accounts'],['copier-engine','Copier Engine'],['lane-audit','Lane Audit'],['lane-intelligence','Lane Intelligence'],['compound-tracker','Compound Tracker'],['trades','Trades'],['analyzer','Insight Engine'],['alerts','Alerts'],['education','Academy'],['affiliate','Affiliate'],['settings','Settings'],['settings/billing','Billing']];
  const pageTitle=nav.find(([p])=>p===page)?.[1]||'WISDO';
  const bootMarkup=`<div id="wisdo-boot" class="wisdo-boot" aria-live="polite" aria-label="WISDO Command Center loading"><div class="wisdo-boot-stars"></div><div class="wisdo-boot-grid"></div><section class="wisdo-boot-shell"><button class="wisdo-boot-skip" type="button" data-wisdo-boot-skip>Skip</button><div class="wisdo-boot-orb"><div class="wisdo-boot-core"><img src="/media/logo_transparent_background.png" alt=""></div></div><h1>WISDO</h1><span class="wisdo-boot-kicker">Command Center Startup</span><div id="wisdo-boot-status" class="wisdo-boot-status">Waking WISDO Core…</div><div class="wisdo-boot-track"><span id="wisdo-boot-progress"></span></div><div class="wisdo-boot-meta"><span id="wisdo-boot-stage">Core 01</span><span id="wisdo-boot-percent">4%</span></div></section></div>`;
  return `<!doctype html><html data-theme="midnight" data-background="mesh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${pageTitle} — WISDO</title><link rel="icon" href="/media/logo_transparent_background.png"><style>${PUBLIC_CSS}</style><script>try{document.documentElement.dataset.theme=localStorage.getItem('wisdo.theme')||'midnight';document.documentElement.dataset.background=localStorage.getItem('wisdo.background')||'mesh'}catch{}</script></head><body>${bootMarkup}<video id="workspace-video-a" class="workspace-bg-video" muted autoplay loop playsinline><source src="/media/14683743_3840_2160_30fps.mp4" type="video/mp4"></video><video id="workspace-video-b" class="workspace-bg-video" muted autoplay loop playsinline><source src="/media/14250431_1920_1080_30fps.mp4" type="video/mp4"></video><div class="workspace-bg-overlay"></div><div class="workspace"><aside><a class="brand" href="/app/command-center" data-wisdo-dashboard-launch><img src="/media/logo_transparent_background.png"><span>WISDO</span></a><div class="member-identity"><small>Member desk</small><strong>${esc(user.username||user.name||user.email||user.id)}</strong></div>${nav.map(([p,l])=>`<a class="${p===page?'active':''}" href="/app/${p}" ${p==='dashboard'?'data-wisdo-dashboard-launch':''}>${l}</a>`).join('')}<div class="aside-spacer"></div><a href="/contact">Support</a><a href="/logout">Logout</a></aside><main><header class="workspace-topbar"><div><span class="eyebrow">Connect · Copy · Control</span><strong>${pageTitle}</strong></div><div class="topbar-account"><span id="workspace-account-status">Loading accounts…</span><select class="input mobile-page-nav" id="mobile-page-nav" aria-label="WISDO page">${nav.map(([p,l])=>`<option value="/app/${p}" ${p===page?'selected':''}>${l}</option>`).join('')}</select><select class="input mobile-account" id="mobile-account" aria-label="Trading account"></select></div></header><div id="app-root"><div class="card loading-card">Loading ${pageTitle}…</div></div></main></div><script>window.WISDO_PAGE=${JSON.stringify(page)};window.WISDO_USER=${JSON.stringify({id:user.id,username:user.username||user.name||user.email||user.id})};</script><script src="/js/df-sauce-academy.js" defer></script><script src="/js/workspace.js" defer></script><script src="/js/wisdo-assistant.js" defer></script></body></html>`;
@@ -660,7 +952,12 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
       mt4SyncService,
       loadEcosystemState,
     }),
-    ingestSnapshot: (event) => ingestReporterSnapshotToProductState({ ...event, loadEcosystemState, saveEcosystemState }),
+    ingestSnapshot: async (event) => {
+      const ledger = await ingestReporterSnapshotToProductState({ ...event, loadEcosystemState, saveEcosystemState });
+      await queueFollowerClosesFromLedger({ closedTrades: ledger.newlyClosedLeaderTrades || [], mt4CommandService, loadEcosystemState, saveEcosystemState, logger });
+      await queueAutomaticHarvestsForAccount({ accountId: ledger.accountId, mt4CommandService, mt4SyncService, loadEcosystemState, saveEcosystemState, logger });
+      return ledger;
+    },
   });
   app.get('/',(req,res)=>res.send(homePage()));
   app.get('/copier',(req,res)=>res.send(productPage('copier'))); app.get('/analyzer',(req,res)=>res.send(productPage('analyzer'))); app.get('/compare',(req,res)=>res.send(productPage('compare'))); app.get('/pricing',(req,res)=>res.send(pricingPage())); app.get('/academy',(req,res)=>res.send(academyPage())); app.get('/blog',(req,res)=>res.send(blogPage())); app.get('/resources',(req,res)=>res.send(publicShell({title:'WISDO Resource Center',description:'Original trading guides, checklists, journals, calculators, AI webinars, and adaptive learning resources.',path:'/resources',active:'/resources',body:`<main><section class="page-hero"><span class="eyebrow">Resource Center</span><h1>Study guides, tools, and AI teaching in one library.</h1><p class="lead">Members receive original WISDO checklists, worksheets, journals, flash cards, calculators, on-demand AI webinars, interactive labs, bookmarks, notes, and adaptive AI teaching without redistributing copyrighted paid courses.</p><div class="actions"><a class="btn primary" href="/app/education">Open member library</a><a class="btn ghost" href="/academy">Explore Academy</a></div></section><section class="page-section"><div class="grid4">${[['Trading Academy','Beginner through professional market education.'],['WISDO University','Copier, account health, automation, DF Sauce, and HIGHTOWER operating knowledge.'],['Resource Center','Original guides, journals, checklists, cheat sheets, and calculators.'],['AI Webinar Room','On-demand narrated video lessons generated from member questions and approved strategies.']].map(([title,copy])=>`<article class="card"><h3>${title}</h3><p>${copy}</p></article>`).join('')}</div></section></main>`}))); app.get('/blog/:slug',(req,res)=>{const p=BLOG_POSTS.find(x=>x.slug===req.params.slug);if(!p)return res.status(404).send(publicShell({title:'Not found',description:'Resource not found.',path:req.path,body:'<main class="page-hero"><h1>Resource not found.</h1></main>'}));res.send(blogPostPage(p));});
@@ -683,8 +980,11 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
   app.post('/api/auth/password-reset/complete',async(req,res)=>{const token=String(req.body?.token||'');const password=String(req.body?.password||'');if(password.length<8)return res.status(400).json({ok:false,error:'Password must be at least 8 characters.'});const result=await mutate(loadEcosystemState,saveEcosystemState,state=>{const r=state.passwordResetTokens[token];if(!r||r.used||new Date(r.expiresAt)<new Date())return null;const hash=hashPassword(password);let updated=false;for(const [userId,user] of Object.entries(state.usersById||{})){if(String(userId)===String(r.userId)||String(user.email||'').toLowerCase()===String(r.email||'').toLowerCase()){state.usersById[userId]={...user,passwordHash:hash,updatedAt:nowIso()};updated=true;}}if(!updated&&r.userId){state.usersById[r.userId]={id:r.userId,email:r.email,passwordHash:hash,createdAt:nowIso(),updatedAt:nowIso()};updated=true;}r.used=true;r.usedAt=nowIso();audit(state,r.userId,'password.reset','User',r.userId);return {updated,userId:r.userId};});if(!result?.updated)return res.status(400).json({ok:false,error:'Reset token is invalid, expired, or no user could be updated.'});if(wantsHtml(req))return res.redirect('/login?message=Password+updated');res.json({ok:true,updated:true});});
 
   app.get('/app', requireUser, (req, res) => res.redirect('/app/command-center'));
-  const appPages=['command-center','dashboard','accounts','copier-engine','culture-lanes','symbol-routing','harvest','lane-audit','lane-intelligence','compound-tracker','trades','analyzer','alerts','education','affiliate','settings','settings/billing'];
+  const appPages=['command-center','dashboard','accounts','copier-engine','lane-audit','lane-intelligence','compound-tracker','trades','analyzer','alerts','education','affiliate','settings','settings/billing'];
   for(const page of appPages)app.get(`/app/${page}`,requireUser,(req,res)=>res.send(workspaceShell(page,req.wisdoUser)));
+  app.get('/app/culture-lanes',requireUser,(req,res)=>res.redirect('/app/dashboard'));
+  app.get('/app/symbol-routing',requireUser,(req,res)=>res.redirect('/app/copier-engine'));
+  app.get('/app/harvest',requireUser,(req,res)=>res.redirect('/app/dashboard'));
   app.get('/member/command-center', requireUser, (req, res) => res.redirect('/app/command-center'));
   app.get('/member', requireUser, (req, res) => res.redirect('/app/command-center'));
   for(const legacyEducationPath of ['/member/education','/member/academy','/member/seminars']) app.get(legacyEducationPath,requireUser,(req,res)=>{const query=new URLSearchParams(req.query||{}).toString();res.redirect(`/app/education${query?`?${query}`:''}`)});
@@ -799,44 +1099,52 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     }
     res.json({ok:true,generatedAt:nowIso(),rules:rows,relaySync,relayDiagnostics:(state.relayDiagnostics||[]).filter(item=>String(item.userId)===userId).slice(0,100)});
   });
+  app.get('/api/v2/leaders/:leaderId/symbol-history',requireUser,async(req,res)=>{
+    const state=ensureMajorState(await loadEcosystemState());
+    const leaderId=String(req.params.leaderId||'');
+    if(!canAccessLeader(state,req.wisdoUser.id,leaderId))return res.status(404).json({ok:false,error:'Culture Lead not found or not shared to this desk.'});
+    const symbols=leaderSymbolHistoryFromState(state,leaderId);
+    res.json({ok:true,leaderAccountId:leaderId,symbols,defaultAllowedSymbols:symbols.map(item=>item.symbol)});
+  });
+
   app.post('/api/v2/copier-rules',requireUser,async(req,res)=>{
     const startedAt=Date.now();
     const requestId=id('copier-save');
-    logger?.info?.('Copier rule save started',{requestId,userId:String(req.wisdoUser.id),masterId:String(req.body.master_id||''),receiverId:String(req.body.slave_id||'')});
+    const requestedFollowers=Array.isArray(req.body?.slave_ids)?req.body.slave_ids:Array.isArray(req.body?.followerAccountIds)?req.body.followerAccountIds:[req.body?.slave_id].filter(Boolean);
+    logger?.info?.('Multi-account Culture Lane save started',{requestId,userId:String(req.wisdoUser.id),masterId:String(req.body.master_id||''),receiverIds:requestedFollowers.map(String)});
     try{
       const outcome=await mutate(loadEcosystemState,saveEcosystemState,state=>{
-        const master=state.tradingAccounts[String(req.body.master_id||'')];const follower=state.tradingAccounts[String(req.body.slave_id||'')];
+        const master=state.tradingAccounts[String(req.body.master_id||'')];
         if(!master)return {error:'Select a Culture Lead. No lead account was found for that ID.'};
         if(!canAccessLeader(state,req.wisdoUser.id,master.id))return {error:'That account is not assigned as a Culture Lead or is not shared with this desk.'};
-        if(!follower||!ownAccount(state,req.wisdoUser.id,follower.id))return {error:'Select an owned Mirror Receiver account.'};
-        if(!accountCanReceive(follower))return {error:'The destination account must be assigned Mirror Receiver or Dual Role in Accounts.'};
-        if(master.id===follower.id)return {error:'Culture Lead and Mirror Receiver must be different accounts.'};
-        const risk=RISK_TYPES.includes(req.body.risk_type)?req.body.risk_type:'multiplier';
-        const rule={id:id('rule'),user_id:String(req.wisdoUser.id),master_id:String(master.id),slave_id:String(follower.id),risk_type:risk,risk_value:num(req.body.risk_value,1),min_lot:num(req.body.min_lot,.01),max_lot:num(req.body.max_lot,100),equity_protection_pct:req.body.equity_protection_pct===''?null:num(req.body.equity_protection_pct,null),max_daily_loss:req.body.max_daily_loss===''?null:num(req.body.max_daily_loss,null),max_open_trades:req.body.max_open_trades===''?null:num(req.body.max_open_trades,null),max_spread_points:req.body.max_spread_points===''?null:num(req.body.max_spread_points,null),max_slippage_points:req.body.max_slippage_points===''?null:num(req.body.max_slippage_points,null),allowed_symbols:parseSymbols(req.body.allowed_symbols),blocked_symbols:[],allow_only_highlighted:false,symbol_mapping:normalizeMap(req.body.symbol_mapping),trading_hours_start:req.body.trading_hours_start||null,trading_hours_end:req.body.trading_hours_end||null,is_active:req.body.is_active===undefined?true:parseBool(req.body.is_active),reverse_signals:parseBool(req.body.reverse_signals),copy_sl_tp:req.body.copy_sl_tp===undefined?true:parseBool(req.body.copy_sl_tp),copy_pending_orders:parseBool(req.body.copy_pending_orders),created_at:nowIso(),updated_at:nowIso()};
-        state.copierRules[rule.id]=rule;
-        const cultureLane=createCultureLane(state,req.wisdoUser.id,{laneId:`lane_${rule.id}`,name:`${master.nickname||master.account_number||master.id} → ${follower.nickname||follower.account_number||follower.id}`,leaderAccountId:master.id,followerAccountIds:[follower.id],status:rule.is_active?'active':'paused',profile:'custom',riskBudget:{type:rule.risk_type,value:rule.risk_value,minLot:rule.min_lot,maxLot:rule.max_lot,equityProtectionPercent:rule.equity_protection_pct,maxDailyLoss:rule.max_daily_loss,maxOpenTrades:rule.max_open_trades}});
-        rule.culture_lane_id=cultureLane.laneId;
-        setLaneSymbolPolicy(state,cultureLane.laneId,req.wisdoUser.id,{autoMatch:true,allowedSymbols:rule.allowed_symbols,aliases:rule.symbol_mapping,missingSymbolBehavior:'skip_and_notify'});
-        audit(state,req.wisdoUser.id,'copier_rule.created','CopierRule',rule.id,{leadRole:master.desk_role,receiverRole:follower.desk_role,cultureLaneId:cultureLane.laneId});
-        appendMemberAlert(state,req.wisdoUser.id,{type:'system',title:'Culture Lane saved',body:`${rule.master_id} → ${rule.slave_id} was saved. Live relay registration is being checked.`,metadata:{ruleId:rule.id,relayRegistered:false}},`lane-created:${rule.id}`);
-        return {rule,cultureLane};
+        const followerIds=[...new Set(requestedFollowers.map(String).filter(Boolean))];
+        if(!followerIds.length)return {error:'Select at least one Mirror Receiver account.'};
+        const followers=[];
+        for(const followerId of followerIds){
+          const follower=state.tradingAccounts[followerId];
+          if(!follower||!ownAccount(state,req.wisdoUser.id,followerId))return {error:`Receiver ${followerId} is not an owned account.`};
+          if(!accountCanReceive(follower))return {error:`${follower.nickname||follower.account_number||followerId} must be assigned Mirror Receiver or Dual Role.`};
+          if(master.id===follower.id)return {error:'Culture Lead cannot also be selected as its own receiver.'};
+          followers.push(follower);
+        }
+        const laneId=id('lane');
+        const laneName=String(req.body.lane_name||req.body.name||`${master.nickname||master.account_number||master.id} Culture Lane`).trim();
+        const cultureLane=createCultureLane(state,req.wisdoUser.id,{laneId,name:laneName,leaderAccountId:master.id,followerAccountIds:followerIds,status:req.body.is_active===undefined||parseBool(req.body.is_active)?'active':'paused',profile:'custom',riskBudget:{type:req.body.risk_type||'multiplier',value:num(req.body.risk_value,1),minLot:num(req.body.min_lot,.01),maxLot:num(req.body.max_lot,100),equityProtectionPercent:req.body.equity_protection_pct===''?null:num(req.body.equity_protection_pct,null),maxDailyLoss:req.body.max_daily_loss===''?null:num(req.body.max_daily_loss,null),maxOpenTrades:req.body.max_open_trades===''?null:num(req.body.max_open_trades,null)}});
+        const rules=followers.map(follower=>buildCopierRuleRecord(state,req.wisdoUser.id,master,follower,{...req.body,allow_only_highlighted:req.body.allow_only_highlighted??parseSymbols(req.body.allowed_symbols).length>0},{laneId:cultureLane.laneId}));
+        const allowedSymbols=parseSymbols(req.body.allowed_symbols);
+        const blockedSymbols=parseSymbols(req.body.blocked_symbols);
+        setLaneSymbolPolicy(state,cultureLane.laneId,req.wisdoUser.id,{autoMatch:req.body.auto_match_symbols!==false,allowedSymbols,blockedSymbols,aliases:normalizeMap(req.body.symbol_mapping),missingSymbolBehavior:'skip_and_notify'});
+        audit(state,req.wisdoUser.id,'culture_lane.multi_receiver_created','CultureLane',cultureLane.laneId,{ruleIds:rules.map(rule=>rule.id),leaderAccountId:master.id,followerAccountIds:followerIds,allowedSymbols});
+        appendMemberAlert(state,req.wisdoUser.id,{type:'system',title:'Multi-account Culture Lane saved',body:`${laneName} connected one leader to ${followers.length} receiver account(s).`,metadata:{laneId:cultureLane.laneId,ruleIds:rules.map(rule=>rule.id),receiverCount:followers.length}},`lane-created:${cultureLane.laneId}`);
+        return {rules,cultureLane};
       });
-      if(outcome.error){
-        logger?.warn?.('Copier rule save rejected',{requestId,userId:String(req.wisdoUser.id),error:outcome.error,elapsedMs:Date.now()-startedAt});
-        return res.status(400).json({ok:false,error:outcome.error,requestId});
-      }
+      if(outcome.error)return res.status(400).json({ok:false,error:outcome.error,requestId});
       const relayTimeoutMs=Math.max(250,Number(process.env.WISDO_COPIER_RELAY_TIMEOUT_MS||5000));
-      const relayResult=await settleWithin(syncCopierRuleToRelay(mt4SyncService,outcome.rule),relayTimeoutMs);
-      const relayRoute=relayResult.status==='fulfilled'?relayResult.value:null;
-      const relayPending=relayResult.status==='timeout';
-      const relayError=relayResult.status==='rejected'?String(relayResult.error?.message||relayResult.error||'Relay registration failed'):'';
-      const elapsedMs=Date.now()-startedAt;
-      const logData={requestId,userId:String(req.wisdoUser.id),ruleId:outcome.rule.id,elapsedMs,relayStatus:relayResult.status,executionReady:Boolean(relayRoute)};
-      if(relayError)logger?.warn?.('Copier rule saved but relay registration failed',{...logData,error:relayError});
-      else logger?.info?.('Copier rule save completed',logData);
-      return res.status(201).json({ok:true,rule:outcome.rule,cultureLane:outcome.cultureLane,relayRoute,executionReady:Boolean(relayRoute),relayPending,relayError,requestId,elapsedMs});
+      const relayResults=await Promise.all(outcome.rules.map(async rule=>({rule,relay:await settleWithin(syncCopierRuleToRelay(mt4SyncService,rule),relayTimeoutMs)})));
+      const results=relayResults.map(({rule,relay})=>({ruleId:rule.id,status:relay.status,executionReady:relay.status==='fulfilled'&&Boolean(relay.value),relayRoute:relay.status==='fulfilled'?relay.value:null,error:relay.status==='rejected'?String(relay.error?.message||relay.error):''}));
+      return res.status(201).json({ok:true,rule:outcome.rules[0],rules:outcome.rules,cultureLane:outcome.cultureLane,receiverCount:outcome.rules.length,relayResults:results,executionReady:results.every(row=>row.executionReady),relayPending:results.some(row=>row.status==='timeout'),requestId,elapsedMs:Date.now()-startedAt});
     }catch(error){
-      logger?.error?.('Copier rule save failed',{requestId,userId:String(req.wisdoUser.id),elapsedMs:Date.now()-startedAt,error:error?.message,stack:error?.stack});
+      logger?.error?.('Multi-account Culture Lane save failed',{requestId,userId:String(req.wisdoUser.id),elapsedMs:Date.now()-startedAt,error:error?.message,stack:error?.stack});
       return res.status(500).json({ok:false,error:'Culture Lane could not be saved.',detail:error?.message||'Unknown error',requestId});
     }
   });
@@ -884,12 +1192,17 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
       const r=state.copierRules[req.params.id];
       delete state.copierRules[req.params.id];
       const laneId=r.culture_lane_id||`lane_${r.id}`;
-      if(state.cultureLanesById[laneId]&&laneAccessibleTo(state.cultureLanesById[laneId],req.wisdoUser.id)){
+      const remainingRules=Object.values(state.copierRules).filter(rule=>String(rule.culture_lane_id||'')===String(laneId));
+      if(!remainingRules.length&&state.cultureLanesById[laneId]&&laneAccessibleTo(state.cultureLanesById[laneId],req.wisdoUser.id)){
         delete state.cultureLanesById[laneId];
         delete state.symbolPoliciesByLaneId[laneId];
         delete state.harvestPoliciesByLaneId[laneId];
         for(const [key,row] of Object.entries(state.laneTimelineEventsById))if(row.laneId===laneId)delete state.laneTimelineEventsById[key];
         for(const [key,row] of Object.entries(state.laneGenomesById))if(row.laneId===laneId)delete state.laneGenomesById[key];
+      }else if(remainingRules.length&&state.cultureLanesById[laneId]){
+        state.cultureLanesById[laneId].followerAccountIds=[...new Set(remainingRules.map(rule=>String(rule.slave_id)))];
+        state.cultureLanesById[laneId].accountIds=[String(state.cultureLanesById[laneId].leaderAccountId),...state.cultureLanesById[laneId].followerAccountIds];
+        state.cultureLanesById[laneId].updatedAt=nowIso();
       }
       audit(state,req.wisdoUser.id,'copier_rule.deleted','CopierRule',r.id,{cultureLaneId:laneId});
       return r;
@@ -993,7 +1306,7 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
         const lot=existingCopy?.lot_size||calculateSlaveLot(rule,masterTrade.lot_size,num(master.equity),num(follower.equity),num(master.balance),num(follower.balance));
         const commandName=isClose?'COPY_CLOSE_TRADE':'COPY_OPEN_TRADE';
         const stableLeaderTicket=String(masterTrade.external_ticket||masterTrade.id);
-        const payload={accountId:follower.id,leaderAccountId:master.id,followerAccountId:follower.id,leaderSymbol,masterSymbol:leaderSymbol,followerSymbol,symbol:followerSymbol,sourceTicket:stableLeaderTicket,leaderTicket:stableLeaderTicket,masterTicket:stableLeaderTicket,copyKey:`${rule.id}:${stableLeaderTicket}`,followerTicket:existingCopy?.external_ticket||null,masterTradeId:masterTrade.id,side:rule.reverse_signals?(masterTrade.side==='buy'?'sell':'buy'):masterTrade.side,lots:lot,stopLoss:rule.copy_sl_tp?masterTrade.stop_loss:null,takeProfit:rule.copy_sl_tp?masterTrade.take_profit:null,routeId:rule.id,maxSlippagePoints:rule.max_slippage_points??null,immediate:true,priority:isClose?5000:150,confirmation:'confirmed'};
+        const payload={accountId:follower.id,leaderAccountId:master.id,followerAccountId:follower.id,leaderSymbol,masterSymbol:leaderSymbol,followerSymbol,symbol:followerSymbol,sourceTicket:stableLeaderTicket,leaderTicket:stableLeaderTicket,masterTicket:stableLeaderTicket,copyKey:`${rule.id}:${stableLeaderTicket}`,followerTicket:existingCopy?.external_ticket||null,masterTradeId:masterTrade.id,side:rule.reverse_signals?(masterTrade.side==='buy'?'sell':'buy'):masterTrade.side,lots:lot,stopLoss:rule.copy_sl_tp?masterTrade.stop_loss:null,takeProfit:rule.copy_sl_tp?masterTrade.take_profit:null,routeId:rule.id,maxSlippagePoints:rule.max_slippage_points??null,immediate:true,priority:isClose?10000:150,confirmation:'confirmed',ttlMinutes:isClose?2:15,commandId:isClose?`copy-close-${rule.id}-${stableLeaderTicket}`:undefined,closeAuthority:isClose};
         try{
           const command=await mt4CommandService.queueCommandForAccount(rule.user_id,follower.id,commandName,payload);
           queued.push({ruleId:rule.id,followerAccountId:follower.id,followerSymbol,commandId:command.id});
@@ -1020,20 +1333,43 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
   app.get('/api/v2/culture-lanes',requireUser,async(req,res)=>{
     const lanes=await mutate(loadEcosystemState,saveEcosystemState,state=>{
       let changed=false;
-      for(const rule of Object.values(state.copierRules).filter(item=>String(item.user_id)===String(req.wisdoUser.id))){
-        const laneId=rule.culture_lane_id||`lane_${rule.id}`;
-        if(!state.cultureLanesById[laneId]){
-          const master=state.tradingAccounts[rule.master_id];const follower=state.tradingAccounts[rule.slave_id];
-          if(!master||!follower)continue;
-          const lane=createCultureLane(state,req.wisdoUser.id,{laneId,name:`${master.nickname||master.account_number||master.id} → ${follower.nickname||follower.account_number||follower.id}`,leaderAccountId:master.id,followerAccountIds:[follower.id],status:rule.is_active?'active':'paused',profile:'custom',riskBudget:{type:rule.risk_type,value:rule.risk_value,minLot:rule.min_lot,maxLot:rule.max_lot,equityProtectionPercent:rule.equity_protection_pct,maxDailyLoss:rule.max_daily_loss,maxOpenTrades:rule.max_open_trades}});
-          setLaneSymbolPolicy(state,lane.laneId,req.wisdoUser.id,{autoMatch:true,allowedSymbols:rule.allowed_symbols||[],aliases:rule.symbol_mapping||{},missingSymbolBehavior:'skip_and_notify'});
-          rule.culture_lane_id=lane.laneId;changed=true;
+      const ownedRules=Object.values(state.copierRules).filter(item=>String(item.user_id)===String(req.wisdoUser.id));
+      const groups=new Map();
+      for(const rule of ownedRules){
+        const key=rule.culture_lane_id?`lane:${rule.culture_lane_id}`:`legacy:${rule.master_id}`;
+        if(!groups.has(key))groups.set(key,[]);
+        groups.get(key).push(rule);
+      }
+      for(const rules of groups.values()){
+        const first=rules[0];
+        const master=state.tradingAccounts[first.master_id];
+        const followers=rules.map(rule=>state.tradingAccounts[rule.slave_id]).filter(Boolean);
+        if(!master||!followers.length)continue;
+        let laneId=first.culture_lane_id||'';
+        let lane=laneId?state.cultureLanesById[laneId]:null;
+        if(!lane){
+          laneId=laneId||`lane_${first.id}`;
+          lane=createCultureLane(state,req.wisdoUser.id,{laneId,name:`${master.nickname||master.account_number||master.id} Culture Lane`,leaderAccountId:master.id,followerAccountIds:followers.map(follower=>follower.id),status:rules.some(rule=>rule.is_active)?'active':'paused',profile:'custom',riskBudget:{type:first.risk_type,value:first.risk_value,minLot:first.min_lot,maxLot:first.max_lot,equityProtectionPercent:first.equity_protection_pct,maxDailyLoss:first.max_daily_loss,maxOpenTrades:first.max_open_trades}});
+          changed=true;
+        }else{
+          const followerIds=[...new Set([...(lane.followerAccountIds||[]),...followers.map(follower=>String(follower.id))])];
+          if(JSON.stringify(followerIds)!==JSON.stringify(lane.followerAccountIds||[])){
+            lane.followerAccountIds=followerIds;
+            lane.accountIds=[...new Set([String(lane.leaderAccountId),...followerIds])];
+            lane.updatedAt=nowIso();
+            changed=true;
+          }
+        }
+        for(const rule of rules){if(rule.culture_lane_id!==laneId){rule.culture_lane_id=laneId;rule.updated_at=nowIso();changed=true;}}
+        if(!state.symbolPoliciesByLaneId[laneId]){
+          setLaneSymbolPolicy(state,laneId,req.wisdoUser.id,{autoMatch:true,allowedSymbols:first.allowed_symbols||[],blockedSymbols:first.blocked_symbols||[],aliases:first.symbol_mapping||{},missingSymbolBehavior:'skip_and_notify'});
+          changed=true;
         }
       }
       const rows=Object.values(state.cultureLanesById).filter(lane=>laneAccessibleTo(lane,req.wisdoUser.id));
       return mutationResult(rows,{save:changed});
     });
-    res.json({ok:true,lanes,source:'culture-lane-os-v6.0.2'});
+    res.json({ok:true,lanes,source:'culture-lane-os-v6.0.3'});
   });
   app.post('/api/v2/culture-lanes',requireUser,async(req,res)=>{
     try{
@@ -1056,6 +1392,64 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     if(!lane)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
     res.json({ok:true,lane});
   });
+  app.put('/api/v2/culture-lanes/:laneId/copier-configuration',requireUser,async(req,res)=>{
+    try{
+      const outcome=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+        const lane=state.cultureLanesById[req.params.laneId];
+        if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return {error:'Culture Lane not found.'};
+        const leaderId=String(req.body?.master_id||req.body?.leaderAccountId||lane.leaderAccountId||'');
+        const followerIds=[...new Set((Array.isArray(req.body?.slave_ids)?req.body.slave_ids:Array.isArray(req.body?.followerAccountIds)?req.body.followerAccountIds:lane.followerAccountIds||[]).map(String).filter(Boolean))];
+        const master=state.tradingAccounts[leaderId];
+        if(!master||!canAccessLeader(state,req.wisdoUser.id,leaderId))return {error:'Selected Culture Lead is unavailable.'};
+        if(!followerIds.length)return {error:'Select at least one Mirror Receiver.'};
+        const followers=[];
+        for(const followerId of followerIds){const follower=state.tradingAccounts[followerId];if(!follower||!ownAccount(state,req.wisdoUser.id,followerId)||!accountCanReceive(follower))return {error:`Receiver ${followerId} is unavailable or not assigned as a receiver.`};if(followerId===leaderId)return {error:'Culture Lead cannot receive from itself.'};followers.push(follower);}
+        const existingRules=Object.values(state.copierRules).filter(rule=>String(rule.user_id)===String(req.wisdoUser.id)&&String(rule.culture_lane_id||'')===String(lane.laneId));
+        const byFollower=new Map(existingRules.map(rule=>[String(rule.slave_id),rule]));
+        const removedRules=existingRules.filter(rule=>!followerIds.includes(String(rule.slave_id)));
+        for(const rule of removedRules)delete state.copierRules[rule.id];
+        const rules=followers.map(follower=>buildCopierRuleRecord(state,req.wisdoUser.id,master,follower,req.body||{},{laneId:lane.laneId,existing:byFollower.get(String(follower.id))||null}));
+        updateCultureLane(state,lane.laneId,req.wisdoUser.id,{name:req.body?.lane_name||req.body?.name||lane.name,leaderAccountId:leaderId,followerAccountIds:followerIds,status:rules.some(rule=>rule.is_active)?'active':'paused',riskBudget:{type:rules[0].risk_type,value:rules[0].risk_value,minLot:rules[0].min_lot,maxLot:rules[0].max_lot,equityProtectionPercent:rules[0].equity_protection_pct,maxDailyLoss:rules[0].max_daily_loss,maxOpenTrades:rules[0].max_open_trades},reason:'copier_engine_lane_configuration_updated'});
+        const policy=setLaneSymbolPolicy(state,lane.laneId,req.wisdoUser.id,{autoMatch:req.body?.auto_match_symbols!==false,allowedSymbols:parseSymbols(req.body?.allowed_symbols),blockedSymbols:parseSymbols(req.body?.blocked_symbols),aliases:normalizeMap(req.body?.symbol_mapping),missingSymbolBehavior:'skip_and_notify'});
+        for(const rule of rules){rule.allowed_symbols=[...(policy.allowedSymbols||[])];rule.blocked_symbols=[...(policy.blockedSymbols||[])];rule.allow_only_highlighted=req.body?.allow_only_highlighted===undefined?Boolean(rule.allow_only_highlighted||policy.allowedSymbols.length||policy.blockedSymbols.length):parseBool(req.body.allow_only_highlighted);rule.symbol_mapping={...(policy.aliases||{})};}
+        audit(state,req.wisdoUser.id,'culture_lane.copier_configuration_updated','CultureLane',lane.laneId,{ruleIds:rules.map(rule=>rule.id),removedRuleIds:removedRules.map(rule=>rule.id),followerAccountIds:followerIds,allowedSymbols:policy.allowedSymbols});
+        return {lane:state.cultureLanesById[lane.laneId],rules,removedRules,policy};
+      });
+      if(outcome.error)return res.status(400).json({ok:false,error:outcome.error});
+      await Promise.allSettled(outcome.removedRules.map(rule=>mt4SyncService?.repository?.deleteCopyRoute?.(req.wisdoUser.id,rule.id)));
+      const relayResults=await Promise.allSettled(outcome.rules.map(rule=>syncCopierRuleToRelay(mt4SyncService,rule)));
+      res.json({ok:true,lane:outcome.lane,rules:outcome.rules,policy:outcome.policy,relayResults:relayResults.map((result,index)=>({ruleId:outcome.rules[index].id,status:result.status,error:result.status==='rejected'?String(result.reason?.message||result.reason):null}))});
+    }catch(error){res.status(500).json({ok:false,error:'Culture Lane update failed.',detail:error.message});}
+  });
+  app.post('/api/v2/culture-lanes/:laneId/toggle',requireUser,async(req,res)=>{
+    const outcome=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+      const lane=state.cultureLanesById[req.params.laneId];if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return null;
+      const active=req.body?.is_active===undefined?lane.status!=='active':parseBool(req.body.is_active);
+      lane.status=active?'active':'paused';lane.updatedAt=nowIso();
+      const rules=Object.values(state.copierRules).filter(rule=>String(rule.culture_lane_id||'')===String(lane.laneId)&&String(rule.user_id)===String(req.wisdoUser.id));
+      for(const rule of rules){rule.is_active=active;rule.updated_at=nowIso();}
+      appendLaneTimelineEvent(state,lane.laneId,active?'lane.resumed':'lane.paused',{userId:req.wisdoUser.id,ruleIds:rules.map(rule=>rule.id)});
+      return {lane,rules};
+    });
+    if(!outcome)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    await Promise.allSettled(outcome.rules.map(rule=>syncCopierRuleToRelay(mt4SyncService,rule)));
+    res.json({ok:true,lane:outcome.lane,rules:outcome.rules});
+  });
+  app.delete('/api/v2/culture-lanes/:laneId',requireUser,async(req,res)=>{
+    const outcome=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+      const lane=state.cultureLanesById[req.params.laneId];if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return null;
+      const rules=Object.values(state.copierRules).filter(rule=>String(rule.culture_lane_id||'')===String(lane.laneId)&&String(rule.user_id)===String(req.wisdoUser.id));
+      for(const rule of rules)delete state.copierRules[rule.id];
+      delete state.cultureLanesById[lane.laneId];delete state.symbolPoliciesByLaneId[lane.laneId];delete state.harvestPoliciesByLaneId[lane.laneId];
+      for(const [key,row] of Object.entries(state.laneTimelineEventsById||{}))if(row.laneId===lane.laneId)delete state.laneTimelineEventsById[key];
+      for(const [key,row] of Object.entries(state.laneGenomesById||{}))if(row.laneId===lane.laneId)delete state.laneGenomesById[key];
+      return {lane,rules};
+    });
+    if(!outcome)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    await Promise.allSettled(outcome.rules.map(rule=>mt4SyncService?.repository?.deleteCopyRoute?.(req.wisdoUser.id,rule.id)));
+    res.json({ok:true,deleted:true,laneId:req.params.laneId,removedRuleIds:outcome.rules.map(rule=>rule.id)});
+  });
+
   app.get('/api/v2/culture-lanes/:laneId/vault',requireUser,async(req,res)=>{
     const state=ensureMajorState(await loadEcosystemState());
     const vault=computeCultureLaneVault(state,req.params.laneId,req.wisdoUser.id);
@@ -1126,14 +1520,11 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     const lane=state.cultureLanesById[req.params.laneId];
     if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return res.status(404).json({ok:false,error:'Culture Lane not found.'});
     if(req.body?.confirmation!=='confirmed')return res.status(409).json({ok:false,error:'confirmation_required',requiredConfirmation:'confirmed'});
-    const requestedAccountIds=Array.isArray(req.body?.accountIds)?req.body.accountIds.map(String):lane.accountIds.map(String);
-    const accountIds=[...new Set(requestedAccountIds.filter(accountId=>lane.accountIds.map(String).includes(accountId)))];
-    const startedAt=Date.now();
-    const results=await Promise.allSettled(accountIds.map(accountId=>mt4CommandService.queueCommandForAccount(req.wisdoUser.id,accountId,'CLOSE_ALL_TRADES',{accountId,confirmation:'confirmed',immediate:true,priority:10000,ttlMinutes:2,fanoutMode:'parallel_lane_sweep',requestedFrom:'culture_lane_close_all',laneId:lane.laneId})));
-    const commands=[];const failures=[];
-    results.forEach((result,index)=>{if(result.status==='fulfilled')commands.push({accountId:accountIds[index],commandId:result.value.id,command:result.value});else failures.push({accountId:accountIds[index],error:String(result.reason?.message||result.reason||'Queue failed')});});
-    await mutate(loadEcosystemState,saveEcosystemState,working=>{appendLaneTimelineEvent(working,lane.laneId,'lane.close_all_parallel_queued',{accountIds,commandIds:commands.map(item=>item.commandId),failures,fanoutMs:Date.now()-startedAt});return true;});
-    res.status(failures.length?207:202).json({ok:failures.length===0,parallel:true,fanoutMs:Date.now()-startedAt,commands,failures});
+    const requestedAccountIds=Array.isArray(req.body?.accountIds)?req.body.accountIds.map(String):null;
+    const executionLane=requestedAccountIds?{...lane,accountIds:[...new Set(requestedAccountIds.filter(accountId=>(lane.accountIds||[]).map(String).includes(accountId)))]}:lane;
+    const fanout=await queueLaneSweep({mt4CommandService,lane:executionLane,userId:req.wisdoUser.id,reason:'culture_lane_close_all',force:true});
+    await mutate(loadEcosystemState,saveEcosystemState,working=>{appendLaneTimelineEvent(working,lane.laneId,'lane.close_all_parallel_queued',{accountIds:fanout.accountIds,commandIds:fanout.commands.map(item=>item.commandId),failures:fanout.failures,fanoutMs:fanout.fanoutMs});return true;});
+    res.status(fanout.failures.length?207:202).json({ok:fanout.failures.length===0,parallel:true,...fanout});
   });
   app.put('/api/v2/culture-lanes/:laneId/harvest-policy',requireUser,async(req,res)=>{
     const policy=await mutate(loadEcosystemState,saveEcosystemState,state=>setHarvestPolicy(state,req.params.laneId,req.wisdoUser.id,req.body||{}));
@@ -1142,23 +1533,28 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
   });
   app.post('/api/v2/culture-lanes/:laneId/harvest/evaluate',requireUser,async(req,res)=>{
     const state=ensureMajorState(await loadEcosystemState());
+    const lane=state.cultureLanesById[req.params.laneId];
     const evaluation=evaluateLaneHarvest(state,req.params.laneId,req.wisdoUser.id);
-    if(!evaluation)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
-    if(!evaluation.triggered||req.body?.execute!==true)return res.json({ok:true,evaluation,executed:false});
+    if(!lane||!evaluation)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    if(!evaluation.triggered||req.body?.execute!==true)return res.json({ok:true,evaluation,executed:false,message:evaluation.triggered?'Goal reached. Press Harvest Lane Now to execute immediately.':'Goal has not been reached.'});
     if(req.body?.confirmation!=='confirmed')return res.status(409).json({ok:false,error:'confirmation_required',evaluation,requiredConfirmation:'confirmed'});
-    if(evaluation.vault.disconnectedAccountIds.length)return res.status(409).json({ok:false,error:'receiver_health_degraded',evaluation});
-    const accountIds=evaluation.vault.accounts.map(account=>account.accountId);
-    const fanoutStartedAt=Date.now();
-    const results=await Promise.allSettled(accountIds.map(accountId=>mt4CommandService.queueCommandForAccount(req.wisdoUser.id,accountId,'CLOSE_ALL_TRADES',{accountId,confirmation:'confirmed',immediate:true,priority:10000,ttlMinutes:2,fanoutMode:'parallel_harvest_sweep',requestedFrom:'culture_lane_harvest',laneId:req.params.laneId})));
-    const commandIds=[]; const failures=[];
-    results.forEach((result,index)=>{if(result.status==='fulfilled')commandIds.push(result.value.id);else failures.push({accountId:accountIds[index],error:String(result.reason?.message||result.reason||'Queue failed')});});
-    const cycle=await mutate(loadEcosystemState,saveEcosystemState,working=>{
-      const refreshed=evaluateLaneHarvest(working,req.params.laneId,req.wisdoUser.id)||evaluation;
-      const created=createHarvestCycle(working,req.params.laneId,req.wisdoUser.id,refreshed,commandIds);
-      created.failures=failures; created.parallelFanout=true; created.fanoutMs=Date.now()-fanoutStartedAt; created.status=failures.length?'partially_queued':'commands_queued'; created.updatedAt=nowIso();
-      return created;
-    });
-    res.status(failures.length?207:202).json({ok:failures.length===0,evaluation,cycle,commandIds,failures});
+    if(evaluation.vault.disconnectedAccountIds.length)return res.status(409).json({ok:false,error:'receiver_health_degraded',evaluation,message:'Reconnect every lane account before automatic Harvest execution.'});
+    const reservation=await mutate(loadEcosystemState,saveEcosystemState,working=>{const refreshed=evaluateLaneHarvest(working,req.params.laneId,req.wisdoUser.id)||evaluation;const created=createHarvestCycle(working,req.params.laneId,req.wisdoUser.id,refreshed,[]);created.status='queueing';created.manual=false;created.updatedAt=nowIso();return created;});
+    const fanout=await queueLaneSweep({mt4CommandService,lane,userId:req.wisdoUser.id,reason:'harvest_goal_reached',cycleId:reservation.cycleId});
+    const cycle=await mutate(loadEcosystemState,saveEcosystemState,working=>{const created=working.harvestCyclesById[reservation.cycleId];created.commandIds=fanout.commands.map(item=>item.commandId);created.failures=fanout.failures;created.parallelFanout=true;created.fanoutMs=fanout.fanoutMs;created.status=fanout.failures.length?'partially_queued':'commands_queued';created.updatedAt=nowIso();appendLaneTimelineEvent(working,lane.laneId,'harvest.goal_close_queued',{cycleId:created.cycleId,commandIds:created.commandIds,failures:created.failures,fanoutMs:created.fanoutMs});return created;});
+    res.status(fanout.failures.length?207:202).json({ok:fanout.failures.length===0,evaluation,cycle,commandIds:cycle.commandIds,failures:fanout.failures,fanoutMs:fanout.fanoutMs});
+  });
+  app.post('/api/v2/culture-lanes/:laneId/harvest/execute',requireUser,async(req,res)=>{
+    const state=ensureMajorState(await loadEcosystemState());
+    const lane=state.cultureLanesById[req.params.laneId];
+    if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    if(req.body?.confirmation!=='confirmed')return res.status(409).json({ok:false,error:'confirmation_required',requiredConfirmation:'confirmed'});
+    const vault=computeCultureLaneVault(state,lane.laneId,req.wisdoUser.id);
+    const evaluation=evaluateLaneHarvest(state,lane.laneId,req.wisdoUser.id)||{triggered:false,current:vault?.combinedProfit||0,target:0,vault,policy:state.harvestPoliciesByLaneId[lane.laneId]||{goalType:'manual',goalValue:0}};
+    const reservation=await mutate(loadEcosystemState,saveEcosystemState,working=>{const current=evaluateLaneHarvest(working,lane.laneId,req.wisdoUser.id)||evaluation;const created=createHarvestCycle(working,lane.laneId,req.wisdoUser.id,current,[]);created.status='queueing';created.manual=true;created.forceExecuted=true;created.updatedAt=nowIso();return created;});
+    const fanout=await queueLaneSweep({mt4CommandService,lane,userId:req.wisdoUser.id,reason:'manual_harvest_now',cycleId:reservation.cycleId,force:true});
+    const cycle=await mutate(loadEcosystemState,saveEcosystemState,working=>{const created=working.harvestCyclesById[reservation.cycleId];created.commandIds=fanout.commands.map(item=>item.commandId);created.failures=fanout.failures;created.parallelFanout=true;created.fanoutMs=fanout.fanoutMs;created.status=fanout.failures.length?'partially_queued':'commands_queued';created.updatedAt=nowIso();appendLaneTimelineEvent(working,lane.laneId,'harvest.manual_close_queued',{cycleId:created.cycleId,commandIds:created.commandIds,failures:created.failures,fanoutMs:created.fanoutMs});return created;});
+    res.status(fanout.failures.length?207:202).json({ok:fanout.failures.length===0,evaluation,cycle,commandIds:cycle.commandIds,failures:fanout.failures,fanoutMs:fanout.fanoutMs,manual:true});
   });
   app.post('/api/v2/culture-lanes/:laneId/genomes',requireUser,async(req,res)=>{
     const genome=await mutate(loadEcosystemState,saveEcosystemState,state=>createLaneGenome(state,req.params.laneId,req.wisdoUser.id,req.body||{}));
@@ -1201,11 +1597,11 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
   const cronGuard=(req,res,next)=>{const expected=String(process.env.CRON_SECRET||'');const supplied=String(req.headers.authorization||'').replace(/^Bearer\s+/i,'');if(!expected||supplied!==expected)return res.status(401).json({ok:false,error:'Invalid cron token.'});next()};
   app.post('/api/public/cron/sync-accounts',cronGuard,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());const accounts=Object.values(state.tradingAccounts).filter(a=>a.status!=='disconnected');let queued=0;for(const a of accounts){try{await mt4CommandService.queueCommandForAccount(a.user_id,a.id,'SYNC_ACCOUNT',{accountId:a.id,immediate:false,ttlMinutes:2});queued++}catch{}}res.json({ok:true,queued,accounts:accounts.length})});
   app.post('/api/public/cron/refresh-market',cronGuard,async(req,res)=>{await mutate(loadEcosystemState,saveEcosystemState,state=>{state.marketCache={refreshedAt:nowIso(),providerConfigured:Boolean(process.env.FINNHUB_API_KEY||process.env.TRADING_ECONOMICS_API_KEY||process.env.FIRECRAWL_API_KEY)};return true});res.json({ok:true,refreshedAt:nowIso()})});
-  app.get('/api/public/health',async(req,res)=>{const security=sessionSecurityStatus();res.json({ok:true,service:'WISDO Major Product Pass',version:'6.0.2',time:nowIso(),persistence:config.persistence?.mode||'json',security,integrations:{discord:Boolean(process.env.DISCORD_TOKEN&&process.env.CLIENT_ID),square:Boolean(process.env.SQUARE_ACCESS_TOKEN&&process.env.SQUARE_LOCATION_ID),resend:Boolean(process.env.RESEND_API_KEY&&process.env.RESEND_FROM_EMAIL),sms:Boolean(process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN&&process.env.TWILIO_FROM_NUMBER),market:Boolean(process.env.FINNHUB_API_KEY||process.env.TRADING_ECONOMICS_API_KEY||process.env.FIRECRAWL_API_KEY),ai:Boolean(process.env.OPENAI_API_KEY||process.env.GOOGLE_AI_API_KEY),postgres:Boolean(process.env.DATABASE_URL)},features:{premiumPublicSite:true,pricingConfigurator:true,operationalApi:true,signedBrokerWebhook:true,accountSpecificCommands:true,academy:true,affiliate:true,unifiedCopierOptions:true,protectedPrivateStrategies:true,aiWebinarRoom:true,adminStrategyStudio:true,browserNarration:true,chartTeacher:true,tradingViewLessons:true,realHistoricalExamples:true,fakeChartFallbackDisabled:true,squareCheckout:true,renderMemoryRepair:true,growthFunnel:true,signupEmailSms:true,personalLearningRoom:true,educationDripSequence:true,portableLeadAi:true,videoEngagementTracking:true,persistentAccountRoles:true,persistenceBackupRecovery:true,immediateBulkClose:true,closeProfitableOnly:true,closeLosingOnly:true,compoundCloseTracker:true,dailyWeeklyTrendGauges:true,closeEmailDiscordNotifications:true,cultureLaneVault:true,smartSymbolRouting:true,harvestMode:true,laneGenomes:true,laneTimeline:true,tradePassports:true,laneDna:true,cultureIntelligence:true,redisStreamsRelay:true,commandDeadLetterRecovery:true,parallelLaneClose:true,visibleCultureLanePages:true,clickableLeaderSymbolMatrix:true}})});
-  app.get('/api/runtime-audit',async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,version:'6.0.2',source:'wisdo-culture-lane-os-v6.0.2.zip',checks:{rootRoute:true,publicProductPages:true,loginReturnTo:true,signedSessions:sessionSecurityStatus().signedSessions,credentialEncryptionReady:sessionSecurityStatus().credentialEncryptionConfigured,copierRules:Object.keys(state.copierRules).length,accounts:Object.keys(state.tradingAccounts).length,trades:Object.keys(state.trades).length,closeSignalsBypassEntryFilters:true,followerSymbolGuaranteed:true,persistentStorageConfigured:Boolean(config.persistence?.storagePath),executionAutomatchEnabled:parseBool(process.env.WISDO_SYMBOL_AUTOMATCH_EXECUTION_ENABLED),unifiedCopierOptions:true,privateStrategySourcePublic:false,aiWebinarRoom:true,adminStrategyStudio:true,browserNarration:true,chartTeacher:true,tradingViewLessons:true,realHistoricalExamples:true,fakeChartFallbackDisabled:true,squareCheckout:true,renderMemoryRepair:true,growthFunnel:true,signupEmailSms:true,personalLearningRoom:true,educationDripSequence:true,portableLeadAi:true,videoEngagementTracking:true,persistentAccountRoles:true,persistenceBackupRecovery:true,immediateBulkClose:true,closeProfitableOnly:true,closeLosingOnly:true,compoundCloseTracker:true,dailyWeeklyTrendGauges:true,closeEmailDiscordNotifications:true,cultureLaneVault:true,smartSymbolRouting:true,harvestMode:true,laneGenomes:true,laneTimeline:true,tradePassports:true,laneDna:true,cultureIntelligence:true,redisStreamsRelay:true,commandDeadLetterRecovery:true,parallelLaneClose:true,visibleCultureLanePages:true,clickableLeaderSymbolMatrix:true}})});
+  app.get('/api/public/health',async(req,res)=>{const security=sessionSecurityStatus();res.json({ok:true,service:'WISDO Major Product Pass',version:'6.0.3',time:nowIso(),persistence:config.persistence?.mode||'json',security,integrations:{discord:Boolean(process.env.DISCORD_TOKEN&&process.env.CLIENT_ID),square:Boolean(process.env.SQUARE_ACCESS_TOKEN&&process.env.SQUARE_LOCATION_ID),resend:Boolean(process.env.RESEND_API_KEY&&process.env.RESEND_FROM_EMAIL),sms:Boolean(process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN&&process.env.TWILIO_FROM_NUMBER),market:Boolean(process.env.FINNHUB_API_KEY||process.env.TRADING_ECONOMICS_API_KEY||process.env.FIRECRAWL_API_KEY),ai:Boolean(process.env.OPENAI_API_KEY||process.env.GOOGLE_AI_API_KEY),postgres:Boolean(process.env.DATABASE_URL)},features:{premiumPublicSite:true,pricingConfigurator:true,operationalApi:true,signedBrokerWebhook:true,accountSpecificCommands:true,academy:true,affiliate:true,unifiedCopierOptions:true,protectedPrivateStrategies:true,aiWebinarRoom:true,adminStrategyStudio:true,browserNarration:true,chartTeacher:true,tradingViewLessons:true,realHistoricalExamples:true,fakeChartFallbackDisabled:true,squareCheckout:true,renderMemoryRepair:true,growthFunnel:true,signupEmailSms:true,personalLearningRoom:true,educationDripSequence:true,portableLeadAi:true,videoEngagementTracking:true,persistentAccountRoles:true,persistenceBackupRecovery:true,immediateBulkClose:true,closeProfitableOnly:true,closeLosingOnly:true,compoundCloseTracker:true,dailyWeeklyTrendGauges:true,closeEmailDiscordNotifications:true,cultureLaneVault:true,smartSymbolRouting:true,harvestMode:true,laneGenomes:true,laneTimeline:true,tradePassports:true,laneDna:true,cultureIntelligence:true,redisStreamsRelay:true,commandDeadLetterRecovery:true,parallelLaneClose:true,visibleCultureLanePages:true,clickableLeaderSymbolMatrix:true,multiReceiverCultureLaneBuilder:true,combinedLaneDashboard:true,dashboardHarvestAuthority:true,leaderCloseSnapshotFailsafe:true}})});
+  app.get('/api/runtime-audit',async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,version:'6.0.3',source:'wisdo-culture-lane-os-v6.0.3.zip',checks:{rootRoute:true,publicProductPages:true,loginReturnTo:true,signedSessions:sessionSecurityStatus().signedSessions,credentialEncryptionReady:sessionSecurityStatus().credentialEncryptionConfigured,copierRules:Object.keys(state.copierRules).length,accounts:Object.keys(state.tradingAccounts).length,trades:Object.keys(state.trades).length,closeSignalsBypassEntryFilters:true,followerSymbolGuaranteed:true,persistentStorageConfigured:Boolean(config.persistence?.storagePath),executionAutomatchEnabled:parseBool(process.env.WISDO_SYMBOL_AUTOMATCH_EXECUTION_ENABLED),unifiedCopierOptions:true,privateStrategySourcePublic:false,aiWebinarRoom:true,adminStrategyStudio:true,browserNarration:true,chartTeacher:true,tradingViewLessons:true,realHistoricalExamples:true,fakeChartFallbackDisabled:true,squareCheckout:true,renderMemoryRepair:true,growthFunnel:true,signupEmailSms:true,personalLearningRoom:true,educationDripSequence:true,portableLeadAi:true,videoEngagementTracking:true,persistentAccountRoles:true,persistenceBackupRecovery:true,immediateBulkClose:true,closeProfitableOnly:true,closeLosingOnly:true,compoundCloseTracker:true,dailyWeeklyTrendGauges:true,closeEmailDiscordNotifications:true,cultureLaneVault:true,smartSymbolRouting:true,harvestMode:true,laneGenomes:true,laneTimeline:true,tradePassports:true,laneDna:true,cultureIntelligence:true,redisStreamsRelay:true,commandDeadLetterRecovery:true,parallelLaneClose:true,visibleCultureLanePages:true,clickableLeaderSymbolMatrix:true,multiReceiverCultureLaneBuilder:true,combinedLaneDashboard:true,dashboardHarvestAuthority:true,leaderCloseSnapshotFailsafe:true}})});
 
   app.get('/api/v2/admin/stats',requireUser,requireAdmin,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,users:Object.keys(state.profiles).length,accounts:Object.keys(state.tradingAccounts).length,rules:Object.keys(state.copierRules).length,trades:Object.keys(state.trades).length,subscriptions:Object.keys(state.subscriptions).length,alerts:Object.values(state.alerts).flat().length})});
   app.post('/api/v2/admin/firms',requireUser,requireAdmin,async(req,res)=>{const firm=await mutate(loadEcosystemState,saveEcosystemState,state=>{const firm={id:req.body.id||id('firm'),name:String(req.body.name||'').trim(),type:req.body.type==='broker'?'broker':'prop',logo_url:req.body.logo_url||'',max_drawdown_pct:num(req.body.max_drawdown_pct,null),daily_drawdown_pct:num(req.body.daily_drawdown_pct,null),profit_split_pct:num(req.body.profit_split_pct,null),refund_policy:req.body.refund_policy||'',min_trading_days:num(req.body.min_trading_days,0),supported_platforms:(req.body.supported_platforms||[]).filter(x=>PLATFORMS.includes(x)),rating:num(req.body.rating,0),updated_at:nowIso()};state.firms[firm.id]=firm;audit(state,req.wisdoUser.id,'firm.upserted','Firm',firm.id);return firm});res.json({ok:true,firm})});
 
-  logger?.info?.('WISDO major upgrade routes registered', { source: 'wisdo-culture-lane-os-v6.0.2.zip', version: '6.0.2' });
+  logger?.info?.('WISDO major upgrade routes registered', { source: 'wisdo-culture-lane-os-v6.0.3.zip', version: '6.0.3' });
 }

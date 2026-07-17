@@ -240,9 +240,8 @@
           <div class="command-map">
             <a class="command-module" href="/app/accounts"><strong>Account Desk</strong><small>Pair, sync, switch, and diagnose Reporter-backed accounts.</small></a>
             <a class="command-module" href="/app/copier-engine"><strong>Culture Relay</strong><small>Build lead-to-follower lanes and govern close authority.</small></a>
-            <a class="command-module" href="/app/culture-lanes"><strong>Culture Lane Vault</strong><small>See every lane, combined equity, health, and parallel lane-close controls.</small></a>
-            <a class="command-module" href="/app/symbol-routing"><strong>Symbol Highlights</strong><small>Click leader-traded symbols green to allow or grey to block per lane.</small></a>
-            <a class="command-module" href="/app/harvest"><strong>Harvest Mode</strong><small>Configure lane profit goals and confirmation-gated parallel harvesting.</small></a>
+            <a class="command-module" href="/app/dashboard"><strong>Combined Portfolio Dashboard</strong><small>View each Culture Lane as one large account with collective equity, drawdown, exposure, and Harvest controls.</small></a>
+            <a class="command-module" href="/app/copier-engine"><strong>Multi-Account Lane Builder</strong><small>Select multiple receivers and highlight allowed leader symbols inside the real Copier Engine workflow.</small></a>
             <a class="command-module" href="/app/lane-audit"><strong>Genome · Timeline · Passports</strong><small>Inspect configuration versions and immutable execution history.</small></a>
             <a class="command-module" href="/app/lane-intelligence"><strong>Lane DNA + Intelligence</strong><small>Generate behavior metrics, observations, and recommendations.</small></a>
             <a class="command-module" href="/app/compound-tracker"><strong>Compound Tracker</strong><small>Review finalized daily and weekly growth cycles.</small></a>
@@ -272,25 +271,47 @@
 
   async function drawDashboard() {
     const accountId = selectedAccountId();
-    const stats = await api(`/api/v2/analyzer/portfolio?period=month${accountId ? `&account_id=${encodeURIComponent(accountId)}` : ''}`);
-    const active = selectedAccount();
+    const laneResult = await api('/api/v2/culture-lanes', {}, 20000).catch(() => ({ lanes: [] }));
+    const lanes = laneResult.lanes || [];
+    const stats = await api(`/api/v2/analyzer/portfolio?period=month${lanes.length ? '' : accountId ? `&account_id=${encodeURIComponent(accountId)}` : ''}`);
+    if (!lanes.length) {
+      const active = selectedAccount();
+      root().innerHTML = `
+        <div class="workspace-heading"><div><span class="eyebrow">Trading workspace</span><h1>WISDO Command Center</h1><p class="muted">Connect a Culture Lead and receiver accounts to turn the dashboard into one combined portfolio profile.</p></div><div class="live-chip">${accounts.length} accounts loaded</div></div>
+        ${accountMetrics(active)}
+        <div class="grid4"><div class="card"><small>Connected accounts</small><div class="metric">${accounts.length}</div></div><div class="card"><small>ROI</small><div class="metric green">${Number(stats.roi || 0).toFixed(2)}%</div></div><div class="card"><small>Win rate</small><div class="metric">${Number(stats.winRate || 0).toFixed(1)}%</div></div><div class="card"><small>Max drawdown</small><div class="metric red">${Number(stats.maxDrawdown || 0).toFixed(2)}%</div></div></div>
+        <section class="card" style="margin-top:18px"><h3>No combined Culture Lane yet</h3><p>Select one leader and multiple receiver accounts in Copier Engine. WISDO will then display their collective balance and equity here as one large portfolio account.</p><a class="btn primary" href="/app/copier-engine">Build Culture Lane</a></section>`;
+      return;
+    }
+    const overviews = await Promise.all(lanes.map((lane) => api(`/api/v2/culture-lanes/${encodeURIComponent(lane.laneId)}/overview`).catch(() => ({ lane, vault: null }))));
+    let selectedLaneId = sessionStorage.getItem('wisdo.selectedLaneId') || lanes[0].laneId;
+    if (!lanes.some((lane) => lane.laneId === selectedLaneId)) selectedLaneId = lanes[0].laneId;
+    const overview = overviews.find((row) => row.lane?.laneId === selectedLaneId) || overviews[0];
+    const lane = overview.lane || lanes[0];
+    const vault = overview.vault || {};
+    const policy = overview.harvestPolicy || { enabled: false, mode: 'harvest_once', goalType: 'percent_gain', goalValue: 2, referencePoint: 'start_of_day_balance', trailRetracePercent: 0.5, stairSteps: [] };
+    const accountById = Object.fromEntries(accounts.map((account) => [String(account.id), account]));
+    const laneAccounts = vault.accounts || [];
     root().innerHTML = `
-      <div class="workspace-heading"><div><span class="eyebrow">Trading workspace</span><h1>WISDO Command Center</h1><p class="muted">Every metric and command below follows the selected Reporter-backed account.</p></div><div class="live-chip" id="workspace-account-status">${accounts.length} accounts loaded</div></div>
-      ${accountMetrics(active)}
-      <div class="grid4">
-        <div class="card"><small class="muted">Connected accounts</small><div class="metric">${accounts.length}</div><p>${accounts.filter((a) => a.reporter_connected || reporterFresh(a)).length} live Reporter heartbeats</p></div>
-        <div class="card"><small class="muted">${active ? 'Account' : 'Portfolio'} ROI</small><div class="metric green">${Number(stats.roi || 0).toFixed(2)}%</div></div>
-        <div class="card"><small class="muted">Win rate</small><div class="metric">${Number(stats.winRate || 0).toFixed(1)}%</div></div>
-        <div class="card"><small class="muted">Max drawdown</small><div class="metric red">${Number(stats.maxDrawdown || 0).toFixed(2)}%</div></div>
-      </div>
+      <div class="workspace-heading"><div><span class="eyebrow">Multi-account portfolio profile</span><h1>${html(lane.name || 'Culture Lane')}</h1><p class="muted">WISDO combines the leader and every receiver into one large account view while keeping execution isolated per broker account.</p></div><label>Culture Lane<select class="input" id="dashboard-lane-select">${lanes.map((item) => `<option value="${html(item.laneId)}" ${item.laneId === lane.laneId ? 'selected' : ''}>${html(item.name || item.laneId)}</option>`).join('')}</select></label></div>
+      <section class="card portfolio-hero"><div class="card-head"><div><span class="eyebrow">Collective lane equity</span><div class="portfolio-total">${money(vault.equity)}</div><p class="muted">Combined balance ${money(vault.balance)} across ${Number(vault.totalAccounts || 0)} account(s)</p></div><span class="status-pill ${(vault.disconnectedAccountIds || []).length ? 'waiting' : 'connected'}">${html(vault.executionStatus || lane.status || 'waiting')}</span></div><div class="grid4"><div><small>Floating P/L</small><strong class="${Number(vault.floatingProfit || 0) >= 0 ? 'green' : 'red'}">${money(vault.floatingProfit)}</strong></div><div><small>Closed today</small><strong class="${Number(vault.closedProfit || 0) >= 0 ? 'green' : 'red'}">${money(vault.closedProfit)}</strong></div><div><small>Combined P/L</small><strong class="${Number(vault.combinedProfit || 0) >= 0 ? 'green' : 'red'}">${money(vault.combinedProfit)}</strong></div><div><small>Daily return</small><strong>${Number(vault.dailyReturnPercent || 0).toFixed(2)}%</strong></div><div><small>Drawdown</small><strong class="${Number(vault.currentDrawdownPercent || 0) > 10 ? 'red' : ''}">${Number(vault.currentDrawdownPercent || 0).toFixed(2)}%</strong></div><div><small>Open trades</small><strong>${Number(vault.openTrades || 0)}</strong></div><div><small>Connected</small><strong>${Number(vault.connectedAccounts || 0)}/${Number(vault.totalAccounts || 0)}</strong></div><div><small>Harvest count</small><strong>${Number(vault.harvestCount || 0)}</strong></div></div></section>
       <div class="grid2" style="margin-top:18px">
-        <section class="card"><div class="card-head"><div><span class="eyebrow">Connected desk</span><h3>Accounts</h3></div><a class="btn primary" href="/app/accounts">Manage</a></div>${accounts.length ? accounts.map((account) => `
-          <button class="account-line account-select-line" data-account-target="${html(account.id)}"><div><strong>${html(account.nickname || account.broker || account.platform)} ${html(account.account_number)}</strong><br><small class="muted">${html(account.platform)} · ${html(account.status)} · ${html(account.role)} · ${html(account.server || '')}</small></div><div><strong>${money(account.equity)}</strong><br><small class="${account.reporter_connected || reporterFresh(account) ? 'green' : 'muted'}">${account.reporter_connected || reporterFresh(account) ? 'Reporter live' : 'Awaiting heartbeat'}</small></div></button>`).join('') : '<p class="muted">No accounts yet. Add a Culture Lead or Mirror Receiver.</p>'}</section>
-        <section class="card"><span class="eyebrow">Relay readiness</span><h3>Account-aware controls</h3><ul class="feature-list"><li>Live Reporter metrics merge into every app screen</li><li>Mobile selector changes dashboard, trade log, and Insight Engine</li><li>Commands carry the actual Reporter account ID</li><li>Close authority bypasses entry filters</li><li>Live symbol execution remains feature-gated</li></ul><div class="actions"><a class="btn primary" href="/app/copier-engine">Build Culture Lane</a><a class="btn ghost" href="/app/education?bot=df-sauce-final-ai">Open Academy</a></div></section>
-      </div>`;
-    root().querySelectorAll('[data-account-target]').forEach((button) => button.onclick = async () => {
-      const selector = document.querySelector('#mobile-account'); selector.value = button.dataset.accountTarget; sessionStorage.setItem('wisdo.selectedAccountId', selector.value); await drawDashboard();
-    });
+        <section class="card"><div class="card-head"><div><span class="eyebrow">One portfolio · separate execution</span><h3>Account breakdown</h3></div><a class="btn ghost" href="/app/copier-engine">Edit lane</a></div><div class="lane-account-breakdown">${laneAccounts.map((metric) => { const account = accountById[String(metric.accountId)] || {}; return `<div class="account-line"><div><strong>${html(account.nickname || account.account_number || metric.accountId)}</strong><br><small class="muted">${String(metric.accountId) === String(lane.leaderAccountId) ? 'Culture Lead' : 'Mirror Receiver'} · ${metric.connected ? 'Reporter live' : 'Disconnected'}</small></div><div><strong>${money(metric.equity)}</strong><br><small class="${Number(metric.floatingProfit || 0) >= 0 ? 'green' : 'red'}">${money(metric.floatingProfit)} floating</small></div></div>`; }).join('')}</div></section>
+        <section class="card harvest-inline"><div class="card-head"><div><span class="eyebrow">Dashboard Harvest Mode</span><h3>Profit authority for the entire lane</h3></div><span class="status-pill ${policy.enabled ? 'connected' : 'waiting'}">${policy.enabled ? 'armed' : 'off'}</span></div><form id="dashboard-harvest-form" class="grid2"><label><input type="checkbox" name="enabled" ${policy.enabled ? 'checked' : ''}> Enable automatic Harvest</label><label>Mode<select class="input" name="mode"><option value="harvest_once" ${policy.mode === 'harvest_once' ? 'selected' : ''}>Harvest Once + Pause</option><option value="harvest_and_continue" ${policy.mode === 'harvest_and_continue' ? 'selected' : ''}>Harvest and Continue</option><option value="stair_step" ${policy.mode === 'stair_step' ? 'selected' : ''}>Stair-Step</option></select></label><label>Goal type<select class="input" name="goalType">${[['percent_gain','Percent gain'],['dollar_gain','Dollar gain'],['equity_target','Equity target'],['balance_target','Balance target'],['floating_profit','Floating profit'],['closed_profit','Closed profit']].map(([value,label]) => `<option value="${value}" ${policy.goalType === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label><label>Goal value<input class="input" name="goalValue" type="number" min="0" step="0.01" value="${html(policy.goalValue ?? 2)}"></label><label>Reference<select class="input" name="referencePoint"><option value="start_of_day_balance" ${policy.referencePoint === 'start_of_day_balance' ? 'selected' : ''}>Start-of-day balance</option><option value="start_of_cycle_equity" ${policy.referencePoint === 'start_of_cycle_equity' ? 'selected' : ''}>Start-of-cycle equity</option><option value="last_harvest_balance" ${policy.referencePoint === 'last_harvest_balance' ? 'selected' : ''}>Last harvested balance</option></select></label><label>Stair steps<input class="input" name="stairSteps" value="${html((policy.stairSteps || []).join(', '))}" placeholder="2, 4, 6"></label><div class="actions full"><button class="btn primary" type="submit">Save + Arm</button><button class="btn ghost" type="button" id="dashboard-harvest-check">Check Goal</button><button class="btn danger" type="button" id="dashboard-harvest-goal">Check Goal + Harvest</button><button class="btn danger" type="button" id="dashboard-harvest-now">Harvest Lane Now</button></div></form><div id="dashboard-harvest-result"></div><p class="muted">Automatic Harvest evaluates after every Reporter snapshot. Harvest Lane Now closes the leader and every receiver immediately, even when the goal has not been reached.</p></section>
+      </div>
+      <div class="grid4" style="margin-top:18px"><div class="card"><small>Portfolio ROI</small><div class="metric green">${Number(stats.roi || 0).toFixed(2)}%</div></div><div class="card"><small>Win rate</small><div class="metric">${Number(stats.winRate || 0).toFixed(1)}%</div></div><div class="card"><small>Analyzer max drawdown</small><div class="metric red">${Number(stats.maxDrawdown || 0).toFixed(2)}%</div></div><div class="card"><small>Peak lane equity</small><div class="metric">${money(vault.peakEquity)}</div></div></div>`;
+
+    document.querySelector('#dashboard-lane-select').onchange = async (event) => { sessionStorage.setItem('wisdo.selectedLaneId', event.target.value); await drawDashboard(); };
+    const harvestForm = document.querySelector('#dashboard-harvest-form');
+    harvestForm.onsubmit = async (event) => {
+      event.preventDefault(); const data = new FormData(harvestForm); const payload = Object.fromEntries(data); payload.enabled = data.has('enabled'); payload.resetBaseline = true; payload.goalValue = Number(payload.goalValue); payload.stairSteps = String(payload.stairSteps || '').split(/[;,\s]+/).map(Number).filter((value) => value > 0);
+      try { await api(`/api/v2/culture-lanes/${encodeURIComponent(lane.laneId)}/harvest-policy`, { method: 'PUT', body: JSON.stringify(payload) }); toast('Harvest saved and armed on the dashboard'); await drawDashboard(); } catch (error) { toast(error.message, 'error', 7000); }
+    };
+    const showHarvestResult = (result) => { const evaluation = result.evaluation || {}; document.querySelector('#dashboard-harvest-result').innerHTML = `<div class="setup-note"><strong>${result.manual ? 'Manual Harvest queued' : evaluation.triggered ? 'Harvest goal reached' : 'Goal not reached'}</strong><p>Current ${html(evaluation.current ?? vault.combinedProfit ?? 0)} · Target ${html(evaluation.target ?? policy.goalValue ?? 0)}${result.commandIds ? ` · ${result.commandIds.length} account sweep(s) queued in ${Number(result.fanoutMs || 0)} ms` : ''}</p></div>`; };
+    const checkHarvest = async (execute) => { const button = document.querySelector(execute ? '#dashboard-harvest-goal' : '#dashboard-harvest-check'); if (execute && !confirm('Close the full lane only if the saved Harvest goal is reached?')) return; setBusy(button, true, execute ? 'Checking + harvesting…' : 'Checking…'); try { const result = await api(`/api/v2/culture-lanes/${encodeURIComponent(lane.laneId)}/harvest/evaluate`, { method: 'POST', body: JSON.stringify({ execute, confirmation: execute ? 'confirmed' : undefined }) }, 25000); showHarvestResult(result); if (result.commandIds?.length) toast(`Harvest queued to ${result.commandIds.length} account(s)`, 'ok', 7000); } catch (error) { toast(error.message, 'error', 7000); } finally { setBusy(button, false); } };
+    document.querySelector('#dashboard-harvest-check').onclick = () => checkHarvest(false);
+    document.querySelector('#dashboard-harvest-goal').onclick = () => checkHarvest(true);
+    document.querySelector('#dashboard-harvest-now').onclick = async () => { const button = document.querySelector('#dashboard-harvest-now'); if (!confirm('Harvest this entire Culture Lane now? This sends an immediate Close All sweep to the leader and every receiver.')) return; setBusy(button, true, 'Fanning out now…'); try { const result = await api(`/api/v2/culture-lanes/${encodeURIComponent(lane.laneId)}/harvest/execute`, { method: 'POST', body: JSON.stringify({ confirmation: 'confirmed' }) }, 25000); showHarvestResult(result); toast(`Manual Harvest queued to ${result.commandIds?.length || 0} account(s)`, result.failures?.length ? 'warn' : 'ok', 7000); } catch (error) { toast(error.message, 'error', 7000); } finally { setBusy(button, false); } };
   }
 
   function drawAccounts() {
@@ -374,26 +395,36 @@
   }
 
   async function drawRules() {
-    const [ruleResult, options, relayDiagnostics] = await Promise.all([
+    const [ruleResult, options, relayDiagnostics, laneResult] = await Promise.all([
       api('/api/v2/copier-rules', {}, 20000),
       api('/api/copier/options', {}, 30000),
       api('/api/v2/copier/diagnostics', {}, 30000).catch(() => ({ rules: [], relayDiagnostics: [] })),
+      api('/api/v2/culture-lanes', {}, 20000).catch(() => ({ lanes: [] })),
     ]);
     const rules = ruleResult.rules || [];
+    const lanes = laneResult.lanes || [];
     const leaders = options.leads || [];
     const receivers = options.receivers || [];
     const allVisible = [...(options.accounts || []), ...leaders, ...receivers];
     const byId = Object.fromEntries(allVisible.map((account) => [account.id, account]));
     const diagnostics = options.diagnostics || [];
     const relayByRule = Object.fromEntries((relayDiagnostics.rules || []).map((row) => [row.ruleId, row]));
+    const rulesByLane = {};
+    for (const rule of rules) {
+      const laneId = rule.culture_lane_id || `lane_${rule.id}`;
+      (rulesByLane[laneId] ||= []).push(rule);
+    }
     const noRouteReady = !leaders.length || !receivers.length;
     root().innerHTML = `
-      <div class="workspace-heading"><div><span class="eyebrow">Culture Relay Engine</span><h1>Copier Rules</h1><p class="muted">Lead and receiver dropdowns, live routes, and MT4 execution diagnostics use the same Reporter-backed registry.</p></div><button class="btn ghost" id="refresh-copier-options">Refresh relay state</button></div>${accountMetrics(selectedAccount())}
+      <div class="workspace-heading"><div><span class="eyebrow">Culture Relay Engine</span><h1>Build a Culture Lane</h1><p class="muted">Choose one Culture Lead, select every receiver account that belongs in the lane, then click the leader symbols that are allowed to relay.</p></div><button class="btn ghost" id="refresh-copier-options">Refresh relay state</button></div>
       <div class="grid4"><div class="card"><small>Owned accounts</small><div class="metric">${Number(options.summary?.owned || 0)}</div></div><div class="card"><small>Available leads</small><div class="metric">${Number(options.summary?.leads || 0)}</div></div><div class="card"><small>Receivers</small><div class="metric">${Number(options.summary?.receivers || 0)}</div></div><div class="card"><small>Live receivers</small><div class="metric green">${Number(options.summary?.executableReceivers || 0)}</div></div></div>
       ${diagnostics.length ? `<section class="card" style="margin-top:18px"><span class="eyebrow">Account capability diagnostics</span><div class="path-list">${diagnostics.map((item) => `<div class="path-item"><small>${html(item.code || item.severity || 'notice')}</small><strong>${html(item.message)}</strong>${item.accountId ? `<a href="/app/accounts">Fix account role</a>` : ''}</div>`).join('')}</div></section>` : ''}
       <section class="card" style="margin-top:18px"><form id="rule-form" class="grid2">
+        <input type="hidden" name="lane_id" value="">
+        <label>Lane name<input class="input" name="lane_name" placeholder="Deadshot Income Lane"></label>
         <label>Culture Lead<select class="input" name="master_id" required><option value="">Select Culture Lead</option>${leaders.map((account) => `<option value="${html(account.id)}">${html(account.community_name || accountLabel(account))} · ${html(account.access || 'owned')}</option>`).join('')}</select></label>
-        <label>Mirror Receiver<select class="input" name="slave_id" required><option value="">Select owned receiver</option>${receivers.map((account) => `<option value="${html(account.id)}">${html(accountLabel(account))}${account.canExecute ? ' · LIVE' : ' · pairing needed'}</option>`).join('')}</select></label>
+        <div class="full receiver-picker"><div class="card-head"><div><span class="eyebrow">Multi-account receivers</span><h3>Select one or more follower accounts</h3></div><span id="receiver-count" class="status-pill waiting">0 selected</span></div><div class="receiver-grid">${receivers.map((account) => `<label class="receiver-choice"><input type="checkbox" name="slave_ids" value="${html(account.id)}"><span><strong>${html(accountLabel(account))}</strong><small>${account.canExecute ? 'Reporter live · execution ready' : 'Pairing or AutoTrading needed'}</small></span></label>`).join('') || '<p class="muted">No receiver accounts are assigned yet.</p>'}</div></div>
+        <div class="full symbol-builder"><div class="card-head"><div><span class="eyebrow">Allowed symbols</span><h3>Click green to allow · grey to block</h3></div><div class="actions compact"><button class="btn ghost" id="allow-all-symbols" type="button">Allow All</button><button class="btn ghost" id="block-all-symbols" type="button">Block All</button></div></div><p class="muted">WISDO automatically lists every symbol this leader has traded. These highlights are saved directly into every receiver route in this lane.</p><div id="leader-symbol-highlights" class="symbol-highlight-grid"><div class="setup-note"><strong>Select a Culture Lead</strong><p>Leader trade history will appear here.</p></div></div></div>
         <label>Risk type<select class="input" name="risk_type">${RISK_TYPES.map((type) => `<option value="${type}">${type.replaceAll('_', ' ')}</option>`).join('')}</select></label>
         <label>Risk value<input class="input" name="risk_value" type="number" min="0.01" max="100" step="0.01" value="1"></label>
         <label>Minimum lot<input class="input" name="min_lot" type="number" min="0.01" max="100" step="0.01" value="0.01"></label>
@@ -404,38 +435,120 @@
         <label>Max spread points<input class="input" name="max_spread_points" type="number" min="0" step="1"></label>
         <label>Max slippage points<input class="input" name="max_slippage_points" type="number" min="0" step="1"></label>
         <label>Trading start<input class="input" name="trading_hours_start" type="time"></label><label>Trading end<input class="input" name="trading_hours_end" type="time"></label>
-        <label class="full">Allowed symbols<input class="input" name="allowed_symbols" placeholder="XAUUSD, GBPJPY, NAS100"></label>
-        <label class="full">Symbol mapping<textarea class="input" name="symbol_mapping" placeholder='{"GOLD":"XAUUSD","USTEC":"NAS100"}'></textarea></label>
-        <label><input type="checkbox" name="auto_match_symbols" checked> Auto-match preview</label><label><input type="checkbox" name="copy_sl_tp" checked> Copy SL/TP</label><label><input type="checkbox" name="copy_pending_orders" checked> Copy pending orders</label><label><input type="checkbox" name="reverse_signals"> Reverse signals</label>
-        <div id="rule-status" class="form-status full">${noRouteReady ? 'Assign at least one Culture Lead and one owned Mirror Receiver on the Accounts page.' : 'Ready to register this lane in the live relay engine.'}</div><button class="btn primary full" id="save-rule" type="submit" ${noRouteReady ? 'disabled' : ''}>Save and arm Culture Lane</button>
+        <details class="full"><summary>Advanced symbol aliases</summary><label>Symbol mapping<textarea class="input" name="symbol_mapping" placeholder='{"SPXUSD":"US500","XAUUSD":"GOLD"}'></textarea></label></details>
+        <label><input type="checkbox" name="auto_match_symbols" checked> Auto-match broker aliases</label><label><input type="checkbox" name="copy_sl_tp" checked> Copy SL/TP</label><label><input type="checkbox" name="copy_pending_orders" checked> Copy pending orders</label><label><input type="checkbox" name="reverse_signals"> Reverse signals</label>
+        <div id="rule-status" class="form-status full">${noRouteReady ? 'Assign at least one Culture Lead and one owned Mirror Receiver on the Accounts page.' : 'Choose a leader, receivers, and highlighted symbols.'}</div><div class="actions full"><button class="btn primary" id="save-rule" type="submit" ${noRouteReady ? 'disabled' : ''}>Save and arm multi-account lane</button><button class="btn ghost" id="cancel-lane-edit" type="button" hidden>Cancel edit</button></div>
       </form></section>
-      <section class="grid2" style="margin-top:18px">${rules.length ? rules.map((rule) => {
-        const master = byId[rule.master_id]; const follower = byId[rule.slave_id]; const relay = relayByRule[rule.id] || {};
-        const stateClass = relay.executionReady ? 'connected' : rule.is_active ? 'waiting' : 'waiting';
-        const stateText = relay.executionReady ? 'execution ready' : rule.is_active ? 'active · needs attention' : 'paused';
-        return `<article class="card"><span class="status-pill ${stateClass}">${stateText}</span><h3>${html(master?.nickname || master?.account_number || rule.master_id)} → ${html(follower?.nickname || follower?.account_number || rule.slave_id)}</h3><p>${html(rule.risk_type)} · ${html(rule.risk_value)}</p><p class="muted">${html((rule.allowed_symbols || []).join(', ') || 'All symbols')}</p><div class="capability-row"><span class="status-pill ${relay.relayRegistered ? 'connected' : 'waiting'}">Relay ${relay.relayRegistered ? 'registered' : 'missing'}</span><span class="status-pill ${follower?.canExecute ? 'connected' : 'waiting'}">Receiver ${follower?.canExecute ? 'live' : 'not ready'}</span><span class="status-pill">Commands ${Number(relay.recentCopyCommands?.length || 0)}</span></div>${relay.issues?.length ? `<div class="setup-note"><strong>Why it may not copy</strong><ul>${relay.issues.map((issue) => `<li>${html(issue)}</li>`).join('')}</ul></div>` : ''}<div class="actions"><button class="btn ghost" data-toggle="${html(rule.id)}">${rule.is_active ? 'Pause' : 'Resume'}</button><button class="btn danger" data-delete-rule="${html(rule.id)}">Delete</button></div></article>`;
-      }).join('') : '<div class="card"><h3>No Culture Lanes yet</h3><p>Assign explicit capabilities on Accounts, then choose a lead and receiver here.</p></div>'}</section>`;
-    document.querySelector('#refresh-copier-options').onclick = async () => { await refreshAccounts(true, true); drawRules(); };
-    document.querySelector('#rule-form').onsubmit = async (event) => {
-      event.preventDefault(); const form = new FormData(event.target); const payload = Object.fromEntries(form); const button = document.querySelector('#save-rule'); const status = document.querySelector('#rule-status');
-      payload.allowed_symbols = String(payload.allowed_symbols || '').split(/[;,\s]+/).filter(Boolean); payload.copy_sl_tp = form.has('copy_sl_tp'); payload.copy_pending_orders = form.has('copy_pending_orders'); payload.reverse_signals = form.has('reverse_signals'); payload.auto_match_symbols = form.has('auto_match_symbols');
-      try { payload.symbol_mapping = JSON.parse(payload.symbol_mapping || '{}'); } catch { status.className = 'form-status error full'; status.textContent = 'Symbol mapping must be valid JSON.'; return; }
-      setBusy(button, true, 'Saving and arming lane…');
-      try {
-        const saved = await api('/api/v2/copier-rules', { method: 'POST', body: JSON.stringify(payload) }, 45000);
-        status.className = saved.executionReady ? 'form-status success full' : 'form-status working full';
-        status.textContent = saved.executionReady ? 'Culture Lane saved and registered in the live relay engine.' : 'Lane saved, but Reporter execution is not ready. Open Accounts to finish pairing or AutoTrading.';
-        toast(saved.executionReady ? 'Culture Lane armed for live relay' : 'Culture Lane saved; execution readiness needs attention', saved.executionReady ? 'ok' : 'warn', 7000);
-        setTimeout(() => {
-          drawRules().catch((refreshError) => {
-            toast(`Culture Lane saved, but relay status refresh is still loading: ${refreshError.message}`, 'warn', 7000);
-          });
-        }, 250);
-      } catch (error) { status.className = 'form-status error full'; status.textContent = error.message; }
-      finally { setBusy(button, false); }
+      <section class="grid2" style="margin-top:18px">${lanes.length ? lanes.map((lane) => {
+        const laneRules = rulesByLane[lane.laneId] || [];
+        const master = byId[lane.leaderAccountId] || byId[laneRules[0]?.master_id];
+        const followers = (lane.followerAccountIds || laneRules.map((rule) => rule.slave_id)).map((id) => byId[id]).filter(Boolean);
+        const readyCount = laneRules.filter((rule) => relayByRule[rule.id]?.executionReady).length;
+        const allowed = laneRules[0]?.allowed_symbols || [];
+        const issues = laneRules.flatMap((rule) => relayByRule[rule.id]?.issues || []);
+        return `<article class="card"><div class="card-head"><div><span class="eyebrow">Combined Culture Lane</span><h3>${html(lane.name || master?.nickname || lane.laneId)}</h3></div><span class="status-pill ${readyCount === laneRules.length && laneRules.length ? 'connected' : 'waiting'}">${readyCount}/${laneRules.length} routes ready</span></div><p><strong>${html(master?.nickname || master?.account_number || lane.leaderAccountId)}</strong> → ${followers.length} receiver account(s)</p><div class="capability-row">${followers.map((follower) => `<span class="status-pill ${follower.canExecute ? 'connected' : 'waiting'}">${html(follower.nickname || follower.account_number || follower.id)}</span>`).join('')}</div><p class="muted">Allowed: ${html(allowed.length ? allowed.join(', ') : (laneRules[0]?.allow_only_highlighted ? 'None · entries blocked' : 'All symbols'))}</p>${issues.length ? `<div class="setup-note"><strong>Relay attention</strong><ul>${[...new Set(issues)].map((issue) => `<li>${html(issue)}</li>`).join('')}</ul></div>` : ''}<div class="actions"><button class="btn primary" data-edit-lane="${html(lane.laneId)}">Edit accounts + symbols</button><button class="btn ghost" data-toggle-lane="${html(lane.laneId)}">${lane.status === 'active' ? 'Pause lane' : 'Resume lane'}</button><button class="btn danger" data-delete-lane="${html(lane.laneId)}">Delete lane</button></div></article>`;
+      }).join('') : '<div class="card"><h3>No Culture Lanes yet</h3><p>Select one leader and as many receiver accounts as needed above.</p></div>'}</section>`;
+
+    const formNode = document.querySelector('#rule-form');
+    const status = document.querySelector('#rule-status');
+    const saveButton = document.querySelector('#save-rule');
+    const cancelEdit = document.querySelector('#cancel-lane-edit');
+    const masterSelect = formNode.elements.master_id;
+    let leaderSymbols = [];
+    let allowedSymbols = new Set();
+
+    const updateReceiverCount = () => {
+      const count = formNode.querySelectorAll('input[name="slave_ids"]:checked').length;
+      const node = document.querySelector('#receiver-count');
+      node.textContent = `${count} selected`;
+      node.className = `status-pill ${count ? 'connected' : 'waiting'}`;
     };
-    root().querySelectorAll('[data-toggle]').forEach((button) => button.onclick = async () => { await api(`/api/v2/copier-rules/${encodeURIComponent(button.dataset.toggle)}/toggle`, { method: 'POST', body: '{}' }); drawRules(); });
-    root().querySelectorAll('[data-delete-rule]').forEach((button) => button.onclick = async () => { if (!confirm('Delete this Culture Lane?')) return; await api(`/api/v2/copier-rules/${encodeURIComponent(button.dataset.deleteRule)}`, { method: 'DELETE' }); toast('Culture Lane deleted'); drawRules(); });
+    formNode.querySelectorAll('input[name="slave_ids"]').forEach((input) => input.onchange = updateReceiverCount);
+
+    const renderSymbols = () => {
+      const host = document.querySelector('#leader-symbol-highlights');
+      if (!leaderSymbols.length) {
+        host.innerHTML = '<div class="setup-note"><strong>No stored leader symbols yet</strong><p>Trade the leader on demo or sync its history. Until history arrives, new entries are not restricted by a symbol list.</p></div>';
+        return;
+      }
+      host.innerHTML = leaderSymbols.map((item) => `<button type="button" class="symbol-highlight ${allowedSymbols.has(item.symbol) ? 'allowed' : 'blocked'}" data-symbol-highlight="${html(item.symbol)}"><strong>${html(item.symbol)}</strong><small>${Number(item.count || 0)} trade(s) · ${allowedSymbols.has(item.symbol) ? 'ALLOWED' : 'BLOCKED'}</small></button>`).join('');
+      host.querySelectorAll('[data-symbol-highlight]').forEach((button) => button.onclick = () => {
+        const symbol = button.dataset.symbolHighlight;
+        if (allowedSymbols.has(symbol)) allowedSymbols.delete(symbol); else allowedSymbols.add(symbol);
+        renderSymbols();
+      });
+    };
+    const loadLeaderSymbols = async (leaderId, selected = null) => {
+      leaderSymbols = [];
+      allowedSymbols = new Set();
+      renderSymbols();
+      if (!leaderId) return;
+      const result = await api(`/api/v2/leaders/${encodeURIComponent(leaderId)}/symbol-history`, {}, 20000);
+      leaderSymbols = result.symbols || [];
+      allowedSymbols = new Set(selected === null ? leaderSymbols.map((item) => item.symbol) : selected);
+      renderSymbols();
+    };
+    masterSelect.onchange = () => loadLeaderSymbols(masterSelect.value).catch((error) => { status.className = 'form-status error full'; status.textContent = error.message; });
+    document.querySelector('#allow-all-symbols').onclick = () => { allowedSymbols = new Set(leaderSymbols.map((item) => item.symbol)); renderSymbols(); };
+    document.querySelector('#block-all-symbols').onclick = () => { allowedSymbols.clear(); renderSymbols(); };
+    document.querySelector('#refresh-copier-options').onclick = async () => { await refreshAccounts(true, true); drawRules(); };
+
+    const resetForm = () => { formNode.reset(); formNode.elements.lane_id.value = ''; leaderSymbols = []; allowedSymbols = new Set(); renderSymbols(); formNode.querySelectorAll('input[name="slave_ids"]').forEach((input) => { input.checked = false; }); updateReceiverCount(); cancelEdit.hidden = true; saveButton.textContent = 'Save and arm multi-account lane'; status.className = 'form-status full'; status.textContent = 'Choose a leader, receivers, and highlighted symbols.'; };
+    cancelEdit.onclick = resetForm;
+
+    root().querySelectorAll('[data-edit-lane]').forEach((button) => button.onclick = async () => {
+      try {
+        const laneId = button.dataset.editLane;
+        const overview = await api(`/api/v2/culture-lanes/${encodeURIComponent(laneId)}/overview`);
+        const lane = overview.lane || {};
+        const laneRules = rulesByLane[laneId] || [];
+        const base = laneRules[0] || {};
+        formNode.elements.lane_id.value = laneId;
+        formNode.elements.lane_name.value = lane.name || '';
+        formNode.elements.master_id.value = lane.leaderAccountId || base.master_id || '';
+        for (const name of ['risk_type','risk_value','min_lot','max_lot','equity_protection_pct','max_daily_loss','max_open_trades','max_spread_points','max_slippage_points','trading_hours_start','trading_hours_end']) if (formNode.elements[name] && base[name] !== undefined && base[name] !== null) formNode.elements[name].value = base[name];
+        formNode.elements.symbol_mapping.value = JSON.stringify(overview.symbolPolicy?.aliases || base.symbol_mapping || {}, null, 2);
+        formNode.elements.auto_match_symbols.checked = overview.symbolPolicy?.autoMatch !== false;
+        formNode.elements.copy_sl_tp.checked = base.copy_sl_tp !== false;
+        formNode.elements.copy_pending_orders.checked = Boolean(base.copy_pending_orders);
+        formNode.elements.reverse_signals.checked = Boolean(base.reverse_signals);
+        const selectedFollowers = new Set((lane.followerAccountIds || []).map(String));
+        formNode.querySelectorAll('input[name="slave_ids"]').forEach((input) => { input.checked = selectedFollowers.has(input.value); });
+        updateReceiverCount();
+        await loadLeaderSymbols(formNode.elements.master_id.value, overview.symbolPolicy?.allowedSymbols || []);
+        cancelEdit.hidden = false;
+        saveButton.textContent = 'Update Culture Lane';
+        status.className = 'form-status working full';
+        status.textContent = 'Editing this lane. Saving will add or remove receiver routes and apply the highlighted symbols to every receiver.';
+        formNode.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (error) { toast(error.message, 'error', 7000); }
+    });
+
+    formNode.onsubmit = async (event) => {
+      event.preventDefault();
+      const data = new FormData(formNode);
+      const payload = Object.fromEntries(data);
+      payload.slave_ids = data.getAll('slave_ids');
+      payload.allowed_symbols = [...allowedSymbols];
+      payload.blocked_symbols = leaderSymbols.map((item) => item.symbol).filter((symbol) => !allowedSymbols.has(symbol));
+      payload.allow_only_highlighted = leaderSymbols.length > 0;
+      payload.copy_sl_tp = data.has('copy_sl_tp'); payload.copy_pending_orders = data.has('copy_pending_orders'); payload.reverse_signals = data.has('reverse_signals'); payload.auto_match_symbols = data.has('auto_match_symbols');
+      if (!payload.slave_ids.length) { status.className = 'form-status error full'; status.textContent = 'Select at least one receiver account.'; return; }
+      try { payload.symbol_mapping = JSON.parse(payload.symbol_mapping || '{}'); } catch { status.className = 'form-status error full'; status.textContent = 'Symbol mapping must be valid JSON.'; return; }
+      setBusy(saveButton, true, payload.lane_id ? 'Updating every route…' : 'Creating receiver routes…');
+      try {
+        const endpoint = payload.lane_id ? `/api/v2/culture-lanes/${encodeURIComponent(payload.lane_id)}/copier-configuration` : '/api/v2/copier-rules';
+        const saved = await api(endpoint, { method: payload.lane_id ? 'PUT' : 'POST', body: JSON.stringify(payload) }, 60000);
+        const routeCount = saved.rules?.length || saved.receiverCount || 0;
+        status.className = 'form-status success full';
+        status.textContent = `Culture Lane saved with ${routeCount} receiver route(s). Highlighted symbols now govern every new entry.`;
+        toast(`Culture Lane armed across ${routeCount} receiver account(s)`, saved.executionReady === false ? 'warn' : 'ok', 7000);
+        setTimeout(() => drawRules(), 350);
+      } catch (error) { status.className = 'form-status error full'; status.textContent = error.message; }
+      finally { setBusy(saveButton, false); }
+    };
+    root().querySelectorAll('[data-toggle-lane]').forEach((button) => button.onclick = async () => { await api(`/api/v2/culture-lanes/${encodeURIComponent(button.dataset.toggleLane)}/toggle`, { method: 'POST', body: '{}' }); drawRules(); });
+    root().querySelectorAll('[data-delete-lane]').forEach((button) => button.onclick = async () => { if (!confirm('Delete this Culture Lane and every receiver route inside it?')) return; await api(`/api/v2/culture-lanes/${encodeURIComponent(button.dataset.deleteLane)}`, { method: 'DELETE' }); toast('Culture Lane deleted'); drawRules(); });
   }
 
   function gaugeCard(label, value, { min = 0, max = 100, suffix = '', inverse = false } = {}) {
@@ -553,7 +666,7 @@
       <section class="card table-wrap" style="margin-top:18px"><h3>Harvest cycles</h3><table><thead><tr><th>Time</th><th>Status</th><th>Goal</th><th>Achieved</th><th>Commands</th><th>Fan-out</th></tr></thead><tbody>${(overview.harvestCycles || []).length ? overview.harvestCycles.map((cycle) => `<tr><td>${html(cycle.createdAt || '')}</td><td>${html(cycle.status)}</td><td>${html(cycle.goalType)} ${html(cycle.goalValue)}</td><td>${html(cycle.achievedValue)}</td><td>${Number((cycle.commandIds || []).length)}</td><td>${cycle.parallelFanout ? `${Number(cycle.fanoutMs || 0)} ms` : 'legacy'}</td></tr>`).join('') : '<tr><td colspan="6">No Harvest cycle has executed yet.</td></tr>'}</tbody></table></section>`;
     bindLaneSelector(drawHarvest);
     const form = document.querySelector('#harvest-form');
-    form.onsubmit = async (event) => { event.preventDefault(); const data = new FormData(form); const payload = Object.fromEntries(data); payload.enabled = data.has('enabled'); payload.goalValue = Number(payload.goalValue); payload.trailRetracePercent = Number(payload.trailRetracePercent); payload.stairSteps = String(payload.stairSteps || '').split(/[;,\s]+/).map(Number).filter((value) => value > 0); try { await api(`/api/v2/culture-lanes/${encodeURIComponent(laneId)}/harvest-policy`, { method: 'PUT', body: JSON.stringify(payload) }); toast('Harvest policy saved'); await drawHarvest(); } catch (error) { toast(error.message, 'error'); } };
+    form.onsubmit = async (event) => { event.preventDefault(); const data = new FormData(form); const payload = Object.fromEntries(data); payload.enabled = data.has('enabled'); payload.resetBaseline = true; payload.goalValue = Number(payload.goalValue); payload.trailRetracePercent = Number(payload.trailRetracePercent); payload.stairSteps = String(payload.stairSteps || '').split(/[;,\s]+/).map(Number).filter((value) => value > 0); try { await api(`/api/v2/culture-lanes/${encodeURIComponent(laneId)}/harvest-policy`, { method: 'PUT', body: JSON.stringify(payload) }); toast('Harvest policy saved'); await drawHarvest(); } catch (error) { toast(error.message, 'error'); } };
     const evaluate = async (execute) => { const button = document.querySelector(execute ? '#execute-harvest' : '#evaluate-harvest'); if (execute && !confirm('If the goal is reached, close every eligible lane account in parallel now?')) return; setBusy(button, true, execute ? 'Evaluating + fanning out…' : 'Evaluating…'); try { const result = await api(`/api/v2/culture-lanes/${encodeURIComponent(laneId)}/harvest/evaluate`, { method: 'POST', body: JSON.stringify({ execute, confirmation: execute ? 'confirmed' : undefined }) }, 20000); const evaluation = result.evaluation || {}; document.querySelector('#harvest-result').innerHTML = `<div class="setup-note"><strong>${evaluation.triggered ? 'Goal reached' : 'Goal not reached'}</strong><p>Current ${html(evaluation.current ?? 0)} · Target ${html(evaluation.target ?? 0)} · Progress ${Number(evaluation.progressPercent || 0).toFixed(1)}%${result.cycle ? ` · ${Number(result.cycle.commandIds?.length || 0)} account close commands queued in parallel` : ''}</p></div>`; if (result.cycle) toast('Harvest parallel close fan-out queued', result.failures?.length ? 'warn' : 'ok', 7000); } catch (error) { toast(error.message, 'error', 7000); } finally { setBusy(button, false); } };
     document.querySelector('#evaluate-harvest').onclick = () => evaluate(false);
     document.querySelector('#execute-harvest').onclick = () => evaluate(true);
@@ -616,7 +729,7 @@
     root().innerHTML = `<div class="workspace-heading"><div><span class="eyebrow">Immediate trade control</span><h1>Trade Log</h1><p class="muted">${accountId ? 'Filtered to the selected account.' : 'Showing the live portfolio ledger.'} Every bulk close receives a saved Compound Tracker analysis.</p></div><div class="actions"><button class="btn danger" data-bulk-close="all">Close All Now</button><button class="btn primary" data-bulk-close="profitable">Profit Secure</button><button class="btn ghost" data-bulk-close="losing">Close Losing Only</button><button class="btn ghost" id="refresh-trades">Refresh</button></div></div>${accountMetrics(selectedAccount())}
       <div class="grid4"><div class="card"><small>Open positions</small><div class="metric">${openCount}</div></div><div class="card"><small>Closed today/history</small><div class="metric">${closedCount}</div></div><div class="card"><small>Snapshots imported</small><div class="metric">${Number(result.sync?.snapshots || 0)}</div></div><div class="card"><small>Last ledger event</small><strong>${html(lastTradeAt ? new Date(lastTradeAt).toLocaleString() : 'Waiting for Reporter')}</strong></div></div>
       ${trackerCard(trackers[0])}
-      <section class="card" style="margin-top:18px"><div class="card-head"><div><span class="eyebrow">Execution authority</span><h3>Account-specific close controls</h3></div><div class="actions"><a class="btn ghost" href="/app/accounts">Check Reporter</a><a class="btn primary" href="/app/culture-lanes">Parallel Lane Close</a></div></div><p class="muted">Close All sends one atomic MT4 sweep command for the selected account with priority 5000 and a 2-minute expiry. Culture Lane Close All fans commands to every account in parallel; entry filters never block close authority.</p></section>
+      <section class="card" style="margin-top:18px"><div class="card-head"><div><span class="eyebrow">Execution authority</span><h3>Account-specific close controls</h3></div><div class="actions"><a class="btn ghost" href="/app/accounts">Check Reporter</a><a class="btn primary" href="/app/dashboard">Parallel Lane Close</a></div></div><p class="muted">Close All sends one atomic MT4 sweep command for the selected account with priority 5000 and a 2-minute expiry. Culture Lane Close All fans commands to every account in parallel; entry filters never block close authority.</p></section>
       <section class="card table-wrap" style="margin-top:18px"><table><thead><tr><th>Time</th><th>Account</th><th>Ticket</th><th>Symbol</th><th>Side</th><th>Lots</th><th>Status</th><th>P/L</th><th>Control</th></tr></thead><tbody>${trades.length ? trades.map((trade) => `<tr><td>${html(trade.opened_at || trade.updated_at || '')}</td><td>${html(trade.account_id)}</td><td>${html(trade.external_ticket || 'pending')}</td><td>${html(trade.symbol)}</td><td>${html(trade.side)}</td><td>${html(trade.lot_size)}</td><td>${html(trade.status)}</td><td class="${Number(trade.pnl || 0) >= 0 ? 'green' : 'red'}">${money(trade.pnl)}</td><td>${trade.status === 'open' ? `<button class="btn ghost" data-close="${html(trade.id)}">Close</button>` : ''}</td></tr>`).join('') : `<tr><td colspan="9"><div class="setup-note"><strong>No trade records yet</strong><p>Confirm the Reporter is current, synchronized, and returning MT4 open and closed history.</p></div></td></tr>`}</tbody></table></section>`;
     document.querySelector('#refresh-trades').onclick = drawTrades;
     root().querySelectorAll('[data-close]').forEach((button) => button.onclick = async () => { if (!confirm('Queue an immediate close for this ticket?')) return; try { await api(`/api/v2/trades/${encodeURIComponent(button.dataset.close)}/close`, { method: 'POST', body: JSON.stringify({ confirmation: 'confirmed' }) }); toast('Ticket close queued'); setTimeout(drawTrades, 1200); } catch (error) { toast(error.message, 'error'); } });
@@ -707,9 +820,9 @@
     else if (currentPage === 'dashboard') await drawDashboard();
     else if (currentPage === 'accounts') drawAccounts();
     else if (currentPage === 'copier-engine') await drawRules();
-    else if (currentPage === 'culture-lanes') await drawCultureLanes();
-    else if (currentPage === 'symbol-routing') await drawSymbolRouting();
-    else if (currentPage === 'harvest') await drawHarvest();
+    else if (currentPage === 'culture-lanes') location.replace('/app/dashboard');
+    else if (currentPage === 'symbol-routing') location.replace('/app/copier-engine');
+    else if (currentPage === 'harvest') location.replace('/app/dashboard');
     else if (currentPage === 'lane-audit') await drawLaneAudit();
     else if (currentPage === 'lane-intelligence') await drawLaneIntelligence();
     else if (currentPage === 'compound-tracker') await drawCompoundTracker();
@@ -740,7 +853,7 @@
       accountPoll = setInterval(async () => {
         if (document.querySelector('dialog[open]') || document.visibilityState !== 'visible') return;
         const previous = JSON.stringify(accounts.map((a) => [a.id, a.status, a.equity, a.last_sync_at]));
-        try { await refreshAccounts(true, true); const next = JSON.stringify(accounts.map((a) => [a.id, a.status, a.equity, a.last_sync_at])); if (next !== previous && ['command-center', 'dashboard', 'analyzer', 'trades', 'culture-lanes', 'harvest', 'compound-tracker'].includes(currentPage)) await renderCurrentPage(); } catch {}
+        try { await refreshAccounts(true, true); const next = JSON.stringify(accounts.map((a) => [a.id, a.status, a.equity, a.last_sync_at])); if (next !== previous && ['command-center', 'dashboard', 'analyzer', 'trades', 'compound-tracker'].includes(currentPage)) await renderCurrentPage(); } catch {}
       }, 45000);
     } catch (error) {
       await finishDashboardBoot(false, 'Workspace recovery mode');

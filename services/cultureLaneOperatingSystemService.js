@@ -138,18 +138,29 @@ export function setHarvestPolicy(state, laneId, userId, input = {}) {
   ensureCultureLaneState(state);
   const lane = state.cultureLanesById[clean(laneId)];
   if (!lane || !laneAccessibleTo(lane, userId)) return null;
+  const existing = state.harvestPoliciesByLaneId[lane.laneId] || null;
+  const vault = computeCultureLaneVault(state, lane.laneId, userId);
+  const resetBaseline = input.resetBaseline === true || !existing;
+  const referencePoint = clean(input.referencePoint) || existing?.referencePoint || 'start_of_day_balance';
+  const capturedEquityBaseline = referencePoint === 'start_of_cycle_equity' ? number(vault?.equity) : number(vault?.balance);
   const policy = {
     laneId: lane.laneId,
     enabled: input.enabled !== false,
-    mode: clean(input.mode) || 'harvest_once',
-    goalType: clean(input.goalType) || 'percent_gain',
-    goalValue: Math.max(0, number(input.goalValue, 2)),
-    referencePoint: clean(input.referencePoint) || 'start_of_day_balance',
+    mode: clean(input.mode) || existing?.mode || 'harvest_once',
+    goalType: clean(input.goalType) || existing?.goalType || 'percent_gain',
+    goalValue: Math.max(0, number(input.goalValue, existing?.goalValue ?? 2)),
+    referencePoint,
     intelligent: input.intelligent === true,
-    trailRetracePercent: clamp(input.trailRetracePercent ?? 0.5, 0.05, 25),
+    trailRetracePercent: clamp(input.trailRetracePercent ?? existing?.trailRetracePercent ?? 0.5, 0.05, 25),
     resumeAfterHarvest: input.resumeAfterHarvest === true || clean(input.mode) === 'harvest_and_continue',
-    stairSteps: (input.stairSteps || []).map((value) => Math.max(0, number(value))).filter(Boolean),
-    hardDrawdownLimitPercent: input.hardDrawdownLimitPercent == null ? null : clamp(input.hardDrawdownLimitPercent, 0, 100),
+    stairSteps: (input.stairSteps || existing?.stairSteps || []).map((value) => Math.max(0, number(value))).filter(Boolean),
+    hardDrawdownLimitPercent: input.hardDrawdownLimitPercent == null ? existing?.hardDrawdownLimitPercent ?? null : clamp(input.hardDrawdownLimitPercent, 0, 100),
+    baselineBalance: resetBaseline ? number(vault?.balance) : number(existing?.baselineBalance, vault?.balance),
+    baselineEquity: resetBaseline ? capturedEquityBaseline : number(existing?.baselineEquity, capturedEquityBaseline),
+    baselineClosedProfit: resetBaseline ? number(vault?.closedProfit) : number(existing?.baselineClosedProfit, vault?.closedProfit),
+    baselineCombinedProfit: resetBaseline ? number(vault?.combinedProfit) : number(existing?.baselineCombinedProfit, vault?.combinedProfit),
+    baselineCapturedAt: resetBaseline ? nowIso() : existing?.baselineCapturedAt || nowIso(),
+    lastHarvestAt: existing?.lastHarvestAt || null,
     updatedByUserId: clean(userId), updatedAt: nowIso(),
   };
   state.harvestPoliciesByLaneId[lane.laneId] = policy;
@@ -166,9 +177,9 @@ function accountMetrics(state, accountId) {
     accountId,
     balance: number(snapshot.balance ?? account.balance),
     equity: number(snapshot.equity ?? account.equity ?? snapshot.balance ?? account.balance),
-    floatingProfit: number(snapshot.floatingPL ?? snapshot.floating_profit ?? account.floatingPL),
-    closedProfit: number(snapshot.closedProfitToday ?? snapshot.dailyClosedProfit ?? account.dailyProfit),
-    openTrades: number(snapshot.openTradeCount ?? account.openTrades),
+    floatingProfit: number(snapshot.floatingPL ?? snapshot.floating_profit ?? snapshot.floating_pl ?? account.floatingPL ?? account.floating_pl),
+    closedProfit: number(snapshot.closedProfitToday ?? snapshot.dailyClosedProfit ?? snapshot.dailyClosedPL ?? snapshot.daily_closed_pl ?? account.dailyProfit ?? account.daily_closed_pl),
+    openTrades: number(snapshot.openTradeCount ?? snapshot.open_trades ?? account.openTrades ?? account.open_trades),
     connected: Boolean(account.reporter_connected || account.status === 'connected' || telemetry.receivedAt),
     lastSyncAt: telemetry.receivedAt || account.last_sync_at || account.updated_at || null,
   };
@@ -207,12 +218,15 @@ export function evaluateLaneHarvest(state, laneId, userId) {
   const policy = state.harvestPoliciesByLaneId[clean(laneId)] || { enabled: false };
   if (!policy.enabled) return { triggered: false, reason: 'disabled', vault, policy };
   let current = 0;
-  if (policy.goalType === 'dollar_gain') current = vault.combinedProfit;
+  if (policy.goalType === 'dollar_gain') current = vault.combinedProfit - number(policy.baselineCombinedProfit);
   else if (policy.goalType === 'equity_target') current = vault.equity;
   else if (policy.goalType === 'balance_target') current = vault.balance;
   else if (policy.goalType === 'floating_profit') current = vault.floatingProfit;
-  else if (policy.goalType === 'closed_profit') current = vault.closedProfit;
-  else current = vault.dailyReturnPercent;
+  else if (policy.goalType === 'closed_profit') current = vault.closedProfit - number(policy.baselineClosedProfit);
+  else {
+    const baselineEquity = Math.max(0, number(policy.baselineEquity, vault.balance));
+    current = baselineEquity > 0 ? ((vault.equity - baselineEquity) / baselineEquity) * 100 : vault.dailyReturnPercent;
+  }
   const triggered = current >= number(policy.goalValue);
   return { triggered, current, target: number(policy.goalValue), progressPercent: policy.goalValue > 0 ? clamp((current / policy.goalValue) * 100, 0, 999) : 0, vault, policy };
 }

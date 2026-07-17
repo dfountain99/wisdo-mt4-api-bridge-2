@@ -570,6 +570,10 @@ export class TradeSignalService {
         side: side || signal?.side || '',
         confirmation: 'confirmed',
         closeAuthority: true,
+        commandId: `copy-close-${take.routeId}-${stableSourceTicket}`,
+        immediate: true,
+        priority: 10000,
+        ttlMinutes: 2,
       };
       const command = await this.mt4CommandService.queueCommandForAccount(ownerUserId, take.accountId, 'COPY_CLOSE_TRADE', payload);
       queued.push({ routeId: take.routeId, ownerUserId, accountId: take.accountId, commandId: command.id, sourceTicket: stableSourceTicket, followerTicket: followerTicket || null, followerSymbol });

@@ -1,0 +1,22 @@
+WISDO v6.0.3 FULL REPOSITORY
+
+Release: Unified Multi-Account Culture Lane
+Node target: 22.x
+Reporter requirement: CultureCoin MT4 Reporter v1.57
+
+Primary changes:
+- Multi-receiver Culture Lane builder inside Copier Engine
+- Click-to-allow leader symbol history inside Allowed Symbols
+- Combined portfolio Dashboard
+- Inline working Dashboard Harvest
+- Automatic Harvest queue, flat confirmation, and cycle completion
+- Leader-close Reporter snapshot failsafe
+- Deterministic receiver-close idempotency
+- Culture Lane telemetry field correction
+
+Validation:
+- Build check passed
+- 90 JavaScript files
+- 14 required production assets
+- 45 tests passed
+- 0 tests failed
