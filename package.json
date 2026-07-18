@@ -1,6 +1,6 @@
 {
   "name": "culture-coin-operator-desks-bot",
-  "version": "6.1.0",
+  "version": "6.1.1",
   "description": "WISDO v6.1.0 cloud-only trading OS with full request-queue audit, bounded APIs, PostgreSQL hot cache, resilient Reporter and AI education.",
   "type": "module",
   "private": true,

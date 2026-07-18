@@ -71,3 +71,12 @@ test('production state remains PostgreSQL-backed with no active JSON feed index 
   assert.match(render, /- key: REDIS_ENABLED\s+value: "false"/);
   assert.doesNotMatch(render, /disk:\s+name: wisdo-persistent-data/);
 });
+
+test('all major route mutations release HTTP requests after a bounded persistence wait', () => {
+  const routes = source('server/majorUpgradeRoutes.js');
+  assert.match(routes, /WISDO_MUTATION_SAVE_BUDGET_MS/);
+  assert.match(routes, /persistMutationWithinBudget/);
+  assert.match(routes, /settleWithin\(Promise\.resolve\(\)\.then\(\(\)=>save\(state\)\),budgetMs\)/);
+  assert.doesNotMatch(routes, /if\(result\.save\) await save\(state\)/);
+  assert.doesNotMatch(routes, /\n  await save\(state\);\n  return result;/);
+});

@@ -62,17 +62,26 @@ function ensureMajorState(state={}){
 }
 const MUTATION_CONTROL = '__wisdoMutationControl';
 function mutationResult(value,{save=true}={}){ return {[MUTATION_CONTROL]:true,value,save}; }
+async function persistMutationWithinBudget(save,state){
+  const raw=Number(process.env.WISDO_MUTATION_SAVE_BUDGET_MS||500);
+  const budgetMs=Math.max(50,Math.min(5000,Number.isFinite(raw)?raw:500));
+  const outcome=await settleWithin(Promise.resolve().then(()=>save(state)),budgetMs);
+  if(outcome.status==='rejected')throw outcome.error;
+  // A timeout does not cancel persistence. The save promise keeps running, while the
+  // HTTP request is released so one slow database flush cannot freeze the workspace.
+  return outcome.status;
+}
 async function mutate(load,save,fn){
   // Never place unrelated members, tabs, Reporter heartbeats, or background work
   // behind one process-wide promise chain. The hot state mirror is updated first;
-  // its persistence adapter performs scoped optimistic updates and deferred DB flushes.
+  // database persistence receives a strict time budget and continues in background.
   const state=ensureMajorState(await load());
   const result=await fn(state);
   if(result?.[MUTATION_CONTROL]){
-    if(result.save) await save(state);
+    if(result.save) await persistMutationWithinBudget(save,state);
     return result.value;
   }
-  await save(state);
+  await persistMutationWithinBudget(save,state);
   return result;
 }
 function settleWithin(promise, timeoutMs = 5000){
