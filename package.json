@@ -1,7 +1,7 @@
 {
   "name": "culture-coin-operator-desks-bot",
-  "version": "6.3.0",
-  "description": "WISDO v6.3.0 Presence Awareness: identity-aware greetings, workspace memory, device/session awareness, account context, mode controls, and portal-wide presence telemetry.",
+  "version": "7.0.0",
+  "description": "WISDO v7.0 Living Operating System: Nexus briefing, missions, workspaces, timeline, automation studio, Culture Score, AI memory, device hub, and ecosystem map.",
   "type": "module",
   "private": true,
   "scripts": {
