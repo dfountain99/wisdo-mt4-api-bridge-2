@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
+import compression from 'compression';
 import { registerDeadshotCommandCenterRoutes } from './deadshotSite.js';
 import { registerMajorUpgradeRoutes } from './majorUpgradeRoutes.js';
 import { registerExtendedProductRoutes } from './extendedProductRoutes.js';
@@ -4104,6 +4105,50 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   if (process.env.NODE_ENV !== 'test') commandNotificationDeliveryService.startRetryLoop(Number(process.env.WISDO_NOTIFICATION_RETRY_INTERVAL_SECONDS || 300) * 1000);
   const app = express();
   app.set('trust proxy', true);
+  const performanceRuntime = {
+    startedAt: new Date().toISOString(),
+    inFlight: 0,
+    maxInFlight: 0,
+    totalRequests: 0,
+    slowRequests: 0,
+    eventLoopLagMs: 0,
+    recentSlowRequests: [],
+  };
+  let expectedLoopTick = Date.now() + 1000;
+  setInterval(() => {
+    const now = Date.now();
+    performanceRuntime.eventLoopLagMs = Math.max(0, now - expectedLoopTick);
+    expectedLoopTick = now + 1000;
+  }, 1000).unref?.();
+
+  app.use(compression({
+    threshold: Number(process.env.WISDO_COMPRESSION_THRESHOLD_BYTES || 1024),
+    filter: (req, res) => {
+      if (String(req.headers.accept || '').includes('text/event-stream')) return false;
+      return compression.filter(req, res);
+    },
+  }));
+  app.use((req, res, next) => {
+    const startedAt = Date.now();
+    const requestId = String(req.headers['x-request-id'] || req.headers['x-render-request-id'] || crypto.randomUUID());
+    performanceRuntime.inFlight += 1;
+    performanceRuntime.totalRequests += 1;
+    performanceRuntime.maxInFlight = Math.max(performanceRuntime.maxInFlight, performanceRuntime.inFlight);
+    res.set('X-Wisdo-Request-Id', requestId);
+    res.once('finish', () => {
+      performanceRuntime.inFlight = Math.max(0, performanceRuntime.inFlight - 1);
+      const responseMs = Date.now() - startedAt;
+      const slowThresholdMs = Math.max(500, Number(process.env.WISDO_SLOW_REQUEST_MS || 2500));
+      if (responseMs >= slowThresholdMs) {
+        performanceRuntime.slowRequests += 1;
+        const row = { requestId, method: req.method, path: req.path, statusCode: res.statusCode, responseMs, at: new Date().toISOString() };
+        performanceRuntime.recentSlowRequests.unshift(row);
+        performanceRuntime.recentSlowRequests = performanceRuntime.recentSlowRequests.slice(0, 25);
+        logger?.warn?.('Slow HTTP request.', row);
+      }
+    });
+    next();
+  });
 
   // Route source of truth:
   // 1) webhook/raw integrations, 2) core middleware/static assets,
@@ -4111,7 +4156,44 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   // 5) public/auth/API/member/admin routes. Keep exact Wisdo routes before
   // registerDeadshotCommandCenterRoutes so broad legacy /member/* redirects do
   // not intercept /member/command-center, /education, /simulator, /social, etc.
-  app.use(express.json({ limit: '200mb', verify: (req, res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
+  app.use(express.json({
+    limit: process.env.WISDO_JSON_BODY_LIMIT || '4mb',
+    verify: (req, _res, buffer) => {
+      const requestPath = String(req.originalUrl || req.url || '').split('?')[0];
+      if (requestPath.includes('/webhook') || requestPath.includes('/webhooks/')) req.rawBody = Buffer.from(buffer);
+    },
+  }));
+
+  app.get('/health/performance', async (_req, res) => {
+    const commandState = await mt4CommandService?.load?.().catch(() => null);
+    const commandQueue = commandState?.commandQueue || [];
+    const effectiveStatus = (command) => mt4CommandService?.effectiveStatus?.(command) || command?.status || 'unknown';
+    const memory = process.memoryUsage();
+    const database = getDatabaseRuntimeHealth();
+    const signalBackground = tradeSignalService?.getBackgroundStatus?.() || null;
+    const activeCommands = commandQueue.filter((command) => ['pending', 'delivered'].includes(effectiveStatus(command))).length;
+    const historicalCommands = Math.max(0, commandQueue.length - activeCommands);
+    const pressure = performanceRuntime.eventLoopLagMs > 250 || performanceRuntime.inFlight > 25 || database.status === 'degraded' || (signalBackground?.queued || 0) > Math.max(25, (signalBackground?.maxQueue || 500) * 0.5);
+    res.status(pressure ? 503 : 200).json({
+      ok: !pressure,
+      status: pressure ? 'pressured' : 'healthy',
+      uptimeSeconds: Math.round(process.uptime()),
+      http: { ...performanceRuntime },
+      memory: {
+        rssMB: Number((memory.rss / 1048576).toFixed(1)),
+        heapUsedMB: Number((memory.heapUsed / 1048576).toFixed(1)),
+        heapTotalMB: Number((memory.heapTotal / 1048576).toFixed(1)),
+        externalMB: Number((memory.external / 1048576).toFixed(1)),
+      },
+      database,
+      commands: { total: commandQueue.length, active: activeCommands, history: historicalCommands, historyLimit: mt4CommandService?.commandHistoryLimit || null },
+      signalBackground,
+      pairing: {
+        cached: mt4SyncService?.pairingRecordCache?.size || 0,
+        recovering: mt4SyncService?.pairingRecoveryByCode?.size || 0,
+      },
+    });
+  });
 
   app.get('/health/discord', async (_req, res) => {
     const guild = client?.guilds?.cache?.get(config.guildId) || null;
@@ -5918,16 +6000,19 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
       const responseMs = Date.now() - startedAt;
       res.set('Cache-Control', 'no-store');
       res.set('Server-Timing', `mt4sync;dur=${responseMs}`);
-      logger?.error?.('Authoritative MT4 sync failed.', { responseMs, message: error.message, stack: error.stack });
-      res.status(error.statusCode || 500).json({ ok: false, error: error.message, responseMs });
+      const statusCode = error.statusCode || 500;
+      const logMeta = { responseMs, statusCode, message: error.message };
+      if (statusCode >= 500) logger?.error?.('Authoritative MT4 sync failed.', { ...logMeta, stack: error.stack });
+      else logger?.warn?.('MT4 sync request rejected.', logMeta);
+      res.status(statusCode).json({ ok: false, error: error.message, responseMs });
     }
   });
 
   app.post('/mt4-command-poll', async (req, res) => {
     try {
-      mt4SyncService.validateApiKey(req.headers);
       const pairingCode = String(req.body?.pairingCode || '').trim();
-      const pairing = await mt4SyncService.repository.getPairingCode(pairingCode);
+      await mt4SyncService.validateReporterAuth(req.headers, { pairingCode });
+      const pairing = await mt4SyncService.getOrRecoverPairingCode(pairingCode);
       if (!pairing?.discordUserId) return res.status(400).json({ ok: false, error: 'Unknown pairing code' });
       const accountId = pairing.accountId || null;
       const accountNumber = String(req.body?.accountNumber || pairing.accountNumber || '').trim();
@@ -5960,8 +6045,9 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
 
   app.post('/mt4-command-complete', async (req, res) => {
     try {
-      mt4SyncService.validateApiKey(req.headers);
-      const pairing = await mt4SyncService.repository.getPairingCode(String(req.body?.pairingCode || '').trim());
+      const pairingCode = String(req.body?.pairingCode || '').trim();
+      await mt4SyncService.validateReporterAuth(req.headers, { pairingCode });
+      const pairing = await mt4SyncService.getOrRecoverPairingCode(pairingCode);
       if (!pairing?.discordUserId) return res.status(400).json({ ok: false, error: 'Unknown pairing code' });
       const accountId = pairing.accountId || null;
       await redisCommandBridge.heartbeat({

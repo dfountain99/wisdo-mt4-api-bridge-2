@@ -1,6 +1,8 @@
-# WISDO v7.0.1 Runtime Repair — Discord, Desks, MT4, and Presence
+# WISDO v7.0.2 Server Pressure, Reporter Authentication, and Discord Transport Repair
 
-This release consolidates the remodel into the current v7 authority. It restores the missing Phase Two slash commands, validates a 77-command registry, acknowledges slow Discord interactions safely, hardens private desk creation/restoration, disables the duplicate legacy `/mt4-sync` route by default, and loads first-day/return-after-away WISDO greetings in every real `/app/*` workspace. See `WISDO_V7_0_1_RUNTIME_REPAIR_AUDIT.md` and `WISDO_V7_0_1_DEPLOYMENT_CHECKLIST.md`.
+This release keeps the complete v7.0.1 remodel and repairs the production failures visible in the Render logs: stale Reporter API keys, repeated pairing recovery, MT4 snapshots blocking near 30 seconds, unbounded command history, idle Reporter polls writing to PostgreSQL, Discord/WebSocket handshake races, and large response/body pressure. It batches large copier and signal updates, moves noncritical Discord presentation off the heartbeat path, adds bounded background workers, enables compression and slow-request telemetry, and exposes `/health/performance`. See `WISDO_V7_0_2_SERVER_PRESSURE_REPAIR_AUDIT.md` and `WISDO_V7_0_2_DEPLOYMENT_CHECKLIST.md`.
+
+The v7.0.1 remodel remains included: 77 unique slash commands, guarded interactions, hardened private desk creation/restoration, one authoritative `/mt4-sync` route, and first-visit/first-login-of-day/return-after-away WISDO greetings across `/app/*`.
 
 ## WISDO v6.1.0 — Full Queue Audit and Performance Recovery
 

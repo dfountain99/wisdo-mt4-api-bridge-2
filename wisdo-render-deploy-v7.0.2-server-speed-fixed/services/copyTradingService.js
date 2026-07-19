@@ -451,7 +451,7 @@ export class CopyTradingService {
     return record;
   }
 
-  async queueMasterSignal({
+  applyMasterSignal(data, {
     masterUserId,
     masterAccountNumber,
     sourceTicket,
@@ -463,17 +463,12 @@ export class CopyTradingService {
     takeProfit = null,
     action = 'open',
     signalId = null,
-  }) {
-    const data = await this.load();
-
+  } = {}) {
     const master = data.mastersByUserId[masterUserId];
-
-    if (!master || master.status !== 'active') {
-      throw new Error('Master is not active.');
-    }
+    if (!master || master.status !== 'active') throw new Error('Master is not active.');
 
     const signal = {
-      signalId: signalId || `sig_${Date.now()}`,
+      signalId: signalId || `sig_${Date.now()}_${randomUUID().slice(0, 6)}`,
       masterUserId,
       masterAccountNumber: String(masterAccountNumber || master.accountNumber || '').trim(),
       sourceTicket: sourceTicket ? String(sourceTicket) : null,
@@ -488,77 +483,43 @@ export class CopyTradingService {
     };
 
     data.signals.unshift(signal);
-    data.signals = data.signals.slice(0, 1000);
-
     const followers = [];
-
     for (const followerList of Object.values(data.followersByUserId)) {
       for (const follower of followerList) {
-        if (
-          follower.masterUserId === masterUserId &&
-          follower.status === 'active' &&
-          (signal.action === 'close' || follower.paused !== true)
-        ) {
-          followers.push(follower);
-        }
+        if (follower.masterUserId === masterUserId && follower.status === 'active' && (signal.action === 'close' || follower.paused !== true)) followers.push(follower);
       }
     }
 
     for (const follower of followers) {
       const isClose = signal.action === 'close';
-
-      // Entry filters are allowed to block new risk, but they must never trap
-      // a follower in a position after the leader has closed. A paused route,
-      // symbol-filter change, spread cap, or max-open-trades setting therefore
-      // applies only to COPY_OPEN_TRADE.
       if (!isClose && !symbolAllowed(signal.symbol, follower.symbolFilter)) {
-        this.appendAudit(data, 'copy_trade.skipped', {
-          masterUserId,
-          followerUserId: follower.followerUserId,
-          reason: 'symbol_filter',
-          symbol: signal.symbol,
-        });
+        this.appendAudit(data, 'copy_trade.skipped', { masterUserId, followerUserId: follower.followerUserId, reason: 'symbol_filter', symbol: signal.symbol });
         continue;
       }
-
       const command = this.buildCopyCommandForFollower(signal, follower);
-
       if (isClose) {
         const followerAccountId = follower.followerAccountId || null;
-        const sourceTicket = signal.sourceTicket ? String(signal.sourceTicket) : '';
-        const binding = followerAccountId && sourceTicket
-          ? data.ticketMapByFollowerAccountId?.[followerAccountId]?.[sourceTicket]
-          : null;
-
+        const stableTicket = signal.sourceTicket ? String(signal.sourceTicket) : '';
+        const binding = followerAccountId && stableTicket ? data.ticketMapByFollowerAccountId?.[followerAccountId]?.[stableTicket] : null;
         command.payload.followerTicket = binding?.followerTicket || null;
-        command.payload.copyKey = sourceTicket || signal.signalId;
-        command.payload.leaderTicket = sourceTicket || null;
-        command.payload.sourceTicket = sourceTicket || null;
+        command.payload.copyKey = stableTicket || signal.signalId;
+        command.payload.leaderTicket = stableTicket || null;
+        command.payload.sourceTicket = stableTicket || null;
         if (binding?.symbol) command.payload.symbol = binding.symbol;
         command.priority = 300;
         command.immediate = true;
       }
-
       if (command.status === 'skipped') {
         const logId = `copy_log_${randomUUID()}`;
         data.copyTradeLogsById[logId] = {
-          logId,
-          status: 'skipped',
-          commandId: command.id,
-          masterUserId,
-          followerUserId: follower.followerUserId,
-          leaderTicket: signal.sourceTicket,
-          symbol: signal.symbol,
-          side: signal.side,
-          lots: command.payload?.lots || 0,
-          reason: command.skipReason,
-          riskDecision: command.riskDecision,
-          paperMode: Boolean(follower.paperMode),
-          createdAt: nowIso(),
+          logId, status: 'skipped', commandId: command.id, masterUserId,
+          followerUserId: follower.followerUserId, leaderTicket: signal.sourceTicket,
+          symbol: signal.symbol, side: signal.side, lots: command.payload?.lots || 0,
+          reason: command.skipReason, riskDecision: command.riskDecision,
+          paperMode: Boolean(follower.paperMode), createdAt: nowIso(),
         };
         continue;
       }
-
       data.copyCommandsByUserId[follower.followerUserId] ||= [];
       data.copyCommandsByUserId[follower.followerUserId].push(command);
       if (follower.followerAccountId) {
@@ -567,13 +528,32 @@ export class CopyTradingService {
         data.copyCommandsByAccountId[follower.followerAccountId].push(command);
       }
     }
+    return { signal, followerCount: followers.length };
+  }
 
-    await this.save(data);
+  async queueMasterSignalsBatch(inputs = []) {
+    const rows = Array.isArray(inputs) ? inputs.filter(Boolean) : [];
+    if (!rows.length) return [];
+    const data = await this.load();
+    const results = [];
+    let changed = false;
+    for (const input of rows) {
+      try {
+        results.push({ ok: true, result: this.applyMasterSignal(data, input) });
+        changed = true;
+      } catch (error) {
+        results.push({ ok: false, error: error.message });
+      }
+    }
+    data.signals = (data.signals || []).slice(0, 1000);
+    if (changed) await this.save(data);
+    return results;
+  }
 
-    return {
-      signal,
-      followerCount: followers.length,
-    };
+  async queueMasterSignal(input = {}) {
+    const [row] = await this.queueMasterSignalsBatch([input]);
+    if (!row?.ok) throw new Error(row?.error || 'Master signal could not be queued.');
+    return row.result;
   }
 
   buildCopyCommandForFollower(signal, follower) {

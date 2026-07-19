@@ -1,0 +1,418 @@
+WISDO v7.0.2 release file manifest
+Generated: 2026-07-19
+
+.env.example
+.node-version
+.nvmrc
+APPLY_CHART_TEACHER_PATCH.txt
+APPLY_PATCH.txt
+APPLY_V5_8_0_PATCH.txt
+MANIFEST_V5.txt
+MANIFEST_V5_8_0.txt
+MANIFEST_V5_9_0.txt
+MANIFEST_V6_0_0.txt
+MANIFEST_V6_0_2.txt
+MANIFEST_V6_0_3.txt
+MANIFEST_V6_0_4.txt
+MANIFEST_V6_0_5.txt
+MANIFEST_V6_0_6.txt
+MANIFEST_V6_0_8.txt
+MANIFEST_V6_1_0.txt
+MANIFEST_V7_0_1.txt
+README.md
+WISDO_AI_WEBINAR_ROOM_STRATEGY_STUDIO_V5_4_0_AUDIT.md
+WISDO_AI_WEBINAR_ROOM_STRATEGY_STUDIO_V5_4_0_DEPLOYMENT_CHECKLIST.txt
+WISDO_CAPABILITY_ADAPTIVE_ACADEMY_V5_2_0_AUDIT.md
+WISDO_CAPABILITY_ADAPTIVE_ACADEMY_V5_2_0_DEPLOYMENT_CHECKLIST.txt
+WISDO_CONNECTED_INTELLIGENCE_EDUCATION_HUB_V5_3_0_AUDIT.md
+WISDO_CONNECTED_INTELLIGENCE_EDUCATION_HUB_V5_3_0_DEPLOYMENT_CHECKLIST.txt
+WISDO_COPIER_CLOSE_AUTHORITY_V5_1_1_AUDIT.md
+WISDO_COPIER_CLOSE_AUTHORITY_V5_1_1_DEPLOYMENT_CHECKLIST.txt
+WISDO_COPIER_TIMEOUT_HOTFIX_V5_6_3.md
+WISDO_FUNNEL_LEARNING_PORTABLE_AI_V5_7_0_AUDIT.md
+WISDO_MEMBER_APP_MAJOR_V5_AUDIT.md
+WISDO_MEMBER_APP_MAJOR_V5_DEPLOYMENT_CHECKLIST.txt
+WISDO_MEMBER_EXPERIENCE_V5_1_0_AUDIT.md
+WISDO_MEMBER_EXPERIENCE_V5_1_0_DEPLOYMENT_CHECKLIST.txt
+WISDO_PERSISTENT_CLOSE_INTELLIGENCE_V5_8_0_AUDIT.md
+WISDO_RENDER_MT4_RATE_COALESCE_V5_6_2.md
+WISDO_RENDER_STABILITY_GROWTH_FUNNEL_V5_6_1_AUDIT.md
+WISDO_REPORTER_SYNC_AUTHORITY_V5_2_1_AUDIT.md
+WISDO_REPORTER_SYNC_AUTHORITY_V5_2_1_DEPLOYMENT_CHECKLIST.txt
+WISDO_SQUARE_REAL_MARKET_STUDY_ROOM_V5_6_0_AUDIT.md
+WISDO_SQUARE_REAL_MARKET_STUDY_ROOM_V5_6_0_DEPLOYMENT_CHECKLIST.txt
+WISDO_TRADINGVIEW_AI_CHART_TEACHER_V5_5_0_AUDIT.md
+WISDO_TRADINGVIEW_AI_CHART_TEACHER_V5_5_0_DEPLOYMENT_CHECKLIST.txt
+WISDO_V5_0_1_MT4_STORAGE_HOTFIX.md
+WISDO_V5_6_1_RENDER_DEPLOYMENT_CHECKLIST.txt
+WISDO_V5_7_0_RENDER_DEPLOYMENT_CHECKLIST.txt
+WISDO_V5_8_0_RENDER_DEPLOYMENT_CHECKLIST.txt
+WISDO_V5_9_POSTGRES_REDIS_DEPLOYMENT.md
+WISDO_V6_0_0_DEPLOYMENT_CHECKLIST.md
+WISDO_V6_0_0_TECHNICAL_AUDIT.md
+WISDO_V6_0_1_WINDOWS_INSTALL_HOTFIX.md
+WISDO_V6_0_2_DEPLOYMENT_AND_TEST_CHECKLIST.md
+WISDO_V6_0_3_DEPLOYMENT_AND_TEST_CHECKLIST.md
+WISDO_V6_0_4_DEPLOYMENT_AND_TEST_CHECKLIST.md
+WISDO_V6_0_4_RELEASE_NOTES.md
+WISDO_V6_0_5_DEPLOYMENT_AND_TEST_CHECKLIST.md
+WISDO_V6_0_5_RELEASE_NOTES.md
+WISDO_V6_0_6_DEPLOYMENT_AND_TEST_CHECKLIST.md
+WISDO_V6_0_6_RELEASE_NOTES.md
+WISDO_V6_0_8_DEPLOYMENT_AND_TEST_CHECKLIST.md
+WISDO_V6_0_8_RELEASE_NOTES.md
+WISDO_V6_0_9_DEPLOYMENT_AND_TEST_CHECKLIST.md
+WISDO_V6_0_9_RELEASE_NOTES.md
+WISDO_V6_1_0_DEPLOYMENT_AND_TEST_CHECKLIST.md
+WISDO_V6_1_0_FULL_QUEUE_AUDIT.md
+WISDO_V6_1_0_RELEASE_NOTES.md
+WISDO_V6_1_1_DEPLOYMENT_AND_TEST_CHECKLIST.md
+WISDO_V6_1_1_RELEASE_NOTES.md
+WISDO_V6_2_0_RELEASE_NOTES.md
+WISDO_V6_2_1_ROUTE_REPAIR_NOTES.md
+WISDO_V6_3_0_PRESENCE_AWARENESS_RELEASE_NOTES.md
+WISDO_V7_0_0_RELEASE_NOTES.md
+WISDO_V7_0_1_DEPLOYMENT_CHECKLIST.md
+WISDO_V7_0_1_DISCORD_COMMAND_INVENTORY.txt
+WISDO_V7_0_1_RUNTIME_REPAIR_AUDIT.md
+WISDO_V7_0_2_DEPLOYMENT_CHECKLIST.md
+WISDO_V7_0_2_RELEASE_NOTES.md
+WISDO_V7_0_2_SERVER_PRESSURE_REPAIR_AUDIT.md
+commands/admin.js
+commands/index.js
+commands/mt4.js
+commands/profile.js
+commands/signalGrid.js
+commands/store.js
+commands/trading.js
+commands/wisdo.js
+commands/wisdoBotRegistry.js
+commands/wisdoCommandCenter.js
+commands/wisdoEaControl.js
+commands/wisdoPhaseTwo.js
+commands/wisdoPortal.js
+commands/wisdoReview.js
+commands/wisdoSettings.js
+config.js
+config/discordRoleMap.js
+docs/API_V5.md
+docs/ARCHITECTURE_V5.md
+docs/DEPLOYMENT_V5.md
+docs/PRODUCTION_LAUNCH_CHECKLIST_V5.md
+docs/RELEASE_NOTES_V5.md
+docs/RELEASE_NOTES_V5_1_1.md
+docs/RELEASE_NOTES_V5_2_0.md
+docs/RELEASE_NOTES_V5_2_1.md
+docs/RELEASE_NOTES_V5_4_0.md
+docs/RELEASE_NOTES_V5_5_0.md
+docs/RELEASE_NOTES_V5_6_0.md
+docs/RELEASE_NOTES_V5_7_0.md
+docs/RELEASE_NOTES_V6_0_0.md
+docs/RELEASE_NOTES_V6_0_2.md
+docs/RELEASE_NOTES_V6_0_3.md
+docs/RELEASE_NOTES_V6_0_4.md
+docs/RELEASE_NOTES_V6_0_5.md
+docs/RELEASE_NOTES_V6_0_6.md
+docs/RELEASE_NOTES_V6_0_8.md
+docs/SUPABASE_MIGRATION_V5.md
+docs/WISDO_V5_9_0_TECHNICAL_AUDIT_AND_PRODUCT_BLUEPRINT.md
+docs/legacy-source-notes/commands-archive/CEM_CULTURE_COMMUNITY_ECOSYSTEM_UPGRADE_2026_05_06.md
+docs/legacy-source-notes/commands-archive/CEM_CULTURE_HTTP_500_SIGNAL_HOTFIX_2026_05_06.md
+docs/legacy-source-notes/commands-archive/CEM_CULTURE_RELAY_ENGINE_BRAND_NAMES_2026_06_26.txt
+docs/legacy-source-notes/commands-archive/CEM_CULTURE_WISDO_FULL_ALL_DISCUSSION_UPGRADE_2026_05_06.md
+docs/legacy-source-notes/commands-archive/CEM_FULL_WEBSITE_ROUTE_AND_COPIER_ENGINE_UPGRADE_MANIFEST_2026_06_26.txt
+docs/legacy-source-notes/commands-archive/CEM_MEMBER_PORTAL_ADVANCED_LINKING_COPY_ENGINE_MANIFEST_2026_06_26.txt
+docs/legacy-source-notes/commands-archive/CEM_MEMBER_PORTAL_AUDIT_FIX_MANIFEST_2026_06_26.txt
+docs/legacy-source-notes/commands-archive/CEM_MEMBER_PORTAL_LIVE_FORMS_COPY_ENGINE_MANIFEST_2026_06_26.txt
+docs/legacy-source-notes/commands-archive/CEM_MEMBER_UPGRADE_PATCH_MANIFEST_2026_06_26.txt
+docs/legacy-source-notes/commands-archive/CEM_WISDO_ADAPTIVE_COMMAND_CENTER_V2_README.txt
+docs/legacy-source-notes/commands-archive/CULTURECOIN_ACCOUNT_AWARE_COPY_LINK_V29.md
+docs/legacy-source-notes/commands-archive/CULTURECOIN_ACCOUNT_AWARE_COPY_LINK_V29_PUSH.txt
+docs/legacy-source-notes/commands-archive/CULTURECOIN_DISCORD_INTERACTION_TIMEOUT_FIX_V31.md
+docs/legacy-source-notes/commands-archive/CULTURECOIN_DISCORD_INTERACTION_TIMEOUT_FIX_V31_PUSH.txt
+docs/legacy-source-notes/commands-archive/CULTURECOIN_FINANCE_VPS_ENGINE_PATCH.md
+docs/legacy-source-notes/commands-archive/CULTURECOIN_IDENTITY_PAID_LINK_ACCESS_PATCH.md
+docs/legacy-source-notes/commands-archive/CULTURECOIN_LIVE_EQUITY_CHART_REPAIR_V25.md
+docs/legacy-source-notes/commands-archive/CULTURECOIN_LOGIN_RECOVERY_OAUTH_HEALTH_PATCH.md
+docs/legacy-source-notes/commands-archive/CULTURECOIN_MULTI_ACCOUNT_RISK_PROFIT_MANAGER_V28_FULL.md
+docs/legacy-source-notes/commands-archive/CULTURECOIN_MULTI_USER_ISOLATION_PATCH.md
+docs/legacy-source-notes/commands-archive/CULTURECOIN_OPERATOR_AUTOMATION_PATCH.md
+docs/legacy-source-notes/commands-archive/CULTURECOIN_SMART_ACCOUNT_SELECTOR_PATCH.md
+docs/legacy-source-notes/commands-archive/CULTURECOIN_TRADE_SIGNAL_HARD_FIX_V30.md
+docs/legacy-source-notes/commands-archive/CULTURECOIN_TRADE_SIGNAL_HARD_FIX_V30_PUSH.txt
+docs/legacy-source-notes/commands-archive/CULTURECOIN_ULTRA_PRO_TRADING_OS_V24_PATCH.md
+docs/legacy-source-notes/commands-archive/CultureCoin_MT4_Reporter.mq4
+docs/legacy-source-notes/commands-archive/DEADSHOT_REBUILD_NOTES.md
+docs/legacy-source-notes/commands-archive/DEADSHOT_WISDO_AUDIT_PATCH_NOTES.md
+docs/legacy-source-notes/commands-archive/DEADSHOT_WISDO_FINAL_ARCHITECTURE_BLUEPRINT.md
+docs/legacy-source-notes/commands-archive/DEADSHOT_WISDO_FINAL_PATCH_MANIFEST.txt
+docs/legacy-source-notes/commands-archive/DEADSHOT_WISDO_REPORTER_DISCORD_CONNECTION_HOTFIX.md
+docs/legacy-source-notes/commands-archive/DF SAUCE FINAL AI.mq4
+docs/legacy-source-notes/commands-archive/FIX_APPLICATION_DID_NOT_RESPOND.txt
+docs/legacy-source-notes/commands-archive/FULL_LANE_PATCH_README.txt
+docs/legacy-source-notes/commands-archive/FULL_WEBSITE_UPGRADE_PATCH.md
+docs/legacy-source-notes/commands-archive/INSTALL_FIRST.txt
+docs/legacy-source-notes/commands-archive/MEGA_REFERRAL_COMMERCE_PATCH.md
+docs/legacy-source-notes/commands-archive/PATCH_1_5_README.txt
+docs/legacy-source-notes/commands-archive/PATCH_6_20_README.txt
+docs/legacy-source-notes/commands-archive/README.md
+docs/legacy-source-notes/commands-archive/README_FIX.txt
+docs/legacy-source-notes/commands-archive/README_V4_1_BOT_LANES_DISCORD_LIMIT_FIX.txt
+docs/legacy-source-notes/commands-archive/README_V4_3_AUTOFILL_CLOSE_LANE_FIX.txt
+docs/legacy-source-notes/commands-archive/README_V4_4_1_SYNTAX_FIX.txt
+docs/legacy-source-notes/commands-archive/README_V4_4_BOT_LANES_PAGINATION_SEARCH.txt
+docs/legacy-source-notes/commands-archive/WISDO_EXECUTION_BRIDGE_PATCH.md
+docs/legacy-source-notes/commands-archive/WISDO_FRONTEND_ECOSYSTEM_UPGRADE_2026_06_30.md
+docs/legacy-source-notes/commands-archive/WISDO_FULL_SYSTEM_AUDIT_AND_PAIR_CONTROLS_PATCH.md
+docs/legacy-source-notes/commands-archive/WISDO_LIVE_METRICS_AND_COMMAND_REGISTRATION_PATCH.md
+docs/legacy-source-notes/server-readme-original.md
+docs/legacy-source-notes/top-level/CEM_CULTURE_COMMUNITY_ECOSYSTEM_UPGRADE_2026_05_06.md
+docs/legacy-source-notes/top-level/CEM_CULTURE_HTTP_500_SIGNAL_HOTFIX_2026_05_06.md
+docs/legacy-source-notes/top-level/CEM_CULTURE_RELAY_ENGINE_BRAND_NAMES_2026_06_26.txt
+docs/legacy-source-notes/top-level/CEM_CULTURE_WISDO_FULL_ALL_DISCUSSION_UPGRADE_2026_05_06.md
+docs/legacy-source-notes/top-level/CEM_FULL_WEBSITE_ROUTE_AND_COPIER_ENGINE_UPGRADE_MANIFEST_2026_06_26.txt
+docs/legacy-source-notes/top-level/CEM_MEMBER_PORTAL_ADVANCED_LINKING_COPY_ENGINE_MANIFEST_2026_06_26.txt
+docs/legacy-source-notes/top-level/CEM_MEMBER_PORTAL_AUDIT_FIX_MANIFEST_2026_06_26.txt
+docs/legacy-source-notes/top-level/CEM_MEMBER_PORTAL_LIVE_FORMS_COPY_ENGINE_MANIFEST_2026_06_26.txt
+docs/legacy-source-notes/top-level/CEM_MEMBER_UPGRADE_PATCH_MANIFEST_2026_06_26.txt
+docs/legacy-source-notes/top-level/CEM_WISDO_ADAPTIVE_COMMAND_CENTER_V2_README.txt
+docs/legacy-source-notes/top-level/CULTURECOIN_ACCOUNT_AWARE_COPY_LINK_V29.md
+docs/legacy-source-notes/top-level/CULTURECOIN_ACCOUNT_AWARE_COPY_LINK_V29_PUSH.txt
+docs/legacy-source-notes/top-level/CULTURECOIN_DISCORD_INTERACTION_TIMEOUT_FIX_V31.md
+docs/legacy-source-notes/top-level/CULTURECOIN_DISCORD_INTERACTION_TIMEOUT_FIX_V31_PUSH.txt
+docs/legacy-source-notes/top-level/CULTURECOIN_FINANCE_VPS_ENGINE_PATCH.md
+docs/legacy-source-notes/top-level/CULTURECOIN_IDENTITY_PAID_LINK_ACCESS_PATCH.md
+docs/legacy-source-notes/top-level/CULTURECOIN_LIVE_EQUITY_CHART_REPAIR_V25.md
+docs/legacy-source-notes/top-level/CULTURECOIN_LOGIN_RECOVERY_OAUTH_HEALTH_PATCH.md
+docs/legacy-source-notes/top-level/CULTURECOIN_MULTI_ACCOUNT_RISK_PROFIT_MANAGER_V28_FULL.md
+docs/legacy-source-notes/top-level/CULTURECOIN_MULTI_USER_ISOLATION_PATCH.md
+docs/legacy-source-notes/top-level/CULTURECOIN_OPERATOR_AUTOMATION_PATCH.md
+docs/legacy-source-notes/top-level/CULTURECOIN_SMART_ACCOUNT_SELECTOR_PATCH.md
+docs/legacy-source-notes/top-level/CULTURECOIN_TRADE_SIGNAL_HARD_FIX_V30.md
+docs/legacy-source-notes/top-level/CULTURECOIN_TRADE_SIGNAL_HARD_FIX_V30_PUSH.txt
+docs/legacy-source-notes/top-level/CULTURECOIN_ULTRA_PRO_TRADING_OS_V24_PATCH.md
+docs/legacy-source-notes/top-level/DEADSHOT_REBUILD_NOTES.md
+docs/legacy-source-notes/top-level/DEADSHOT_WISDO_AUDIT_PATCH_NOTES.md
+docs/legacy-source-notes/top-level/DEADSHOT_WISDO_FINAL_ARCHITECTURE_BLUEPRINT.md
+docs/legacy-source-notes/top-level/DEADSHOT_WISDO_FINAL_PATCH_MANIFEST.txt
+docs/legacy-source-notes/top-level/DEADSHOT_WISDO_REPORTER_DISCORD_CONNECTION_HOTFIX.md
+docs/legacy-source-notes/top-level/FIX_APPLICATION_DID_NOT_RESPOND.txt
+docs/legacy-source-notes/top-level/FULL_LANE_PATCH_README.txt
+docs/legacy-source-notes/top-level/FULL_WEBSITE_UPGRADE_PATCH.md
+docs/legacy-source-notes/top-level/INSTALL_FIRST.txt
+docs/legacy-source-notes/top-level/MEGA_REFERRAL_COMMERCE_PATCH.md
+docs/legacy-source-notes/top-level/PATCH_1_5_README.txt
+docs/legacy-source-notes/top-level/PATCH_6_20_README.txt
+docs/legacy-source-notes/top-level/README_FIX.txt
+docs/legacy-source-notes/top-level/README_V4_1_BOT_LANES_DISCORD_LIMIT_FIX.txt
+docs/legacy-source-notes/top-level/README_V4_3_AUTOFILL_CLOSE_LANE_FIX.txt
+docs/legacy-source-notes/top-level/README_V4_4_1_SYNTAX_FIX.txt
+docs/legacy-source-notes/top-level/README_V4_4_BOT_LANES_PAGINATION_SEARCH.txt
+docs/legacy-source-notes/top-level/WISDO_EXECUTION_BRIDGE_PATCH.md
+docs/legacy-source-notes/top-level/WISDO_FULL_SYSTEM_AUDIT_AND_PAIR_CONTROLS_PATCH.md
+docs/legacy-source-notes/top-level/WISDO_LAUNCH_RELAY_ENGINE_AUDIT_PATCH_2026_07_01.diff
+docs/legacy-source-notes/top-level/WISDO_LAUNCH_RELAY_ENGINE_AUDIT_PATCH_2026_07_01.md
+docs/legacy-source-notes/top-level/WISDO_LIVE_METRICS_AND_COMMAND_REGISTRATION_PATCH.md
+docs/legacy-source-notes/top-level/WISDO_RENDER_COMMAND_REGISTRY_HOTFIX.txt
+docs/legacy-source-notes/wisdo-ai-everywhere.md
+docs/legacy-source-notes/wisdo-database-phase-1.md
+docs/legacy-source-notes/wisdo-discord-role-sync.md
+docs/legacy-source-notes/wisdo-final-mass-upgrade-report.md
+docs/legacy-source-notes/wisdo-persistence-plan.md
+docs/legacy-source-notes/wisdo-rbac-phase-1.md
+docs/legacy-source-notes/wisdo-service-merge-map.md
+docs/legacy-source-notes/wisdo-signal-grid.md
+docs/legacy-source-notes/wisdo-source-of-truth-map.md
+docs/legacy-source-notes/wisdo-trading-academy.md
+emails/password-reset.html
+emails/subscription-receipt.html
+emails/trade-alert.html
+emails/trial-ending.html
+emails/welcome.html
+frontend/components/connection/AuthSuccessTransition.tsx
+frontend/components/connection/CommandCenterOnlineToast.tsx
+frontend/components/connection/LaunchConnectionAnimation.tsx
+frontend/components/connection/TradingBridgeConnectAnimation.tsx
+frontend/design/command-launch.css
+frontend/design/tailwind.config.ts
+index.js
+logger.js
+migrations/2026-07-04-wisdo-phase-1.sql
+migrations/2026-07-10-wisdo-major-production-v5.sql
+migrations/2026-07-12-square-real-study-room-v5.6.sql
+mql4/CultureCoin_MT4_Reporter.mq4
+mql4/CultureCoin_MT4_Reporter_Package.zip
+mql4/CultureCoin_MT4_Reporter_SETUP.txt
+mql4/adaptive_bots/CEM_ADAPTIVE_ENGINE_README.txt
+mql4/adaptive_bots/DEADSHOT.mq4
+mql4/adaptive_bots/DF SAUCE FINAL AI.mq4
+mql4/adaptive_bots/DF_Handsfree V10.6.mq4
+mql4/adaptive_bots/DF_Handsfree V9.mq4
+mql4/adaptive_bots/DF_Handsfree.mq4
+mql4/legacy-source-root/CultureCoin_MT4_Reporter.mq4
+mql4/legacy-source-root/DF SAUCE FINAL AI.mq4
+package-lock.json
+package.json
+private-downloads/mt4-bots/AVA.ex4
+private-downloads/mt4-bots/CAP Breakout EA.ex4
+private-downloads/mt4-bots/CC GROW.ex4
+private-downloads/mt4-bots/CC V1.2.ex4
+private-downloads/mt4-bots/CC V1.ex4
+private-downloads/mt4-bots/CC V2.4.4.ex4
+private-downloads/mt4-bots/CC V2.5.2.1.ex4
+private-downloads/mt4-bots/CC V2.5.2.ex4
+private-downloads/mt4-bots/CCREACT.ex4
+private-downloads/mt4-bots/CEM BOT COPIER.ex4
+private-downloads/mt4-bots/CHEMICAL X V2.ex4
+private-downloads/mt4-bots/CULTURE COIN V.1.ex4
+private-downloads/mt4-bots/CULTURE_COIN_BOT_INSTALL.txt
+private-downloads/mt4-bots/DF 5.1.ex4
+private-downloads/mt4-bots/DF HIGHTOWER V2.ex4
+private-downloads/mt4-bots/DF HIGHTOWER V3.ex4
+private-downloads/mt4-bots/DF HIGHTOWER.ex4
+private-downloads/mt4-bots/DF KNOT +AUTOFLIP.ex4
+private-downloads/mt4-bots/DF KNOT +AUTOFLIP_E733F041.ex4
+private-downloads/mt4-bots/DF KNOT.ex4
+private-downloads/mt4-bots/DF KNOT_647F42D4.ex4
+private-downloads/mt4-bots/DF LADDER - MOTION V3.ex4
+private-downloads/mt4-bots/DF LADDER - MOTION.ex4
+private-downloads/mt4-bots/DF LADDER RV.ex4
+private-downloads/mt4-bots/DF LADDER- MOTION V2.ex4
+private-downloads/mt4-bots/DF LADDER.ex4
+private-downloads/mt4-bots/DF ORIGINAL.ex4
+private-downloads/mt4-bots/DF SAUCE 2.0.ex4
+private-downloads/mt4-bots/DF SAUCE FINAL AI.ex4
+private-downloads/mt4-bots/DF SAUCE FINAL.ex4
+private-downloads/mt4-bots/DF TREND GHOST.ex4
+private-downloads/mt4-bots/DFHIGHTOWERV6.ex4
+private-downloads/mt4-bots/DF_HIGHTOWER_ADAPTIVE_V7.ex4
+private-downloads/mt4-bots/DF_HIGHTOWER_V10_FULL.ex4
+private-downloads/mt4-bots/DF_Handsfree V10.6.ex4
+private-downloads/mt4-bots/DF_Handsfree V9.ex4
+private-downloads/mt4-bots/DF_Handsfree.ex4
+private-downloads/mt4-bots/DF_QUANTUM.ex4
+private-downloads/mt4-bots/DF_SAUCE.ex4
+private-downloads/mt4-bots/DF_Sauce_EA.ex4
+private-downloads/mt4-bots/DF_Sauce_EA_FIXED.ex4
+private-downloads/mt4-bots/DJ VERSION - ULTIMATE PACKAGE (1) (1).ex4
+private-downloads/mt4-bots/FOUNTAIN OF WEALTH.ex4
+private-downloads/mt4-bots/GOLDSETUP.ex4
+private-downloads/mt4-bots/HALO.ex4
+private-downloads/mt4-bots/IMB.ex4
+private-downloads/mt4-bots/KINGDOM MANNER - ULTIMATE PACKAGE.ex4
+private-downloads/mt4-bots/KINGDOM MANNER - VERSION 3.ex4
+private-downloads/mt4-bots/KINGDOM MANNER - VERSION 4.ex4
+private-downloads/mt4-bots/Kingdom Manner + Scale.ex4
+private-downloads/mt4-bots/Kingdom Manner.ex4
+private-downloads/mt4-bots/Manner.ex4
+private-downloads/mt4-bots/SORO + IMB SCALER.ex4
+private-downloads/mt4-bots/SORO.ex4
+public/downloads/Moving-Average.ex4
+public/js/df-sauce-academy.js
+public/js/wisdo-assistant.js
+public/js/workspace.js
+public/media/14250431_1920_1080_30fps.mp4
+public/media/14683743_3840_2160_30fps.mp4
+public/media/dark_logo_transparent_background.png
+public/media/dark_logo_white_background.jpg
+public/media/logo_transparent_background.png
+public/media/logo_white_background.jpg
+public/media/white_logo_color_background.jpg
+public/media/white_logo_dark_background.jpg
+public/media/white_logo_transparent_background.png
+public/media/wisdo-og.svg
+public/platforms/ctrader.svg
+public/platforms/dxtrade.svg
+public/platforms/matchtrader.svg
+public/platforms/mt4.svg
+public/platforms/mt5.svg
+public/platforms/ninjatrader.svg
+public/platforms/projectx.svg
+public/platforms/rithmic.svg
+public/platforms/tradelocker.svg
+public/platforms/tradovate.svg
+public/service-worker.js
+render.yaml
+scripts/checkBuild.js
+scripts/legacy/renameDesksFromRecords.js
+scripts/legacy/repairPersistentState.js
+scripts/migratePostgres.js
+scripts/patchWsHandshake.js
+scripts/registerCommands.js
+scripts/startWebOnly.js
+server/apiServer.js
+server/deadshotSite.js
+server/extendedProductRoutes.js
+server/livingOperatingSystemRoutes.js
+server/majorUpgradeRoutes.js
+server/presenceIdentityRoutes.js
+server/security.js
+services/academyCatalogService.js
+services/accountHealthService.js
+services/affiliateService.js
+services/aiWebinarService.js
+services/announcementService.js
+services/botAllocationService.js
+services/botCatalogService.js
+services/botPricingService.js
+services/botRegistryService.js
+services/botStoreService.js
+services/brokerApiConnectionService.js
+services/chartRenderService.js
+services/commandSafetyService.js
+services/copyTradingService.js
+services/cultureLaneOperatingSystemService.js
+services/culturePresenceService.js
+services/deskDashboardService.js
+services/discordRoleSyncService.js
+services/discordSignalGridService.js
+services/educationHubService.js
+services/growthFunnelService.js
+services/historicalMarketDataService.js
+services/historyProofService.js
+services/learningManualService.js
+services/livingOperatingSystemService.js
+services/mt4CommandService.js
+services/mt4SyncService.js
+services/notificationDeliveryService.js
+services/operatorDeskService.js
+services/paymentService.js
+services/persistenceAdapter.js
+services/platformBusinessService.js
+services/rankService.js
+services/redisCommandBridge.js
+services/repositories/wisdoPhase1Repository.js
+services/safeDiscordDelivery.js
+services/signalCardService.js
+services/signalCopyService.js
+services/signalGridService.js
+services/squarePaymentService.js
+services/tradeCloseIntelligence.js
+services/tradeSignalService.js
+services/wisdoAiCoachService.js
+services/wisdoAnalysisService.js
+services/wisdoBrainV2.js
+services/wisdoGlobalsService.js
+services/wisdoMemoryService.js
+services/wisdoRulesEngine.js
+services/wisdoSpeechService.js
+services/wisdoToneService.js
+storage/operatorDeskRepository.js
+storage/stateStore.js
+tests/culture-lane-os.test.js
+tests/culture-presence.test.js
+tests/livingOperatingSystem.test.js
+tests/major-product.test.js
+tests/postgres-redis-upgrade.test.js
+tests/stability-growth.test.js
+tests/v606-database-ai-broker.test.js
+tests/v607-performance-recovery.test.js
+tests/v608-cloud-only-recovery.test.js
+tests/v610-full-queue-audit.test.js
+tests/v701-runtime-repair.test.js
+tests/v702-server-pressure-repair.test.js
+tests/v702-transport-sync-repair.test.js
+utils/discordInteractionGuard.js
+utils/operatorDesk.js
+utils/store.js
+utils/time.js

@@ -169,6 +169,13 @@ export class TradeSignalService {
     this.ttlSeconds = Number(process.env.SIGNAL_BUTTON_TTL_SECONDS || 180);
     this.signalChannelId = process.env.SIGNAL_CHANNEL_ID || process.env.TRADE_SIGNAL_CHANNEL_ID || '';
     this.signalCardService = new SignalCardService();
+    this.backgroundTasks = [];
+    this.backgroundTaskCount = 0;
+    this.backgroundTaskSequence = 0;
+    this.backgroundConcurrency = Math.max(1, Math.min(16, Number(process.env.WISDO_SIGNAL_BACKGROUND_CONCURRENCY || 4)));
+    this.backgroundTaskTimeoutMs = Math.max(1_000, Math.min(60_000, Number(process.env.WISDO_SIGNAL_TASK_TIMEOUT_MS || 15_000)));
+    this.backgroundTaskMaxQueue = Math.max(10, Math.min(5000, Number(process.env.WISDO_SIGNAL_BACKGROUND_MAX_QUEUE || 500)));
+    this.backgroundTaskDropped = 0;
   }
 
   async load() {
@@ -181,13 +188,71 @@ export class TradeSignalService {
     return sanitized;
   }
 
-  async createSignal({ leaderUserId, leaderAccountId, leaderAccountNumber, leaderServer, leaderChannelId, eaName, eaVersion, trade, snapshot }) {
-    if (!trade?.ticket || !trade?.symbol) return null;
+  enqueueBackgroundTask(label, task, meta = {}, priority = 0) {
+    if (typeof task !== 'function') return false;
+    this.backgroundTaskSequence += 1;
+    if (this.backgroundTasks.length >= this.backgroundTaskMaxQueue) {
+      const lowestIndex = this.backgroundTasks.reduce((best, item, index, rows) => {
+        if (best < 0) return index;
+        const current = rows[best];
+        return item.priority < current.priority || (item.priority === current.priority && item.sequence < current.sequence) ? index : best;
+      }, -1);
+      const incomingPriority = Number(priority) || 0;
+      if (lowestIndex >= 0 && this.backgroundTasks[lowestIndex].priority < incomingPriority) this.backgroundTasks.splice(lowestIndex, 1);
+      else {
+        this.backgroundTaskDropped += 1;
+        this.logger?.warn?.('Deferred signal queue is full; lower-priority work was dropped.', { label, priority: incomingPriority, queueDepth: this.backgroundTasks.length });
+        return false;
+      }
+    }
+    this.backgroundTasks.push({ label, task, meta, priority: Number(priority) || 0, sequence: this.backgroundTaskSequence });
+    this.backgroundTasks.sort((left, right) => right.priority - left.priority || left.sequence - right.sequence);
+    this.drainBackgroundTasks();
+    return true;
+  }
 
-    const signalId = `sig_${Date.now()}_${String(trade.ticket)}`;
+  getBackgroundStatus() {
+    return {
+      running: this.backgroundTaskCount,
+      queued: this.backgroundTasks.length,
+      concurrency: this.backgroundConcurrency,
+      maxQueue: this.backgroundTaskMaxQueue,
+      dropped: this.backgroundTaskDropped,
+    };
+  }
+
+  runBackgroundTask(item) {
+    let timeoutId;
+    const timeout = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(`Deferred task exceeded ${this.backgroundTaskTimeoutMs}ms`)), this.backgroundTaskTimeoutMs);
+      timeoutId.unref?.();
+    });
+    return Promise.race([Promise.resolve().then(() => item.task()), timeout]).finally(() => clearTimeout(timeoutId));
+  }
+
+  drainBackgroundTasks() {
+    while (this.backgroundTaskCount < this.backgroundConcurrency && this.backgroundTasks.length) {
+      const item = this.backgroundTasks.shift();
+      this.backgroundTaskCount += 1;
+      setImmediate(() => {
+        this.runBackgroundTask(item)
+          .catch((error) => this.logger?.warn?.('Deferred signal task failed.', { task: item.label, ...item.meta, message: error.message }))
+          .finally(() => {
+            this.backgroundTaskCount -= 1;
+            this.drainBackgroundTasks();
+          });
+      });
+    }
+  }
+
+  buildSignal(input = {}, index = 0) {
+    const { leaderUserId, leaderAccountId, leaderAccountNumber, leaderServer, leaderChannelId, eaName, eaVersion, trade, snapshot } = input;
+    if (!trade?.ticket || !trade?.symbol) return null;
     const now = new Date();
     const expiresAt = new Date(now.getTime() + this.ttlSeconds * 1000);
-    const signal = {
+    const accountToken = String(leaderAccountId || leaderAccountNumber || 'account').replace(/[^a-z0-9]/gi, '').slice(-16) || 'account';
+    const signalId = `sig_${now.getTime()}_${accountToken}_${String(trade.ticket)}_${index}`;
+    return {
       signalId,
       leaderUserId: String(leaderUserId || ''),
       leaderAccountId: String(leaderAccountId || ''),
@@ -216,25 +281,59 @@ export class TradeSignalService {
       takes: [],
       autoTakes: [],
     };
+  }
+
+  async createSignalsBatch(inputs = []) {
+    const signals = inputs.map((input, index) => this.buildSignal(input, index)).filter(Boolean);
+    if (!signals.length) return [];
 
     const data = await this.load();
-    data.signalsById[signalId] = signal;
-    data.signalIds = [signalId, ...(data.signalIds || []).filter((id) => id !== signalId)].slice(0, 500);
+    for (const signal of signals) data.signalsById[signal.signalId] = signal;
+    data.signalIds = [
+      ...signals.map((signal) => signal.signalId),
+      ...(data.signalIds || []).filter((id) => !signals.some((signal) => signal.signalId === id)),
+    ].slice(0, 500);
     await this.save(data);
 
-    // Queue execution authority before attempting Discord presentation. Discord API
-    // latency must never hold the MT4 Reporter heartbeat open.
+    // One copier batch and one presentation batch replace hundreds of per-trade
+    // database/network tasks. This keeps the shared Render process responsive.
+    this.enqueueBackgroundTask('auto-copy-open-batch', () => this.queueAutoCopyRoutesBatch(signals), {
+      leaderAccountId: signals[0]?.leaderAccountId || '',
+      signalCount: signals.length,
+    }, 100);
+    this.enqueueBackgroundTask('signal-presentation-batch', () => this.postSignalsBatch(signals), {
+      leaderAccountId: signals[0]?.leaderAccountId || '',
+      signalCount: signals.length,
+    }, 10);
+    return signals;
+  }
+
+  async createSignal(input = {}) {
+    const signal = this.buildSignal(input, 0);
+    if (!signal) return null;
+    const data = await this.load();
+    data.signalsById[signal.signalId] = signal;
+    data.signalIds = [signal.signalId, ...(data.signalIds || []).filter((id) => id !== signal.signalId)].slice(0, 500);
+    await this.save(data);
+
+    // Direct/manual callers preserve the old execution-authority guarantee: when
+    // createSignal resolves, the copier route has been queued. Discord rendering
+    // remains deferred. MT4 heartbeat ingestion uses createSignalsBatch instead.
     await this.queueAutoCopyRoutes(signal).catch((error) => {
-      this.logger?.warn?.('Auto copy route queue failed for signal.', { signalId, message: error.message });
+      this.logger?.warn?.('Auto copy route queue failed for signal.', { signalId: signal.signalId, message: error.message });
     });
-
-    setImmediate(() => {
-      this.postSignal(signal).catch((error) => {
-        this.logger?.warn?.('Trade signal grid update failed', { signalId, message: error.message });
-      });
-    });
-
+    this.enqueueBackgroundTask('signal-presentation', () => this.postSignal(signal), { signalId: signal.signalId });
     return signal;
+  }
+
+  queueSignalClosuresBatch(events = []) {
+    const rows = events.filter((row) => row?.sourceTicket);
+    if (!rows.length) return { queued: 0 };
+    this.enqueueBackgroundTask('auto-copy-close-batch', () => this.queueAutoCopyCloseRoutesBatch(rows), {
+      leaderAccountId: rows[0]?.leaderAccountId || '',
+      signalCount: rows.length,
+    }, 200);
+    return { queued: rows.length };
   }
 
   async resolveSignalChannelId(signal) {
@@ -252,32 +351,7 @@ export class TradeSignalService {
   async postSignal(signal) {
     const targetChannelId = await this.resolveSignalChannelId(signal);
     if (this.signalGridService) {
-      await this.signalGridService.updateSignalCell({
-        id: signal.signalId,
-        signalId: signal.signalId,
-        sourceId: signal.leaderAccountId || signal.leaderUserId || 'mt4_reporter',
-        botId: normalizeBotKey(signal.eaName || 'wisdo-signal-bot'),
-        botName: signal.eaName || 'Wisdo Signal Bot',
-        providerId: signal.leaderUserId,
-        leaderUserId: signal.leaderUserId,
-        symbol: signal.symbol,
-        direction: signal.side,
-        status: 'active',
-        basketId: `basket_${signal.leaderAccountId || signal.leaderUserId}_${signal.symbol}_${signal.sourceTicket}`,
-        floatingPnl: signal.floatingPnl || signal.dailyClosedPL || 0,
-        balance: signal.balance,
-        equity: signal.equity,
-        startBalance: signal.balance,
-        startEquity: signal.equity,
-        openTradeCount: 1,
-        averageEntry: signal.openPrice,
-        riskMode: 'risk_based',
-        expiresAt: signal.expiresAt,
-        lastUpdateAt: signal.updatedAt || signal.createdAt,
-        sourceName: signal.eaName || 'MT4 Reporter',
-        sourceType: 'bridge',
-        metadata: { signalId: signal.signalId, sourceTicket: signal.sourceTicket, lots: signal.lots, stopLoss: signal.stopLoss, takeProfit: signal.takeProfit, market: this.marketGroup(signal.symbol) },
-      });
+      await this.signalGridService.updateSignalCell(this.signalGridPayload(signal));
       if (targetChannelId && this.discordSignalGridService) {
         this.discordSignalGridService.scheduleGridRefresh(targetChannelId);
       }
@@ -308,6 +382,58 @@ export class TradeSignalService {
       await this.save(data);
     }
     return message;
+  }
+
+  signalGridPayload(signal) {
+    return {
+      id: signal.signalId,
+      signalId: signal.signalId,
+      sourceId: signal.leaderAccountId || signal.leaderUserId || 'mt4_reporter',
+      botId: normalizeBotKey(signal.eaName || 'wisdo-signal-bot'),
+      botName: signal.eaName || 'Wisdo Signal Bot',
+      providerId: signal.leaderUserId,
+      leaderUserId: signal.leaderUserId,
+      symbol: signal.symbol,
+      direction: signal.side,
+      status: 'active',
+      basketId: `basket_${signal.leaderAccountId || signal.leaderUserId}_${signal.symbol}_${signal.sourceTicket}`,
+      floatingPnl: signal.floatingPnl || signal.dailyClosedPL || 0,
+      balance: signal.balance,
+      equity: signal.equity,
+      startBalance: signal.balance,
+      startEquity: signal.equity,
+      openTradeCount: 1,
+      averageEntry: signal.openPrice,
+      riskMode: 'risk_based',
+      expiresAt: signal.expiresAt,
+      lastUpdateAt: signal.updatedAt || signal.createdAt,
+      sourceName: signal.eaName || 'MT4 Reporter',
+      sourceType: 'bridge',
+      metadata: { signalId: signal.signalId, sourceTicket: signal.sourceTicket, lots: signal.lots, stopLoss: signal.stopLoss, takeProfit: signal.takeProfit, market: this.marketGroup(signal.symbol) },
+    };
+  }
+
+  async postSignalsBatch(signals = []) {
+    const rows = signals.filter(Boolean);
+    if (!rows.length) return { posted: 0 };
+    if (this.signalGridService?.updateSignalCellsBatch) {
+      await this.signalGridService.updateSignalCellsBatch(rows.map((signal) => this.signalGridPayload(signal)));
+      if (this.discordSignalGridService) {
+        const channels = new Set();
+        for (const signal of rows) {
+          const channelId = await this.resolveSignalChannelId(signal);
+          if (channelId) channels.add(channelId);
+        }
+        for (const channelId of channels) this.discordSignalGridService.scheduleGridRefresh(channelId);
+      }
+      return { posted: rows.length, mode: 'grid-batch' };
+    }
+    let posted = 0;
+    for (const signal of rows) {
+      await this.postSignal(signal).catch((error) => this.logger?.warn?.('Trade signal batch presentation failed.', { signalId: signal.signalId, message: error.message }));
+      posted += 1;
+    }
+    return { posted, mode: 'individual-fallback' };
   }
 
   marketGroup(symbol = '') {
@@ -420,6 +546,82 @@ export class TradeSignalService {
     });
   }
 
+  async queueAutoCopyRoutesBatch(signals = []) {
+    const rows = signals.filter((signal) => signal?.leaderAccountId && signal?.signalId);
+    if (!rows.length || !this.repository.getActiveCopyRoutesForLeader || !this.mt4CommandService?.queueCommandForAccount) return [];
+    const groups = new Map();
+    for (const signal of rows) {
+      const key = String(signal.leaderAccountId);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(signal);
+    }
+
+    const commandInputs = [];
+    const commandMeta = [];
+    for (const [leaderAccountId, groupSignals] of groups) {
+      const routes = await this.repository.getActiveCopyRoutesForLeader(leaderAccountId);
+      for (const route of routes) {
+        const account = this.repository.getMt4ConnectionForCopyRoute
+          ? await this.repository.getMt4ConnectionForCopyRoute(route)
+          : await this.repository.getMt4ConnectionByAccountId(route.ownerUserId, route.followerAccountId);
+        if (!account) {
+          this.logger?.warn?.('Auto copy route skipped because the live follower connection is unavailable or not authorized.', { routeId: route.routeId, followerAccountId: route.followerAccountId });
+          continue;
+        }
+        const accountWithRisk = { ...account, copyRisk: route.risk || account.copyRisk || {} };
+        for (const signal of groupSignals) {
+          const allowed = riskAllowsSignal(signal, accountWithRisk);
+          if (!allowed.ok) continue;
+          const risk = normalizeCopyRisk(accountWithRisk.copyRisk || {});
+          const lots = roundLot(calculateCopyLots({ signal, account: accountWithRisk, riskMode: 'website_auto', risk }));
+          const side = risk.reverseCopy ? (signal.side === 'BUY' ? 'sell' : 'buy') : signal.side.toLowerCase();
+          const leaderSymbol = String(signal.symbol || '').toUpperCase();
+          const followerSymbol = String(risk.symbolMapping?.[leaderSymbol] || leaderSymbol).toUpperCase();
+          const payload = {
+            accountId: account.accountId, accountNumber: account.accountNumber, pairingCode: account.pairingCode,
+            signalId: signal.signalId, routeId: route.routeId, source: 'website_auto_copy_route',
+            leaderUserId: signal.leaderUserId, leaderAccountId: signal.leaderAccountId, leaderAccountNumber: signal.leaderAccountNumber,
+            sourceTicket: signal.sourceTicket, leaderTicket: signal.sourceTicket, masterTicket: signal.sourceTicket,
+            leaderSymbol, masterSymbol: leaderSymbol, followerSymbol, symbol: followerSymbol, side, direction: side,
+            lots, lot: lots, volume: lots, stopLoss: risk.copySLTP ? signal.stopLoss : 0,
+            takeProfit: risk.copySLTP ? signal.takeProfit : 0, sl: risk.copySLTP ? signal.stopLoss : 0,
+            tp: risk.copySLTP ? signal.takeProfit : 0, maxOpenTrades: risk.maxOpenTrades, maxLot: risk.maxLot,
+            riskMode: 'website_auto', copyRisk: risk,
+          };
+          commandInputs.push({ userId: route.ownerUserId, accountId: account.accountId, command: 'COPY_OPEN_TRADE', payload });
+          commandMeta.push({ signal, route, account, leaderSymbol, followerSymbol, lots });
+        }
+      }
+    }
+    if (!commandInputs.length) return [];
+
+    const commands = this.mt4CommandService.queueCommandsForAccountsBatch
+      ? await this.mt4CommandService.queueCommandsForAccountsBatch(commandInputs)
+      : await Promise.all(commandInputs.map((input) => this.mt4CommandService.queueCommandForAccount(input.userId, input.accountId, input.command, input.payload)));
+    const queued = commands.map((command, index) => {
+      const meta = commandMeta[index];
+      return {
+        signalId: meta.signal.signalId, routeId: meta.route.routeId, ownerUserId: meta.route.ownerUserId,
+        accountId: meta.account.accountId, commandId: command.id, sourceTicket: meta.signal.sourceTicket,
+        leaderAccountId: meta.signal.leaderAccountId, leaderSymbol: meta.leaderSymbol,
+        followerSymbol: meta.followerSymbol, lots: meta.lots,
+      };
+    });
+
+    const data = await this.load();
+    const queuedAt = new Date().toISOString();
+    for (const item of queued) {
+      const saved = data.signalsById?.[item.signalId];
+      if (!saved) continue;
+      saved.autoTakes ||= [];
+      if (!saved.autoTakes.some((row) => row.routeId === item.routeId && row.accountId === item.accountId && String(row.sourceTicket) === String(item.sourceTicket))) {
+        saved.autoTakes.push({ ...item, queuedAt });
+      }
+    }
+    await this.save(data);
+    return queued;
+  }
+
   async queueAutoCopyRoutes(signal) {
     if (!this.repository.getActiveCopyRoutesForLeader || !this.mt4CommandService?.queueCommandForAccount) return [];
     const routes = await this.repository.getActiveCopyRoutesForLeader(signal.leaderAccountId);
@@ -498,6 +700,88 @@ export class TradeSignalService {
         saved.autoTakes.push(...queued.map((item) => ({ ...item, queuedAt: new Date().toISOString() })));
         await this.save(data);
         await this.updateSignalMessage(signal.signalId).catch(() => null);
+      }
+    }
+    return queued;
+  }
+
+  async queueAutoCopyCloseRoutesBatch(events = []) {
+    const rows = events.filter((event) => event?.sourceTicket);
+    if (!rows.length) return [];
+    const data = await this.load();
+    const commandInputs = [];
+    const commandMeta = [];
+    const copyMasterInputs = [];
+    const commandState = this.mt4CommandService?.load ? await this.mt4CommandService.load().catch(() => null) : null;
+
+    for (const event of rows) {
+      const signal = data.signalsById?.[event.signalId] || null;
+      const stableSourceTicket = String(event.sourceTicket || signal?.sourceTicket || '');
+      const stableLeaderAccountId = String(event.leaderAccountId || signal?.leaderAccountId || '');
+      let takes = Array.isArray(signal?.autoTakes) ? signal.autoTakes : [];
+      if (!takes.length && stableLeaderAccountId && this.repository.getActiveCopyRoutesForLeader) {
+        const routes = await this.repository.getActiveCopyRoutesForLeader(stableLeaderAccountId);
+        takes = routes.map((route) => ({ routeId: route.routeId, ownerUserId: route.ownerUserId, accountId: route.followerAccountId, sourceTicket: stableSourceTicket }));
+      }
+      const alreadyQueued = new Set((signal?.autoCloses || []).map((item) => `${item.routeId}:${item.accountId}:${item.sourceTicket}`));
+      for (const take of takes) {
+        const routeKey = `${take.routeId}:${take.accountId}:${stableSourceTicket}`;
+        if (alreadyQueued.has(routeKey)) continue;
+        let openCommand = null;
+        if (take.commandId && commandState && this.mt4CommandService.findCommand) {
+          openCommand = this.mt4CommandService.findCommand(commandState, take.ownerUserId, take.commandId, take.accountId);
+        } else if (take.commandId && this.mt4CommandService.getCommandStatus) {
+          openCommand = await this.mt4CommandService.getCommandStatus(take.ownerUserId, take.commandId, take.accountId).catch(() => null);
+        }
+        const followerTicket = String(openCommand?.result?.ticket ?? openCommand?.result?.followerTicket ?? openCommand?.payload?.followerTicket ?? take.followerTicket ?? '');
+        const followerSymbol = String(openCommand?.payload?.followerSymbol || openCommand?.payload?.symbol || take.followerSymbol || event.symbol || signal?.symbol || '').toUpperCase();
+        const ownerUserId = String(take.ownerUserId || openCommand?.userId || '');
+        if (!ownerUserId || !take.accountId) continue;
+        const payload = {
+          accountId: take.accountId, signalId: event.signalId || signal?.signalId || '', routeId: take.routeId,
+          source: 'website_auto_copy_route_close', sourceTicket: stableSourceTicket, leaderTicket: stableSourceTicket,
+          masterTicket: stableSourceTicket, followerTicket: followerTicket || undefined, leaderAccountId: stableLeaderAccountId,
+          followerAccountId: take.accountId, leaderSymbol: String(signal?.symbol || event.symbol || '').toUpperCase(),
+          masterSymbol: String(signal?.symbol || event.symbol || '').toUpperCase(), followerSymbol, symbol: followerSymbol,
+          side: event.side || signal?.side || '', confirmation: 'confirmed', closeAuthority: true,
+          commandId: `copy-close-${take.routeId}-${stableSourceTicket}`, immediate: true, priority: 10000, ttlMinutes: 2,
+        };
+        commandInputs.push({ userId: ownerUserId, accountId: take.accountId, command: 'COPY_CLOSE_TRADE', payload });
+        commandMeta.push({ signalId: event.signalId, routeId: take.routeId, ownerUserId, accountId: take.accountId, sourceTicket: stableSourceTicket, followerTicket: followerTicket || null, followerSymbol });
+      }
+      if (this.copyTradingService) copyMasterInputs.push(event);
+    }
+
+    const commands = commandInputs.length
+      ? (this.mt4CommandService.queueCommandsForAccountsBatch
+        ? await this.mt4CommandService.queueCommandsForAccountsBatch(commandInputs)
+        : await Promise.all(commandInputs.map((input) => this.mt4CommandService.queueCommandForAccount(input.userId, input.accountId, input.command, input.payload))))
+      : [];
+    const queued = commands.map((command, index) => ({ ...commandMeta[index], commandId: command.id }));
+    const queuedAt = new Date().toISOString();
+    for (const item of queued) {
+      const saved = data.signalsById?.[item.signalId];
+      if (!saved) continue;
+      saved.autoCloses ||= [];
+      saved.autoCloses.push({ ...item, queuedAt });
+      saved.status = 'closing';
+      saved.updatedAt = queuedAt;
+    }
+    if (queued.length) await this.save(data);
+
+    if (copyMasterInputs.length && this.copyTradingService?.queueMasterSignalsBatch) {
+      await this.copyTradingService.queueMasterSignalsBatch(copyMasterInputs.map((event) => ({
+        masterUserId: event.leaderUserId, masterAccountNumber: event.leaderAccountNumber,
+        sourceTicket: event.sourceTicket, symbol: event.symbol, side: event.side,
+        lots: 0.01, action: 'close', signalId: event.signalId,
+      })));
+    } else {
+      for (const event of copyMasterInputs) {
+        await this.copyTradingService.queueMasterSignal({
+          masterUserId: event.leaderUserId, masterAccountNumber: event.leaderAccountNumber,
+          sourceTicket: event.sourceTicket, symbol: event.symbol, side: event.side,
+          lots: 0.01, action: 'close', signalId: event.signalId,
+        }).catch((error) => this.logger?.warn?.('Legacy copy close batch failed.', { signalId: event.signalId, message: error.message }));
       }
     }
     return queued;

@@ -352,6 +352,10 @@ export class OperatorDeskRepository {
     return normalizeMt4State(next);
   }
 
+  async flushMt4State() {
+    return this.mt4Store?.adapter?.flushBufferedWrites?.() || null;
+  }
+
   async getPairingCode(pairingCode) {
     const state = await this.getMt4State();
     return state.pairingCodes[pairingCode] || null;

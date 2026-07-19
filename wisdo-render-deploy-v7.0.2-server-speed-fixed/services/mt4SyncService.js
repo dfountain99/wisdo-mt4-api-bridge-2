@@ -196,6 +196,9 @@ export class Mt4SyncService {
     this.productEventSink = null;
     this.routePreparationByAccount = new Map();
     this.lastHistoryAtByAccount = new Map();
+    this.pairingRecordCache = new Map();
+    this.pairingRecoveryByCode = new Map();
+    this.pairingCacheTtlMs = Math.max(30_000, Number(process.env.WISDO_PAIRING_CACHE_TTL_MS || 300_000));
   }
 
   attachWisdoMemoryService(service) {
@@ -232,18 +235,41 @@ export class Mt4SyncService {
 
   getPairingSecret() {
     return String(
+      process.env.MT4_PAIRING_SIGNING_SECRET ||
       this.config?.api?.mt4SyncApiKey ||
       this.config?.discordToken ||
       this.config?.clientId ||
-      process.env.MT4_PAIRING_SIGNING_SECRET ||
       process.env.DISCORD_TOKEN ||
       'culturecoin-local-dev'
     );
   }
 
-  signPairingPayload(discordUserId, nonce) {
+  getAcceptedApiKeys() {
+    const values = [
+      this.config?.api?.mt4SyncApiKey,
+      process.env.MT4_SYNC_API_KEYS,
+      process.env.MT4_SYNC_PREVIOUS_API_KEYS,
+    ];
+    return [...new Set(values
+      .flatMap((value) => String(value || '').split(/[\n,;]/g))
+      .map((value) => value.trim())
+      .filter(Boolean))];
+  }
+
+  getPairingSecrets() {
+    return [...new Set([
+      process.env.MT4_PAIRING_SIGNING_SECRET,
+      ...this.getAcceptedApiKeys(),
+      this.config?.discordToken,
+      process.env.DISCORD_TOKEN,
+      this.config?.clientId,
+      'culturecoin-local-dev',
+    ].map((value) => String(value || '').trim()).filter(Boolean))];
+  }
+
+  signPairingPayload(discordUserId, nonce, secret = this.getPairingSecret()) {
     const payload = `${String(discordUserId || '').trim()}:${String(nonce || '').trim()}`;
-    return createHmac('sha256', this.getPairingSecret()).update(payload).digest('hex').slice(0, 8).toUpperCase();
+    return createHmac('sha256', secret).update(payload).digest('hex').slice(0, 8).toUpperCase();
   }
 
   buildSignedPairingCode(discordUserId) {
@@ -259,17 +285,32 @@ export class Mt4SyncService {
     const match = String(pairingCode || '').trim().match(/^CEM-U(\d{5,25})-(\d{6})-([A-F0-9]{8})$/i);
     if (!match) return null;
     const [, discordUserId, nonce, signature] = match;
-    const expected = this.signPairingPayload(discordUserId, nonce);
-    if (String(signature).toUpperCase() !== expected) return null;
-    return { discordUserId, nonce, signature: expected };
+    const normalizedSignature = String(signature).toUpperCase();
+    const matchedSecret = this.getPairingSecrets().find((secret) => this.signPairingPayload(discordUserId, nonce, secret) === normalizedSignature);
+    if (!matchedSecret) return null;
+    return { discordUserId, nonce, signature: normalizedSignature };
   }
 
-  async getOrRecoverPairingCode(pairingCode, defaults = {}) {
+  getCachedPairingRecord(pairingCode) {
     const code = String(pairingCode || '').trim();
-    if (!code) return null;
+    const cached = this.pairingRecordCache.get(code);
+    if (!cached) return null;
+    if (Date.now() - cached.cachedAt > this.pairingCacheTtlMs) {
+      this.pairingRecordCache.delete(code);
+      return null;
+    }
+    return structuredClone(cached.record);
+  }
 
+  cachePairingRecord(record) {
+    if (!record?.pairingCode) return record || null;
+    this.pairingRecordCache.set(String(record.pairingCode), { cachedAt: Date.now(), record: structuredClone(record) });
+    return record;
+  }
+
+  async recoverSignedPairingCode(code, defaults = {}) {
     const existing = await this.repository.getPairingCode(code);
-    if (existing) return existing;
+    if (existing) return this.cachePairingRecord(existing);
 
     const signed = this.parseSignedPairingCode(code);
     if (!signed) return null;
@@ -293,18 +334,40 @@ export class Mt4SyncService {
       recoveredAt,
     };
 
+    // Cache first so concurrent Reporter sync/poll requests share one identity while
+    // the buffered PostgreSQL write completes.
+    this.cachePairingRecord(recoveredRecord);
     await this.repository.updateMt4State((state) => {
       state.pairingCodes ||= {};
-      state.pairingCodes[code] = recoveredRecord;
+      state.pairingCodes[code] ||= recoveredRecord;
       return state;
+    });
+    this.repository.flushMt4State?.().catch((error) => {
+      logger.warn('Recovered pairing code is live in memory but durable flush is delayed.', {
+        pairingCode: maskValue(code),
+        message: error.message,
+      });
     });
 
     logger.warn('Recovered signed MT4 pairing code after server restart.', {
       pairingCode: maskValue(code),
       discordUserId: signed.discordUserId,
     });
-
     return recoveredRecord;
+  }
+
+  async getOrRecoverPairingCode(pairingCode, defaults = {}) {
+    const code = String(pairingCode || '').trim();
+    if (!code) return null;
+    const cached = this.getCachedPairingRecord(code);
+    if (cached) return cached;
+    if (this.pairingRecoveryByCode.has(code)) return structuredClone(await this.pairingRecoveryByCode.get(code));
+
+    const recovery = this.recoverSignedPairingCode(code, defaults)
+      .finally(() => this.pairingRecoveryByCode.delete(code));
+    this.pairingRecoveryByCode.set(code, recovery);
+    const record = await recovery;
+    return record ? structuredClone(record) : null;
   }
 
   generatePairingCode(discordUserId = '') {
@@ -338,7 +401,9 @@ export class Mt4SyncService {
       return state;
     });
 
-    return this.repository.getPairingCode(pairingCode);
+    const expired = await this.repository.getPairingCode(pairingCode);
+    if (expired) this.cachePairingRecord(expired);
+    return expired;
   }
 
   async issuePairingCode({ discordUserId, channelId, requestedByUserId, accountNickname = '', accountRole = 'private', copyPermission = 'private', forceNew = true } = {}) {
@@ -385,6 +450,7 @@ export class Mt4SyncService {
       return state;
     });
 
+    this.cachePairingRecord(record);
     return record;
   }
 
@@ -514,39 +580,57 @@ export class Mt4SyncService {
     const previousSet = new Set(previousKeys);
     const nowSet = new Set(nowOpenKeys);
 
-    // Do network/command work outside a PostgreSQL advisory-lock transaction.
-    // v6.0.6 awaited signal creation while holding the live-state lock, which
-    // blocked every Reporter and every dashboard reader behind one heartbeat.
+    // Persist all newly detected trades in one operation. Copier execution and Discord
+    // presentation are queued behind a bounded worker so 100+ trades cannot hold the
+    // Reporter HTTP request at Render's 30-second boundary.
+    const newSignalInputs = [];
     for (let i = 0; i < openTrades.length; i += 1) {
       const trade = openTrades[i];
       const key = nowOpenKeys[i];
       if (!key || previousSet.has(key)) continue;
+      newSignalInputs.push({
+        key,
+        leaderUserId: connectionRecord.discordUserId,
+        leaderAccountId: accountId,
+        leaderAccountNumber: connectionRecord.accountNumber,
+        leaderServer: connectionRecord.brokerServer,
+        leaderChannelId: connectionRecord.channelId,
+        eaName: connectionRecord.eaName || snapshot.eaName,
+        eaVersion: connectionRecord.eaVersion || snapshot.eaVersion,
+        trade,
+        snapshot,
+      });
+    }
 
+    if (newSignalInputs.length && this.tradeSignalService.createSignalsBatch) {
       try {
-        const signal = await this.tradeSignalService.createSignal({
-          leaderUserId: connectionRecord.discordUserId,
-          leaderAccountId: accountId,
-          leaderAccountNumber: connectionRecord.accountNumber,
-          leaderServer: connectionRecord.brokerServer,
-          leaderChannelId: connectionRecord.channelId,
-          eaName: connectionRecord.eaName || snapshot.eaName,
-          eaVersion: connectionRecord.eaVersion || snapshot.eaVersion,
-          trade,
-          snapshot,
-        });
-        if (signal?.signalId) {
-          tracking.tradeKeyToSignalId[key] = signal.signalId;
-          opened += 1;
+        const signals = await this.tradeSignalService.createSignalsBatch(newSignalInputs);
+        for (let index = 0; index < signals.length; index += 1) {
+          const signal = signals[index];
+          const key = newSignalInputs[index]?.key;
+          if (signal?.signalId && key) {
+            tracking.tradeKeyToSignalId[key] = signal.signalId;
+            opened += 1;
+          }
         }
       } catch (error) {
-        logger.warn('Trade signal creation failed during MT4 sync.', {
-          accountId,
-          ticket: trade?.ticket,
-          message: error.message,
-        });
+        logger.warn('Trade signal batch creation failed during MT4 sync.', { accountId, count: newSignalInputs.length, message: error.message });
+      }
+    } else {
+      for (const input of newSignalInputs) {
+        try {
+          const signal = await this.tradeSignalService.createSignal(input);
+          if (signal?.signalId) {
+            tracking.tradeKeyToSignalId[input.key] = signal.signalId;
+            opened += 1;
+          }
+        } catch (error) {
+          logger.warn('Trade signal creation failed during MT4 sync.', { accountId, ticket: input.trade?.ticket, message: error.message });
+        }
       }
     }
 
+    const closeEvents = [];
     for (const oldKey of previousKeys) {
       if (nowSet.has(oldKey)) continue;
       closed += 1;
@@ -554,44 +638,35 @@ export class Mt4SyncService {
       const [, sourceTicket = ''] = String(oldKey).split('|');
       const closedSymbol = String(oldKey).split('|')[3] || '';
       const closedSide = String(oldKey).split('|')[4] || '';
-      if (this.tradeSignalService?.queueAutoCopyCloseRoutes && sourceTicket) {
-        try {
-          await this.tradeSignalService.queueAutoCopyCloseRoutes({
-            signalId,
-            leaderAccountId: accountId,
-            sourceTicket,
-            symbol: closedSymbol,
-            side: closedSide,
-          });
-        } catch (error) {
-          logger.warn('Culture Lane close command creation failed during MT4 sync.', {
-            accountId,
-            sourceTicket,
-            message: error.message,
-          });
-        }
-      }
-      if (this.copyTradingService && sourceTicket) {
-        try {
-          await this.copyTradingService.queueMasterSignal({
-            masterUserId: connectionRecord.discordUserId,
-            masterAccountNumber: connectionRecord.accountNumber,
-            sourceTicket,
-            symbol: closedSymbol,
-            side: closedSide,
-            lots: 0.01,
-            action: 'close',
-            signalId,
-          });
-        } catch (error) {
-          logger.warn('Copy close command creation failed during MT4 sync.', {
-            accountId,
-            sourceTicket,
-            message: error.message,
-          });
-        }
-      }
+      closeEvents.push({
+        signalId,
+        leaderAccountId: accountId,
+        leaderUserId: connectionRecord.discordUserId,
+        leaderAccountNumber: connectionRecord.accountNumber,
+        sourceTicket,
+        symbol: closedSymbol,
+        side: closedSide,
+      });
       delete tracking.tradeKeyToSignalId[oldKey];
+    }
+
+    if (closeEvents.length && this.tradeSignalService.queueSignalClosuresBatch) {
+      this.tradeSignalService.queueSignalClosuresBatch(closeEvents);
+    } else {
+      for (const event of closeEvents) {
+        if (this.tradeSignalService?.queueAutoCopyCloseRoutes && event.sourceTicket) {
+          try { await this.tradeSignalService.queueAutoCopyCloseRoutes(event); }
+          catch (error) { logger.warn('Culture Lane close command creation failed during MT4 sync.', { accountId, sourceTicket: event.sourceTicket, message: error.message }); }
+        }
+        if (this.copyTradingService && event.sourceTicket) {
+          try {
+            await this.copyTradingService.queueMasterSignal({
+              masterUserId: event.leaderUserId, masterAccountNumber: event.leaderAccountNumber, sourceTicket: event.sourceTicket,
+              symbol: event.symbol, side: event.side, lots: 0.01, action: 'close', signalId: event.signalId,
+            });
+          } catch (error) { logger.warn('Copy close command creation failed during MT4 sync.', { accountId, sourceTicket: event.sourceTicket, message: error.message }); }
+        }
+      }
     }
 
     const activeSignalMap = {};
@@ -687,15 +762,34 @@ export class Mt4SyncService {
   }
 
   validateApiKey(headers) {
-    if (!this.config.api.mt4SyncApiKey) {
-      return;
+    const acceptedKeys = this.getAcceptedApiKeys();
+    if (!acceptedKeys.length) return { ok: true, mode: 'disabled' };
+
+    const headerValue = String(normalizeHeaderValue(headers, 'x-culturecoin-apikey') || '').trim();
+    if (headerValue && acceptedKeys.includes(headerValue)) return { ok: true, mode: 'api-key' };
+    throw new Mt4SyncError(401, 'Invalid API key');
+  }
+
+  async validateReporterAuth(headers, { pairingCode = '' } = {}) {
+    try {
+      return this.validateApiKey(headers);
+    } catch (error) {
+      if (!(error instanceof Mt4SyncError) || error.statusCode !== 401) throw error;
     }
 
-    const headerValue = normalizeHeaderValue(headers, 'x-culturecoin-apikey');
+    const allowPairingAuth = String(process.env.MT4_ALLOW_PAIRING_CODE_AUTH || 'true').toLowerCase() !== 'false';
+    if (!allowPairingAuth || !pairingCode) throw new Mt4SyncError(401, 'Invalid Reporter credentials');
 
-    if (String(headerValue || '').trim() !== this.config.api.mt4SyncApiKey) {
-      throw new Mt4SyncError(401, 'Invalid API key');
+    const signed = this.parseSignedPairingCode(pairingCode);
+    if (signed) return { ok: true, mode: 'signed-pairing' };
+
+    const known = this.getCachedPairingRecord(pairingCode) || await this.repository.getPairingCode(pairingCode);
+    if (known && known.status !== 'expired' && !this.isPairingExpired(known)) {
+      this.cachePairingRecord(known);
+      return { ok: true, mode: 'known-pairing' };
     }
+
+    throw new Mt4SyncError(401, 'Invalid Reporter credentials');
   }
 
   checkRateLimit(key) {
@@ -778,9 +872,8 @@ export class Mt4SyncService {
   }
 
   async receiveSnapshot(payload, headers = {}) {
-    this.validateApiKey(headers);
-
     const snapshot = this.normalizeSnapshotPayload(payload);
+    const auth = await this.validateReporterAuth(headers, { pairingCode: snapshot.pairingCode });
     const pairingRecord = await this.getOrRecoverPairingCode(snapshot.pairingCode);
 
     if (!pairingRecord) {
@@ -937,6 +1030,13 @@ export class Mt4SyncService {
       return state;
     });
     if (shouldAppendHistory) this.lastHistoryAtByAccount.set(accountId, Date.now());
+    this.cachePairingRecord({
+      ...pairingRecord,
+      status: 'connected',
+      connectedAt: pairingRecord.connectedAt || receivedAt,
+      accountNumber: String(snapshot.accountNumber),
+      accountId,
+    });
 
     // Route reconciliation and AI/product ledgers are important but must never hold the
     // MT4 HTTP response open. They run immediately after the authoritative heartbeat.
@@ -999,6 +1099,7 @@ export class Mt4SyncService {
       copySignalsClosed: signalSummary.closed,
       signalSkipped: signalSummary.skipped,
       signalSkipReason: signalSummary.reason,
+      authMode: auth?.mode || 'unknown',
     };
   }
 

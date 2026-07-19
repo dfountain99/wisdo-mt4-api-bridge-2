@@ -10,6 +10,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: 22.22.0
       - key: DISCORD_TOKEN
         sync: false
       - key: CLIENT_ID
@@ -30,6 +32,28 @@ services:
         value: "false"
       - key: MT4_SYNC_API_KEY
         sync: false
+      - key: MT4_SYNC_PREVIOUS_API_KEYS
+        sync: false
+      - key: MT4_PAIRING_SIGNING_SECRET
+        generateValue: true
+      - key: MT4_ALLOW_PAIRING_CODE_AUTH
+        value: "true"
+      - key: WISDO_PAIRING_CACHE_TTL_MS
+        value: "300000"
+      - key: WISDO_SIGNAL_BACKGROUND_CONCURRENCY
+        value: "4"
+      - key: WISDO_SIGNAL_TASK_TIMEOUT_MS
+        value: "15000"
+      - key: WISDO_SIGNAL_BACKGROUND_MAX_QUEUE
+        value: "500"
+      - key: WISDO_MT4_COMMAND_HISTORY_LIMIT
+        value: "2500"
+      - key: WISDO_JSON_BODY_LIMIT
+        value: 4mb
+      - key: WISDO_COMPRESSION_THRESHOLD_BYTES
+        value: "1024"
+      - key: WISDO_SLOW_REQUEST_MS
+        value: "2500"
       - key: SESSION_SECRET
         generateValue: true
       - key: ENCRYPTION_KEY

@@ -172,94 +172,104 @@ export class SignalGridService {
     return cells.filter((cell) => !['inactive', 'expired', 'offline'].includes(cell.status));
   }
 
-  async updateSignalCell(payload = {}) {
-    let saved;
+  applySignalCellUpdate(state, payload = {}) {
+    state.signalGridCellsById ||= {};
+    state.signalSourcesById ||= {};
+    state.signalBasketsById ||= {};
+    const symbol = cleanSymbol(payload.symbol || payload.pair);
+    const botId = String(payload.botId || payload.botName || payload.eaName || 'wisdo-bot').trim();
+    const sourceId = String(payload.sourceId || `source_${botId}`).replace(/\s+/g, '_').toLowerCase();
+    const cellId = String(payload.id || payload.signalId || `${sourceId}_${botId}_${symbol}`).replace(/[^a-zA-Z0-9_:-]/g, '_');
+    const now = nowIso();
+
+    state.signalSourcesById[sourceId] ||= {
+      id: sourceId,
+      sourceId,
+      botId,
+      providerId: String(payload.providerId || payload.leaderUserId || ''),
+      name: String(payload.sourceName || payload.eaName || payload.botName || botId),
+      type: String(payload.sourceType || 'bot'),
+      status: 'active',
+      metadataJson: payload.sourceMetadata || {},
+      createdAt: now,
+      updatedAt: now,
+    };
+    state.signalSourcesById[sourceId].updatedAt = now;
+
+    const basketId = String(payload.basketId || `basket_${sourceId}_${botId}_${symbol}`).replace(/[^a-zA-Z0-9_:-]/g, '_');
+    const basket = {
+      ...(state.signalBasketsById[basketId] || {}),
+      id: basketId,
+      basketId,
+      sourceId,
+      botId,
+      symbol,
+      direction: String(payload.direction || payload.side || 'mixed').toLowerCase(),
+      status: payload.basketStatus || payload.status || 'active',
+      startBalance: num(payload.startBalance ?? payload.balance),
+      startEquity: num(payload.startEquity ?? payload.equity),
+      currentFloatingPnl: num(payload.currentFloatingPnl ?? payload.floatingPnl ?? payload.pnl),
+      openTradesJson: payload.openTrades || payload.trades || [],
+      closedTradesJson: payload.closedTrades || [],
+      riskJson: payload.risk || payload.riskJson || {},
+      createdAt: state.signalBasketsById[basketId]?.createdAt || now,
+      updatedAt: now,
+      closedAt: payload.closedAt || null,
+    };
+    basket.growthPercent = payload.basketGrowthPercent !== undefined
+      ? round(payload.basketGrowthPercent, 2)
+      : this.calculateBasketGrowth(basket, this.settings(state).percentMode);
+    state.signalBasketsById[basketId] = basket;
+
+    const next = {
+      ...(state.signalGridCellsById[cellId] || {}),
+      id: cellId,
+      signalId: cellId,
+      sourceId,
+      botId,
+      botName: String(payload.botName || payload.eaName || botId),
+      providerId: String(payload.providerId || payload.leaderUserId || ''),
+      symbol,
+      direction: String(payload.direction || payload.side || basket.direction || 'mixed').toLowerCase(),
+      status: String(payload.status || 'active'),
+      basketId,
+      basketGrowthPercent: basket.growthPercent,
+      floatingPnl: basket.currentFloatingPnl,
+      openTradeCount: num(payload.openTradeCount ?? payload.openTrades?.length ?? payload.tradeCount, 0),
+      averageEntry: payload.averageEntry ?? payload.openPrice ?? null,
+      session: String(payload.session || payload.marketSession || ''),
+      volatilityState: String(payload.volatilityState || payload.volatility || 'normal'),
+      riskMode: String(payload.riskMode || payload.copyRiskMode || 'risk_based'),
+      copyRequirement: String(payload.copyRequirement || this.settings(state).premiumAccessRequirement),
+      educationRequired: Boolean(payload.educationRequired),
+      provider: String(payload.provider || payload.source || 'MT4 Reporter'),
+      expiresAt: payload.expiresAt || new Date(Date.now() + this.settings(state).expirationMinutes * 60 * 1000).toISOString(),
+      lastUpdateAt: payload.lastUpdateAt || now,
+      metadataJson: payload.metadataJson || payload.metadata || {},
+      createdAt: state.signalGridCellsById[cellId]?.createdAt || now,
+      updatedAt: now,
+    };
+    next.status = this.getCellStatus(next);
+    next.tone = this.statusTone(next.status);
+    next.emoji = this.statusEmoji(next.status);
+    state.signalGridCellsById[cellId] = next;
+    this.audit(state, payload.actorUserId || 'system', 'signal_grid.cell_updated', 'SignalGridCell', cellId, { botId, symbol, status: next.status });
+    return next;
+  }
+
+  async updateSignalCellsBatch(payloads = []) {
+    const rows = Array.isArray(payloads) ? payloads.filter(Boolean) : [];
+    if (!rows.length) return [];
+    const saved = [];
     await this.repository.updateState((state) => {
-      state.signalGridCellsById ||= {};
-      state.signalSourcesById ||= {};
-      state.signalBasketsById ||= {};
-      const symbol = cleanSymbol(payload.symbol || payload.pair);
-      const botId = String(payload.botId || payload.botName || payload.eaName || 'wisdo-bot').trim();
-      const sourceId = String(payload.sourceId || `source_${botId}`).replace(/\s+/g, '_').toLowerCase();
-      const cellId = String(payload.id || payload.signalId || `${sourceId}_${botId}_${symbol}`).replace(/[^a-zA-Z0-9_:-]/g, '_');
-      const now = nowIso();
-
-      state.signalSourcesById[sourceId] ||= {
-        id: sourceId,
-        sourceId,
-        botId,
-        providerId: String(payload.providerId || payload.leaderUserId || ''),
-        name: String(payload.sourceName || payload.eaName || payload.botName || botId),
-        type: String(payload.sourceType || 'bot'),
-        status: 'active',
-        metadataJson: payload.sourceMetadata || {},
-        createdAt: now,
-        updatedAt: now,
-      };
-      state.signalSourcesById[sourceId].updatedAt = now;
-
-      const basketId = String(payload.basketId || `basket_${sourceId}_${botId}_${symbol}`).replace(/[^a-zA-Z0-9_:-]/g, '_');
-      const basket = {
-        ...(state.signalBasketsById[basketId] || {}),
-        id: basketId,
-        basketId,
-        sourceId,
-        botId,
-        symbol,
-        direction: String(payload.direction || payload.side || 'mixed').toLowerCase(),
-        status: payload.basketStatus || payload.status || 'active',
-        startBalance: num(payload.startBalance ?? payload.balance),
-        startEquity: num(payload.startEquity ?? payload.equity),
-        currentFloatingPnl: num(payload.currentFloatingPnl ?? payload.floatingPnl ?? payload.pnl),
-        openTradesJson: payload.openTrades || payload.trades || [],
-        closedTradesJson: payload.closedTrades || [],
-        riskJson: payload.risk || payload.riskJson || {},
-        createdAt: state.signalBasketsById[basketId]?.createdAt || now,
-        updatedAt: now,
-        closedAt: payload.closedAt || null,
-      };
-      basket.growthPercent = payload.basketGrowthPercent !== undefined
-        ? round(payload.basketGrowthPercent, 2)
-        : this.calculateBasketGrowth(basket, this.settings(state).percentMode);
-      state.signalBasketsById[basketId] = basket;
-
-      const next = {
-        ...(state.signalGridCellsById[cellId] || {}),
-        id: cellId,
-        signalId: cellId,
-        sourceId,
-        botId,
-        botName: String(payload.botName || payload.eaName || botId),
-        providerId: String(payload.providerId || payload.leaderUserId || ''),
-        symbol,
-        direction: String(payload.direction || payload.side || basket.direction || 'mixed').toLowerCase(),
-        status: String(payload.status || 'active'),
-        basketId,
-        basketGrowthPercent: basket.growthPercent,
-        floatingPnl: basket.currentFloatingPnl,
-        openTradeCount: num(payload.openTradeCount ?? payload.openTrades?.length ?? payload.tradeCount, 0),
-        averageEntry: payload.averageEntry ?? payload.openPrice ?? null,
-        session: String(payload.session || payload.marketSession || ''),
-        volatilityState: String(payload.volatilityState || payload.volatility || 'normal'),
-        riskMode: String(payload.riskMode || payload.copyRiskMode || 'risk_based'),
-        copyRequirement: String(payload.copyRequirement || this.settings(state).premiumAccessRequirement),
-        educationRequired: Boolean(payload.educationRequired),
-        provider: String(payload.provider || payload.source || 'MT4 Reporter'),
-        expiresAt: payload.expiresAt || new Date(Date.now() + this.settings(state).expirationMinutes * 60 * 1000).toISOString(),
-        lastUpdateAt: payload.lastUpdateAt || now,
-        metadataJson: payload.metadataJson || payload.metadata || {},
-        createdAt: state.signalGridCellsById[cellId]?.createdAt || now,
-        updatedAt: now,
-      };
-      next.status = this.getCellStatus(next);
-      next.tone = this.statusTone(next.status);
-      next.emoji = this.statusEmoji(next.status);
-      state.signalGridCellsById[cellId] = next;
-      this.audit(state, payload.actorUserId || 'system', 'signal_grid.cell_updated', 'SignalGridCell', cellId, { botId, symbol, status: next.status });
-      saved = next;
+      for (const payload of rows) saved.push(this.applySignalCellUpdate(state, payload));
       return state;
     });
     return saved;
+  }
+
+  async updateSignalCell(payload = {}) {
+    return (await this.updateSignalCellsBatch([payload]))[0] || null;
   }
 
   async updateBasketState(payload = {}) {

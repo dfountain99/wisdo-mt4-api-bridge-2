@@ -69,19 +69,67 @@ export class Mt4CommandService {
       fileName: 'mt4-commands.json',
       defaultState: () => ({}),
     });
+    this.commandHistoryLimit = Math.max(100, Math.min(20000, Number(process.env.WISDO_MT4_COMMAND_HISTORY_LIMIT || 2500)));
+  }
+
+  effectiveStatus(record) {
+    if (['pending', 'delivered'].includes(String(record?.status || '')) && isExpired(record)) return 'expired';
+    return String(record?.status || 'pending');
+  }
+
+  pruneCommandState(data) {
+    const unique = new Map();
+    for (const store of this.commandStores(data)) {
+      for (const command of store || []) {
+        if (!command?.id) continue;
+        const previous = unique.get(command.id);
+        const currentTime = new Date(command.completedAt || command.failedAt || command.deliveredAt || command.createdAt || 0).getTime();
+        const previousTime = previous ? new Date(previous.completedAt || previous.failedAt || previous.deliveredAt || previous.createdAt || 0).getTime() : -1;
+        if (!previous || currentTime >= previousTime) unique.set(command.id, command);
+      }
+    }
+
+    const active = [];
+    const history = [];
+    for (const command of unique.values()) {
+      const status = this.effectiveStatus(command);
+      if (status === 'expired' && command.status !== 'expired') {
+        command.status = 'expired';
+        command.expiredAt ||= nowIso();
+      }
+      if (['pending', 'delivered'].includes(status)) active.push(command);
+      else history.push(command);
+    }
+    active.sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0) || new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+    history.sort((a, b) => new Date(b.completedAt || b.failedAt || b.expiredAt || b.createdAt || 0) - new Date(a.completedAt || a.failedAt || a.expiredAt || a.createdAt || 0));
+    const retained = [...active, ...history.slice(0, this.commandHistoryLimit)];
+
+    data.commandQueue = retained;
+    data.commandsByUserId = {};
+    data.commandsByAccountId = {};
+    for (const record of retained) {
+      data.commandsByUserId[record.userId] ||= [];
+      data.commandsByUserId[record.userId].push(record);
+      if (record.accountId) {
+        data.commandsByAccountId[record.accountId] ||= [];
+        data.commandsByAccountId[record.accountId].push(record);
+      }
+    }
+    data.commandAuditLog = (data.commandAuditLog || []).slice(0, 1000);
+    return data;
   }
 
   async mutate(mutator) {
     let result;
     await this.persistence.atomicUpdate(async (raw) => {
-      const data = {
+      const data = this.pruneCommandState({
         commandsByUserId: raw?.commandsByUserId || {},
         commandsByAccountId: raw?.commandsByAccountId || {},
         commandQueue: Array.isArray(raw?.commandQueue) ? raw.commandQueue : [],
         commandAuditLog: Array.isArray(raw?.commandAuditLog) ? raw.commandAuditLog : [],
-      };
+      });
       result = await mutator(data);
-      return data;
+      return this.pruneCommandState(data);
     });
     return result;
   }
@@ -126,14 +174,14 @@ export class Mt4CommandService {
     };
   }
 
-  addRecord(data, record) {
+  addRecord(data, record, { sortQueue = true } = {}) {
     data.commandsByUserId ||= {};
     data.commandsByAccountId ||= {};
     data.commandQueue ||= [];
     data.commandsByUserId[record.userId] ||= [];
     data.commandsByUserId[record.userId].push(record);
     data.commandQueue.push(record);
-    data.commandQueue.sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0) || new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+    if (sortQueue) data.commandQueue.sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0) || new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
     if (record.accountId) {
       data.commandsByAccountId[record.accountId] ||= [];
       data.commandsByAccountId[record.accountId].push(record);
@@ -260,6 +308,52 @@ export class Mt4CommandService {
     });
   }
 
+  async queueCommandsForAccountsBatch(inputs = []) {
+    const prepared = inputs.map((input = {}) => {
+      const userId = input.userId;
+      const accountId = input.accountId || input.payload?.accountId || null;
+      const command = input.command;
+      const payload = input.payload || {};
+      const validation = this.validateCommand(userId, accountId, command, payload);
+      if (!validation.ok) {
+        const error = new Error(`Invalid MT4 command: ${validation.errors.join(', ')}`);
+        error.validation = validation;
+        throw error;
+      }
+      return { userId, accountId: validation.accountId, command: validation.command, payload, validation };
+    });
+    if (!prepared.length) return [];
+
+    return this.mutate(async (data) => {
+      const results = [];
+      for (const input of prepared) {
+        const deterministicId = input.payload?.commandId ? `wisdo_${input.payload.commandId}` : '';
+        const existing = deterministicId
+          ? (data.commandQueue || []).find((item) =>
+            String(item?.id || '') === deterministicId &&
+            String(item?.accountId || '') === String(input.accountId || '') &&
+            String(item?.command || '').toUpperCase() === String(input.command || '').toUpperCase() &&
+            !['failed', 'expired', 'cancelled'].includes(this.effectiveStatus(item)))
+          : null;
+        if (existing) {
+          results.push(existing);
+          continue;
+        }
+        const record = {
+          ...this.buildRecord(input.userId, input.accountId, input.command, input.payload),
+          validation: input.validation,
+          requiresConfirmation: input.validation.dangerous,
+          confirmationRequired: input.validation.dangerous,
+          confirmedAt: input.validation.dangerous && input.payload?.confirmation === 'confirmed' ? nowIso() : null,
+        };
+        this.addRecord(data, record, { sortQueue: false });
+        results.push(record);
+      }
+      data.commandQueue.sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0) || new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+      return results;
+    });
+  }
+
   async queueCommand(userId, command = null, payload = {}) {
     if (typeof userId === 'object' && userId?.command) {
       return this.mutate(async (data) => {
@@ -327,29 +421,25 @@ export class Mt4CommandService {
   }
 
   async getPendingCommand(userId, scope = {}) {
-    return this.mutate(async (data) => {
-      await this.expireStaleCommands(data);
-      const accountId = scope?.accountId || null;
-      const accountNumber = scope?.accountNumber ? String(scope.accountNumber) : null;
-      const pairingCode = scope?.pairingCode ? String(scope.pairingCode) : null;
-      const queue = (data.commandQueue || []).filter((command) => String(command.userId) === String(userId));
-      const accountQueue = accountId ? (data.commandsByAccountId?.[accountId] || []) : [];
-      const commands = [...accountQueue, ...queue, ...(data.commandsByUserId?.[userId] || [])];
-      const seen = new Set();
-      const unique = commands.filter((command) => {
-        if (!command?.id || seen.has(command.id)) return false;
-        seen.add(command.id);
-        return true;
-      }).sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0) || new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
-      return unique.find((command) => this.commandMatches(command, { accountId, accountNumber, pairingCode })) || null;
-    });
+    const data = await this.load();
+    const accountId = scope?.accountId || null;
+    const accountNumber = scope?.accountNumber ? String(scope.accountNumber) : null;
+    const pairingCode = scope?.pairingCode ? String(scope.pairingCode) : null;
+    const queue = (data.commandQueue || []).filter((command) => String(command.userId) === String(userId));
+    const accountQueue = accountId ? (data.commandsByAccountId?.[accountId] || []) : [];
+    const commands = [...accountQueue, ...queue, ...(data.commandsByUserId?.[userId] || [])];
+    const seen = new Set();
+    const unique = commands.filter((command) => {
+      if (!command?.id || seen.has(command.id)) return false;
+      seen.add(command.id);
+      return true;
+    }).sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0) || new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+    return unique.find((command) => this.commandMatches(command, { accountId, accountNumber, pairingCode })) || null;
   }
 
   async getAllPendingCommands(userId) {
-    return this.mutate(async (data) => {
-      await this.expireStaleCommands(data);
-      return (data.commandQueue || []).filter((command) => String(command.userId) === String(userId) && this.commandMatches(command));
-    });
+    const data = await this.load();
+    return (data.commandQueue || []).filter((command) => String(command.userId) === String(userId) && this.commandMatches(command));
   }
 
   findCommand(data, userId, commandId, accountId = null) {
@@ -410,55 +500,52 @@ export class Mt4CommandService {
   }
 
   async getCommandStatus(userId, commandId = null, accountId = null) {
-    return this.mutate(async (data) => {
-      await this.expireStaleCommands(data);
-      const command = commandId === null
-        ? this.findCommand(data, null, userId, null)
-        : this.findCommand(data, userId, commandId, accountId);
-      return command || null;
-    });
+    const data = await this.load();
+    const command = commandId === null
+      ? this.findCommand(data, null, userId, null)
+      : this.findCommand(data, userId, commandId, accountId);
+    if (!command) return null;
+    const status = this.effectiveStatus(command);
+    return status === command.status ? command : { ...command, status, expiredAt: command.expiredAt || nowIso() };
   }
 
   async listAccountCommands(userId, accountId, { limit = 50, status = null } = {}) {
-    return this.mutate(async (data) => {
-      await this.expireStaleCommands(data);
-      const rows = [
-        ...(data.commandsByAccountId?.[accountId] || []),
-        ...(data.commandsByUserId?.[userId] || []),
-      ];
-      const seen = new Set();
-      return rows
-        .filter((command) => {
-          if (!command?.id || seen.has(command.id)) return false;
-          seen.add(command.id);
-          if (String(command.userId) !== String(userId)) return false;
-          if (accountId && command.accountId !== accountId) return false;
-          if (status && command.status !== status) return false;
-          return true;
-        })
-        .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
-        .slice(0, Number(limit || 50));
-    });
+    const data = await this.load();
+    const rows = [
+      ...(data.commandsByAccountId?.[accountId] || []),
+      ...(data.commandsByUserId?.[userId] || []),
+    ];
+    const seen = new Set();
+    return rows
+      .filter((command) => {
+        if (!command?.id || seen.has(command.id)) return false;
+        seen.add(command.id);
+        if (String(command.userId) !== String(userId)) return false;
+        if (accountId && command.accountId !== accountId) return false;
+        if (status && this.effectiveStatus(command) !== status) return false;
+        return true;
+      })
+      .map((command) => this.effectiveStatus(command) === command.status ? command : { ...command, status: 'expired' })
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+      .slice(0, Number(limit || 50));
   }
 
   async getQueueStatus(userId, accountId = null) {
-    return this.mutate(async (data) => {
-      await this.expireStaleCommands(data);
-      const rows = (data.commandQueue || []).filter((command) => {
-        if (String(command.userId) !== String(userId)) return false;
-        if (accountId && command.accountId !== accountId) return false;
-        return true;
-      });
-      return {
-        total: rows.length,
-        pending: rows.filter((c) => c.status === 'pending').length,
-        delivered: rows.filter((c) => c.status === 'delivered').length,
-        completed: rows.filter((c) => c.status === 'completed').length,
-        failed: rows.filter((c) => c.status === 'failed').length,
-        expired: rows.filter((c) => c.status === 'expired').length,
-        recent: rows.slice(-10).reverse(),
-      };
-    });
+    const data = await this.load();
+    const rows = (data.commandQueue || []).filter((command) => {
+      if (String(command.userId) !== String(userId)) return false;
+      if (accountId && command.accountId !== accountId) return false;
+      return true;
+    }).map((command) => ({ ...command, status: this.effectiveStatus(command) }));
+    return {
+      total: rows.length,
+      pending: rows.filter((c) => c.status === 'pending').length,
+      delivered: rows.filter((c) => c.status === 'delivered').length,
+      completed: rows.filter((c) => c.status === 'completed').length,
+      failed: rows.filter((c) => c.status === 'failed').length,
+      expired: rows.filter((c) => c.status === 'expired').length,
+      recent: rows.slice(-10).reverse(),
+    };
   }
 
   appendAudit(data, action, details = {}) {

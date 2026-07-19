@@ -40,6 +40,24 @@ import { startApiServer } from './server/apiServer.js';
 // server/apiServer.js; src/ and nested copied trees are archive candidates.
 const missingEnv = getMissingRuntimeEnv();
 
+function isTransientDiscordTransportError(error) {
+  const message = String(error?.message || error || '').toLowerCase();
+  const stack = String(error?.stack || '').toLowerCase();
+  return [
+    'socket hang up',
+    'client network socket disconnected before secure tls connection was established',
+    'this operation was aborted',
+    'opening handshake has timed out',
+    "cannot read properties of null (reading 'setheader')",
+  ].some((value) => message.includes(value) || stack.includes(value));
+}
+
+function logDiscordTransportFailure(message, error, meta = {}) {
+  const payload = { ...meta, message: error?.message || String(error || ''), code: error?.code };
+  if (isTransientDiscordTransportError(error)) logger.warn(message, payload);
+  else logger.error(message, { ...payload, stack: error?.stack });
+}
+
 if (missingEnv.length > 0) {
   logger.error('Bot startup halted because required environment variables are missing.', {
     keys: missingEnv,
@@ -409,10 +427,23 @@ client.on(Events.MessageCreate, async (message) => {
 });
 
 client.on(Events.Error, (error) => {
-  logger.error('Discord client error', {
-    message: error.message,
-    stack: error.stack,
-  });
+  logDiscordTransportFailure('Discord client transport error', error);
+});
+
+client.on(Events.ShardError, (error, shardId) => {
+  logDiscordTransportFailure('Discord shard transport error', error, { shardId });
+});
+
+client.on(Events.ShardDisconnect, (event, shardId) => {
+  logger.warn('Discord shard disconnected; automatic reconnect is expected.', { shardId, code: event?.code, reason: event?.reason || '' });
+});
+
+client.on(Events.ShardReconnecting, (shardId) => {
+  logger.warn('Discord shard reconnecting.', { shardId });
+});
+
+client.on(Events.ShardResume, (shardId, replayedEvents) => {
+  logger.info('Discord shard resumed.', { shardId, replayedEvents });
 });
 
 client.on(Events.GuildMemberAdd, async (member) => {
@@ -449,16 +480,12 @@ client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
 });
 
 process.on('unhandledRejection', (reason) => {
-  logger.error('Unhandled promise rejection', {
-    message: reason instanceof Error ? reason.message : String(reason),
-  });
+  const error = reason instanceof Error ? reason : new Error(String(reason));
+  logDiscordTransportFailure('Unhandled promise rejection', error);
 });
 
 process.on('uncaughtException', (error) => {
-  logger.error('Uncaught exception', {
-    message: error.message,
-    stack: error.stack,
-  });
+  logDiscordTransportFailure('Uncaught exception', error);
 });
 
 function extractWisdoWakeCommand(raw) {
