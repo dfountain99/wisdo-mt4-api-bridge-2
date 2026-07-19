@@ -6,6 +6,7 @@ import express from 'express';
 import { registerDeadshotCommandCenterRoutes } from './deadshotSite.js';
 import { registerMajorUpgradeRoutes } from './majorUpgradeRoutes.js';
 import { registerExtendedProductRoutes } from './extendedProductRoutes.js';
+import { registerPresenceIdentityRoutes } from './presenceIdentityRoutes.js';
 import { encodeSignedSession, decodeSignedSession } from './security.js';
 import {
   createWisdoPhase1Repository,
@@ -4180,6 +4181,13 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     saveEcosystemState,
     logger,
     paymentService,
+  });
+
+  registerPresenceIdentityRoutes(app, {
+    loadEcosystemState,
+    saveEcosystemState,
+    paymentService,
+    logger,
   });
 
   async function getRequestAccess(req) {

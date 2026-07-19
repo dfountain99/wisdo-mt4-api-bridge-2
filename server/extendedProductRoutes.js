@@ -10,6 +10,7 @@ import {
 
 import { computePrice } from './majorUpgradeRoutes.js';
 import { getSessionUser } from './security.js';
+import { ensurePresenceState, recordAccessPurchase } from '../services/culturePresenceService.js';
 import {
   ACADEMY_COURSE_COUNT,
   ACADEMY_DOMAINS,
@@ -404,7 +405,21 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
       let targetSubscription = null;
       let actorUserId = 'system';
 
-      if (note?.type === 'subscription') {
+      if (note?.type === 'culture_access_upgrade' && payment?.status === 'COMPLETED') {
+        ensurePresenceState(state);
+        const userId = String(note.payload?.u || '');
+        const sku = String(note.payload?.sku || '');
+        actorUserId = userId || actorUserId;
+        if (userId && sku) {
+          recordAccessPurchase(state, { id: userId, username: 'Culture Member' }, {
+            sku,
+            provider: 'square',
+            paymentId: String(payment?.id || ''),
+            amountCents: Number(payment?.amount_money?.amount || 0),
+            status: 'completed',
+          });
+        }
+      } else if (note?.type === 'subscription') {
         const userId = String(note.payload?.u || '');
         const price = priceFromSquarePayload(note.payload || {});
         actorUserId = userId || actorUserId;
