@@ -1,5 +1,20 @@
 import { SlashCommandBuilder } from 'discord.js';
 
+
+async function settleForModal(promise, fallback, timeoutMs = 650) {
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve(promise),
+      new Promise((resolve) => { timer = setTimeout(() => resolve(fallback), timeoutMs); }),
+    ]);
+  } catch {
+    return fallback;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 import { getDateKey, getWeekRange } from '../utils/time.js';
 
 export function buildTradingCommands({ service, wisdoAnalysisService }) {
@@ -15,9 +30,9 @@ export function buildTradingCommands({ service, wisdoAnalysisService }) {
         }
 
         const [profile, existing, mt4Snapshot] = await Promise.all([
-          service.repository.getProfile(context.deskUserId),
-          service.getDailyLog(context.deskUserId, getDateKey(), 'clock-in'),
-          service.getFreshMt4SnapshotForUser(context.deskUserId),
+          settleForModal(service.repository.getProfile(context.deskUserId), null),
+          settleForModal(service.getDailyLog(context.deskUserId, getDateKey(), 'clock-in'), null),
+          settleForModal(service.getFreshMt4SnapshotForUser(context.deskUserId), null),
         ]);
 
         await interaction.showModal(service.buildClockInModal(profile || {}, existing, mt4Snapshot));
@@ -33,7 +48,7 @@ export function buildTradingCommands({ service, wisdoAnalysisService }) {
           return;
         }
 
-        const mt4Snapshot = await service.getFreshMt4SnapshotForUser(context.deskUserId);
+        const mt4Snapshot = await settleForModal(service.getFreshMt4SnapshotForUser(context.deskUserId), null);
         await interaction.showModal(service.buildLogEaModal(null, mt4Snapshot));
       },
     },
@@ -48,8 +63,8 @@ export function buildTradingCommands({ service, wisdoAnalysisService }) {
         }
 
         const [existing, mt4Snapshot] = await Promise.all([
-          service.getDailyLog(context.deskUserId, getDateKey(), 'clock-out'),
-          service.getFreshMt4SnapshotForUser(context.deskUserId),
+          settleForModal(service.getDailyLog(context.deskUserId, getDateKey(), 'clock-out'), null),
+          settleForModal(service.getFreshMt4SnapshotForUser(context.deskUserId), null),
         ]);
 
         await interaction.showModal(service.buildClockOutModal(existing, mt4Snapshot));
@@ -66,7 +81,7 @@ export function buildTradingCommands({ service, wisdoAnalysisService }) {
         }
 
         const week = getWeekRange();
-        const existing = await service.getWeeklyReviewLog(context.deskUserId, week.startKey);
+        const existing = await settleForModal(service.getWeeklyReviewLog(context.deskUserId, week.startKey), null);
         await interaction.showModal(service.buildWeeklyReviewModal(existing));
       },
     },

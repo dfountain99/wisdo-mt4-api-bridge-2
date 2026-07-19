@@ -77,8 +77,35 @@ export function recordAccessPurchase(state,user,{sku,provider='manual',paymentId
 export function createTeachSession(state,user,input={}){ const row=getOrCreatePresence(state,user); if(!hasAccessRank(row.accessRank,'BUILDER')) throw new Error('Teach Mode requires Builder access.'); const uid=String(user.id); state.cultureTeachSessionsByUserId[uid] ||= []; const session={id:crypto.randomUUID(),topic:cleanText(input.topic||'Trading discipline',80),accountId:cleanText(input.accountId||'',80),lessonGoal:cleanText(input.lessonGoal||'Review decisions and identify one improvement.',180),status:'active',score:null,createdAt:now(),updatedAt:now()}; state.cultureTeachSessionsByUserId[uid].push(session); row.activeMode='teach'; row.updatedAt=now(); return session; }
 
 
-export function updatePresenceAwareness(state,user,input={}){
+export function recordPresenceHeartbeat(state,user,input={},date=new Date()){
+  ensurePresenceState(state);
+  const uid=String(user.id);
+  const existed=Boolean(state.culturePresenceByUserId[uid]);
   const row=getOrCreatePresence(state,user);
+  const at=date instanceof Date && !Number.isNaN(date.getTime())?date:new Date();
+  const atIso=at.toISOString();
+  const priorSeenAt=row.lastSeenAt||row.updatedAt||row.createdAt||null;
+  const priorSeenMs=priorSeenAt?new Date(priorSeenAt).getTime():NaN;
+  const awayMinutes=Number.isFinite(priorSeenMs)?Math.max(0,Math.floor((at.getTime()-priorSeenMs)/60000)):0;
+  const thresholdRaw=Number(input.awayThresholdMinutes||15);
+  const awayThresholdMinutes=Number.isFinite(thresholdRaw)?Math.max(5,Math.min(1440,thresholdRaw)):15;
+  const localDateKey=/^\d{4}-\d{2}-\d{2}$/.test(String(input.localDateKey||''))?String(input.localDateKey):atIso.slice(0,10);
+  const eventType=cleanText(input.eventType||'heartbeat',30).toLowerCase();
+  const nextStatus=['online','away','focused','offline'].includes(String(input.status||'').toLowerCase())?String(input.status).toLowerCase():'online';
+  const sessionId=cleanText(input.sessionId||row.lastSessionId||'',80);
+  const priorStatus=String(row.presenceStatus||'offline').toLowerCase();
+  const isNewSession=Boolean(sessionId&&sessionId!==row.lastSessionId);
+  const firstVisit=!existed;
+  const firstVisitToday=row.lastVisitDay!==localDateKey;
+  const returnedAfterAway=existed&&nextStatus!=='away'&&nextStatus!=='offline'&&awayMinutes>=awayThresholdMinutes&&(eventType==='resume'||eventType==='page_load'||eventType==='login');
+  const longGapNewSession=isNewSession&&awayMinutes>=Math.max(60,awayThresholdMinutes);
+  const shouldGreet=nextStatus!=='away'&&nextStatus!=='offline'&&(firstVisit||firstVisitToday||returnedAfterAway||longGapNewSession);
+  let reason='heartbeat';
+  if(firstVisit) reason='first_visit';
+  else if(firstVisitToday) reason='first_visit_today';
+  else if(returnedAfterAway) reason='returned_after_away';
+  else if(longGapNewSession) reason='new_session';
+
   const page=String(input.currentPage||input.page||row.currentPage||'/app/dashboard').trim();
   if(page.startsWith('/app/')){ row.currentPage=page.slice(0,180); row.lastWorkspace=row.currentPage; }
   row.currentAccountId=cleanText(input.currentAccountId||input.accountId||row.currentAccountId||'',80);
@@ -86,14 +113,60 @@ export function updatePresenceAwareness(state,user,input={}){
   row.deviceName=cleanText(input.deviceName||row.deviceName||'Unknown device',80);
   row.timezone=cleanText(input.timezone||row.timezone||'',60);
   row.locale=cleanText(input.locale||row.locale||'',30);
-  row.presenceStatus=['online','away','focused','offline'].includes(String(input.status||'').toLowerCase())?String(input.status).toLowerCase():'online';
-  row.lastSeenAt=now(); row.lastActiveAt=now(); row.updatedAt=now();
+  row.presenceStatus=nextStatus;
+  row.lastSeenAt=atIso;
+  if(nextStatus!=='away'&&nextStatus!=='offline') row.lastActiveAt=atIso;
+  if(nextStatus==='away'||nextStatus==='offline') row.lastAwayAt=atIso;
+  if(returnedAfterAway) row.lastReturnAt=atIso;
+  if(sessionId){
+    if(isNewSession){ row.sessionCount=Number(row.sessionCount||0)+1; row.sessionStartedAt=atIso; }
+    row.lastSessionId=sessionId;
+  }
+  if(eventType==='page_load'||eventType==='login') row.visitCount=Number(row.visitCount||0)+1;
+  row.lastVisitDay=localDateKey;
+  if(shouldGreet){ row.lastGreetingAt=atIso; row.lastGreetingDay=localDateKey; row.lastGreetingReason=reason; }
+  row.updatedAt=atIso;
   row.awarenessEvents ||= [];
-  const event={at:now(),page:row.currentPage,accountId:row.currentAccountId,mode:row.activeMode,status:row.presenceStatus,deviceType:row.deviceType};
+  const event={at:atIso,page:row.currentPage,accountId:row.currentAccountId,mode:row.activeMode,status:row.presenceStatus,deviceType:row.deviceType,eventType,sessionId:sessionId||null};
   const last=row.awarenessEvents[row.awarenessEvents.length-1];
-  if(!last||last.page!==event.page||last.accountId!==event.accountId||last.mode!==event.mode||last.status!==event.status) row.awarenessEvents.push(event);
+  if(!last||last.page!==event.page||last.accountId!==event.accountId||last.mode!==event.mode||last.status!==event.status||last.eventType!==event.eventType) row.awarenessEvents.push(event);
   row.awarenessEvents=row.awarenessEvents.slice(-50);
-  return row;
+
+  const greeting=presenceGreeting(row,at);
+  const reasonMessage=reason==='first_visit'
+    ? 'Your Culture Desk is online. Wisdo will remember where you work and help you resume.'
+    : reason==='first_visit_today'
+      ? 'This is your first desk session today. Your account controls and Culture Lane workspace are ready.'
+      : reason==='returned_after_away'
+        ? `You were away for about ${awayMinutes} minute${awayMinutes===1?'':'s'}. Your last workspace is ready to resume.`
+        : reason==='new_session'
+          ? 'A new Wisdo session is active and your previous workspace is ready.'
+          : 'Wisdo presence is active.';
+
+  return {
+    presence:row,
+    arrival:{
+      shouldGreet,
+      reason,
+      greeting,
+      message:reasonMessage,
+      firstVisit,
+      firstVisitToday,
+      returnedAfterAway,
+      awayMinutes,
+      awayThresholdMinutes,
+      localDateKey,
+      sessionId:sessionId||null,
+      resumePath:row.lastWorkspace||'/app/dashboard',
+      currentPage:row.currentPage,
+      currentAccountId:row.currentAccountId,
+      activeMode:row.activeMode,
+    },
+  };
+}
+
+export function updatePresenceAwareness(state,user,input={}){
+  return recordPresenceHeartbeat(state,user,input).presence;
 }
 
 export function presenceGreeting(row={},date=new Date()){

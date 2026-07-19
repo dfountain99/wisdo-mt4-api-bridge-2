@@ -1,6 +1,6 @@
 {
   "name": "culture-coin-operator-desks-bot",
-  "version": "7.0.0",
+  "version": "7.0.1",
   "description": "WISDO v7.0 Living Operating System: Nexus briefing, missions, workspaces, timeline, automation studio, Culture Score, AI memory, device hub, and ecosystem map.",
   "type": "module",
   "private": true,

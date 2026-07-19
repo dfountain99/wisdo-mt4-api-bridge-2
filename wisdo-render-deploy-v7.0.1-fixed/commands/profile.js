@@ -1,5 +1,20 @@
 import { SlashCommandBuilder } from 'discord.js';
 
+
+async function settleForModal(promise, fallback, timeoutMs = 650) {
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve(promise),
+      new Promise((resolve) => { timer = setTimeout(() => resolve(fallback), timeoutMs); }),
+    ]);
+  } catch {
+    return fallback;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export function buildProfileCommands({ service }) {
   const commands = [
     {
@@ -15,7 +30,7 @@ export function buildProfileCommands({ service }) {
           return;
         }
 
-        const existing = await service.repository.getProfile(context.deskUserId);
+        const existing = await settleForModal(service.repository.getProfile(context.deskUserId), null);
         await interaction.showModal(service.buildProfileModal('setup-profile', existing || {}));
       },
     },
@@ -57,7 +72,7 @@ export function buildProfileCommands({ service }) {
           return;
         }
 
-        const existing = await service.repository.getProfile(context.deskUserId);
+        const existing = await settleForModal(service.repository.getProfile(context.deskUserId), null);
         await interaction.showModal(service.buildProfileModal('edit-profile', existing || {}));
       },
     },

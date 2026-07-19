@@ -70,6 +70,12 @@ export function buildAdminCommands({ service }) {
             .setName('member')
             .setDescription('Student to create a desk for')
             .setRequired(true),
+        )
+        .addBooleanOption((option) =>
+          option
+            .setName('grant_role')
+            .setDescription('Assign the Culture Coin role when the member does not have it (default: yes)')
+            .setRequired(false),
         ),
 
       async execute(interaction) {
@@ -90,7 +96,8 @@ export function buildAdminCommands({ service }) {
           return;
         }
 
-        const result = await service.ensureDeskForMember(member);
+        const grantRole = interaction.options.getBoolean('grant_role') !== false;
+        const result = await service.ensureDeskForMember(member, { autoGrantRole: grantRole });
 
         if (result.status === 'ineligible') {
           await replyOrEdit(
@@ -116,10 +123,31 @@ export function buildAdminCommands({ service }) {
           return;
         }
 
+        const notes = [
+          result.roleGranted ? 'Culture Coin role assigned.' : null,
+          result.warnings?.length ? `Warning: ${result.warnings.join(' ')}` : null,
+        ].filter(Boolean).join(' ');
         await replyOrEdit(
           interaction,
-          `Desk created for ${member.user.username}: <#${result.channel.id}>`,
+          `Desk created for ${member.user.username}: <#${result.channel.id}>${notes ? `\n${notes}` : ''}`,
         );
+      },
+    },
+
+    {
+      data: new SlashCommandBuilder()
+        .setName('restore-desk')
+        .setDescription('Restore one archived Culture Coin desk to an active category.')
+        .addUserOption((option) => option.setName('member').setDescription('Member whose archived desk should be restored').setRequired(true)),
+      async execute(interaction) {
+        const deferred = await safelyDeferInteraction(interaction);
+        if (!deferred) return;
+        if (!(await service.assertAdminOrCoach(interaction))) return;
+        const member = await resolveMember(interaction, 'member');
+        if (!member) return replyOrEdit(interaction, 'That member could not be found in this server.');
+        const result = await service.restoreDeskForMember(member);
+        if (result.status === 'not-found') return replyOrEdit(interaction, `No archived desk was found for ${member.user.username}.`);
+        return replyOrEdit(interaction, `Desk restored for ${member.user.username}: <#${result.channel.id}>`);
       },
     },
 

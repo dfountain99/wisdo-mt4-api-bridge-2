@@ -2889,39 +2889,44 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
     await saveEcosystemState(state);
     res.json({ ok: true, notificationsCreated: created.length, notifications: created });
   });
-  app.post(config?.api?.mt4SyncPath || '/mt4-sync', async (req, res) => {
-    try {
-      if (!mt4SyncService?.receiveSnapshot) return res.status(501).json({ ok: false, error: 'MT4 sync service is not available. Use npm run start:web after the live repository patch or run npm start.' });
-      const result = await mt4SyncService.receiveSnapshot(req.body, req.headers);
-      if (result?.coalesced) return res.status(202).json(result);
-      const state = ensureState(await loadEcosystemState());
-      const bridgeUserId = String(result?.discordUserId || req.body?.userId || '').trim();
-      const userId = findUserIdByDiscordId(state, bridgeUserId) || bridgeUserId;
-      const accountId = String(result?.accountId || req.body?.tradingAccountId || req.body?.accountId || 'default');
-      state.connected_accounts[userId] ||= {};
-      state.connected_accounts[userId][accountId] = {
-        accountId,
-        platform: req.body?.platform || 'MT4/MT5',
-        name: req.body?.accountName || req.body?.nickname || 'Culture Coin Reporter Bridge',
-        broker: req.body?.broker || req.body?.brokerServer || '',
-        accountNumber: req.body?.accountNumber || '',
-        status: 'connected_live_bridge',
-        lastSyncAt: nowIso(),
-        bridgeUserId,
-      };
-      state.trade_copier_access[userId] = { ...(state.trade_copier_access[userId] || {}), enabled: state.trade_copier_access[userId]?.enabled !== false, accountConnected: true, updatedAt: nowIso() };
-      const created = evaluateMetricNotifications(state, { userId, tradingAccountId: accountId, metrics: req.body || {}, source: 'mt4_bridge' });
-      if (!state.admin_logs.some((log) => log.action === 'live_bridge_connected' && log.userId === userId && log.accountId === accountId)) {
-        createNotificationEvent(state, { userId, tradingAccountId: accountId, type: 'Account Connected Alert', title: 'Trading Bridge Connected', message: 'Culture Coin Reporter sent a real MT4/MT5 snapshot. Dashboard balance, equity, floating P/L, and trades now read from live telemetry.', severity: 'success', source: 'mt4_bridge', metadata: { accountId, bridgeUserId } });
+  // The legacy remodel route is intentionally opt-in. Registering it by default
+  // intercepts the authoritative /mt4-sync route and performs a second full
+  // ecosystem-state write on every Reporter heartbeat.
+  if (String(process.env.ENABLE_LEGACY_DEADSHOT_MT4_SYNC || 'false').toLowerCase() === 'true') {
+    app.post(config?.api?.mt4SyncPath || '/mt4-sync', async (req, res) => {
+      try {
+        if (!mt4SyncService?.receiveSnapshot) return res.status(501).json({ ok: false, error: 'MT4 sync service is not available. Use npm run start:web after the live repository patch or run npm start.' });
+        const result = await mt4SyncService.receiveSnapshot(req.body, req.headers);
+        if (result?.coalesced) return res.status(202).json(result);
+        const state = ensureState(await loadEcosystemState());
+        const bridgeUserId = String(result?.discordUserId || req.body?.userId || '').trim();
+        const userId = findUserIdByDiscordId(state, bridgeUserId) || bridgeUserId;
+        const accountId = String(result?.accountId || req.body?.tradingAccountId || req.body?.accountId || 'default');
+        state.connected_accounts[userId] ||= {};
+        state.connected_accounts[userId][accountId] = {
+          accountId,
+          platform: req.body?.platform || 'MT4/MT5',
+          name: req.body?.accountName || req.body?.nickname || 'Culture Coin Reporter Bridge',
+          broker: req.body?.broker || req.body?.brokerServer || '',
+          accountNumber: req.body?.accountNumber || '',
+          status: 'connected_live_bridge',
+          lastSyncAt: nowIso(),
+          bridgeUserId,
+        };
+        state.trade_copier_access[userId] = { ...(state.trade_copier_access[userId] || {}), enabled: state.trade_copier_access[userId]?.enabled !== false, accountConnected: true, updatedAt: nowIso() };
+        const created = evaluateMetricNotifications(state, { userId, tradingAccountId: accountId, metrics: req.body || {}, source: 'mt4_bridge' });
+        if (!state.admin_logs.some((log) => log.action === 'live_bridge_connected' && log.userId === userId && log.accountId === accountId)) {
+          createNotificationEvent(state, { userId, tradingAccountId: accountId, type: 'Account Connected Alert', title: 'Trading Bridge Connected', message: 'Culture Coin Reporter sent a real MT4/MT5 snapshot. Dashboard balance, equity, floating P/L, and trades now read from live telemetry.', severity: 'success', source: 'mt4_bridge', metadata: { accountId, bridgeUserId } });
+        }
+        state.admin_logs.push({ id: id('admin_log'), action: 'live_bridge_sync', userId, accountId, bridgeUserId, createdAt: nowIso(), notificationsCreated: created.length });
+        await saveEcosystemState(state);
+        res.json({ ...result, websiteSynced: true, websiteUserId: userId, notificationsCreated: created.length });
+      } catch (error) {
+        logger?.error?.('Deadshot MT4 sync failed', { message: error.message, stack: error.stack });
+        res.status(error.statusCode || 500).json({ ok: false, error: error.message });
       }
-      state.admin_logs.push({ id: id('admin_log'), action: 'live_bridge_sync', userId, accountId, bridgeUserId, createdAt: nowIso(), notificationsCreated: created.length });
-      await saveEcosystemState(state);
-      res.json({ ...result, websiteSynced: true, websiteUserId: userId, notificationsCreated: created.length });
-    } catch (error) {
-      logger?.error?.('Deadshot MT4 sync failed', { message: error.message, stack: error.stack });
-      res.status(error.statusCode || 500).json({ ok: false, error: error.message });
-    }
-  });
+    });
+  }
 
 
   // Copier API aliases. Execution remains backend-gated.

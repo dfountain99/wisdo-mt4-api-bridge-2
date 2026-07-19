@@ -1,4 +1,9 @@
+# WISDO v7.0.1 Runtime Repair — Discord, Desks, MT4, and Presence
+
+This release consolidates the remodel into the current v7 authority. It restores the missing Phase Two slash commands, validates a 77-command registry, acknowledges slow Discord interactions safely, hardens private desk creation/restoration, disables the duplicate legacy `/mt4-sync` route by default, and loads first-day/return-after-away WISDO greetings in every real `/app/*` workspace. See `WISDO_V7_0_1_RUNTIME_REPAIR_AUDIT.md` and `WISDO_V7_0_1_DEPLOYMENT_CHECKLIST.md`.
+
 ## WISDO v6.1.0 — Full Queue Audit and Performance Recovery
+
 
 This release audits every production JavaScript file for request-blocking global promise tails and removes cross-account serialization from the website, MT4 command path, notification delivery, Phase 1 state, trade signals, growth funnel, and PostgreSQL hot-state adapters. Required concurrency controls are now scoped single-flight guards or nonblocking database try-locks.
 

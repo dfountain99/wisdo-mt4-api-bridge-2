@@ -4087,7 +4087,7 @@ function createPaidLinkAccess({ buyerUserId, productId, status = 'pending_paymen
   };
 }
 
-export async function startApiServer({ config, mt4SyncService, mt4CommandService, copyTradingService, tradeSignalService, deskDashboardService, rankService, announcementService, paymentService, logger, client = null, signalGridService: providedSignalGridService = null, signalCopyService: providedSignalCopyService = null, discordSignalGridService: providedDiscordSignalGridService = null }) {
+export async function startApiServer({ config, mt4SyncService, mt4CommandService, copyTradingService, tradeSignalService, deskDashboardService, rankService, announcementService, paymentService, logger, client = null, operatorDeskService = null, commandRegistryAudit = null, signalGridService: providedSignalGridService = null, signalCopyService: providedSignalCopyService = null, discordSignalGridService: providedDiscordSignalGridService = null }) {
   ecosystemStateCache = null;
   ecosystemStateLoadPromise = null;
   wisdoPhase1Repository = createWisdoPhase1Repository(config);
@@ -4112,6 +4112,35 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   // registerDeadshotCommandCenterRoutes so broad legacy /member/* redirects do
   // not intercept /member/command-center, /education, /simulator, /social, etc.
   app.use(express.json({ limit: '200mb', verify: (req, res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
+
+  app.get('/health/discord', async (_req, res) => {
+    const guild = client?.guilds?.cache?.get(config.guildId) || null;
+    let desk = null;
+    if (guild && operatorDeskService?.getDeskPermissionDiagnostics) {
+      try { desk = operatorDeskService.getDeskPermissionDiagnostics(guild); }
+      catch (error) { desk = { ok: false, error: error.message }; }
+    }
+    const gatewayReady = Boolean(client?.isReady?.());
+    const commandCount = Number(commandRegistryAudit?.commandCount || 0);
+    const ok = commandCount > 0 && (!gatewayReady || desk?.ok !== false);
+    res.status(ok ? 200 : 503).json({
+      ok,
+      gatewayReady,
+      guildConfigured: Boolean(config.guildId),
+      guildVisible: Boolean(guild),
+      commandRegistry: {
+        commandCount,
+        unique: !commandRegistryAudit?.duplicates?.length,
+        names: commandRegistryAudit?.names || [],
+      },
+      desk,
+      repairHints: [
+        'Run npm run register-commands after changing slash-command definitions.',
+        'The WISDO bot role must have Manage Channels and sit above Culture Coin when auto-granting the role.',
+        'Private desk categories automatically shard before Discord reaches 50 children per category.',
+      ],
+    });
+  });
 
   app.get('/api/copier-infrastructure-health', async (_req, res) => {
     const redis = await redisCommandBridge.health();
@@ -5854,9 +5883,21 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   });
 
   app.post(config.api.mt4SyncPath || '/mt4-sync', async (req, res) => {
+    const startedAt = Date.now();
     try {
       const result = await mt4SyncService.receiveSnapshot(req.body, req.headers);
-      if (result?.coalesced) return res.status(202).json(result);
+      const responseMs = Date.now() - startedAt;
+      res.set('Cache-Control', 'no-store');
+      res.set('Server-Timing', `mt4sync;dur=${responseMs}`);
+      if (responseMs > 2500) {
+        logger?.warn?.('Slow authoritative MT4 sync response.', {
+          responseMs,
+          requestId: req.headers['x-request-id'] || req.headers['x-render-request-id'] || '',
+          accountId: result?.accountId || '',
+          coalesced: Boolean(result?.coalesced),
+        });
+      }
+      if (result?.coalesced) return res.status(202).json({ ...result, responseMs });
       if (result?.discordUserId && rankService && announcementService) {
         rankService.processSnapshot(result.discordUserId)
           .then((events) => announcementService.postRankEvents(events))
@@ -5871,9 +5912,15 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
           });
         });
       }
-      res.json(result);
+      res.json({ ...result, responseMs });
     }
-    catch (error) { res.status(error.statusCode || 500).json({ ok: false, error: error.message }); }
+    catch (error) {
+      const responseMs = Date.now() - startedAt;
+      res.set('Cache-Control', 'no-store');
+      res.set('Server-Timing', `mt4sync;dur=${responseMs}`);
+      logger?.error?.('Authoritative MT4 sync failed.', { responseMs, message: error.message, stack: error.stack });
+      res.status(error.statusCode || 500).json({ ok: false, error: error.message, responseMs });
+    }
   });
 
   app.post('/mt4-command-poll', async (req, res) => {

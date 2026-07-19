@@ -21,10 +21,15 @@ const registry = createCommandRegistry({
   mt4SyncService: null,
   mt4CommandService: null,
   wisdoAnalysisService: null,
+  wisdoMemoryService: null,
+  botStoreService: null,
+  discordSignalGridService: null,
+  logger,
 });
 
 const body = registry.commands.map((command) => command.data.toJSON());
 
+console.log(`Registry audit: ${registry.audit.commandCount} unique commands, ${registry.audit.modalCount || registry.modalMap.size} modal handlers.`);
 console.log("Registering commands:");
 for (const command of body) {
   console.log(`- /${command.name}`);

@@ -304,7 +304,7 @@ async function executeConnectMt4(interaction, { service, mt4SyncService }) {
   }
 }
 
-export function buildMt4Commands({ service, mt4SyncService }) {
+export function buildMt4Commands({ service, mt4SyncService, wisdoMemoryService = null }) {
   const commands = [
     {
       data: new SlashCommandBuilder()
@@ -520,6 +520,9 @@ Signals: ${role === 'leader' || role === 'both' ? 'enabled' : 'disabled'}`);
         const selected = mt4SyncService.repository.setPrimaryMt4Account
           ? await mt4SyncService.repository.setPrimaryMt4Account(context.deskUserId, accountId)
           : null;
+        if (selected && wisdoMemoryService?.setActiveAccount) {
+          await wisdoMemoryService.setActiveAccount(context.deskUserId, accountId).catch(() => null);
+        }
         if (!selected) {
           await interaction.editReply('That account ID was not found under your Discord login. Run `/my-accounts` and copy the exact Account ID.');
           return;

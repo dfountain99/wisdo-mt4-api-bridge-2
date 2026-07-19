@@ -1,0 +1,81 @@
+WISDO v7.0.1 Discord Command Inventory
+Total commands: 77
+Duplicates: 0
+
+/create-desk — Create a private Culture Coin desk for one student.
+/restore-desk — Restore one archived Culture Coin desk to an active category.
+/create-all-desks — Create missing desks for every Culture Coin student.
+/desk-status — Review Culture Coin Operator Desk coverage and duplicates.
+/remove-desk — Archive or delete a Culture Coin desk.
+/coach-note — Post a structured coach note into a student desk.
+/connect — Generate a pairing code to connect one MT4 account to this desk.
+/connect-mt4 — Generate a pairing code to connect one MT4 account to this desk.
+/mt4-status — Show the latest MT4 snapshot for this desk.
+/sync-mt4 — Show the latest MT4 snapshot for a student.
+/my-accounts — Show all MT4 accounts connected to your Discord login.
+/set-account-role — Set one of your MT4 accounts as leader, follower, both, or private.
+/set-active-account — Set the MT4 account WISDO should use by default for Discord commands/buttons.
+/my-id — Show your Discord user ID privately.
+/setup-profile — Save your default Culture Coin trading profile.
+/profile — View the saved operator desk profile for this desk.
+/edit-profile — Update your saved operator desk profile.
+/bots — Browse the Culture Coin MT4 bot catalog.
+/bot-info — Get a high-level read on one bot without exposing source code.
+/claim-free-bot — Use your one free Culture Coin bot claim.
+/negotiate-bot — Have WISDO work a bot deal inside the approved pricing guardrails.
+/buy-bot — Create a purchase link for one bot or a bot bundle.
+/my-bots — See the bots already delivered to you.
+/culture-coin-info — See the Culture Coin membership perks and bot pricing lane.
+/refresh-bot-catalog — Admin: rescan local MT4 bots and refresh the store vault.
+/store-status — Admin: view bot store, quote, payment, and license status.
+/clock-in — Clock in for today's trading session.
+/log-ea — Log a key EA or bot action during the session.
+/clock-out — Clock out and capture the end of your trading session.
+/weekly-review — Create this week's compound review from your desk logs.
+/template — Show the full manual operator desk template.
+/wisdo — Ask WISDO for a current read on this desk.
+/wisdo-adaptive-set — Set one CEM adaptive number for a specific bot/symbol/account/magic lane.
+/wisdo-adaptive-defense — Put one bot lane into defense without locking the bot down.
+/wisdo-adaptive-normal — Return one bot lane toward normal operating numbers.
+/wisdo-adaptive-lane — Preview the exact CEM Global Variable lane WISDO will write.
+/wisdo-command — Natural-language WISDO command for CEM adaptive bot lanes.
+/wisdo-review — Create a deeper WISDO review for today or this week.
+/wisdo-settings — Show the current WISDO settings.
+/member-portal — Open the CultureCoin / WISDO member portal.
+/link-trading-account — Open the Trade Link portal to connect an MT4/MT5 account.
+/my-linked-accounts — Show your WISDO Trade Link accounts and pairing status.
+/mt4-history — Open the member portal balance/equity history for this MT4 account.
+/wisdo-session — Set a WISDO trading session rule and relay it to MT4 global variables.
+/wisdo-pair — Set pair-specific WISDO controls for one symbol.
+/wisdo-bot-lanes — Search and page through live bot lanes auto-discovered from the MT4 Reporter.
+/wisdo-nickname-bot — Nickname a discovered bot lane, like DEADSHOT = Deadpool.
+/wisdo-close-bot — Close trades for a nicknamed or discovered bot lane without typing account/magic manually.
+/wisdo-bot-command — Natural bot nickname command, example: close all Deadpool trades.
+/pair — Pair Discord with the Culture Coin / Deadshot website.
+/account — View or sync trading account configuration.
+/copier — Control or inspect Culture Coin Copier Engine access.
+/wisdo-coach — Send a wake-word style Wisdo command to the website + MT4 reporter bridge.
+/reporter — Show Culture Coin Reporter status.
+/wisdo-notifications — Show recent Wisdo website + Discord notification events.
+/wisdo-help — Show website + Discord command center commands.
+/signal-grid — Admin controls for the no-spam Wisdo Signal Grid.
+/signals — Show a private Wisdo Signal Grid summary.
+/my-copies — Show your Wisdo Signal Grid bot copy subscriptions.
+/copy-status — Show Signal Grid copy eligibility status.
+/stop-copy — Stop copying future signals from a bot.
+/risk-settings — Open Wisdo risk settings for Signal Grid copy.
+/global-status — Show the WISDO global variable doctrine dictionary.
+/health — Show WISDO account health for your active MT4 account.
+/confirm — Confirm a red-level WISDO command.
+/protect-profit — Queue WISDO protect-profit globals on your active account.
+/close-all-safe — Stage a close-all request that requires confirmation.
+/signal-settings — Show message-signal settings. Dashboard stays untouched.
+/mute-signal-updates — Mute future noisy updates for message signals on this account.
+/copy-settings — Set Copy Trading V2 guardrails.
+/bot-assign — Assign a daily ecosystem bot to an account/symbol.
+/bot-health — Show bot allocation status for your WISDO account.
+/history-proof — Build a proof/report card from stored history snapshots.
+/manual-log — Log an optimization/backtest result into the learning manual.
+/marketplace-status — Show marketplace/payment/commission foundation status.
+/academy — Show WISDO Academy modules and current rank.
+/alerts — Show latest WISDO alerts for your account.

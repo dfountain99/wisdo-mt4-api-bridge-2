@@ -222,12 +222,16 @@ export class TradeSignalService {
     data.signalIds = [signalId, ...(data.signalIds || []).filter((id) => id !== signalId)].slice(0, 500);
     await this.save(data);
 
-    await this.postSignal(signal).catch((error) => {
-      this.logger?.warn?.('Trade signal grid update failed', { signalId, message: error.message });
-    });
-
+    // Queue execution authority before attempting Discord presentation. Discord API
+    // latency must never hold the MT4 Reporter heartbeat open.
     await this.queueAutoCopyRoutes(signal).catch((error) => {
       this.logger?.warn?.('Auto copy route queue failed for signal.', { signalId, message: error.message });
+    });
+
+    setImmediate(() => {
+      this.postSignal(signal).catch((error) => {
+        this.logger?.warn?.('Trade signal grid update failed', { signalId, message: error.message });
+      });
     });
 
     return signal;

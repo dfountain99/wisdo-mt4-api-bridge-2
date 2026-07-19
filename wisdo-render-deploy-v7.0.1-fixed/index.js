@@ -32,6 +32,7 @@ import { DiscordRoleSyncService } from './services/discordRoleSyncService.js';
 import { SignalGridService } from './services/signalGridService.js';
 import { SignalCopyService } from './services/signalCopyService.js';
 import { DiscordSignalGridService } from './services/discordSignalGridService.js';
+import { WisdoMemoryService } from './services/wisdoMemoryService.js';
 import { startApiServer } from './server/apiServer.js';
 
 // Production source of truth: Render runs `npm start`, which runs this root
@@ -72,6 +73,8 @@ copyTradingService.attachDiscordDeliveryContext?.({
   logger,
 });
 const mt4SyncService = new Mt4SyncService(config, service.repository, copyTradingService);
+const wisdoMemoryService = new WisdoMemoryService(config, service.repository);
+mt4SyncService.attachWisdoMemoryService?.(wisdoMemoryService);
 signalCopyService.mt4SyncService = mt4SyncService;
 service.attachMt4SyncService(mt4SyncService);
 const tradeSignalService = new TradeSignalService({
@@ -151,7 +154,11 @@ const registry = createCommandRegistry({
   discordSignalGridService,
   botStoreService,
   botRegistryService,
+  wisdoMemoryService,
+  logger,
 });
+
+logger.info('Discord command registry built.', registry.audit);
 
 const apiServer = await startApiServer({
   config,
@@ -167,21 +174,40 @@ const apiServer = await startApiServer({
   signalGridService,
   signalCopyService,
   discordSignalGridService,
+  operatorDeskService: service,
+  commandRegistryAudit: registry.audit,
   client,
   logger,
 });
 
-async function registerDiscordCommandsOnStart() {
+let commandRegistrationPromise = null;
+
+async function registerDiscordCommandsOnStart({ force = false } = {}) {
   const enabled = String(process.env.AUTO_REGISTER_COMMANDS_ON_START || 'true').toLowerCase() !== 'false';
   if (!enabled) return { skipped: true, reason: 'AUTO_REGISTER_COMMANDS_ON_START=false' };
   if (!config.discordToken || !config.clientId || !config.guildId) {
     return { skipped: true, reason: 'missing DISCORD_TOKEN, CLIENT_ID, or GUILD_ID' };
   }
+  if (commandRegistrationPromise && !force) return commandRegistrationPromise;
 
-  const body = registry.commands.map((command) => command.data.toJSON());
-  const rest = new REST({ version: '10' }).setToken(config.discordToken);
-  await rest.put(Routes.applicationGuildCommands(config.clientId, config.guildId), { body });
-  return { skipped: false, commandCount: body.length };
+  commandRegistrationPromise = (async () => {
+    const body = registry.commands.map((command) => command.data.toJSON());
+    const rest = new REST({ version: '10' }).setToken(config.discordToken);
+    await rest.put(Routes.applicationGuildCommands(config.clientId, config.guildId), { body });
+    return {
+      skipped: false,
+      commandCount: body.length,
+      guildId: config.guildId,
+      names: body.map((command) => command.name),
+    };
+  })();
+
+  try {
+    return await commandRegistrationPromise;
+  } catch (error) {
+    commandRegistrationPromise = null;
+    throw error;
+  }
 }
 
 client.once(Events.ClientReady, async (readyClient) => {
@@ -214,6 +240,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const command = registry.commandMap.get(interaction.commandName);
 
       if (!command) {
+        await interaction.reply({
+          content: 'That slash command is not loaded in this WISDO build. Command registration is being refreshed; try again after the bot restarts.',
+          ephemeral: true,
+        }).catch(() => null);
         return;
       }
 
@@ -287,7 +317,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     };
 
     if (interaction.isRepliable()) {
-      if (interaction.deferred || interaction.replied) {
+      if (interaction.deferred && !interaction.replied) {
+        const { ephemeral: _ephemeral, ...editPayload } = payload;
+        await interaction.editReply(editPayload).catch(() => null);
+      } else if (interaction.replied) {
         await interaction.followUp(payload).catch(() => null);
       } else {
         await interaction.reply(payload).catch(() => null);
@@ -2849,5 +2882,16 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   shutdown('SIGTERM').catch(() => process.exit(1));
 });
+
+try {
+  const registration = await registerDiscordCommandsOnStart();
+  logger.info('Discord slash commands registered before gateway login.', registration);
+} catch (error) {
+  logger.error('Discord slash-command pre-login registration failed.', {
+    message: error.message,
+    stack: error.stack,
+    details: error.details,
+  });
+}
 
 await client.login(config.discordToken);

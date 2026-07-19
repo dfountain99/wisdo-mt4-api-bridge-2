@@ -54,6 +54,28 @@ const VOICE_ALLOW = [
   PermissionFlagsBits.Stream,
 ];
 
+const BOT_CHANNEL_ALLOW = [
+  PermissionFlagsBits.ViewChannel,
+  PermissionFlagsBits.SendMessages,
+  PermissionFlagsBits.ReadMessageHistory,
+  PermissionFlagsBits.AttachFiles,
+  PermissionFlagsBits.EmbedLinks,
+  PermissionFlagsBits.UseApplicationCommands,
+  PermissionFlagsBits.ManageChannels,
+  PermissionFlagsBits.ManageMessages,
+  PermissionFlagsBits.Connect,
+  PermissionFlagsBits.Speak,
+  PermissionFlagsBits.Stream,
+];
+
+const DESK_GUILD_PERMISSIONS = [
+  ['ViewChannel', PermissionFlagsBits.ViewChannel],
+  ['ManageChannels', PermissionFlagsBits.ManageChannels],
+  ['SendMessages', PermissionFlagsBits.SendMessages],
+  ['ReadMessageHistory', PermissionFlagsBits.ReadMessageHistory],
+  ['ManageMessages', PermissionFlagsBits.ManageMessages],
+];
+
 const EVERYONE_DENY = [
   PermissionFlagsBits.ViewChannel,
   PermissionFlagsBits.SendMessages,
@@ -271,6 +293,7 @@ export class OperatorDeskService {
     this.config = config;
     this.repository = new OperatorDeskRepository(config.dataDir);
     this.mt4SyncService = null;
+    this.syncedCategoryIds = new Set();
   }
 
   async initialize() {
@@ -431,6 +454,85 @@ export class OperatorDeskService {
     return GUIDE_MESSAGE;
   }
 
+  getBotMember(guild) {
+    return guild?.members?.me || guild?.members?.cache?.get(guild?.client?.user?.id) || null;
+  }
+
+  getDeskPermissionDiagnostics(guild, targetRole = null) {
+    const botMember = this.getBotMember(guild);
+    const missingPermissions = botMember
+      ? DESK_GUILD_PERMISSIONS.filter(([, permission]) => !botMember.permissions.has(permission)).map(([name]) => name)
+      : DESK_GUILD_PERMISSIONS.map(([name]) => name);
+    const cultureRole = targetRole || this.getCultureCoinRole(guild);
+    const roleManageable = !cultureRole
+      ? false
+      : Boolean(
+          botMember
+          && !cultureRole.managed
+          && botMember.roles?.highest
+          && botMember.roles.highest.comparePositionTo(cultureRole) > 0,
+        );
+    const channelCount = Number(guild?.channels?.cache?.size || 0);
+
+    return {
+      botMemberFound: Boolean(botMember),
+      missingPermissions,
+      cultureCoinRoleFound: Boolean(cultureRole),
+      cultureCoinRoleId: cultureRole?.id || null,
+      cultureCoinRoleName: cultureRole?.name || this.config.cultureCoinRoleName,
+      roleManageable,
+      canManageRoles: Boolean(botMember?.permissions?.has(PermissionFlagsBits.ManageRoles)),
+      botHighestRole: botMember?.roles?.highest?.name || null,
+      cultureRolePosition: cultureRole?.position ?? null,
+      botRolePosition: botMember?.roles?.highest?.position ?? null,
+      channelCount,
+      channelCapacityRemaining: Math.max(0, 500 - channelCount),
+      ok: Boolean(botMember) && missingPermissions.length === 0 && channelCount < 500,
+    };
+  }
+
+  assertDeskInfrastructure(guild, { requireRoleManagement = false, targetRole = null, channelCapacityNeeded = 1 } = {}) {
+    const diagnostics = this.getDeskPermissionDiagnostics(guild, targetRole);
+    const failures = [];
+    if (!diagnostics.botMemberFound) failures.push('the bot member is not available in the guild cache');
+    if (diagnostics.missingPermissions.length) failures.push(`missing bot permissions: ${diagnostics.missingPermissions.join(', ')}`);
+    const requiredChannels = Math.max(1, Number(channelCapacityNeeded) || 1);
+    if (diagnostics.channelCapacityRemaining < requiredChannels) {
+      failures.push(`the Discord server needs ${requiredChannels} free channel slot${requiredChannels === 1 ? '' : 's'} but only ${diagnostics.channelCapacityRemaining} remain`);
+    }
+    if (requireRoleManagement && !diagnostics.canManageRoles) failures.push('missing bot permission: ManageRoles');
+    if (requireRoleManagement && !diagnostics.cultureCoinRoleFound) failures.push(`the ${this.config.cultureCoinRoleName} role was not found`);
+    if (requireRoleManagement && diagnostics.cultureCoinRoleFound && !diagnostics.roleManageable) {
+      failures.push(`move the WISDO bot role above ${diagnostics.cultureCoinRoleName} in Server Settings → Roles`);
+    }
+    if (failures.length) {
+      throw createUserError(`Desk preflight failed: ${failures.join('; ')}.`);
+    }
+    return diagnostics;
+  }
+
+  async ensureCultureCoinMembership(member, { autoGrantRole = false } = {}) {
+    if (this.memberHasCultureCoin(member)) return { eligible: true, roleGranted: false };
+    const role = this.getCultureCoinRole(member.guild);
+    if (!role) {
+      throw createUserError(`Culture Coin role not found. Set CULTURE_COIN_ROLE_ID or create a role named ${this.config.cultureCoinRoleName}.`);
+    }
+    if (!autoGrantRole) return { eligible: false, roleGranted: false };
+    this.assertDeskInfrastructure(member.guild, { requireRoleManagement: true, targetRole: role });
+    try {
+      await member.roles.add(role, 'WISDO operator desk creation');
+      return { eligible: true, roleGranted: true };
+    } catch (error) {
+      logger.error('Culture Coin role assignment failed.', {
+        guildId: member.guild.id,
+        userId: member.id,
+        roleId: role.id,
+        message: error.message,
+      });
+      throw createUserError(`Could not assign the ${role.name} role. Move the WISDO bot role above it and confirm Manage Roles is enabled.`);
+    }
+  }
+
   getCultureCoinRole(guild) {
     if (this.config.cultureCoinRoleId && guild.roles.cache.has(this.config.cultureCoinRoleId)) {
       return guild.roles.cache.get(this.config.cultureCoinRoleId);
@@ -503,9 +605,12 @@ export class OperatorDeskService {
       targets.set(ownerId, ownerId);
     }
 
+    const botMember = this.getBotMember(guild);
+    if (botMember) targets.set(botMember.id, botMember.id);
+
     return [...targets.values()].map((id) => ({
       id,
-      allow: allowPermissions,
+      allow: id === botMember?.id ? [...new Set([...allowPermissions, ...BOT_CHANNEL_ALLOW])] : allowPermissions,
     }));
   }
 
@@ -549,65 +654,85 @@ export class OperatorDeskService {
     ];
   }
 
-  async syncCategory(channel, permissionOverwrites) {
+  async syncCategory(channel, permissionOverwrites, { force = false } = {}) {
+    if (!force && this.syncedCategoryIds.has(channel.id)) return channel;
     try {
       await channel.edit({ permissionOverwrites });
+      this.syncedCategoryIds.add(channel.id);
+      return channel;
     } catch (error) {
       logger.error('Permission failure', {
         channelId: channel.id,
         message: error.message,
       });
-      throw createUserError(
-        'Could not create desk. Please check bot permissions and role configuration.',
-      );
+      throw createUserError(`Could not configure category permissions for ${channel.name}. Confirm Manage Channels and move the WISDO role above the member roles.`);
     }
   }
 
-  async ensureCategory(guild, name) {
-    await guild.channels.fetch();
+  getCategoryShardNumber(name, baseName) {
+    if (name === baseName) return 1;
+    const prefix = `${baseName} `;
+    if (!name.startsWith(prefix)) return null;
+    const suffix = Number(name.slice(prefix.length));
+    return Number.isInteger(suffix) && suffix >= 2 ? suffix : null;
+  }
 
-    const existing = guild.channels.cache.find(
+  getCategoryShards(guild, baseName) {
+    return [...guild.channels.cache.values()]
+      .filter((channel) => channel.type === ChannelType.GuildCategory)
+      .map((channel) => ({ channel, shard: this.getCategoryShardNumber(channel.name, baseName) }))
+      .filter((entry) => entry.shard !== null)
+      .sort((left, right) => left.shard - right.shard);
+  }
+
+  async ensureCategory(guild, name, { capacityNeeded = 1, allowShards = true } = {}) {
+    await guild.channels.fetch();
+    this.assertDeskInfrastructure(guild, { channelCapacityNeeded: Math.max(1, Number(capacityNeeded) || 1) });
+
+    const permissionOverwrites = this.buildCategoryOverwrites(guild);
+    const shards = allowShards ? this.getCategoryShards(guild, name) : [];
+    const exact = guild.channels.cache.find(
       (channel) => channel.type === ChannelType.GuildCategory && channel.name === name,
     );
-    const permissionOverwrites = this.buildCategoryOverwrites(guild);
+    const candidates = allowShards ? shards : exact ? [{ channel: exact, shard: 1 }] : [];
 
-    if (existing) {
-      logger.info('Category found', { guildId: guild.id, categoryId: existing.id, name });
-      await this.syncCategory(existing, permissionOverwrites);
-      return existing;
+    for (const { channel } of candidates) {
+      const childCount = guild.channels.cache.filter((child) => child.parentId === channel.id).size;
+      if (childCount + Math.max(1, capacityNeeded) <= 50) {
+        await this.syncCategory(channel, permissionOverwrites);
+        return channel;
+      }
     }
 
+    const nextShard = candidates.length ? Math.max(...candidates.map((entry) => entry.shard)) + 1 : 1;
+    const categoryName = nextShard === 1 ? name : `${name} ${nextShard}`;
     try {
       const category = await guild.channels.create({
-        name,
+        name: categoryName,
         type: ChannelType.GuildCategory,
         permissionOverwrites,
       });
-
-      logger.info('Category created', { guildId: guild.id, categoryId: category.id, name });
+      this.syncedCategoryIds.add(category.id);
+      logger.info('Category created', { guildId: guild.id, categoryId: category.id, name: categoryName });
       return category;
     } catch (error) {
       logger.error('Permission failure', {
         action: 'create-category',
         guildId: guild.id,
+        categoryName,
         message: error.message,
       });
-      throw createUserError(
-        'Could not create desk. Please check bot permissions and role configuration.',
-      );
+      throw createUserError(`Could not create ${categoryName}. Confirm Manage Channels, View Channels, and the WISDO role position.`);
     }
   }
 
-  async ensureDeskCategory(guild) {
-    return this.ensureCategory(guild, this.config.categoryName);
+  async ensureDeskCategory(guild, { capacityNeeded = 1 } = {}) {
+    return this.ensureCategory(guild, this.config.categoryName, { capacityNeeded, allowShards: true });
   }
 
-  async ensureArchiveCategory(guild) {
-    if (!this.config.archiveCategoryName) {
-      return null;
-    }
-
-    return this.ensureCategory(guild, this.config.archiveCategoryName);
+  async ensureArchiveCategory(guild, { capacityNeeded = 1 } = {}) {
+    if (!this.config.archiveCategoryName) return null;
+    return this.ensureCategory(guild, this.config.archiveCategoryName, { capacityNeeded, allowShards: true });
   }
 
   getDeskTextChannels(guild) {
@@ -765,8 +890,8 @@ export class OperatorDeskService {
       channelName: updates.channelName ?? existing?.channelName ?? null,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
-      archivedAt: updates.archivedAt ?? existing?.archivedAt ?? null,
-      deletedAt: updates.deletedAt ?? existing?.deletedAt ?? null,
+      archivedAt: Object.hasOwn(updates, 'archivedAt') ? updates.archivedAt : (existing?.archivedAt ?? null),
+      deletedAt: Object.hasOwn(updates, 'deletedAt') ? updates.deletedAt : (existing?.deletedAt ?? null),
     };
 
     await this.repository.saveDesk(desk);
@@ -820,17 +945,21 @@ export class OperatorDeskService {
     return voiceChannel;
   }
 
-  async ensureDeskForMember(member) {
+  async ensureDeskForMember(member, { autoGrantRole = false } = {}) {
     if (member.user.bot) {
       return { status: 'skipped-bot' };
     }
 
-    if (!this.memberHasCultureCoin(member)) {
+    const eligibility = await this.ensureCultureCoinMembership(member, { autoGrantRole });
+    if (!eligibility.eligible) {
       logger.info('Member skipped because missing Culture Coin', { userId: member.id });
-      return { status: 'ineligible' };
+      return { status: 'ineligible', roleGranted: false };
     }
 
     await member.guild.channels.fetch();
+    this.assertDeskInfrastructure(member.guild, {
+      channelCapacityNeeded: this.config.createPrivateVoiceChannels ? 2 : 1,
+    });
 
     const existingChannels = this.getDeskTextChannelsByUserId(member.guild, member.id);
     const existingDesk = this.pickPrimaryDeskChannel(existingChannels);
@@ -844,14 +973,18 @@ export class OperatorDeskService {
         const category =
           existingDesk.parent?.type === ChannelType.GuildCategory
             ? existingDesk.parent
-            : await this.ensureDeskCategory(member.guild);
-        voiceChannel = await this.ensureVoiceChannel(member, category, existingRecord?.voiceChannelId);
+            : await this.ensureDeskCategory(member.guild, { capacityNeeded: 1 });
+        try {
+          voiceChannel = await this.ensureVoiceChannel(member, category, existingRecord?.voiceChannelId);
+        } catch (error) {
+          logger.warn('Desk text channel repaired but optional voice channel repair failed.', { userId: member.id, message: error.message });
+        }
       }
 
       if (!isArchived) {
         await existingDesk.edit({
           name: buildDeskChannelName(member.user.username, member.id),
-          parent: existingDesk.parentId || (await this.ensureDeskCategory(member.guild)).id,
+          parent: existingDesk.parentId || (await this.ensureDeskCategory(member.guild, { capacityNeeded: 1 })).id,
           topic: buildDeskTopic(member.id),
           permissionOverwrites: this.buildDeskTextOverwrites(member),
         });
@@ -874,10 +1007,13 @@ export class OperatorDeskService {
         status: isArchived ? 'archived-existing' : 'existing',
         channel: existingDesk,
         voiceChannel,
+        roleGranted: eligibility.roleGranted,
       };
     }
 
-    const category = await this.ensureDeskCategory(member.guild);
+    const category = await this.ensureDeskCategory(member.guild, {
+      capacityNeeded: this.config.createPrivateVoiceChannels ? 2 : 1,
+    });
 
     let deskChannel;
     try {
@@ -910,7 +1046,18 @@ export class OperatorDeskService {
       });
     }
 
-    const voiceChannel = await this.ensureVoiceChannel(member, category);
+    let voiceChannel = null;
+    let voiceWarning = null;
+    try {
+      voiceChannel = await this.ensureVoiceChannel(member, category);
+    } catch (error) {
+      voiceWarning = error.message;
+      logger.warn('Desk created without optional private voice channel.', {
+        userId: member.id,
+        channelId: deskChannel.id,
+        message: error.message,
+      });
+    }
 
     await this.saveDeskRecord(member, {
       channelId: deskChannel.id,
@@ -931,7 +1078,42 @@ export class OperatorDeskService {
       channel: deskChannel,
       voiceChannel,
       guideMessage,
+      roleGranted: eligibility.roleGranted,
+      warnings: voiceWarning ? [voiceWarning] : [],
     };
+  }
+
+  async restoreDeskForMember(member) {
+    await member.guild.channels.fetch();
+    this.assertDeskInfrastructure(member.guild);
+    const channels = this.getDeskTextChannelsByUserId(member.guild, member.id);
+    const archived = channels.find((channel) => channel.name.startsWith('archived-')) || null;
+    if (!archived) return { status: 'not-found' };
+    const record = await this.repository.getDesk(member.id);
+    const capacityNeeded = this.config.createPrivateVoiceChannels && record?.voiceChannelId ? 2 : 1;
+    const category = await this.ensureDeskCategory(member.guild, { capacityNeeded });
+    await archived.edit({
+      name: buildDeskChannelName(member.user.username, member.id),
+      parent: category.id,
+      topic: buildDeskTopic(member.id),
+      permissionOverwrites: this.buildDeskTextOverwrites(member),
+    });
+    let voiceChannel = record?.voiceChannelId ? member.guild.channels.cache.get(record.voiceChannelId) : null;
+    if (voiceChannel) {
+      await voiceChannel.edit({
+        name: buildVoiceChannelName(member.user.username, member.id),
+        parent: category.id,
+        permissionOverwrites: this.buildDeskVoiceOverwrites(member),
+      }).catch((error) => logger.warn('Archived voice desk restore failed.', { userId: member.id, message: error.message }));
+    }
+    await this.saveDeskRecord(member, {
+      channelId: archived.id,
+      voiceChannelId: voiceChannel?.id || record?.voiceChannelId || null,
+      status: 'active',
+      channelName: archived.name,
+      archivedAt: null,
+    });
+    return { status: 'restored', channel: archived, voiceChannel };
   }
 
   async analyzeDeskSystem(guild) {
@@ -939,9 +1121,9 @@ export class OperatorDeskService {
     await guild.channels.fetch();
 
     const cultureCoinRole = this.getCultureCoinRole(guild);
-    const category = guild.channels.cache.find(
-      (channel) => channel.type === ChannelType.GuildCategory && channel.name === this.config.categoryName,
-    );
+    const categories = this.getCategoryShards(guild, this.config.categoryName);
+    const category = categories[0]?.channel || null;
+    const diagnostics = this.getDeskPermissionDiagnostics(guild);
 
     const members = cultureCoinRole
       ? [...guild.members.cache.values()].filter(
@@ -973,6 +1155,8 @@ export class OperatorDeskService {
     return {
       cultureCoinRoleFound: Boolean(cultureCoinRole),
       categoryFound: Boolean(category),
+      categoryCount: categories.length,
+      diagnostics,
       totalCultureCoinMembers: members.length,
       totalDeskChannels: deskChannels.length,
       membersWithDesks: membersWithDesks.length,
@@ -1122,7 +1306,11 @@ export class OperatorDeskService {
   formatDeskStatus(summary) {
     return [
       `Culture Coin role found: ${summary.cultureCoinRoleFound ? 'Yes' : 'No'}`,
-      `Category found: ${summary.categoryFound ? 'Yes' : 'No'}`,
+      `Category found: ${summary.categoryFound ? 'Yes' : 'No'} (${summary.categoryCount || 0} active shard${summary.categoryCount === 1 ? '' : 's'})`,
+      `Bot permission preflight: ${summary.diagnostics?.ok ? 'Ready' : 'Needs attention'}`,
+      `Missing bot permissions: ${summary.diagnostics?.missingPermissions?.length ? summary.diagnostics.missingPermissions.join(', ') : 'None'}`,
+      `Culture Coin role manageable: ${summary.diagnostics?.roleManageable ? 'Yes' : 'No — move WISDO above the Culture Coin role'}`,
+      `Server channel capacity remaining: ${summary.diagnostics?.channelCapacityRemaining ?? 'Unknown'}`,
       `Voice channels enabled: ${summary.voiceChannelsEnabled ? 'Yes' : 'No'}`,
       `Total Culture Coin members: ${summary.totalCultureCoinMembers}`,
       `Total existing desk channels: ${summary.totalDeskChannels}`,
@@ -1149,7 +1337,7 @@ export class OperatorDeskService {
       lines.push(
         `Errors: ${
           result.errors.length
-            ? chunkNames(result.errors.map(({ member }) => member.user.username))
+            ? result.errors.slice(0, 8).map(({ member, message }) => `${member.user.username}: ${message}`).join(' | ')
             : 'None'
         }`,
       );

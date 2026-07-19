@@ -26,6 +26,8 @@ services:
         sync: false
       - key: MT4_SYNC_PATH
         value: /mt4-sync
+      - key: ENABLE_LEGACY_DEADSHOT_MT4_SYNC
+        value: "false"
       - key: MT4_SYNC_API_KEY
         sync: false
       - key: SESSION_SECRET
