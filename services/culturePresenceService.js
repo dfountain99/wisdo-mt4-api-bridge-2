@@ -50,7 +50,10 @@ export function defaultPresence(user={}){
     displayName:cleanText(user.username||user.name||'Culture Member',48), title:'Awakened', verified:false,
     experienceRank:'AWAKENED', accessRank:'AWAKENED', accessSource:'earned', activeMode:'focus',
     preferredGreeting:'Welcome back', trustedDeviceIds:[], disciplineStreak:0, missionsCompleted:0,
-    learningLevel:1, lastWorkspace:'/app/dashboard', lastSeenAt:now(), createdAt:now(), updatedAt:now(),
+    learningLevel:1, lastWorkspace:'/app/dashboard', lastSeenAt:now(), lastActiveAt:now(),
+    presenceStatus:'online', deviceType:'unknown', deviceName:'Unknown device', sessionStartedAt:now(),
+    timezone:'', locale:'', currentAccountId:'', currentPage:'/app/dashboard', awarenessEvents:[],
+    createdAt:now(), updatedAt:now(),
   };
 }
 
@@ -72,3 +75,36 @@ export function buildPresenceSnapshot(state,user){ const row=getOrCreatePresence
 export function grantAccessUpgrade(state,user,{accessRank,source='purchase',purchaseId=null}){ const row=getOrCreatePresence(state,user); const target=String(accessRank||'').toUpperCase(); if(!ACCESS_RANKS.includes(target)) throw new Error('Unknown access rank.'); if(rankIndex(target)<rankIndex(row.accessRank)) throw new Error('Access upgrades cannot reduce the current access rank.'); row.accessRank=target; row.accessSource=source; row.accessPurchaseId=purchaseId; row.accessGrantedAt=now(); row.updatedAt=now(); return row; }
 export function recordAccessPurchase(state,user,{sku,provider='manual',paymentId='',amountCents=null,status='completed'}){ const upgrade=ACCESS_UPGRADES.find(x=>x.sku===sku); if(!upgrade) throw new Error('Unknown access upgrade.'); const id=paymentId||crypto.randomUUID(); const purchase={id,userId:String(user.id),sku,accessRank:upgrade.accessRank,amountCents:amountCents??upgrade.amountCents,provider,status,createdAt:now()}; state.cultureAccessPurchasesById[id]=purchase; if(status==='completed') grantAccessUpgrade(state,user,{accessRank:upgrade.accessRank,source:'purchase',purchaseId:id}); return purchase; }
 export function createTeachSession(state,user,input={}){ const row=getOrCreatePresence(state,user); if(!hasAccessRank(row.accessRank,'BUILDER')) throw new Error('Teach Mode requires Builder access.'); const uid=String(user.id); state.cultureTeachSessionsByUserId[uid] ||= []; const session={id:crypto.randomUUID(),topic:cleanText(input.topic||'Trading discipline',80),accountId:cleanText(input.accountId||'',80),lessonGoal:cleanText(input.lessonGoal||'Review decisions and identify one improvement.',180),status:'active',score:null,createdAt:now(),updatedAt:now()}; state.cultureTeachSessionsByUserId[uid].push(session); row.activeMode='teach'; row.updatedAt=now(); return session; }
+
+
+export function updatePresenceAwareness(state,user,input={}){
+  const row=getOrCreatePresence(state,user);
+  const page=String(input.currentPage||input.page||row.currentPage||'/app/dashboard').trim();
+  if(page.startsWith('/app/')){ row.currentPage=page.slice(0,180); row.lastWorkspace=row.currentPage; }
+  row.currentAccountId=cleanText(input.currentAccountId||input.accountId||row.currentAccountId||'',80);
+  row.deviceType=cleanText(input.deviceType||row.deviceType||'unknown',30);
+  row.deviceName=cleanText(input.deviceName||row.deviceName||'Unknown device',80);
+  row.timezone=cleanText(input.timezone||row.timezone||'',60);
+  row.locale=cleanText(input.locale||row.locale||'',30);
+  row.presenceStatus=['online','away','focused','offline'].includes(String(input.status||'').toLowerCase())?String(input.status).toLowerCase():'online';
+  row.lastSeenAt=now(); row.lastActiveAt=now(); row.updatedAt=now();
+  row.awarenessEvents ||= [];
+  const event={at:now(),page:row.currentPage,accountId:row.currentAccountId,mode:row.activeMode,status:row.presenceStatus,deviceType:row.deviceType};
+  const last=row.awarenessEvents[row.awarenessEvents.length-1];
+  if(!last||last.page!==event.page||last.accountId!==event.accountId||last.mode!==event.mode||last.status!==event.status) row.awarenessEvents.push(event);
+  row.awarenessEvents=row.awarenessEvents.slice(-50);
+  return row;
+}
+
+export function presenceGreeting(row={},date=new Date()){
+  const hour=date.getHours();
+  const daypart=hour<12?'Good morning':hour<18?'Good afternoon':'Good evening';
+  const name=row.displayName||row.cultureId||'Culture Member';
+  const custom=String(row.preferredGreeting||'').trim();
+  return custom&&custom!=='Welcome back'?`${custom}, ${name}.`:`${daypart}, ${name}. Wisdo is aware and ready.`;
+}
+
+export function buildAwarenessSnapshot(state,user){
+  const row=getOrCreatePresence(state,user);
+  return {...buildPresenceSnapshot(state,user),greeting:presenceGreeting(row),resumePath:row.lastWorkspace||'/app/dashboard',recentAwareness:[...(row.awarenessEvents||[])].slice(-10).reverse()};
+}

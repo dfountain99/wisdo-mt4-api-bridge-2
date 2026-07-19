@@ -1,5 +1,5 @@
 import { getSessionUser, safeReturnPath } from './security.js';
-import { ACCESS_UPGRADES, buildPresenceSnapshot, createTeachSession, ensurePresenceState, getOrCreatePresence, recordAccessPurchase, setPresenceMode, updateIdentity } from '../services/culturePresenceService.js';
+import { ACCESS_UPGRADES, buildPresenceSnapshot, createTeachSession, ensurePresenceState, getOrCreatePresence, recordAccessPurchase, setPresenceMode, updateIdentity, updatePresenceAwareness, buildAwarenessSnapshot } from '../services/culturePresenceService.js';
 
 function parseBool(v){ return v===true||['1','true','yes','on'].includes(String(v||'').toLowerCase()); }
 function currentUser(req){ const session=getSessionUser(req); if(session?.id)return session; if((process.env.NODE_ENV==='test'||parseBool(process.env.WISDO_ALLOW_TEST_IDENTITY))&&req.headers['x-wisdo-test-user'])return{id:String(req.headers['x-wisdo-test-user']),username:'Test Member',roles:['admin']}; return null; }
@@ -8,7 +8,10 @@ async function mutate(load,save,fn){ const state=ensurePresenceState(await load(
 function esc(value){ return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c])); }
 
 export function registerPresenceIdentityRoutes(app,{loadEcosystemState,saveEcosystemState,paymentService=null,logger=null}){
-  app.get('/api/presence/me',requireUser,async(req,res)=>{ try{ const state=ensurePresenceState(await loadEcosystemState()); const snapshot=buildPresenceSnapshot(state,req.wisdoUser); await saveEcosystemState(state); res.json({ok:true,presence:snapshot}); }catch(error){res.status(400).json({ok:false,error:error.message});} });
+  app.get('/api/presence/me',requireUser,async(req,res)=>{ try{ const state=ensurePresenceState(await loadEcosystemState()); const snapshot=buildAwarenessSnapshot(state,req.wisdoUser); await saveEcosystemState(state); res.json({ok:true,presence:snapshot}); }catch(error){res.status(400).json({ok:false,error:error.message});} });
+
+  app.post('/api/presence/heartbeat',requireUser,async(req,res)=>{ try{ const presence=await mutate(loadEcosystemState,saveEcosystemState,state=>updatePresenceAwareness(state,req.wisdoUser,req.body||{})); res.json({ok:true,presence:buildAwarenessSnapshot(ensurePresenceState(await loadEcosystemState()),req.wisdoUser)}); }catch(error){res.status(400).json({ok:false,error:error.message});} });
+  app.post('/api/presence/status',requireUser,async(req,res)=>{ try{ const presence=await mutate(loadEcosystemState,saveEcosystemState,state=>updatePresenceAwareness(state,req.wisdoUser,{...(req.body||{}),currentPage:req.body?.currentPage||req.headers.referer||'/app/dashboard'})); res.json({ok:true,presence}); }catch(error){res.status(400).json({ok:false,error:error.message});} });
   app.patch('/api/presence/identity',requireUser,async(req,res)=>{ try{ const presence=await mutate(loadEcosystemState,saveEcosystemState,state=>updateIdentity(state,req.wisdoUser,req.body||{})); res.json({ok:true,presence}); }catch(error){res.status(400).json({ok:false,error:error.message});} });
   app.post('/api/presence/mode',requireUser,async(req,res)=>{ try{ const presence=await mutate(loadEcosystemState,saveEcosystemState,state=>setPresenceMode(state,req.wisdoUser,req.body?.mode)); res.json({ok:true,presence}); }catch(error){res.status(403).json({ok:false,error:error.message});} });
   app.post('/api/presence/teach/sessions',requireUser,async(req,res)=>{ try{ const session=await mutate(loadEcosystemState,saveEcosystemState,state=>createTeachSession(state,req.wisdoUser,req.body||{})); res.status(201).json({ok:true,session}); }catch(error){res.status(403).json({ok:false,error:error.message});} });

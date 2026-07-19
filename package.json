@@ -1,7 +1,7 @@
 {
   "name": "culture-coin-operator-desks-bot",
-  "version": "6.2.0",
-  "description": "WISDO v6.2.0 with Culture Identity, paid Access Rank bypass, product entitlements, Presence modes, and Teach Mode foundation.",
+  "version": "6.3.0",
+  "description": "WISDO v6.3.0 Presence Awareness: identity-aware greetings, workspace memory, device/session awareness, account context, mode controls, and portal-wide presence telemetry.",
   "type": "module",
   "private": true,
   "scripts": {
