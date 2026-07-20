@@ -199,6 +199,9 @@ export class Mt4SyncService {
     this.lastHistoryAtByAccount = new Map();
     this.pairingRecordCache = new Map();
     this.pairingRecoveryByCode = new Map();
+    this.postSnapshotQueueByAccount = new Map();
+    this.postSnapshotWorkerRunning = false;
+    this.postSnapshotQueueLimit = Math.max(10, Math.min(250, Number(process.env.WISDO_POST_SNAPSHOT_QUEUE_MAX || 75)));
     this.pairingCacheTtlMs = Math.max(30_000, Number(process.env.WISDO_PAIRING_CACHE_TTL_MS || 300_000));
   }
 
@@ -212,6 +215,97 @@ export class Mt4SyncService {
 
   attachProductEventSink(sink) {
     this.productEventSink = sink || null;
+  }
+
+  compactPostSnapshotRecord(latestSnapshotRecord = {}) {
+    const snapshot = latestSnapshotRecord.snapshot || {};
+    const compactTrade = (trade = {}) => ({
+      ticket: trade.ticket,
+      symbol: trade.symbol,
+      type: trade.type,
+      lots: trade.lots,
+      openPrice: trade.openPrice,
+      closePrice: trade.closePrice,
+      currentPrice: trade.currentPrice,
+      stopLoss: trade.stopLoss,
+      takeProfit: trade.takeProfit,
+      profit: trade.profit,
+      swap: trade.swap,
+      commission: trade.commission,
+      openTime: trade.openTime,
+      closeTime: trade.closeTime,
+      magicNumber: trade.magicNumber,
+      comment: trade.comment,
+    });
+    const maxTrades = Math.max(50, Math.min(1000, Number(process.env.WISDO_POST_SNAPSHOT_MAX_TRADES || 300)));
+    return {
+      discordUserId: latestSnapshotRecord.discordUserId,
+      channelId: latestSnapshotRecord.channelId,
+      accountId: latestSnapshotRecord.accountId,
+      receivedAt: latestSnapshotRecord.receivedAt,
+      snapshot: {
+        balance: snapshot.balance,
+        equity: snapshot.equity,
+        margin: snapshot.margin,
+        freeMargin: snapshot.freeMargin,
+        marginLevel: snapshot.marginLevel,
+        floatingPL: snapshot.floatingPL,
+        dailyClosedPL: snapshot.dailyClosedPL,
+        openTradeCount: snapshot.openTradeCount,
+        terminalConnected: snapshot.terminalConnected,
+        expertEnabled: snapshot.expertEnabled,
+        openTrades: (Array.isArray(snapshot.openTrades) ? snapshot.openTrades : []).slice(0, maxTrades).map(compactTrade),
+        closedTradesToday: (Array.isArray(snapshot.closedTradesToday) ? snapshot.closedTradesToday : []).slice(0, maxTrades).map(compactTrade),
+      },
+    };
+  }
+
+  enqueuePostSnapshotWork({ connectionRecord, latestSnapshotRecord, signalSummary }) {
+    const accountId = String(connectionRecord?.accountId || latestSnapshotRecord?.accountId || '');
+    if (!accountId) return false;
+    this.postSnapshotQueueByAccount.set(accountId, {
+      connectionRecord: { ...connectionRecord },
+      latestSnapshotRecord: this.compactPostSnapshotRecord(latestSnapshotRecord),
+      signalSummary: {
+        opened: Number(signalSummary?.opened || 0),
+        closed: Number(signalSummary?.closed || 0),
+        skipped: Boolean(signalSummary?.skipped),
+        reason: signalSummary?.reason || null,
+      },
+    });
+    while (this.postSnapshotQueueByAccount.size > this.postSnapshotQueueLimit) {
+      this.postSnapshotQueueByAccount.delete(this.postSnapshotQueueByAccount.keys().next().value);
+    }
+    if (!this.postSnapshotWorkerRunning) {
+      this.postSnapshotWorkerRunning = true;
+      setImmediate(() => this.drainPostSnapshotWork());
+    }
+    return true;
+  }
+
+  async drainPostSnapshotWork() {
+    try {
+      while (this.postSnapshotQueueByAccount.size) {
+        const [accountId, event] = this.postSnapshotQueueByAccount.entries().next().value;
+        this.postSnapshotQueueByAccount.delete(accountId);
+        if (this.wisdoMemoryService?.updateFromSnapshot) {
+          await this.wisdoMemoryService.updateFromSnapshot(event).catch((error) => {
+            logger.warn('WISDO memory update failed after MT4 sync.', { accountId, message: error.message });
+          });
+        }
+        if (this.productEventSink?.ingestSnapshot) {
+          await this.productEventSink.ingestSnapshot(event).catch((error) => {
+            logger.warn('WISDO product ledger update failed after MT4 sync.', { accountId, message: error.message });
+          });
+        }
+      }
+    } finally {
+      this.postSnapshotWorkerRunning = false;
+      if (this.postSnapshotQueueByAccount.size) {
+        this.postSnapshotWorkerRunning = true;
+        setImmediate(() => this.drainPostSnapshotWork());
+      }
+    }
   }
 
   getPublicBaseUrl() {
@@ -559,13 +653,35 @@ export class Mt4SyncService {
   }
 
   getTradeSignalKey(accountId, trade) {
+    const ticket = String(trade?.ticket ?? '').trim();
+    if (ticket) return `${String(accountId)}|${ticket}`;
     return [
-      accountId,
-      trade?.ticket || '',
+      String(accountId),
+      'fallback',
       trade?.openTime || '',
       trade?.symbol || '',
       trade?.type || '',
     ].join('|');
+  }
+
+  normalizeTrackedTradeKey(accountId, key) {
+    const raw = String(key || '');
+    const parts = raw.split('|');
+    if (parts.length >= 2 && String(parts[0]) === String(accountId) && parts[1]) {
+      if (parts[1] === 'fallback') return raw;
+      return `${String(accountId)}|${String(parts[1])}`;
+    }
+    return raw;
+  }
+
+  tradeMetaFromKey(key, fallback = {}) {
+    const parts = String(key || '').split('|');
+    return {
+      sourceTicket: String(fallback.sourceTicket || parts[1] || ''),
+      symbol: String(fallback.symbol || parts[3] || '').toUpperCase(),
+      side: String(fallback.side || parts[4] || ''),
+      openTime: fallback.openTime || parts[2] || null,
+    };
   }
 
   async processTradeSignals({ connectionRecord, latestSnapshotRecord, priorTracking = undefined }) {
@@ -590,11 +706,36 @@ export class Mt4SyncService {
       const liveState = await this.repository.getMt4State?.() || {};
       priorTracking = liveState.signalTrackingByAccountId?.[accountId] || null;
     }
+    const rawPreviousKeys = Array.isArray(priorTracking?.openKeys) ? priorTracking.openKeys : [];
+    const previousKeys = [...new Set(rawPreviousKeys.map((key) => this.normalizeTrackedTradeKey(accountId, key)).filter(Boolean))];
+    const priorSignalMap = priorTracking?.tradeKeyToSignalId || {};
+    const priorMetaMap = priorTracking?.tradeMetaByKey || {};
+    const normalizedSignalMap = {};
+    const normalizedMetaMap = {};
+    for (const rawKey of rawPreviousKeys) {
+      const normalizedKey = this.normalizeTrackedTradeKey(accountId, rawKey);
+      if (!normalizedKey) continue;
+      const signalId = priorSignalMap[rawKey] || priorSignalMap[normalizedKey] || null;
+      if (signalId) normalizedSignalMap[normalizedKey] = signalId;
+      normalizedMetaMap[normalizedKey] = this.tradeMetaFromKey(rawKey, priorMetaMap[rawKey] || priorMetaMap[normalizedKey] || {});
+    }
     const tracking = {
-      openKeys: Array.isArray(priorTracking?.openKeys) ? [...priorTracking.openKeys] : [],
-      tradeKeyToSignalId: { ...(priorTracking?.tradeKeyToSignalId || {}) },
+      openKeys: previousKeys,
+      tradeKeyToSignalId: normalizedSignalMap,
+      tradeMetaByKey: normalizedMetaMap,
     };
-    const previousKeys = tracking.openKeys;
+    const currentMetaByKey = {};
+    for (let index = 0; index < openTrades.length; index += 1) {
+      const trade = openTrades[index];
+      const key = nowOpenKeys[index];
+      if (!key) continue;
+      currentMetaByKey[key] = {
+        sourceTicket: String(trade?.ticket ?? '').trim(),
+        symbol: String(trade?.symbol || '').toUpperCase(),
+        side: String(trade?.type || ''),
+        openTime: trade?.openTime || null,
+      };
+    }
     const previousSet = new Set(previousKeys);
     const nowSet = new Set(nowOpenKeys);
 
@@ -653,19 +794,18 @@ export class Mt4SyncService {
       if (nowSet.has(oldKey)) continue;
       closed += 1;
       const signalId = tracking.tradeKeyToSignalId?.[oldKey] || null;
-      const [, sourceTicket = ''] = String(oldKey).split('|');
-      const closedSymbol = String(oldKey).split('|')[3] || '';
-      const closedSide = String(oldKey).split('|')[4] || '';
+      const meta = tracking.tradeMetaByKey?.[oldKey] || this.tradeMetaFromKey(oldKey);
       closeEvents.push({
         signalId,
         leaderAccountId: accountId,
         leaderUserId: connectionRecord.discordUserId,
         leaderAccountNumber: connectionRecord.accountNumber,
-        sourceTicket,
-        symbol: closedSymbol,
-        side: closedSide,
+        sourceTicket: meta.sourceTicket,
+        symbol: meta.symbol,
+        side: meta.side,
       });
       delete tracking.tradeKeyToSignalId[oldKey];
+      delete tracking.tradeMetaByKey[oldKey];
     }
 
     if (closeEvents.length && this.tradeSignalService.queueSignalClosuresBatch) {
@@ -688,13 +828,17 @@ export class Mt4SyncService {
     }
 
     const activeSignalMap = {};
+    const activeTradeMetaByKey = {};
     for (const key of nowOpenKeys) {
       if (tracking.tradeKeyToSignalId?.[key]) activeSignalMap[key] = tracking.tradeKeyToSignalId[key];
+      if (currentMetaByKey[key]) activeTradeMetaByKey[key] = currentMetaByKey[key];
     }
 
     const nextTracking = {
-      openKeys: nowOpenKeys,
+      schemaVersion: 2,
+      openKeys: [...new Set(nowOpenKeys)],
       tradeKeyToSignalId: activeSignalMap,
+      tradeMetaByKey: activeTradeMetaByKey,
       updatedAt: new Date().toISOString(),
     };
     if (managesTrackingPersistence) {
@@ -1087,26 +1231,7 @@ export class Mt4SyncService {
       while (this.routePreparationByAccount.size > 1000) this.routePreparationByAccount.delete(this.routePreparationByAccount.keys().next().value);
     }
 
-    setImmediate(() => {
-      if (this.wisdoMemoryService?.updateFromSnapshot) {
-        this.wisdoMemoryService.updateFromSnapshot({ connectionRecord, latestSnapshotRecord }).catch((error) => {
-          logger.warn('WISDO memory update failed after MT4 sync.', {
-            discordUserId: pairingRecord.discordUserId,
-            accountId,
-            message: error.message,
-          });
-        });
-      }
-      if (this.productEventSink?.ingestSnapshot) {
-        this.productEventSink.ingestSnapshot({ connectionRecord, latestSnapshotRecord, signalSummary }).catch((error) => {
-          logger.warn('WISDO product ledger update failed after MT4 sync.', {
-            discordUserId: pairingRecord.discordUserId,
-            accountId,
-            message: error.message,
-          });
-        });
-      }
-    });
+    this.enqueuePostSnapshotWork({ connectionRecord, latestSnapshotRecord, signalSummary });
 
     logger.info('MT4 snapshot received', {
       discordUserId: pairingRecord.discordUserId,
@@ -1225,9 +1350,9 @@ async resetUserAccount(discordUserId) {
       'Student setup:',
       '',
       '1. Open MT4.',
-      '2. Compile the attached CultureCoin_MT4_Reporter.mq4 in MetaEditor and install the resulting v1.58 EX4 into MQL4 -> Experts.',
+      '2. Compile the attached CultureCoin_MT4_Reporter.mq4 in MetaEditor and install the resulting v1.59 EX4 into MQL4 -> Experts.',
       '3. Remove the older Reporter from the follower chart, then restart MT4 or refresh Navigator.',
-      '4. Attach the newly compiled CultureCoin_MT4_Reporter v1.58 to any chart.',
+      '4. Attach the newly compiled CultureCoin_MT4_Reporter v1.59 to any chart.',
       '5. Paste this pairing code into the PairingCode input.',
       `6. Set SyncUrl to: ${syncUrl}`,
       apiKeyStep,

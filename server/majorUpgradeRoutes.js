@@ -389,20 +389,21 @@ function appendMemberAlert(state, userId, alert = {}, eventKey = '') {
     created_at: alert.created_at || nowIso(),
   };
   state.alerts[uid].unshift(row);
-  state.alerts[uid] = state.alerts[uid].slice(0, 1000);
+  state.alerts[uid] = state.alerts[uid].slice(0, Math.max(50, Number(process.env.WISDO_MEMBER_ALERT_LIMIT || 250)));
   if (eventKey) {
     state.liveTradeEventKeys[eventKey] = row.created_at;
     const entries = Object.entries(state.liveTradeEventKeys);
-    if (entries.length > 5000) state.liveTradeEventKeys = Object.fromEntries(entries.sort((a,b)=>new Date(b[1])-new Date(a[1])).slice(0, 4000));
+    if (entries.length > 2500) state.liveTradeEventKeys = Object.fromEntries(entries.sort((a,b)=>new Date(b[1])-new Date(a[1])).slice(0, 2000));
   }
   return row;
 }
 
-function upsertSnapshotTrade(state, { userId, accountId, trade, closed = false, receivedAt = nowIso() }) {
+function upsertSnapshotTrade(state, { userId, accountId, trade, closed = false, receivedAt = nowIso(), tradeLookup = null }) {
   const ticket = String(trade?.ticket ?? '').trim();
   if (!ticket || !accountId) return { trade: null, created: false, changedToClosed: false };
-  const existing = Object.values(state.trades).find((row) => String(row.account_id) === String(accountId) && String(row.external_ticket || '') === ticket);
-  const tradeId = existing?.id || stableLiveTradeId(accountId, ticket);
+  const deterministicId = stableLiveTradeId(accountId, ticket);
+  const existing = state.trades?.[deterministicId] || tradeLookup?.get(ticket) || null;
+  const tradeId = existing?.id || deterministicId;
   const previousStatus = existing?.status || null;
   const row = {
     ...(existing || {}),
@@ -434,7 +435,30 @@ function upsertSnapshotTrade(state, { userId, accountId, trade, closed = false, 
     updated_at: receivedAt,
   };
   state.trades[tradeId] = row;
+  tradeLookup?.set(ticket, row);
   return { trade: row, created: !existing, changedToClosed: closed && previousStatus !== 'closed' };
+}
+
+function buildAccountTradeLookup(state, accountId) {
+  const lookup = new Map();
+  for (const trade of Object.values(state.trades || {})) {
+    if (String(trade?.account_id || '') !== String(accountId)) continue;
+    const ticket = String(trade?.external_ticket || '').trim();
+    if (ticket) lookup.set(ticket, trade);
+  }
+  return lookup;
+}
+
+function pruneAccountTradeLedger(state, accountId) {
+  const limit = Math.max(100, Math.min(5000, Number(process.env.WISDO_PRODUCT_TRADES_PER_ACCOUNT_LIMIT || 1000)));
+  const rows = Object.values(state.trades || {}).filter((trade) => String(trade?.account_id || '') === String(accountId));
+  if (rows.length <= limit) return;
+  const open = rows.filter((trade) => ['open', 'closing', 'closed_pending_history'].includes(String(trade?.status || '')));
+  const closed = rows.filter((trade) => !open.includes(trade)).sort((a, b) =>
+    new Date(b?.closed_at || b?.updated_at || b?.opened_at || 0) - new Date(a?.closed_at || a?.updated_at || a?.opened_at || 0)
+  );
+  const keep = new Set([...open, ...closed.slice(0, Math.max(0, limit - open.length))].map((trade) => String(trade.id || '')));
+  for (const trade of rows) if (!keep.has(String(trade.id || ''))) delete state.trades[trade.id];
 }
 
 export async function ingestReporterSnapshotToProductState({ connectionRecord, latestSnapshotRecord, signalSummary = {}, loadEcosystemState, saveEcosystemState }) {
@@ -487,14 +511,20 @@ export async function ingestReporterSnapshotToProductState({ connectionRecord, l
         marginLevel: num(snapshot.marginLevel),
         openTradeCount: num(snapshot.openTradeCount),
       });
-      state.accountTelemetry[accountId] = state.accountTelemetry[accountId].sort((a,b)=>new Date(a.receivedAt)-new Date(b.receivedAt)).slice(-2500);
+      const telemetryLimit = Math.max(50, Math.min(2500, Number(process.env.WISDO_ACCOUNT_TELEMETRY_LIMIT || 500)));
+      const telemetry = state.accountTelemetry[accountId];
+      if (telemetry.length > 1 && new Date(telemetry.at(-2)?.receivedAt || 0) > new Date(telemetry.at(-1)?.receivedAt || 0)) {
+        telemetry.sort((a,b)=>new Date(a.receivedAt)-new Date(b.receivedAt));
+      }
+      state.accountTelemetry[accountId] = telemetry.slice(-telemetryLimit);
     }
 
     let openUpserts = 0;
     let closedUpserts = 0;
     let alerts = 0;
     const newlyClosedLeaderTrades = [];
-    const previousLeaderOpenTrades = Object.values(state.trades || {}).filter((trade) =>
+    const tradeLookup = buildAccountTradeLookup(state, accountId);
+    const previousLeaderOpenTrades = [...tradeLookup.values()].filter((trade) =>
       String(trade.account_id || '') === accountId &&
       !trade.copier_rule_id &&
       ['open', 'closing'].includes(String(trade.status || '')) &&
@@ -503,7 +533,7 @@ export async function ingestReporterSnapshotToProductState({ connectionRecord, l
     const snapshotOpenTickets = new Set((Array.isArray(snapshot.openTrades) ? snapshot.openTrades : []).map((trade) => String(trade?.ticket ?? '').trim()).filter(Boolean));
     const snapshotClosedTickets = new Set((Array.isArray(snapshot.closedTradesToday) ? snapshot.closedTradesToday : []).map((trade) => String(trade?.ticket ?? '').trim()).filter(Boolean));
     for (const trade of Array.isArray(snapshot.openTrades) ? snapshot.openTrades : []) {
-      const result = upsertSnapshotTrade(state, { userId, accountId, trade, closed: false, receivedAt });
+      const result = upsertSnapshotTrade(state, { userId, accountId, trade, closed: false, receivedAt, tradeLookup });
       if (!result.trade) continue;
       openUpserts += 1;
       if (result.created) {
@@ -517,7 +547,7 @@ export async function ingestReporterSnapshotToProductState({ connectionRecord, l
       }
     }
     for (const trade of Array.isArray(snapshot.closedTradesToday) ? snapshot.closedTradesToday : []) {
-      const result = upsertSnapshotTrade(state, { userId, accountId, trade, closed: true, receivedAt });
+      const result = upsertSnapshotTrade(state, { userId, accountId, trade, closed: true, receivedAt, tradeLookup });
       if (!result.trade) continue;
       closedUpserts += 1;
       if (result.changedToClosed) {
@@ -598,8 +628,9 @@ export async function ingestReporterSnapshotToProductState({ connectionRecord, l
       state.relayDiagnostics.unshift({
         id: id('relaydiag'), userId, accountId, opened: num(signalSummary.opened), closed: num(signalSummary.closed), skipped: Boolean(signalSummary.skipped), reason: signalSummary.reason || null, createdAt: receivedAt,
       });
-      state.relayDiagnostics = state.relayDiagnostics.slice(0, 2000);
+      state.relayDiagnostics = state.relayDiagnostics.slice(0, Math.max(100, Number(process.env.WISDO_RELAY_DIAGNOSTIC_LIMIT || 500)));
     }
+    pruneAccountTradeLedger(state, accountId);
     return { openUpserts, closedUpserts, alerts, accountId, userId, newlyClosedLeaderTrades };
   });
 }
@@ -2092,8 +2123,8 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
   app.post('/api/public/cron/refresh-market',cronGuard,async(req,res)=>{await mutate(loadEcosystemState,saveEcosystemState,state=>{state.marketCache={refreshedAt:nowIso(),providerConfigured:Boolean(process.env.FINNHUB_API_KEY||process.env.TRADING_ECONOMICS_API_KEY||process.env.FIRECRAWL_API_KEY)};return true});res.json({ok:true,refreshedAt:nowIso()})});
 
   app.post('/api/public/cron/wisdo-coach',cronGuard,async(req,res)=>{const generated=await runProactiveCoach({limit:Number(req.body?.limit||100),force:parseBool(req.body?.force)});res.json({ok:true,generated:generated.length,messageIds:generated})});
-  app.get('/api/public/health',async(req,res)=>{const security=sessionSecurityStatus();res.json({ok:true,service:'WISDO Major Product Pass',version:'6.1.0',time:nowIso(),persistence:'postgres',security,integrations:{discord:Boolean(process.env.DISCORD_TOKEN&&process.env.CLIENT_ID),square:Boolean(process.env.SQUARE_ACCESS_TOKEN&&process.env.SQUARE_LOCATION_ID),resend:Boolean(process.env.RESEND_API_KEY&&process.env.RESEND_FROM_EMAIL),sms:Boolean(process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN&&process.env.TWILIO_FROM_NUMBER),market:Boolean(process.env.FINNHUB_API_KEY||process.env.TRADING_ECONOMICS_API_KEY||process.env.FIRECRAWL_API_KEY),ai:Boolean(process.env.OPENAI_API_KEY||process.env.GOOGLE_AI_API_KEY),postgres:Boolean(process.env.DATABASE_URL)},features:{premiumPublicSite:true,pricingConfigurator:true,operationalApi:true,signedBrokerWebhook:true,accountSpecificCommands:true,academy:true,affiliate:true,unifiedCopierOptions:true,protectedPrivateStrategies:true,aiWebinarRoom:true,adminStrategyStudio:true,browserNarration:true,chartTeacher:true,tradingViewLessons:true,realHistoricalExamples:true,fakeChartFallbackDisabled:true,squareCheckout:true,renderMemoryRepair:true,growthFunnel:true,signupEmailSms:true,personalLearningRoom:true,educationDripSequence:true,portableLeadAi:true,videoEngagementTracking:true,persistentAccountRoles:true,persistenceBackupRecovery:true,immediateBulkClose:true,closeProfitableOnly:true,closeLosingOnly:true,compoundCloseTracker:true,dailyWeeklyTrendGauges:true,closeEmailDiscordNotifications:true,cultureLaneVault:true,smartSymbolRouting:true,harvestMode:true,laneGenomes:true,laneTimeline:true,tradePassports:true,laneDna:true,cultureIntelligence:true,redisStreamsRelay:true,commandDeadLetterRecovery:true,parallelLaneClose:true,visibleCultureLanePages:true,clickableLeaderSymbolMatrix:true,multiReceiverCultureLaneBuilder:true,combinedLaneDashboard:true,dashboardHarvestAuthority:true,leaderCloseSnapshotFailsafe:true,relaySelfRepair:true,postgresRedeployPersistence:true,dashboardLeaderClose:true,comprehensiveCompoundTracker:true,compoundScopeGoals:true,compoundAttributionTables:true,databaseOnlyPersistence:true,sharedPostgresPool:true,databaseReadCache:true,fastReporterHeartbeat:true,nonBlockingAiIngest:true,singleFlightWorkers:true,resilientReporterBackoff:true,metaApiAccountConnection:true,cTraderOAuthAccountDiscovery:true,brokerWebhookApi:true,aiAcademyCoach:true,proactiveLaneCoach:true,coachEmailSmsDmPreferences:true}})});
-  app.get('/api/runtime-audit',async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,version:'6.1.0',source:'wisdo-culture-lane-os-v6.1.0.zip',checks:{rootRoute:true,publicProductPages:true,loginReturnTo:true,signedSessions:sessionSecurityStatus().signedSessions,credentialEncryptionReady:sessionSecurityStatus().credentialEncryptionConfigured,copierRules:Object.keys(state.copierRules).length,accounts:Object.keys(state.tradingAccounts).length,trades:Object.keys(state.trades).length,closeSignalsBypassEntryFilters:true,followerSymbolGuaranteed:true,persistentStorageConfigured:Boolean(process.env.DATABASE_URL),executionAutomatchEnabled:parseBool(process.env.WISDO_SYMBOL_AUTOMATCH_EXECUTION_ENABLED),unifiedCopierOptions:true,privateStrategySourcePublic:false,aiWebinarRoom:true,adminStrategyStudio:true,browserNarration:true,chartTeacher:true,tradingViewLessons:true,realHistoricalExamples:true,fakeChartFallbackDisabled:true,squareCheckout:true,renderMemoryRepair:true,growthFunnel:true,signupEmailSms:true,personalLearningRoom:true,educationDripSequence:true,portableLeadAi:true,videoEngagementTracking:true,persistentAccountRoles:true,persistenceBackupRecovery:true,immediateBulkClose:true,closeProfitableOnly:true,closeLosingOnly:true,compoundCloseTracker:true,dailyWeeklyTrendGauges:true,closeEmailDiscordNotifications:true,cultureLaneVault:true,smartSymbolRouting:true,harvestMode:true,laneGenomes:true,laneTimeline:true,tradePassports:true,laneDna:true,cultureIntelligence:true,redisStreamsRelay:true,commandDeadLetterRecovery:true,parallelLaneClose:true,visibleCultureLanePages:true,clickableLeaderSymbolMatrix:true,multiReceiverCultureLaneBuilder:true,combinedLaneDashboard:true,dashboardHarvestAuthority:true,leaderCloseSnapshotFailsafe:true,relaySelfRepair:true,postgresRedeployPersistence:true,dashboardLeaderClose:true,comprehensiveCompoundTracker:true,compoundScopeGoals:true,compoundAttributionTables:true,databaseOnlyPersistence:true,sharedPostgresPool:true,databaseReadCache:true,fastReporterHeartbeat:true,nonBlockingAiIngest:true,singleFlightWorkers:true,resilientReporterBackoff:true,metaApiAccountConnection:true,cTraderOAuthAccountDiscovery:true,brokerWebhookApi:true,aiAcademyCoach:true,proactiveLaneCoach:true,coachEmailSmsDmPreferences:true}})});
+  app.get('/api/public/health',async(req,res)=>{const security=sessionSecurityStatus();res.json({ok:true,service:'WISDO Major Product Pass',version:'7.0.6',time:nowIso(),persistence:'postgres',security,integrations:{discord:Boolean(process.env.DISCORD_TOKEN&&process.env.CLIENT_ID),square:Boolean(process.env.SQUARE_ACCESS_TOKEN&&process.env.SQUARE_LOCATION_ID),resend:Boolean(process.env.RESEND_API_KEY&&process.env.RESEND_FROM_EMAIL),sms:Boolean(process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN&&process.env.TWILIO_FROM_NUMBER),market:Boolean(process.env.FINNHUB_API_KEY||process.env.TRADING_ECONOMICS_API_KEY||process.env.FIRECRAWL_API_KEY),ai:Boolean(process.env.OPENAI_API_KEY||process.env.GOOGLE_AI_API_KEY),postgres:Boolean(process.env.DATABASE_URL)},features:{premiumPublicSite:true,pricingConfigurator:true,operationalApi:true,signedBrokerWebhook:true,accountSpecificCommands:true,academy:true,affiliate:true,unifiedCopierOptions:true,protectedPrivateStrategies:true,aiWebinarRoom:true,adminStrategyStudio:true,browserNarration:true,chartTeacher:true,tradingViewLessons:true,realHistoricalExamples:true,fakeChartFallbackDisabled:true,squareCheckout:true,renderMemoryRepair:true,growthFunnel:true,signupEmailSms:true,personalLearningRoom:true,educationDripSequence:true,portableLeadAi:true,videoEngagementTracking:true,persistentAccountRoles:true,persistenceBackupRecovery:true,immediateBulkClose:true,closeProfitableOnly:true,closeLosingOnly:true,compoundCloseTracker:true,dailyWeeklyTrendGauges:true,closeEmailDiscordNotifications:true,cultureLaneVault:true,smartSymbolRouting:true,harvestMode:true,laneGenomes:true,laneTimeline:true,tradePassports:true,laneDna:true,cultureIntelligence:true,redisStreamsRelay:true,commandDeadLetterRecovery:true,parallelLaneClose:true,visibleCultureLanePages:true,clickableLeaderSymbolMatrix:true,multiReceiverCultureLaneBuilder:true,combinedLaneDashboard:true,dashboardHarvestAuthority:true,leaderCloseSnapshotFailsafe:true,relaySelfRepair:true,postgresRedeployPersistence:true,dashboardLeaderClose:true,comprehensiveCompoundTracker:true,compoundScopeGoals:true,compoundAttributionTables:true,databaseOnlyPersistence:true,sharedPostgresPool:true,databaseReadCache:true,fastReporterHeartbeat:true,nonBlockingAiIngest:true,singleFlightWorkers:true,resilientReporterBackoff:true,metaApiAccountConnection:true,cTraderOAuthAccountDiscovery:true,brokerWebhookApi:true,aiAcademyCoach:true,proactiveLaneCoach:true,coachEmailSmsDmPreferences:true}})});
+  app.get('/api/runtime-audit',async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,version:'7.0.6',source:'wisdo-culture-lane-os-v7.0.6.zip',checks:{rootRoute:true,publicProductPages:true,loginReturnTo:true,signedSessions:sessionSecurityStatus().signedSessions,credentialEncryptionReady:sessionSecurityStatus().credentialEncryptionConfigured,copierRules:Object.keys(state.copierRules).length,accounts:Object.keys(state.tradingAccounts).length,trades:Object.keys(state.trades).length,closeSignalsBypassEntryFilters:true,followerSymbolGuaranteed:true,persistentStorageConfigured:Boolean(process.env.DATABASE_URL),executionAutomatchEnabled:parseBool(process.env.WISDO_SYMBOL_AUTOMATCH_EXECUTION_ENABLED),unifiedCopierOptions:true,privateStrategySourcePublic:false,aiWebinarRoom:true,adminStrategyStudio:true,browserNarration:true,chartTeacher:true,tradingViewLessons:true,realHistoricalExamples:true,fakeChartFallbackDisabled:true,squareCheckout:true,renderMemoryRepair:true,growthFunnel:true,signupEmailSms:true,personalLearningRoom:true,educationDripSequence:true,portableLeadAi:true,videoEngagementTracking:true,persistentAccountRoles:true,persistenceBackupRecovery:true,immediateBulkClose:true,closeProfitableOnly:true,closeLosingOnly:true,compoundCloseTracker:true,dailyWeeklyTrendGauges:true,closeEmailDiscordNotifications:true,cultureLaneVault:true,smartSymbolRouting:true,harvestMode:true,laneGenomes:true,laneTimeline:true,tradePassports:true,laneDna:true,cultureIntelligence:true,redisStreamsRelay:true,commandDeadLetterRecovery:true,parallelLaneClose:true,visibleCultureLanePages:true,clickableLeaderSymbolMatrix:true,multiReceiverCultureLaneBuilder:true,combinedLaneDashboard:true,dashboardHarvestAuthority:true,leaderCloseSnapshotFailsafe:true,relaySelfRepair:true,postgresRedeployPersistence:true,dashboardLeaderClose:true,comprehensiveCompoundTracker:true,compoundScopeGoals:true,compoundAttributionTables:true,databaseOnlyPersistence:true,sharedPostgresPool:true,databaseReadCache:true,fastReporterHeartbeat:true,nonBlockingAiIngest:true,singleFlightWorkers:true,resilientReporterBackoff:true,metaApiAccountConnection:true,cTraderOAuthAccountDiscovery:true,brokerWebhookApi:true,aiAcademyCoach:true,proactiveLaneCoach:true,coachEmailSmsDmPreferences:true}})});
 
   app.get('/api/v2/admin/stats',requireUser,requireAdmin,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,users:Object.keys(state.profiles).length,accounts:Object.keys(state.tradingAccounts).length,rules:Object.keys(state.copierRules).length,trades:Object.keys(state.trades).length,subscriptions:Object.keys(state.subscriptions).length,alerts:Object.values(state.alerts).flat().length})});
   app.post('/api/v2/admin/firms',requireUser,requireAdmin,async(req,res)=>{const firm=await mutate(loadEcosystemState,saveEcosystemState,state=>{const firm={id:req.body.id||id('firm'),name:String(req.body.name||'').trim(),type:req.body.type==='broker'?'broker':'prop',logo_url:req.body.logo_url||'',max_drawdown_pct:num(req.body.max_drawdown_pct,null),daily_drawdown_pct:num(req.body.daily_drawdown_pct,null),profit_split_pct:num(req.body.profit_split_pct,null),refund_policy:req.body.refund_policy||'',min_trading_days:num(req.body.min_trading_days,0),supported_platforms:(req.body.supported_platforms||[]).filter(x=>PLATFORMS.includes(x)),rating:num(req.body.rating,0),updated_at:nowIso()};state.firms[firm.id]=firm;audit(state,req.wisdoUser.id,'firm.upserted','Firm',firm.id);return firm});res.json({ok:true,firm})});
@@ -2125,5 +2156,5 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     timer.unref?.();
   }
 
-  logger?.info?.('WISDO major upgrade routes registered', { source: 'wisdo-culture-lane-os-v7.0.5.zip', version: '7.0.5', durableCultureLanes: true });
+  logger?.info?.('WISDO major upgrade routes registered', { source: 'wisdo-culture-lane-os-v7.0.6.zip', version: '7.0.6', durableCultureLanes: true });
 }

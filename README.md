@@ -1,11 +1,24 @@
-# WISDO v7.0.5
+# WISDO Culture Lane OS v7.0.6
 
-This release keeps the complete unified remodel, 77-command Discord system, personalized account recognition, 50% growth celebrations, and crash-safe Culture Lanes while repairing the remaining V8 deserializer heap failure.
+Production repair for repeated MT4 snapshot churn and Render heap exhaustion.
 
-The MT4 command bridge now uses clone-free hot reads, one canonical bounded copy queue, compact JSON-only responses, server pacing, and Reporter v1.59 single-instance polling.
+Key protections:
 
-See:
+- Ticket-stable signal tracking prevents unchanged trades from replaying as opens and closes.
+- Legacy signal keys migrate automatically.
+- Post-snapshot product and memory work is coalesced to one latest event per account.
+- Slow background tasks keep their worker slot until they actually finish.
+- Product trade ingestion uses indexed lookups and bounded account history.
+- Buffered authoritative saves no longer clone the discarded full PostgreSQL namespace.
+- Culture Lanes remain PostgreSQL-backed and restore after crashes or redeploys.
+- Website identity recognition and 50% growth milestone celebrations remain enabled.
 
-- `WISDO_V7_0_5_DESERIALIZER_POLL_REPAIR_AUDIT.md`
-- `WISDO_V7_0_5_DEPLOYMENT_CHECKLIST.md`
-- `WISDO_V7_0_5_RELEASE_NOTES.md`
+Validate before deployment:
+
+```bash
+npm ci
+npm run check
+npm run pressure:v706
+```
+
+Use Reporter v1.59 and attach only one active Reporter instance per MT4 account.

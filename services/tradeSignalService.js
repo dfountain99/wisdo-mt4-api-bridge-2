@@ -172,9 +172,11 @@ export class TradeSignalService {
     this.backgroundTasks = [];
     this.backgroundTaskCount = 0;
     this.backgroundTaskSequence = 0;
-    this.backgroundConcurrency = Math.max(1, Math.min(16, Number(process.env.WISDO_SIGNAL_BACKGROUND_CONCURRENCY || 4)));
+    const requestedConcurrency = Math.max(1, Math.min(8, Number(process.env.WISDO_SIGNAL_BACKGROUND_CONCURRENCY || 1)));
+    const renderMemoryMb = Math.max(128, Number(process.env.WISDO_RENDER_MEMORY_LIMIT_MB || 512));
+    this.backgroundConcurrency = renderMemoryMb <= 512 ? 1 : requestedConcurrency;
     this.backgroundTaskTimeoutMs = Math.max(1_000, Math.min(60_000, Number(process.env.WISDO_SIGNAL_TASK_TIMEOUT_MS || 15_000)));
-    this.backgroundTaskMaxQueue = Math.max(10, Math.min(5000, Number(process.env.WISDO_SIGNAL_BACKGROUND_MAX_QUEUE || 500)));
+    this.backgroundTaskMaxQueue = Math.max(10, Math.min(1000, Number(process.env.WISDO_SIGNAL_BACKGROUND_MAX_QUEUE || 150)));
     this.backgroundTaskDropped = 0;
   }
 
@@ -221,13 +223,21 @@ export class TradeSignalService {
     };
   }
 
-  runBackgroundTask(item) {
+  async runBackgroundTask(item) {
     let timeoutId;
-    const timeout = new Promise((_, reject) => {
-      timeoutId = setTimeout(() => reject(new Error(`Deferred task exceeded ${this.backgroundTaskTimeoutMs}ms`)), this.backgroundTaskTimeoutMs);
-      timeoutId.unref?.();
-    });
-    return Promise.race([Promise.resolve().then(() => item.task()), timeout]).finally(() => clearTimeout(timeoutId));
+    timeoutId = setTimeout(() => {
+      this.logger?.warn?.('Deferred signal task is still running; the worker slot remains reserved until it settles.', {
+        task: item.label,
+        ...item.meta,
+        timeoutMs: this.backgroundTaskTimeoutMs,
+      });
+    }, this.backgroundTaskTimeoutMs);
+    timeoutId.unref?.();
+    try {
+      return await Promise.resolve().then(() => item.task());
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   drainBackgroundTasks() {
@@ -712,7 +722,9 @@ export class TradeSignalService {
     const commandInputs = [];
     const commandMeta = [];
     const copyMasterInputs = [];
-    const commandState = this.mt4CommandService?.load ? await this.mt4CommandService.load().catch(() => null) : null;
+    const commandState = this.mt4CommandService?.load
+      ? await this.mt4CommandService.load({ cloneResult: false, includeIndexes: false }).catch(() => null)
+      : null;
 
     for (const event of rows) {
       const signal = data.signalsById?.[event.signalId] || null;

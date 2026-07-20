@@ -248,23 +248,25 @@ export class Mt4CommandService {
     return result;
   }
 
-  async load({ cloneResult = true } = {}) {
+  async load({ cloneResult = true, includeIndexes = true } = {}) {
     const data = await this.loadHot();
-    if (!cloneResult) return data;
-    // Preserve the legacy public shape for admin/status callers without storing
-    // the duplicated indexes in PostgreSQL or using it on Reporter poll paths.
-    const commandQueue = clone(data.commandQueue || []);
+    if (!cloneResult && !includeIndexes) return data;
+    const commandQueue = cloneResult ? clone(data.commandQueue || []) : (data.commandQueue || []);
+    const commandAuditLog = cloneResult ? clone(data.commandAuditLog || []) : (data.commandAuditLog || []);
+    if (!includeIndexes) return { commandQueue, commandAuditLog };
+    // Preserve the legacy public shape only for admin/status callers. Internal
+    // copier-close recovery reads the canonical queue directly without duplicating it.
     const commandsByUserId = {};
     const commandsByAccountId = {};
-    for (const record of data.commandQueue || []) {
+    for (const record of commandQueue) {
       commandsByUserId[record.userId] ||= [];
-      commandsByUserId[record.userId].push(clone(record));
+      commandsByUserId[record.userId].push(record);
       if (record.accountId) {
         commandsByAccountId[record.accountId] ||= [];
-        commandsByAccountId[record.accountId].push(clone(record));
+        commandsByAccountId[record.accountId].push(record);
       }
     }
-    return { commandQueue, commandsByUserId, commandsByAccountId, commandAuditLog: clone(data.commandAuditLog || []) };
+    return { commandQueue, commandsByUserId, commandsByAccountId, commandAuditLog };
   }
 
   async save(data) {

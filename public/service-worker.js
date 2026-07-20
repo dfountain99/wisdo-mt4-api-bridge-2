@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wisdo-static-v7.0.5-heap-transport';
+const CACHE_NAME = 'wisdo-static-v7.0.6-snapshot-churn';
 const STATIC_ASSETS = [
   '/js/workspace.js',
   '/js/wisdo-recognition.js',

@@ -1,7 +1,7 @@
 {
   "name": "culture-coin-operator-desks-bot",
-  "version": "7.0.5",
-  "description": "WISDO v7.0.5 deserializer-safe MT4 polling, canonical copy queues, single-instance Reporter pacing, durable Culture Lanes, and personalized growth recognition.",
+  "version": "7.0.6",
+  "description": "WISDO v7.0.6 stable-ticket signal tracking, bounded post-snapshot workers, low-clone persistence, durable Culture Lanes, and personalized growth recognition.",
   "type": "module",
   "private": true,
   "scripts": {
@@ -13,7 +13,8 @@
     "test": "node --test tests/*.test.js",
     "check": "node scripts/checkBuild.js && npm test",
     "migrate:postgres": "node scripts/migratePostgres.js",
-    "postinstall": "node scripts/patchWsHandshake.js"
+    "postinstall": "node scripts/patchWsHandshake.js",
+    "pressure:v706": "node --max-old-space-size=64 --expose-gc scripts/pressureSnapshotChurn.js 1000"
   },
   "engines": {
     "node": "22.x"

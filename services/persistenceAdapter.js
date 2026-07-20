@@ -406,7 +406,7 @@ export class PostgresKeyValuePersistenceAdapter {
     this.runtime.flushTimer.unref?.();
   }
 
-  async flushBufferedWrites({ strict = false } = {}) {
+  async flushBufferedWrites({ strict = false, cloneResult = false } = {}) {
     if (this.runtime.flushPromise) {
       const result = await this.runtime.flushPromise;
       if (strict && this.runtime.dirtySnapshot && this.runtime.lastError) {
@@ -414,10 +414,13 @@ export class PostgresKeyValuePersistenceAdapter {
         error.code = 'WISDO_DURABLE_FLUSH_PENDING';
         throw error;
       }
-      return result;
+      return cloneResult ? clone(result) : result;
     }
     const pending = this.runtime.dirtySnapshot;
-    if (!pending) return clone(this.runtime.state || this.defaultState());
+    if (!pending) {
+      const current = this.runtime.state || this.defaultState();
+      return cloneResult ? clone(current) : current;
+    }
     this.runtime.dirtySnapshot = null;
     this.runtime.flushPromise = (async () => {
       try {
@@ -428,10 +431,10 @@ export class PostgresKeyValuePersistenceAdapter {
       } catch (error) {
         // Keep the newest complete snapshot. A later mutation may already contain more
         // recent state than the failed pending snapshot.
-        this.runtime.dirtySnapshot = clone(this.runtime.state || this.runtime.dirtySnapshot || pending);
+        this.runtime.dirtySnapshot = this.runtime.state || this.runtime.dirtySnapshot || pending;
         this.scheduleFlush(this.retryMs);
         if (strict) throw error;
-        return clone(this.runtime.state || pending);
+        return this.runtime.state || pending;
       }
     })().finally(() => {
       this.runtime.flushPromise = null;
@@ -440,22 +443,26 @@ export class PostgresKeyValuePersistenceAdapter {
     return this.runtime.flushPromise;
   }
 
-  async flushNow() {
-    if (!this.bufferWrites) return clone(this.runtime.state || this.defaultState());
+  async flushNow({ cloneResult = false } = {}) {
+    if (!this.bufferWrites) {
+      const current = this.runtime.state || this.defaultState();
+      return cloneResult ? clone(current) : current;
+    }
     // A previous background flush may be in flight. Wait for it, then force the newest
     // complete hot snapshot through PostgreSQL before reporting a durable save.
     if (this.runtime.flushPromise) await this.runtime.flushPromise;
     let attempts = 0;
     while (this.runtime.dirtySnapshot && attempts < 3) {
       attempts += 1;
-      await this.flushBufferedWrites({ strict: true });
+      await this.flushBufferedWrites({ strict: true, cloneResult: false });
     }
     if (this.runtime.dirtySnapshot) {
       const error = new Error(`Durable PostgreSQL flush did not settle for ${this.namespace}.`);
       error.code = 'WISDO_DURABLE_FLUSH_UNSETTLED';
       throw error;
     }
-    return clone(this.runtime.state || this.defaultState());
+    const current = this.runtime.state || this.defaultState();
+    return cloneResult ? clone(current) : current;
   }
 
   async bufferedUpdate(updater, { normalize = (value) => value, cloneResult = true } = {}) {
@@ -483,7 +490,15 @@ export class PostgresKeyValuePersistenceAdapter {
 
   async save(data, { cloneInput = true, cloneResult = true } = {}) {
     const snapshot = cloneInput ? clone(data) : data;
-    if (this.bufferWrites) return this.bufferedUpdate(() => snapshot, { cloneResult });
+    if (this.bufferWrites) {
+      // Replacing a complete authoritative snapshot does not require cloning the
+      // previous namespace first. The old path structured-cloned a large ecosystem
+      // state even though the updater discarded it, which caused V8 deserializer OOMs.
+      this.setCache(snapshot, this.runtime.source === 'postgres' ? 'hot-cache' : this.runtime.source, { cloneState: false });
+      this.runtime.dirtySnapshot = snapshot;
+      this.scheduleFlush();
+      return cloneResult ? clone(snapshot) : snapshot;
+    }
     return (await this.runLockedMutation(() => snapshot, { cloneResult })).state;
   }
   async saveSection(section, value) {
