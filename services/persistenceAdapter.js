@@ -4,7 +4,10 @@ function parseBoolean(value, fallback = false) {
   return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase());
 }
 
-function clone(value) { return JSON.parse(JSON.stringify(value ?? {})); }
+function clone(value) {
+  const source = value ?? {};
+  return typeof globalThis.structuredClone === 'function' ? globalThis.structuredClone(source) : JSON.parse(JSON.stringify(source));
+}
 function stableJson(value) { return JSON.stringify(value ?? null); }
 function integerEnv(name, fallback, minimum, maximum) {
   const parsed = Number(process.env[name]);
@@ -208,6 +211,7 @@ export class MemoryPersistenceAdapter {
     this.state = this.defaultState();
     this.revision = 0;
   }
+  peek() { return this.state; }
   async load() { return clone(this.state); }
   async save(data) { this.state = clone(data); this.revision += 1; return clone(this.state); }
   async atomicUpdate(updater, { normalize = (value) => value } = {}) {
@@ -292,13 +296,14 @@ export class PostgresKeyValuePersistenceAdapter {
     return result.rows;
   }
   rowsToState(rows = []) { return Object.fromEntries(rows.map((row) => [row.section, row.state])); }
-  setCache(state, source = 'postgres') {
-    this.runtime.state = clone(state);
+  setCache(state, source = 'postgres', { cloneState = true } = {}) {
+    this.runtime.state = cloneState ? clone(state) : state;
     this.runtime.loadedAt = Date.now();
     this.runtime.source = source;
     this.runtime.revision = Number(this.runtime.revision || 0) + 1;
-    return clone(this.runtime.state);
+    return this.runtime.state;
   }
+  peek() { return this.runtime.state; }
   recordRuntimeError(error) {
     this.runtime.lastErrorAt = new Date().toISOString();
     this.runtime.lastError = String(error?.message || error || 'PostgreSQL error').slice(0, 500);
@@ -421,15 +426,19 @@ export class PostgresKeyValuePersistenceAdapter {
 
   async bufferedUpdate(updater, { normalize = (value) => value } = {}) {
     for (let attempt = 0; attempt < 256; attempt += 1) {
-      const loaded = this.runtime.state ? clone(this.runtime.state) : await this.load();
+      const loaded = this.runtime.state || await this.load();
       const revision = Number(this.runtime.revision || 0);
-      const normalized = normalize(loaded);
-      const candidate = updater(clone(normalized));
+      // One working copy is enough. The previous implementation cloned the same
+      // namespace four to six times per heartbeat, creating large transient heaps.
+      const working = normalize(clone(loaded));
+      const candidate = updater(working);
       const resolved = candidate && typeof candidate.then === 'function' ? await candidate : candidate;
-      const next = normalize(resolved || normalized);
+      const next = normalize(resolved || working);
       if (revision !== Number(this.runtime.revision || 0)) continue;
-      this.setCache(next, this.runtime.source === 'postgres' ? 'hot-cache' : this.runtime.source);
-      this.runtime.dirtySnapshot = clone(next);
+      this.setCache(next, this.runtime.source === 'postgres' ? 'hot-cache' : this.runtime.source, { cloneState: false });
+      // Dirty snapshot intentionally shares the immutable next-state reference.
+      // Future updates clone before mutation, so the flush cannot be changed in place.
+      this.runtime.dirtySnapshot = next;
       this.scheduleFlush();
       return clone(next);
     }

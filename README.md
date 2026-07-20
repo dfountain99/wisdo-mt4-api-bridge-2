@@ -1,6 +1,8 @@
-# WISDO v7.0.2 Server Pressure, Reporter Authentication, and Discord Transport Repair
+# WISDO v7.0.3 Heap-Safe MT4 Poll Repair
 
-This release keeps the complete v7.0.1 remodel and repairs the production failures visible in the Render logs: stale Reporter API keys, repeated pairing recovery, MT4 snapshots blocking near 30 seconds, unbounded command history, idle Reporter polls writing to PostgreSQL, Discord/WebSocket handshake races, and large response/body pressure. It batches large copier and signal updates, moves noncritical Discord presentation off the heartbeat path, adds bounded background workers, enables compression and slow-request telemetry, and exposes `/health/performance`. See `WISDO_V7_0_2_SERVER_PRESSURE_REPAIR_AUDIT.md` and `WISDO_V7_0_2_DEPLOYMENT_CHECKLIST.md`.
+This release keeps the complete remodel and v7.0.2 transport repairs while fixing the Render heap crash and multi-second `/mt4-command-poll` path. MT4 command state now has one compact durable queue instead of three duplicated indexes, concurrent idle polls share one hot read, idle polls perform zero writes, Redis heartbeat is removed from the response path, performance health uses compact metrics, and noncritical reads are shed before memory exhaustion. See `WISDO_V7_0_3_HEAP_AND_POLL_REPAIR_AUDIT.md` and `WISDO_V7_0_3_DEPLOYMENT_CHECKLIST.md`.
+
+## Previous v7.0.2 transport repair
 
 The v7.0.1 remodel remains included: 77 unique slash commands, guarded interactions, hardened private desk creation/restoration, one authoritative `/mt4-sync` route, and first-visit/first-login-of-day/return-after-away WISDO greetings across `/app/*`.
 

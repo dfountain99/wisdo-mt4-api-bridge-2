@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import v8 from 'node:v8';
 import express from 'express';
 import compression from 'compression';
 import { registerDeadshotCommandCenterRoutes } from './deadshotSite.js';
@@ -1067,7 +1068,26 @@ function uniqueMt4DeliveryIds(ids = []) {
   return [...new Set(ids.map((v) => String(v || '').trim()).filter(Boolean))];
 }
 
+const mt4DeliveryIdentityCache = new Map();
+function deliveryIdentityCacheKey(pairing = {}) {
+  return String(pairing.pairingCode || pairing.code || pairing.discordUserId || pairing.requestedByUserId || '').trim();
+}
+function rememberMt4DeliveryIds(key, ids) {
+  if (!key) return ids;
+  if (mt4DeliveryIdentityCache.size >= 5000) {
+    const oldest = mt4DeliveryIdentityCache.keys().next().value;
+    if (oldest) mt4DeliveryIdentityCache.delete(oldest);
+  }
+  mt4DeliveryIdentityCache.set(key, { ids, expiresAt: Date.now() + Math.max(30_000, Number(process.env.WISDO_MT4_DELIVERY_ID_CACHE_MS || 300_000)) });
+  return ids;
+}
+
 async function resolveMt4DeliveryUserIds(loadEcosystemState, pairing = {}) {
+  const cacheKey = deliveryIdentityCacheKey(pairing);
+  const cached = cacheKey ? mt4DeliveryIdentityCache.get(cacheKey) : null;
+  if (cached?.expiresAt > Date.now()) return cached.ids;
+  if (cached) mt4DeliveryIdentityCache.delete(cacheKey);
+
   const ids = [
     pairing.discordUserId,
     pairing.requestedByUserId,
@@ -1087,10 +1107,13 @@ async function resolveMt4DeliveryUserIds(loadEcosystemState, pairing = {}) {
   } catch {
     // The MT4 command bridge must stay online even if the optional website state lookup fails.
   }
-  return uniqueMt4DeliveryIds(ids);
+  return rememberMt4DeliveryIds(cacheKey, uniqueMt4DeliveryIds(ids));
 }
 
 async function findMt4QueuedCommand(mt4CommandService, userIds = [], scope = {}) {
+  if (mt4CommandService?.getPendingCommandForAnyUser) {
+    return mt4CommandService.getPendingCommandForAnyUser(uniqueMt4DeliveryIds(userIds), scope);
+  }
   for (const userId of uniqueMt4DeliveryIds(userIds)) {
     const command = await mt4CommandService.getPendingCommand(userId, scope);
     if (command) return { userId, command };
@@ -1099,6 +1122,9 @@ async function findMt4QueuedCommand(mt4CommandService, userIds = [], scope = {})
 }
 
 async function markMt4CommandCompleteForAnyOwner(mt4CommandService, userIds = [], commandId, result = {}, accountId = null) {
+  if (mt4CommandService?.markCommandCompleteForAnyUser) {
+    return mt4CommandService.markCommandCompleteForAnyUser(uniqueMt4DeliveryIds(userIds), commandId, result, accountId);
+  }
   for (const userId of uniqueMt4DeliveryIds(userIds)) {
     const command = result?.success === false
       ? await mt4CommandService.markCommandFailed(userId, commandId, result?.message || 'MT4 command failed', accountId)
@@ -4096,6 +4122,22 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   const redisCommandBridge = createRedisCommandBridge(config, logger);
   await redisCommandBridge.connect();
   redisCommandBridge.decorate(mt4CommandService);
+  const reporterHeartbeatAtByReceiver = new Map();
+  const reporterHeartbeatIntervalMs = Math.max(5_000, Number(process.env.WISDO_REPORTER_HEARTBEAT_INTERVAL_MS || 15_000));
+  function scheduleReporterHeartbeat(payload = {}) {
+    const key = `${String(payload.userId || '')}:${String(payload.accountId || '')}:${String(payload.receiverId || '')}`;
+    const last = reporterHeartbeatAtByReceiver.get(key) || 0;
+    if (Date.now() - last < reporterHeartbeatIntervalMs) return false;
+    reporterHeartbeatAtByReceiver.set(key, Date.now());
+    if (reporterHeartbeatAtByReceiver.size > 5000) {
+      for (const [entryKey, at] of reporterHeartbeatAtByReceiver) {
+        if (Date.now() - at > reporterHeartbeatIntervalMs * 4) reporterHeartbeatAtByReceiver.delete(entryKey);
+        if (reporterHeartbeatAtByReceiver.size <= 4000) break;
+      }
+    }
+    Promise.resolve(redisCommandBridge.heartbeat(payload)).catch(() => undefined);
+    return true;
+  }
   const affiliateService = new AffiliateService({ config, repository: wisdoPhase1Repository });
   const roleSyncService = new DiscordRoleSyncService({ config, client, repository: wisdoPhase1Repository, logger });
   const signalGridService = providedSignalGridService || new SignalGridService({ config, repository: wisdoPhase1Repository, logger });
@@ -4150,6 +4192,36 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     next();
   });
 
+  function memoryPressureSnapshot() {
+    const memory = process.memoryUsage();
+    const heapLimit = Number(v8.getHeapStatistics().heap_size_limit || 0);
+    const heapRatio = heapLimit > 0 ? memory.heapUsed / heapLimit : 0;
+    const rssLimitMB = Math.max(128, Number(process.env.WISDO_RENDER_MEMORY_LIMIT_MB || 512));
+    const rssRatio = memory.rss / (rssLimitMB * 1048576);
+    return { memory, heapLimit, heapRatio, rssLimitMB, rssRatio };
+  }
+
+  const memoryShedThreshold = Math.max(0.65, Math.min(0.98, Number(process.env.WISDO_MEMORY_SHED_RATIO || 0.88)));
+  const criticalMemoryPaths = new Set(['/mt4-sync', '/mt4-command-poll', '/mt4-command-complete', '/health', '/health/mt4', '/health/performance', '/health/discord']);
+  app.use((req, res, next) => {
+    const pressure = memoryPressureSnapshot();
+    const isCritical = criticalMemoryPaths.has(req.path);
+    const safeMethod = ['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+    const shouldShed = !isCritical && safeMethod && (pressure.heapRatio >= memoryShedThreshold || pressure.rssRatio >= memoryShedThreshold);
+    if (!shouldShed) return next();
+    performanceRuntime.memoryShedRequests = Number(performanceRuntime.memoryShedRequests || 0) + 1;
+    res.set('Connection', 'close');
+    res.set('Retry-After', '5');
+    return res.status(503).json({
+      ok: false,
+      error: 'WISDO is protecting the live MT4 bridge from temporary memory pressure. Retry shortly.',
+      code: 'WISDO_MEMORY_PRESSURE_SHED',
+      heapUsedMB: Number((pressure.memory.heapUsed / 1048576).toFixed(1)),
+      heapLimitMB: Number((pressure.heapLimit / 1048576).toFixed(1)),
+      rssMB: Number((pressure.memory.rss / 1048576).toFixed(1)),
+    });
+  });
+
   // Route source of truth:
   // 1) webhook/raw integrations, 2) core middleware/static assets,
   // 3) exact Wisdo premium /member routes, 4) Deadshot portal aliases/fallbacks,
@@ -4165,15 +4237,12 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   }));
 
   app.get('/health/performance', async (_req, res) => {
-    const commandState = await mt4CommandService?.load?.().catch(() => null);
-    const commandQueue = commandState?.commandQueue || [];
-    const effectiveStatus = (command) => mt4CommandService?.effectiveStatus?.(command) || command?.status || 'unknown';
-    const memory = process.memoryUsage();
+    const commands = await mt4CommandService?.getQueueMetrics?.().catch(() => null) || { total: 0, active: 0, history: 0, historyLimit: mt4CommandService?.commandHistoryLimit || null };
+    const memoryPressure = memoryPressureSnapshot();
+    const { memory } = memoryPressure;
     const database = getDatabaseRuntimeHealth();
     const signalBackground = tradeSignalService?.getBackgroundStatus?.() || null;
-    const activeCommands = commandQueue.filter((command) => ['pending', 'delivered'].includes(effectiveStatus(command))).length;
-    const historicalCommands = Math.max(0, commandQueue.length - activeCommands);
-    const pressure = performanceRuntime.eventLoopLagMs > 250 || performanceRuntime.inFlight > 25 || database.status === 'degraded' || (signalBackground?.queued || 0) > Math.max(25, (signalBackground?.maxQueue || 500) * 0.5);
+    const pressure = performanceRuntime.eventLoopLagMs > 250 || performanceRuntime.inFlight > 25 || database.status === 'degraded' || memoryPressure.heapRatio >= memoryShedThreshold || memoryPressure.rssRatio >= memoryShedThreshold || (signalBackground?.queued || 0) > Math.max(25, (signalBackground?.maxQueue || 500) * 0.5);
     res.status(pressure ? 503 : 200).json({
       ok: !pressure,
       status: pressure ? 'pressured' : 'healthy',
@@ -4183,14 +4252,20 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
         rssMB: Number((memory.rss / 1048576).toFixed(1)),
         heapUsedMB: Number((memory.heapUsed / 1048576).toFixed(1)),
         heapTotalMB: Number((memory.heapTotal / 1048576).toFixed(1)),
+        heapLimitMB: Number((memoryPressure.heapLimit / 1048576).toFixed(1)),
+        heapRatioPercent: Number((memoryPressure.heapRatio * 100).toFixed(1)),
+        rssLimitMB: memoryPressure.rssLimitMB,
+        rssRatioPercent: Number((memoryPressure.rssRatio * 100).toFixed(1)),
         externalMB: Number((memory.external / 1048576).toFixed(1)),
+        shedThresholdPercent: Number((memoryShedThreshold * 100).toFixed(1)),
       },
       database,
-      commands: { total: commandQueue.length, active: activeCommands, history: historicalCommands, historyLimit: mt4CommandService?.commandHistoryLimit || null },
+      commands,
       signalBackground,
       pairing: {
         cached: mt4SyncService?.pairingRecordCache?.size || 0,
         recovering: mt4SyncService?.pairingRecoveryByCode?.size || 0,
+        deliveryIdentityCache: mt4DeliveryIdentityCache.size,
       },
     });
   });
@@ -6016,18 +6091,23 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
       if (!pairing?.discordUserId) return res.status(400).json({ ok: false, error: 'Unknown pairing code' });
       const accountId = pairing.accountId || null;
       const accountNumber = String(req.body?.accountNumber || pairing.accountNumber || '').trim();
-      await redisCommandBridge.heartbeat({
+      scheduleReporterHeartbeat({
         userId: pairing.discordUserId || pairing.requestedByUserId || '',
         accountId,
         terminal: String(req.body?.terminal || req.body?.platform || 'MT4'),
         receiverId: String(req.body?.receiverId || req.body?.terminalId || pairingCode),
         meta: { accountNumber, reporterVersion: req.body?.reporterVersion || '', poll: true },
-      }).catch(() => undefined);
+      });
       const deliveryUserIds = await resolveMt4DeliveryUserIds(loadEcosystemState, pairing);
       const { userId: commandOwnerId, command } = await findMt4QueuedCommand(mt4CommandService, deliveryUserIds, { accountId, accountNumber, pairingCode });
       if (command) {
-        await mt4CommandService.markCommandDelivered(commandOwnerId, command.id, accountId);
-        return res.json({ ...flattenCommandRecord(command), deliveryUserId: commandOwnerId, deliveryUserIds });
+        if (mt4CommandService?.markCommandDeliveredForAnyUser) {
+          await mt4CommandService.markCommandDeliveredForAnyUser(deliveryUserIds, command.id, accountId);
+        } else {
+          await mt4CommandService.markCommandDelivered(commandOwnerId, command.id, accountId);
+        }
+        res.set('Cache-Control', 'no-store');
+        return res.json({ ...flattenCommandRecord(command), deliveryUserId: commandOwnerId });
       }
       let copyCommand = null;
       let copyOwnerId = '';
@@ -6037,9 +6117,10 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
           if (copyCommand) { copyOwnerId = candidateUserId; break; }
         }
       }
-      if (!copyCommand) return res.json({ ok: true, hasCommand: false, deliveryUserIds });
+      if (!copyCommand) { res.set('Cache-Control', 'no-store'); return res.json({ ok: true, hasCommand: false }); }
       await copyTradingService.markCopyCommandDelivered(copyOwnerId || pairing.discordUserId, copyCommand.id, accountId);
-      return res.json({ ...flattenCommandRecord(copyCommand), deliveryUserId: copyOwnerId || pairing.discordUserId, deliveryUserIds });
+      res.set('Cache-Control', 'no-store');
+      return res.json({ ...flattenCommandRecord(copyCommand), deliveryUserId: copyOwnerId || pairing.discordUserId });
     } catch (error) { res.status(error.statusCode || 500).json({ ok: false, error: error.message }); }
   });
 
@@ -6050,13 +6131,13 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
       const pairing = await mt4SyncService.getOrRecoverPairingCode(pairingCode);
       if (!pairing?.discordUserId) return res.status(400).json({ ok: false, error: 'Unknown pairing code' });
       const accountId = pairing.accountId || null;
-      await redisCommandBridge.heartbeat({
+      scheduleReporterHeartbeat({
         userId: pairing.discordUserId || pairing.requestedByUserId || '',
         accountId,
         terminal: String(req.body?.terminal || req.body?.platform || 'MT4'),
         receiverId: String(req.body?.receiverId || req.body?.terminalId || req.body?.pairingCode || ''),
         meta: { commandComplete: true, commandId: req.body?.commandId || '' },
-      }).catch(() => undefined);
+      });
       const deliveryUserIds = await resolveMt4DeliveryUserIds(loadEcosystemState, pairing);
       const completed = await markMt4CommandCompleteForAnyOwner(mt4CommandService, deliveryUserIds, req.body?.commandId, req.body?.result || {}, accountId);
       let command = completed.command;

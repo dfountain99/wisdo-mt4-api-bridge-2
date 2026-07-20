@@ -41,13 +41,23 @@ services:
       - key: WISDO_PAIRING_CACHE_TTL_MS
         value: "300000"
       - key: WISDO_SIGNAL_BACKGROUND_CONCURRENCY
-        value: "4"
+        value: "2"
       - key: WISDO_SIGNAL_TASK_TIMEOUT_MS
         value: "15000"
       - key: WISDO_SIGNAL_BACKGROUND_MAX_QUEUE
-        value: "500"
+        value: "200"
       - key: WISDO_MT4_COMMAND_HISTORY_LIMIT
-        value: "2500"
+        value: "250"
+      - key: WISDO_MT4_COMMAND_AUDIT_LIMIT
+        value: "250"
+      - key: WISDO_MT4_DELIVERY_ID_CACHE_MS
+        value: "300000"
+      - key: WISDO_REPORTER_HEARTBEAT_INTERVAL_MS
+        value: "15000"
+      - key: WISDO_MEMORY_SHED_RATIO
+        value: "0.85"
+      - key: WISDO_RENDER_MEMORY_LIMIT_MB
+        value: "512"
       - key: WISDO_JSON_BODY_LIMIT
         value: 4mb
       - key: WISDO_COMPRESSION_THRESHOLD_BYTES
@@ -75,13 +85,13 @@ services:
       - key: MT4_MAX_PAYLOAD_KB
         value: "256"
       - key: WISDO_MT4_HISTORY_GLOBAL_LIMIT
-        value: "500"
+        value: "200"
       - key: WISDO_MT4_HISTORY_ACCOUNT_LIMIT
-        value: "100"
+        value: "40"
       - key: WISDO_MT4_SIGNAL_TRACKING_ACCOUNT_LIMIT
         value: "250"
       - key: WISDO_SIGNAL_HISTORY_LIMIT
-        value: "500"
+        value: "200"
       - key: WISDO_STATE_QUARANTINE_MB
         value: "96"
       - key: AUTO_REGISTER_COMMANDS_ON_START
@@ -231,7 +241,7 @@ services:
       - key: WISDO_DB_SSL
         value: "true"
       - key: DB_POOL_MAX
-        value: "4"
+        value: "2"
       - key: DB_POOL_MIN
         value: "0"
       - key: WISDO_DB_CACHE_TTL_MS

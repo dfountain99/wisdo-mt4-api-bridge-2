@@ -3,6 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { createPersistenceAdapter } from './persistenceAdapter.js';
 
 function nowIso() { return new Date().toISOString(); }
+function clone(value) {
+  const source = value ?? {};
+  return typeof globalThis.structuredClone === 'function' ? globalThis.structuredClone(source) : JSON.parse(JSON.stringify(source));
+}
 function addMinutes(minutes) { const d = new Date(); d.setMinutes(d.getMinutes() + minutes); return d.toISOString(); }
 function isExpired(record) { return record?.expiresAt && new Date(record.expiresAt).getTime() < Date.now(); }
 function deliveryRetryReady(record) {
@@ -69,7 +73,10 @@ export class Mt4CommandService {
       fileName: 'mt4-commands.json',
       defaultState: () => ({}),
     });
-    this.commandHistoryLimit = Math.max(100, Math.min(20000, Number(process.env.WISDO_MT4_COMMAND_HISTORY_LIMIT || 2500)));
+    this.commandHistoryLimit = Math.max(50, Math.min(5000, Number(process.env.WISDO_MT4_COMMAND_HISTORY_LIMIT || 250)));
+    this.commandAuditLimit = Math.max(50, Math.min(2000, Number(process.env.WISDO_MT4_COMMAND_AUDIT_LIMIT || 250)));
+    this.hotState = null;
+    this.hotLoadPromise = null;
   }
 
   effectiveStatus(record) {
@@ -115,41 +122,96 @@ export class Mt4CommandService {
         data.commandsByAccountId[record.accountId].push(record);
       }
     }
-    data.commandAuditLog = (data.commandAuditLog || []).slice(0, 1000);
+    data.commandAuditLog = (data.commandAuditLog || []).slice(0, this.commandAuditLimit);
     return data;
+  }
+
+  emptyState() {
+    return { commandsByUserId: {}, commandsByAccountId: {}, commandQueue: [], commandAuditLog: [] };
+  }
+
+  normalizeState(raw = {}) {
+    return this.pruneCommandState({
+      // Legacy indexes are accepted for migration, but v7.0.3 no longer persists
+      // them. The queue is the single durable source of truth.
+      commandsByUserId: raw?.commandsByUserId || {},
+      commandsByAccountId: raw?.commandsByAccountId || {},
+      commandQueue: Array.isArray(raw?.commandQueue) ? raw.commandQueue : [],
+      commandAuditLog: Array.isArray(raw?.commandAuditLog) ? raw.commandAuditLog : [],
+    });
+  }
+
+  compactPersistenceState(data = {}) {
+    const normalized = this.pruneCommandState(data);
+    return {
+      commandQueue: normalized.commandQueue,
+      commandAuditLog: normalized.commandAuditLog,
+      schemaVersion: 2,
+    };
+  }
+
+  async loadHot() {
+    if (this.hotState) return this.hotState;
+    if (this.hotLoadPromise) return this.hotLoadPromise;
+
+    this.hotLoadPromise = (async () => {
+      try {
+        const peeked = this.persistence.peek?.();
+        const raw = peeked || await this.persistence.load();
+        this.hotState = this.normalizeState(raw || {});
+        return this.hotState;
+      } catch {
+        this.hotState = this.emptyState();
+        return this.hotState;
+      }
+    })();
+
+    try {
+      return await this.hotLoadPromise;
+    } finally {
+      this.hotLoadPromise = null;
+    }
   }
 
   async mutate(mutator) {
     let result;
-    await this.persistence.atomicUpdate(async (raw) => {
-      const data = this.pruneCommandState({
-        commandsByUserId: raw?.commandsByUserId || {},
-        commandsByAccountId: raw?.commandsByAccountId || {},
-        commandQueue: Array.isArray(raw?.commandQueue) ? raw.commandQueue : [],
-        commandAuditLog: Array.isArray(raw?.commandAuditLog) ? raw.commandAuditLog : [],
-      });
+    let nextHotState = null;
+    const persisted = await this.persistence.atomicUpdate(async (raw) => {
+      const data = this.normalizeState(raw || {});
       result = await mutator(data);
-      return this.pruneCommandState(data);
+      nextHotState = this.pruneCommandState(data);
+      return this.compactPersistenceState(nextHotState);
     });
+    // Use the already-normalized working state when available. Falling back to
+    // the compact persisted result supports custom/test adapters.
+    this.hotState = nextHotState || this.normalizeState(persisted || {});
     return result;
   }
 
-  async load() {
-    try {
-      const data = await this.persistence.load();
-      return {
-        commandsByUserId: data.commandsByUserId || {},
-        commandsByAccountId: data.commandsByAccountId || {},
-        commandQueue: Array.isArray(data.commandQueue) ? data.commandQueue : [],
-        commandAuditLog: Array.isArray(data.commandAuditLog) ? data.commandAuditLog : [],
-      };
-    } catch {
-      return { commandsByUserId: {}, commandsByAccountId: {}, commandQueue: [], commandAuditLog: [] };
+  async load({ cloneResult = true } = {}) {
+    const data = await this.loadHot();
+    if (!cloneResult) return data;
+    // Preserve the legacy public shape for admin/status callers without storing
+    // the duplicated indexes in PostgreSQL or using it on Reporter poll paths.
+    const commandQueue = clone(data.commandQueue || []);
+    const commandsByUserId = {};
+    const commandsByAccountId = {};
+    for (const record of data.commandQueue || []) {
+      commandsByUserId[record.userId] ||= [];
+      commandsByUserId[record.userId].push(clone(record));
+      if (record.accountId) {
+        commandsByAccountId[record.accountId] ||= [];
+        commandsByAccountId[record.accountId].push(clone(record));
+      }
     }
+    return { commandQueue, commandsByUserId, commandsByAccountId, commandAuditLog: clone(data.commandAuditLog || []) };
   }
 
   async save(data) {
-    await this.persistence.save(data);
+    const normalized = this.normalizeState(data || {});
+    const saved = await this.persistence.save(this.compactPersistenceState(normalized));
+    this.hotState = normalized;
+    return saved;
   }
 
   buildRecord(userId, accountId, command, payload = {}) {
@@ -421,7 +483,7 @@ export class Mt4CommandService {
   }
 
   async getPendingCommand(userId, scope = {}) {
-    const data = await this.load();
+    const data = await this.loadHot();
     const accountId = scope?.accountId || null;
     const accountNumber = scope?.accountNumber ? String(scope.accountNumber) : null;
     const pairingCode = scope?.pairingCode ? String(scope.pairingCode) : null;
@@ -438,8 +500,16 @@ export class Mt4CommandService {
   }
 
   async getAllPendingCommands(userId) {
-    const data = await this.load();
+    const data = await this.loadHot();
     return (data.commandQueue || []).filter((command) => String(command.userId) === String(userId) && this.commandMatches(command));
+  }
+
+  async getPendingCommandForAnyUser(userIds = [], scope = {}) {
+    const ids = new Set((userIds || []).map((value) => String(value || '').trim()).filter(Boolean));
+    if (!ids.size) return { userId: '', command: null };
+    const data = await this.loadHot();
+    const command = (data.commandQueue || []).find((row) => ids.has(String(row?.userId || '')) && this.commandMatches(row, scope)) || null;
+    return { userId: command?.userId || '', command };
   }
 
   findCommand(data, userId, commandId, accountId = null) {
@@ -467,6 +537,33 @@ export class Mt4CommandService {
         });
       }
       return command ? this.findCommand(data, userId, commandId, accountId) : null;
+    });
+  }
+
+  async markCommandDeliveredForAnyUser(userIds = [], commandId, accountId = null) {
+    const ids = new Set((userIds || []).map((value) => String(value || '').trim()).filter(Boolean));
+    return this.mutate(async (data) => {
+      const command = this.findCommand(data, null, commandId, accountId);
+      if (!command || (ids.size && !ids.has(String(command.userId || '')))) return { userId: '', command: null };
+      this.syncCommandCopies(data, command.id, {
+        status: 'delivered',
+        deliveredAt: nowIso(),
+        attempts: Number(command.attempts || 0) + 1,
+      });
+      return { userId: String(command.userId || ''), command: this.findCommand(data, command.userId, command.id, accountId) };
+    });
+  }
+
+  async markCommandCompleteForAnyUser(userIds = [], commandId, result = {}, accountId = null) {
+    const ids = new Set((userIds || []).map((value) => String(value || '').trim()).filter(Boolean));
+    return this.mutate(async (data) => {
+      const command = this.findCommand(data, null, commandId, accountId);
+      if (!command || (ids.size && !ids.has(String(command.userId || '')))) return { userId: '', command: null };
+      const success = result?.success !== false;
+      this.syncCommandCopies(data, command.id, success
+        ? { status: 'completed', completedAt: nowIso(), result }
+        : { status: 'failed', failedAt: nowIso(), errorMessage: result?.message || 'MT4 command failed', result: { ...result, success: false } });
+      return { userId: String(command.userId || ''), command: this.findCommand(data, command.userId, command.id, accountId) };
     });
   }
 
@@ -500,7 +597,7 @@ export class Mt4CommandService {
   }
 
   async getCommandStatus(userId, commandId = null, accountId = null) {
-    const data = await this.load();
+    const data = await this.loadHot();
     const command = commandId === null
       ? this.findCommand(data, null, userId, null)
       : this.findCommand(data, userId, commandId, accountId);
@@ -510,7 +607,7 @@ export class Mt4CommandService {
   }
 
   async listAccountCommands(userId, accountId, { limit = 50, status = null } = {}) {
-    const data = await this.load();
+    const data = await this.loadHot();
     const rows = [
       ...(data.commandsByAccountId?.[accountId] || []),
       ...(data.commandsByUserId?.[userId] || []),
@@ -531,7 +628,7 @@ export class Mt4CommandService {
   }
 
   async getQueueStatus(userId, accountId = null) {
-    const data = await this.load();
+    const data = await this.loadHot();
     const rows = (data.commandQueue || []).filter((command) => {
       if (String(command.userId) !== String(userId)) return false;
       if (accountId && command.accountId !== accountId) return false;
@@ -548,6 +645,37 @@ export class Mt4CommandService {
     };
   }
 
+  async getQueueMetrics() {
+    const data = await this.loadHot();
+    let active = 0;
+    let pending = 0;
+    let delivered = 0;
+    let completed = 0;
+    let failed = 0;
+    let expired = 0;
+    for (const command of data.commandQueue || []) {
+      const status = this.effectiveStatus(command);
+      if (status === 'pending') { active += 1; pending += 1; }
+      else if (status === 'delivered') { active += 1; delivered += 1; }
+      else if (status === 'completed') completed += 1;
+      else if (status === 'failed') failed += 1;
+      else if (status === 'expired') expired += 1;
+    }
+    return {
+      total: (data.commandQueue || []).length,
+      active,
+      pending,
+      delivered,
+      completed,
+      failed,
+      expired,
+      history: Math.max(0, (data.commandQueue || []).length - active),
+      historyLimit: this.commandHistoryLimit,
+      audit: (data.commandAuditLog || []).length,
+      schemaVersion: 2,
+    };
+  }
+
   appendAudit(data, action, details = {}) {
     data.commandAuditLog ||= [];
     data.commandAuditLog.unshift({
@@ -556,6 +684,6 @@ export class Mt4CommandService {
       details,
       createdAt: nowIso(),
     });
-    data.commandAuditLog = data.commandAuditLog.slice(0, 1000);
+    data.commandAuditLog = data.commandAuditLog.slice(0, this.commandAuditLimit);
   }
 }
