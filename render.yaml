@@ -5,6 +5,7 @@ services:
     plan: starter
     autoDeploy: true
     buildCommand: npm ci --omit=dev --no-audit --no-fund
+    preDeployCommand: npm run migrate:postgres
     startCommand: npm start
     healthCheckPath: /health
     envVars:
@@ -12,6 +13,8 @@ services:
         value: production
       - key: NODE_VERSION
         value: 22.22.0
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=320
       - key: DISCORD_TOKEN
         sync: false
       - key: CLIENT_ID
@@ -41,7 +44,7 @@ services:
       - key: WISDO_PAIRING_CACHE_TTL_MS
         value: "300000"
       - key: WISDO_SIGNAL_BACKGROUND_CONCURRENCY
-        value: "2"
+        value: "1"
       - key: WISDO_SIGNAL_TASK_TIMEOUT_MS
         value: "15000"
       - key: WISDO_SIGNAL_BACKGROUND_MAX_QUEUE
@@ -91,9 +94,23 @@ services:
       - key: WISDO_COACH_FLIGHT_MAX
         value: "150"
       - key: WISDO_MEMORY_SHED_RATIO
-        value: "0.78"
+        value: "0.65"
       - key: WISDO_RENDER_MEMORY_LIMIT_MB
         value: "512"
+      - key: WISDO_LOW_MEMORY_RELAY_MODE
+        value: "true"
+      - key: WISDO_POST_SNAPSHOT_SKIP_HEAP_RATIO
+        value: "0.58"
+      - key: WISDO_POST_SNAPSHOT_QUEUE_MAX
+        value: "25"
+      - key: WISDO_MT4_MAX_NEW_SIGNALS_PER_SNAPSHOT
+        value: "40"
+      - key: WISDO_MT4_SIGNAL_CHURN_GUARD
+        value: "20"
+      - key: WISDO_REPLAY_EXISTING_TRADES_ON_FIRST_SYNC
+        value: "false"
+      - key: WISDO_DASHBOARD_UPDATE_SECONDS
+        value: "60"
       - key: WISDO_DURABLE_MUTATION_TIMEOUT_MS
         value: "12000"
       - key: WISDO_JSON_BODY_LIMIT
@@ -289,7 +306,15 @@ services:
       - key: WISDO_DB_FAIL_OPEN_READS
         value: "true"
       - key: WISDO_DB_BUFFER_LIVE_WRITES
+        value: "false"
+      - key: WISDO_DATABASE_FIRST_TRADING
         value: "true"
+      - key: WISDO_MT4_DB_HISTORY_ENABLED
+        value: "true"
+      - key: WISDO_MT4_DB_COMMAND_HISTORY_LIMIT
+        value: "250"
+      - key: WISDO_MT4_DB_SIGNAL_LIMIT
+        value: "500"
       - key: WISDO_DB_QUERY_TIMEOUT_MS
         value: "5000"
       - key: WISDO_DB_STATEMENT_TIMEOUT_MS

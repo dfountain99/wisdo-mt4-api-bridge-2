@@ -270,7 +270,7 @@ export class GrowthFunnelService {
         resourceId: clean(resourceId, 160),
         campaign: lead.campaign,
         source: lead.source,
-        metadata: metadata && typeof metadata === 'object' ? structuredClone(metadata) : {},
+        metadata: metadata && typeof metadata === 'object' ? JSON.parse(JSON.stringify(metadata)) : {},
         createdAt: nowIso(),
       };
       state.funnelEvents.unshift(event);

@@ -244,6 +244,10 @@ async function saveEcosystemState(state, options = {}) {
   return getWisdoPhase1Repository().saveState(ecosystemStateCache, options);
 }
 saveEcosystemState.durable = (state) => saveEcosystemState(state, { durable: true });
+saveEcosystemState.sections = async (state, sections, options = {}) => {
+  ecosystemStateCache = ensureWisdoStateCollections(ensureWisdoPhase1State(state || ecosystemStateCache || {}));
+  return getWisdoPhase1Repository().saveSections(ecosystemStateCache, sections, options);
+};
 saveEcosystemState.flush = () => getWisdoPhase1Repository().flushState?.();
 
 function ensureWisdoStateCollections(state = {}) {
@@ -4174,6 +4178,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   redisCommandBridge.decorate(mt4CommandService);
   const reporterHeartbeatAtByReceiver = new Map();
   const reporterPollAtByReceiver = new Map();
+  const rankProcessAtByAccount = new Map();
   const reporterPollBurstMs = Math.max(250, Math.min(5000, Number(process.env.WISDO_MT4_POLL_BURST_MS || 750)));
   const reporterPollCacheMax = Math.max(100, Math.min(5000, Number(process.env.WISDO_MT4_POLL_CACHE_MAX || 750)));
   function shouldThrottleReporterPoll(key = '') {
@@ -4207,6 +4212,21 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
       }
     }
     Promise.resolve(redisCommandBridge.heartbeat(payload)).catch(() => undefined);
+    return true;
+  }
+  const rankProcessIntervalMs = Math.max(5_000, Math.min(300_000, Number(process.env.WISDO_RANK_PROCESS_MIN_INTERVAL_MS || 10_000)));
+  const rankProcessCacheMax = Math.max(100, Math.min(5000, Number(process.env.WISDO_RANK_PROCESS_CACHE_MAX || 500)));
+  function shouldProcessRank(userId = '', accountId = '') {
+    const key = `${String(userId)}:${String(accountId || 'primary')}`;
+    const now = Date.now();
+    const last = rankProcessAtByAccount.get(key) || 0;
+    if (now - last < rankProcessIntervalMs) return false;
+    rankProcessAtByAccount.set(key, now);
+    while (rankProcessAtByAccount.size > rankProcessCacheMax) {
+      const oldest = rankProcessAtByAccount.keys().next().value;
+      if (oldest === undefined) break;
+      rankProcessAtByAccount.delete(oldest);
+    }
     return true;
   }
   const affiliateService = new AffiliateService({ config, repository: wisdoPhase1Repository });
@@ -6138,7 +6158,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
         });
       }
       if (result?.coalesced) return res.status(202).json({ ...result, responseMs });
-      if (result?.discordUserId && rankService && announcementService) {
+      if (result?.discordUserId && rankService && announcementService && shouldProcessRank(result.discordUserId, result.accountId)) {
         rankService.processSnapshot(result.discordUserId, result.accountId)
           .then((events) => announcementService.postRankEvents(events))
           .catch((error) => logger?.warn?.('Rank processing failed after MT4 sync', { discordUserId: result.discordUserId, message: error.message }));

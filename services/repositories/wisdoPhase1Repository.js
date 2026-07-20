@@ -188,6 +188,20 @@ export class WisdoPhase1Repository {
     return flushed;
   }
 
+  async saveSections(state, sections = [], { durable = false } = {}) {
+    const snapshot = ensureWisdoPhase1State(state);
+    const names = [...new Set((Array.isArray(sections) ? sections : [sections]).map((value) => String(value || '').trim()).filter(Boolean))];
+    const saved = typeof this.adapter.saveSections === 'function'
+      ? await this.adapter.saveSections(snapshot, names, { cloneResult: false })
+      : await this.adapter.save(snapshot, { cloneInput: false, cloneResult: false });
+    if (durable && typeof this.adapter.flushNow === 'function') await this.adapter.flushNow({ cloneResult: false });
+    this.lastKnownGood = saved;
+    if (names.some((name) => CULTURE_LANE_DURABLE_SECTIONS.includes(name) || name === 'copierRules')) {
+      this.lastDurableLaneDigest = cultureLaneConfigurationDigest(saved);
+    }
+    return saved;
+  }
+
   async updateState(updater, { durable = false } = {}) {
     if (typeof this.adapter.atomicUpdate === 'function') {
       const beforeDigest = this.lastDurableLaneDigest;

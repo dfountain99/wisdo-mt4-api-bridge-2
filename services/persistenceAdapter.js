@@ -5,8 +5,82 @@ function parseBoolean(value, fallback = false) {
 }
 
 function clone(value) {
-  const source = value ?? {};
-  return typeof globalThis.structuredClone === 'function' ? globalThis.structuredClone(source) : JSON.parse(JSON.stringify(source));
+  // Production state is JSON-shaped. Avoid structuredClone: Node routes it through
+  // V8's message serializer/deserializer, which was the exact native OOM stack seen
+  // on Render when large WISDO namespaces were copied during Reporter bursts.
+  if (value === null || value === undefined || typeof value !== 'object') return value;
+  if (value instanceof Date) return new Date(value.getTime());
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer?.(value)) return Buffer.from(value);
+
+  const root = Array.isArray(value) ? [] : {};
+  const seen = new WeakMap([[value, root]]);
+  const stack = [[value, root]];
+  while (stack.length) {
+    const [source, target] = stack.pop();
+    const entries = Array.isArray(source) ? source.entries() : Object.entries(source);
+    for (const [key, item] of entries) {
+      if (item === null || item === undefined || typeof item !== 'object') {
+        target[key] = item;
+        continue;
+      }
+      if (item instanceof Date) {
+        target[key] = new Date(item.getTime());
+        continue;
+      }
+      if (typeof Buffer !== 'undefined' && Buffer.isBuffer?.(item)) {
+        target[key] = Buffer.from(item);
+        continue;
+      }
+      if (seen.has(item)) {
+        target[key] = seen.get(item);
+        continue;
+      }
+      const child = Array.isArray(item) ? [] : {};
+      seen.set(item, child);
+      target[key] = child;
+      stack.push([item, child]);
+    }
+  }
+  return root;
+}
+
+function createTopLevelDraft(base = {}) {
+  const source = isPlainObject(base) ? base : {};
+  const target = { ...source };
+  const owned = new Set();
+  const touched = new Set();
+  const ownSection = (key) => {
+    if (!owned.has(key)) {
+      const value = target[key];
+      if (value && typeof value === 'object') target[key] = clone(value);
+      owned.add(key);
+    }
+    touched.add(key);
+    return target[key];
+  };
+  const proxy = new Proxy(target, {
+    get(object, property, receiver) {
+      if (typeof property === 'string' && Object.prototype.hasOwnProperty.call(object, property)) {
+        const value = object[property];
+        if (value && typeof value === 'object') return ownSection(property);
+      }
+      return Reflect.get(object, property, receiver);
+    },
+    set(object, property, value) {
+      const key = String(property);
+      touched.add(key);
+      owned.add(key);
+      object[property] = value;
+      return true;
+    },
+    deleteProperty(object, property) {
+      const key = String(property);
+      touched.add(key);
+      owned.add(key);
+      return Reflect.deleteProperty(object, property);
+    },
+  });
+  return { proxy, target, touched };
 }
 function stableJson(value) { return JSON.stringify(value ?? null); }
 function integerEnv(name, fallback, minimum, maximum) {
@@ -66,6 +140,8 @@ function getNamespaceRuntime(databaseUrl, ssl, namespace) {
       revision: 0,
       legacyImportPromise: null,
       dirtySnapshot: null,
+      dirtySections: new Map(),
+      deletedSections: new Set(),
       flushTimer: null,
       flushPromise: null,
       lastPersistedAt: null,
@@ -184,7 +260,9 @@ export function getDatabaseRuntimeHealth() {
     cached: Boolean(runtime.state),
     source: runtime.source,
     loadedAt: runtime.loadedAt ? new Date(runtime.loadedAt).toISOString() : null,
-    dirty: Boolean(runtime.dirtySnapshot),
+    dirty: Boolean(runtime.dirtySnapshot || runtime.dirtySections?.size || runtime.deletedSections?.size),
+    dirtySectionCount: Number(runtime.dirtySections?.size || 0),
+    deletedSectionCount: Number(runtime.deletedSections?.size || 0),
     lastPersistedAt: runtime.lastPersistedAt,
     lastErrorAt: runtime.lastErrorAt,
     lastError: runtime.lastError || null,
@@ -321,7 +399,9 @@ export class PostgresKeyValuePersistenceAdapter {
       await this.importLegacyIfNeeded(pool);
       const state = this.rowsToState(await this.loadRows(pool));
       // Never replace newer hot state with an older database snapshot while a flush is pending.
-      if (this.runtime.dirtySnapshot) return this.runtime.state || state;
+      if (this.runtime.dirtySnapshot || this.runtime.dirtySections?.size || this.runtime.deletedSections?.size) {
+        return this.runtime.state || state;
+      }
       return this.setCache(state, 'postgres', { cloneState: false });
     })().catch((error) => { this.recordRuntimeError(error); throw error; })
       .finally(() => { this.runtime.pendingLoad = null; });
@@ -369,6 +449,66 @@ export class PostgresKeyValuePersistenceAdapter {
     return changed;
   }
 
+  markDirtySections(previousState = {}, nextState = {}, touchedSections = null) {
+    const runtime = this.runtime;
+    runtime.dirtySections ||= new Map();
+    runtime.deletedSections ||= new Set();
+    const keys = touchedSections && touchedSections.size
+      ? new Set(touchedSections)
+      : new Set([...Object.keys(previousState || {}), ...Object.keys(nextState || {})]);
+    for (const section of keys) {
+      if (!Object.prototype.hasOwnProperty.call(nextState || {}, section)) {
+        runtime.dirtySections.delete(section);
+        runtime.deletedSections.add(section);
+        continue;
+      }
+      runtime.deletedSections.delete(section);
+      runtime.dirtySections.set(section, nextState[section]);
+    }
+  }
+
+  async persistDirtySections(entries = [], deleted = []) {
+    if (!entries.length && !deleted.length) return [];
+    const pool = await this.getPool();
+    await this.importLegacyIfNeeded(pool);
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const lock = await client.query('select pg_try_advisory_xact_lock(hashtext($1)) as acquired', [this.namespace]);
+      if (!lock.rows[0]?.acquired) {
+        const error = new Error(`Database namespace busy: ${this.namespace}`);
+        error.code = 'WISDO_DB_BUSY';
+        throw error;
+      }
+      const changed = [];
+      for (const [section, value] of entries) {
+        // Serialize one section at a time. Never construct or deserialize the complete
+        // ecosystem object during an MT4 heartbeat.
+        const json = JSON.stringify(value ?? null);
+        await client.query(
+          `insert into wisdo_state_sections(namespace, section, state, revision, updated_at)
+           values($1,$2,$3::jsonb,1,now())
+           on conflict(namespace,section) do update
+           set state=excluded.state, revision=wisdo_state_sections.revision+1, updated_at=now()`,
+          [this.namespace, section, json],
+        );
+        changed.push(section);
+      }
+      if (deleted.length) {
+        await client.query('delete from wisdo_state_sections where namespace = $1 and section = any($2::text[])', [this.namespace, deleted]);
+        changed.push(...deleted);
+      }
+      await client.query('commit');
+      this.runtime.lastPersistedAt = new Date().toISOString();
+      this.runtime.lastError = '';
+      return changed;
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      this.recordRuntimeError(error);
+      throw error;
+    } finally { client.release(); }
+  }
+
   async runLockedMutation(mutator, { cloneResult = true } = {}) {
     const pool = await this.getPool();
     await this.importLegacyIfNeeded(pool);
@@ -398,7 +538,8 @@ export class PostgresKeyValuePersistenceAdapter {
   }
 
   scheduleFlush(delay = this.writeDebounceMs) {
-    if (this.runtime.flushTimer || this.runtime.flushPromise || !this.runtime.dirtySnapshot) return;
+    const hasDirty = Boolean(this.runtime.dirtySnapshot || this.runtime.dirtySections?.size || this.runtime.deletedSections?.size);
+    if (this.runtime.flushTimer || this.runtime.flushPromise || !hasDirty) return;
     this.runtime.flushTimer = setTimeout(() => {
       this.runtime.flushTimer = null;
       this.flushBufferedWrites().catch(() => undefined);
@@ -409,38 +550,59 @@ export class PostgresKeyValuePersistenceAdapter {
   async flushBufferedWrites({ strict = false, cloneResult = false } = {}) {
     if (this.runtime.flushPromise) {
       const result = await this.runtime.flushPromise;
-      if (strict && this.runtime.dirtySnapshot && this.runtime.lastError) {
+      if (strict && (this.runtime.dirtySections?.size || this.runtime.deletedSections?.size) && this.runtime.lastError) {
         const error = new Error(this.runtime.lastError);
         error.code = 'WISDO_DURABLE_FLUSH_PENDING';
         throw error;
       }
       return cloneResult ? clone(result) : result;
     }
-    const pending = this.runtime.dirtySnapshot;
-    if (!pending) {
+
+    // Migrate a legacy complete dirty snapshot into section references without cloning it.
+    if (this.runtime.dirtySnapshot) {
+      const snapshot = this.runtime.dirtySnapshot;
+      this.runtime.dirtySnapshot = null;
+      this.markDirtySections({}, snapshot);
+    }
+    this.runtime.dirtySections ||= new Map();
+    this.runtime.deletedSections ||= new Set();
+    if (!this.runtime.dirtySections.size && !this.runtime.deletedSections.size) {
       const current = this.runtime.state || this.defaultState();
       return cloneResult ? clone(current) : current;
     }
-    this.runtime.dirtySnapshot = null;
+
+    const pendingEntries = [...this.runtime.dirtySections.entries()];
+    const pendingDeletes = [...this.runtime.deletedSections.values()];
+    for (const [section, value] of pendingEntries) {
+      if (this.runtime.dirtySections.get(section) === value) this.runtime.dirtySections.delete(section);
+    }
+    for (const section of pendingDeletes) this.runtime.deletedSections.delete(section);
+
     this.runtime.flushPromise = (async () => {
       try {
-        // A buffered snapshot is authoritative, including deletions. Do not deep-merge it
-        // into an older database image or removed accounts/routes can reappear.
-        const result = await this.runLockedMutation(() => pending, { cloneResult: false });
-        return result.state;
+        await this.persistDirtySections(pendingEntries, pendingDeletes);
+        return this.runtime.state || Object.fromEntries(pendingEntries);
       } catch (error) {
-        // Keep the newest complete snapshot. A later mutation may already contain more
-        // recent state than the failed pending snapshot.
-        this.runtime.dirtySnapshot = this.runtime.state || this.runtime.dirtySnapshot || pending;
+        // Preserve newer section values. Restore only sections that were not replaced
+        // while this PostgreSQL transaction was in flight.
+        for (const [section, value] of pendingEntries) {
+          if (!this.runtime.dirtySections.has(section) && !this.runtime.deletedSections.has(section)) {
+            this.runtime.dirtySections.set(section, value);
+          }
+        }
+        for (const section of pendingDeletes) {
+          if (!this.runtime.dirtySections.has(section)) this.runtime.deletedSections.add(section);
+        }
         this.scheduleFlush(this.retryMs);
         if (strict) throw error;
-        return this.runtime.state || pending;
+        return this.runtime.state || Object.fromEntries(pendingEntries);
       }
     })().finally(() => {
       this.runtime.flushPromise = null;
-      if (this.runtime.dirtySnapshot) this.scheduleFlush();
+      if (this.runtime.dirtySections?.size || this.runtime.deletedSections?.size || this.runtime.dirtySnapshot) this.scheduleFlush();
     });
-    return this.runtime.flushPromise;
+    const result = await this.runtime.flushPromise;
+    return cloneResult ? clone(result) : result;
   }
 
   async flushNow({ cloneResult = false } = {}) {
@@ -448,16 +610,14 @@ export class PostgresKeyValuePersistenceAdapter {
       const current = this.runtime.state || this.defaultState();
       return cloneResult ? clone(current) : current;
     }
-    // A previous background flush may be in flight. Wait for it, then force the newest
-    // complete hot snapshot through PostgreSQL before reporting a durable save.
     if (this.runtime.flushPromise) await this.runtime.flushPromise;
     let attempts = 0;
-    while (this.runtime.dirtySnapshot && attempts < 3) {
+    while ((this.runtime.dirtySnapshot || this.runtime.dirtySections?.size || this.runtime.deletedSections?.size) && attempts < 8) {
       attempts += 1;
       await this.flushBufferedWrites({ strict: true, cloneResult: false });
     }
-    if (this.runtime.dirtySnapshot) {
-      const error = new Error(`Durable PostgreSQL flush did not settle for ${this.namespace}.`);
+    if (this.runtime.dirtySnapshot || this.runtime.dirtySections?.size || this.runtime.deletedSections?.size) {
+      const error = new Error(`Durable PostgreSQL section flush did not settle for ${this.namespace}.`);
       error.code = 'WISDO_DURABLE_FLUSH_UNSETTLED';
       throw error;
     }
@@ -467,19 +627,22 @@ export class PostgresKeyValuePersistenceAdapter {
 
   async bufferedUpdate(updater, { normalize = (value) => value, cloneResult = true } = {}) {
     for (let attempt = 0; attempt < 256; attempt += 1) {
-      const loaded = this.runtime.state || await this.load();
+      const loaded = this.runtime.state || await this.load({ cloneResult: false });
       const revision = Number(this.runtime.revision || 0);
-      // One working copy is enough. The previous implementation cloned the same
-      // namespace four to six times per heartbeat, creating large transient heaps.
-      const working = normalize(clone(loaded));
-      const candidate = updater(working);
+      const base = normalize(loaded);
+      const draft = createTopLevelDraft(base);
+      const candidate = updater(draft.proxy);
       const resolved = candidate && typeof candidate.then === 'function' ? await candidate : candidate;
-      const next = normalize(resolved || working);
+      const rawNext = resolved === undefined || resolved === null || resolved === draft.proxy ? draft.target : resolved;
+      const next = normalize(rawNext);
       if (revision !== Number(this.runtime.revision || 0)) continue;
+
+      const touched = new Set(draft.touched);
+      for (const key of new Set([...Object.keys(base || {}), ...Object.keys(next || {})])) {
+        if (next?.[key] !== base?.[key]) touched.add(key);
+      }
       this.setCache(next, this.runtime.source === 'postgres' ? 'hot-cache' : this.runtime.source, { cloneState: false });
-      // Dirty snapshot intentionally shares the immutable next-state reference.
-      // Future updates clone before mutation, so the flush cannot be changed in place.
-      this.runtime.dirtySnapshot = next;
+      this.markDirtySections(base, next, touched);
       this.scheduleFlush();
       return cloneResult ? clone(next) : next;
     }
@@ -491,26 +654,68 @@ export class PostgresKeyValuePersistenceAdapter {
   async save(data, { cloneInput = true, cloneResult = true } = {}) {
     const snapshot = cloneInput ? clone(data) : data;
     if (this.bufferWrites) {
+      const previous = this.runtime.state || {};
       // Replacing a complete authoritative snapshot does not require cloning the
-      // previous namespace first. The old path structured-cloned a large ecosystem
-      // state even though the updater discarded it, which caused V8 deserializer OOMs.
+      // discarded previous namespace. Dirty sections retain only the new references.
       this.setCache(snapshot, this.runtime.source === 'postgres' ? 'hot-cache' : this.runtime.source, { cloneState: false });
-      this.runtime.dirtySnapshot = snapshot;
+      // Complete-state callers may have mutated the shared hot object before save. Mark
+      // every top-level section dirty, but retain only references—no full clone.
+      this.markDirtySections(previous, snapshot);
       this.scheduleFlush();
       return cloneResult ? clone(snapshot) : snapshot;
     }
     return (await this.runLockedMutation(() => snapshot, { cloneResult })).state;
   }
+
   async saveSection(section, value) {
     const name = String(section || '').trim();
     if (!name) throw new Error('section is required');
     if (this.bufferWrites) {
-      const state = await this.bufferedUpdate((current) => ({ ...current, [name]: clone(value) }));
-      return state[name];
+      const current = this.runtime.state || await this.load({ cloneResult: false });
+      const next = { ...current, [name]: clone(value) };
+      this.setCache(next, this.runtime.source === 'postgres' ? 'hot-cache' : this.runtime.source, { cloneState: false });
+      this.markDirtySections(current, next, new Set([name]));
+      this.scheduleFlush();
+      return next[name];
     }
     const result = await this.runLockedMutation((current) => ({ ...current, [name]: clone(value) }));
     return result.state[name];
   }
+
+  async saveSections(state, sections = [], { cloneResult = false } = {}) {
+    const names = [...new Set((Array.isArray(sections) ? sections : [sections]).map((value) => String(value || '').trim()).filter(Boolean))];
+    if (!names.length) return cloneResult ? clone(this.runtime.state || state || {}) : (this.runtime.state || state || {});
+    if (this.bufferWrites) {
+      const current = this.runtime.state || await this.load({ cloneResult: false });
+      const next = { ...current };
+      for (const name of names) {
+        if (Object.prototype.hasOwnProperty.call(state || {}, name)) next[name] = state[name];
+        else delete next[name];
+      }
+      this.setCache(next, this.runtime.source === 'postgres' ? 'hot-cache' : this.runtime.source, { cloneState: false });
+      this.markDirtySections(current, next, new Set(names));
+      this.scheduleFlush();
+      return cloneResult ? clone(next) : next;
+    }
+    const result = await this.runLockedMutation((current) => {
+      const next = { ...current };
+      for (const name of names) {
+        if (Object.prototype.hasOwnProperty.call(state || {}, name)) next[name] = state[name];
+        else delete next[name];
+      }
+      return next;
+    }, { cloneResult });
+    return result.state;
+  }
+
+  async loadSection(section, { cloneResult = true } = {}) {
+    const name = String(section || '').trim();
+    if (!name) return undefined;
+    const state = await this.load({ cloneResult: false });
+    const value = state?.[name];
+    return cloneResult ? clone(value) : value;
+  }
+
   async atomicUpdate(updater, { normalize = (value) => value, cloneResult = true } = {}) {
     if (this.bufferWrites) return this.bufferedUpdate(updater, { normalize, cloneResult });
     const result = await this.runLockedMutation(async (current) => {

@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 
 import { createPersistenceAdapter } from './persistenceAdapter.js';
+import { PostgresMt4CommandStore } from './postgresMt4CommandStore.js';
 
 function nowIso() { return new Date().toISOString(); }
 function clone(value) {
   const source = value ?? {};
-  return typeof globalThis.structuredClone === 'function' ? globalThis.structuredClone(source) : JSON.parse(JSON.stringify(source));
+  return JSON.parse(JSON.stringify(source));
 }
 function addMinutes(minutes) { const d = new Date(); d.setMinutes(d.getMinutes() + minutes); return d.toISOString(); }
 function cleanKey(value = '') { return String(value || '').trim().replace(/[^a-zA-Z0-9_.:-]/g, '_').slice(0, 180); }
@@ -71,6 +72,7 @@ const ACCOUNT_COMMANDS = new Set([
 export class Mt4CommandService {
   constructor(config) {
     this.dataDir = config.dataDir || 'data/operator-desks';
+    this.databaseStore = process.env.DATABASE_URL ? new PostgresMt4CommandStore({ databaseUrl: process.env.DATABASE_URL, ssl: process.env.WISDO_DB_SSL }) : null;
     this.persistence = createPersistenceAdapter(config, {
       fileName: 'mt4-commands.json',
       defaultState: () => ({}),
@@ -211,6 +213,10 @@ export class Mt4CommandService {
   }
 
   async loadHot() {
+    if (this.databaseStore?.enabled) {
+      const commandQueue = await this.databaseStore.list({ limit: this.activeQueueLimits().scan });
+      return { commandQueue, commandAuditLog: [], schemaVersion: 3, queueCompaction: { mode: 'postgres-row-store' } };
+    }
     if (this.hotState) return this.hotState;
     if (this.hotLoadPromise) return this.hotLoadPromise;
 
@@ -270,6 +276,10 @@ export class Mt4CommandService {
   }
 
   async save(data) {
+    if (this.databaseStore?.enabled) {
+      const records = Array.isArray(data?.commandQueue) ? data.commandQueue : [];
+      return this.databaseStore.enqueue(records, this.activeQueueLimits());
+    }
     const normalized = this.normalizeState(data || {});
     const saved = await this.persistence.save(this.compactPersistenceState(normalized));
     this.hotState = normalized;
@@ -423,6 +433,18 @@ export class Mt4CommandService {
       error.validation = validation;
       throw error;
     }
+    if (this.databaseStore?.enabled) {
+      const record = {
+        ...this.buildRecord(userId, validation.accountId, validation.command, payload),
+        validation,
+        requiresConfirmation: validation.dangerous,
+        confirmationRequired: validation.dangerous,
+        confirmedAt: validation.dangerous && payload?.confirmation === 'confirmed' ? nowIso() : null,
+      };
+      const saved = await this.databaseStore.enqueue([record], this.activeQueueLimits());
+      await this.databaseStore.prune(this.commandHistoryLimit, this.commandAuditLimit).catch(() => undefined);
+      return saved[0] || record;
+    }
     return this.mutate(async (data) => {
       const dedupeKey = this.deriveDedupeKey(userId, validation.accountId, validation.command, payload);
       const deterministicId = payload?.commandId ? `wisdo_${cleanKey(payload.commandId)}` : (dedupeKey ? `wisdo_dedupe_${shortHash(dedupeKey)}` : '');
@@ -462,6 +484,18 @@ export class Mt4CommandService {
       return { userId, accountId: validation.accountId, command: validation.command, payload, validation };
     });
     if (!prepared.length) return [];
+    if (this.databaseStore?.enabled) {
+      const records = prepared.map((input) => ({
+        ...this.buildRecord(input.userId, input.accountId, input.command, input.payload),
+        validation: input.validation,
+        requiresConfirmation: input.validation.dangerous,
+        confirmationRequired: input.validation.dangerous,
+        confirmedAt: input.validation.dangerous && input.payload?.confirmation === 'confirmed' ? nowIso() : null,
+      }));
+      const saved = await this.databaseStore.enqueue(records, this.activeQueueLimits());
+      await this.databaseStore.prune(this.commandHistoryLimit, this.commandAuditLimit).catch(() => undefined);
+      return saved;
+    }
 
     return this.mutate(async (data) => {
       const results = [];
@@ -495,6 +529,17 @@ export class Mt4CommandService {
   }
 
   async queueCommand(userId, command = null, payload = {}) {
+    if (this.databaseStore?.enabled) {
+      if (typeof userId === 'object' && userId?.command) {
+        const record = { ...userId, id: userId.id || `wisdo_${Date.now()}_${randomUUID().slice(0, 8)}`, status: userId.status || 'pending', attempts: Number(userId.attempts || 0), createdAt: userId.createdAt || nowIso(), expiresAt: userId.expiresAt || addMinutes(Number(userId.ttlMinutes || userId.ttl || 15)) };
+        return (await this.databaseStore.enqueue([record], this.activeQueueLimits()))[0] || record;
+      }
+      if (payload?.accountId) return this.queueCommandForAccount(userId, payload.accountId, command, payload);
+      const validation = this.validateCommand(userId, null, command, payload);
+      if (!validation.ok) { const error = new Error(`Invalid MT4 command: ${validation.errors.join(', ')}`); error.validation = validation; throw error; }
+      const record = { ...this.buildRecord(userId, null, validation.command, payload), validation, requiresConfirmation: validation.dangerous, confirmationRequired: validation.dangerous, confirmedAt: validation.dangerous && payload?.confirmation === 'confirmed' ? nowIso() : null };
+      return (await this.databaseStore.enqueue([record], this.activeQueueLimits()))[0] || record;
+    }
     if (typeof userId === 'object' && userId?.command) {
       return this.mutate(async (data) => {
         const record = {
@@ -541,6 +586,7 @@ export class Mt4CommandService {
   }
 
   async expireStaleCommands(data = null) {
+    if (this.databaseStore?.enabled && !data) { await this.databaseStore.expireStale(); return null; }
     if (!data) {
       return this.mutate(async (owned) => this.expireStaleCommands(owned));
     }
@@ -561,6 +607,7 @@ export class Mt4CommandService {
   }
 
   async getPendingCommand(userId, scope = {}) {
+    if (this.databaseStore?.enabled) return this.databaseStore.pending([userId], scope);
     const data = await this.loadHot();
     const accountId = scope?.accountId || null;
     const accountNumber = scope?.accountNumber ? String(scope.accountNumber) : null;
@@ -571,12 +618,20 @@ export class Mt4CommandService {
   }
 
   async getAllPendingCommands(userId) {
+    if (this.databaseStore?.enabled) {
+      const rows = await this.databaseStore.list({ userId, limit: this.activeQueueLimits().perUser });
+      return rows.filter((command) => this.commandMatches(command));
+    }
     const data = await this.loadHot();
     return (data.commandQueue || []).filter((command) => String(command.userId) === String(userId) && this.commandMatches(command));
   }
 
   async getPendingCommandForAnyUser(userIds = [], scope = {}) {
     const ids = new Set((userIds || []).map((value) => String(value || '').trim()).filter(Boolean));
+    if (this.databaseStore?.enabled) {
+      const command = await this.databaseStore.pending([...ids], scope);
+      return { userId: command?.userId || '', command };
+    }
     if (!ids.size) return { userId: '', command: null };
     const data = await this.loadHot();
     const command = (data.commandQueue || []).find((row) => ids.has(String(row?.userId || '')) && this.commandMatches(row, scope)) || null;
@@ -598,6 +653,11 @@ export class Mt4CommandService {
   }
 
   async markCommandDelivered(userId, commandId, accountId = null) {
+    if (this.databaseStore?.enabled) {
+      const current = await this.databaseStore.getById(commandId);
+      if (!current || (userId && String(current.userId) !== String(userId)) || (accountId && current.accountId && current.accountId !== accountId)) return null;
+      return this.databaseStore.mark(commandId, { status: 'delivered', deliveredAt: nowIso(), attempts: Number(current.attempts || 0) + 1 });
+    }
     return this.mutate(async (data) => {
       const command = this.findCommand(data, userId, commandId, accountId);
       if (command) {
@@ -613,6 +673,12 @@ export class Mt4CommandService {
 
   async markCommandDeliveredForAnyUser(userIds = [], commandId, accountId = null) {
     const ids = new Set((userIds || []).map((value) => String(value || '').trim()).filter(Boolean));
+    if (this.databaseStore?.enabled) {
+      const current = await this.databaseStore.getById(commandId);
+      if (!current || (ids.size && !ids.has(String(current.userId || ''))) || (accountId && current.accountId && current.accountId !== accountId)) return { userId: '', command: null };
+      const command = await this.databaseStore.mark(commandId, { status: 'delivered', deliveredAt: nowIso(), attempts: Number(current.attempts || 0) + 1 });
+      return { userId: command?.userId || '', command };
+    }
     return this.mutate(async (data) => {
       const command = this.findCommand(data, null, commandId, accountId);
       if (!command || (ids.size && !ids.has(String(command.userId || '')))) return { userId: '', command: null };
@@ -627,6 +693,13 @@ export class Mt4CommandService {
 
   async markCommandCompleteForAnyUser(userIds = [], commandId, result = {}, accountId = null) {
     const ids = new Set((userIds || []).map((value) => String(value || '').trim()).filter(Boolean));
+    if (this.databaseStore?.enabled) {
+      const current = await this.databaseStore.getById(commandId);
+      if (!current || (ids.size && !ids.has(String(current.userId || ''))) || (accountId && current.accountId && current.accountId !== accountId)) return { userId: '', command: null };
+      const success = result?.success !== false;
+      const command = await this.databaseStore.mark(commandId, success ? { status: 'completed', completedAt: nowIso(), result } : { status: 'failed', failedAt: nowIso(), errorMessage: result?.message || 'MT4 command failed', result: { ...result, success: false } });
+      return { userId: command?.userId || '', command };
+    }
     return this.mutate(async (data) => {
       const command = this.findCommand(data, null, commandId, accountId);
       if (!command || (ids.size && !ids.has(String(command.userId || '')))) return { userId: '', command: null };
@@ -639,6 +712,11 @@ export class Mt4CommandService {
   }
 
   async markCommandCompleted(userId, commandId, result = {}, accountId = null) {
+    if (this.databaseStore?.enabled) {
+      const current = await this.databaseStore.getById(commandId);
+      if (!current || (userId && String(current.userId) !== String(userId)) || (accountId && current.accountId && current.accountId !== accountId)) return null;
+      return this.databaseStore.mark(commandId, { status: 'completed', completedAt: nowIso(), result });
+    }
     return this.mutate(async (data) => {
       const command = this.findCommand(data, userId, commandId, accountId);
       if (command) {
@@ -653,6 +731,11 @@ export class Mt4CommandService {
   }
 
   async markCommandFailed(userId, commandId, errorMessage, accountId = null) {
+    if (this.databaseStore?.enabled) {
+      const current = await this.databaseStore.getById(commandId);
+      if (!current || (userId && String(current.userId) !== String(userId)) || (accountId && current.accountId && current.accountId !== accountId)) return null;
+      return this.databaseStore.mark(commandId, { status: 'failed', failedAt: nowIso(), errorMessage, result: { success: false, message: String(errorMessage || 'MT4 command failed') } });
+    }
     return this.mutate(async (data) => {
       const command = this.findCommand(data, userId, commandId, accountId);
       if (command) {
@@ -668,6 +751,14 @@ export class Mt4CommandService {
   }
 
   async getCommandStatus(userId, commandId = null, accountId = null) {
+    if (this.databaseStore?.enabled) {
+      const id = commandId === null ? userId : commandId;
+      const command = await this.databaseStore.getById(id);
+      if (!command) return null;
+      if (commandId !== null && userId && String(command.userId) !== String(userId)) return null;
+      if (accountId && command.accountId && command.accountId !== accountId) return null;
+      return command;
+    }
     const data = await this.loadHot();
     const command = commandId === null
       ? this.findCommand(data, null, userId, null)
@@ -678,6 +769,7 @@ export class Mt4CommandService {
   }
 
   async listAccountCommands(userId, accountId, { limit = 50, status = null } = {}) {
+    if (this.databaseStore?.enabled) return this.databaseStore.list({ userId, accountId, status, limit });
     const data = await this.loadHot();
     const rows = data.commandQueue || [];
     const seen = new Set();
@@ -696,6 +788,10 @@ export class Mt4CommandService {
   }
 
   async getQueueStatus(userId, accountId = null) {
+    if (this.databaseStore?.enabled) {
+      const rows = await this.databaseStore.list({ userId, accountId, limit: 250 });
+      return { total: rows.length, pending: rows.filter((c) => c.status === 'pending').length, delivered: rows.filter((c) => c.status === 'delivered').length, completed: rows.filter((c) => c.status === 'completed').length, failed: rows.filter((c) => c.status === 'failed').length, expired: rows.filter((c) => c.status === 'expired').length, recent: rows.slice(0, 10) };
+    }
     const data = await this.loadHot();
     const rows = (data.commandQueue || []).filter((command) => {
       if (String(command.userId) !== String(userId)) return false;
@@ -714,6 +810,10 @@ export class Mt4CommandService {
   }
 
   async getQueueMetrics() {
+    if (this.databaseStore?.enabled) {
+      const metrics = await this.databaseStore.metrics();
+      return { ...metrics, history: Math.max(0, metrics.total - metrics.active), historyLimit: this.commandHistoryLimit, audit: 0, schemaVersion: 3, compaction: { mode: 'postgres-row-store' } };
+    }
     const data = await this.loadHot();
     let active = 0;
     let pending = 0;

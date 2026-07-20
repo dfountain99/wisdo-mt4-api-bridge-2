@@ -1,4 +1,5 @@
 import { createHmac, randomInt } from 'node:crypto';
+import { getHeapStatistics } from 'node:v8';
 
 import { logger } from '../logger.js';
 
@@ -162,6 +163,19 @@ function compactHistorySnapshot(snapshot = {}) {
   };
 }
 
+function currentHeapPressure() {
+  const stats = getHeapStatistics();
+  const heapUsed = process.memoryUsage().heapUsed;
+  const limit = Number(stats.heap_size_limit || 0);
+  return limit > 0 ? heapUsed / limit : 0;
+}
+
+function lowMemoryRelayMode() {
+  const explicit = String(process.env.WISDO_LOW_MEMORY_RELAY_MODE || '').trim().toLowerCase();
+  if (explicit) return ['1', 'true', 'yes', 'on'].includes(explicit);
+  return Number(process.env.WISDO_RENDER_MEMORY_LIMIT_MB || 512) <= 512;
+}
+
 function appendBoundedHistory(history, record) {
   const globalLimit = Math.max(50, Number(process.env.WISDO_MT4_HISTORY_GLOBAL_LIMIT || 500));
   const accountLimit = Math.max(10, Number(process.env.WISDO_MT4_HISTORY_ACCOUNT_LIMIT || 100));
@@ -288,13 +302,23 @@ export class Mt4SyncService {
       while (this.postSnapshotQueueByAccount.size) {
         const [accountId, event] = this.postSnapshotQueueByAccount.entries().next().value;
         this.postSnapshotQueueByAccount.delete(accountId);
-        if (this.wisdoMemoryService?.updateFromSnapshot) {
+        const pressure = currentHeapPressure();
+        const skipAt = Math.max(0.45, Math.min(0.90, Number(process.env.WISDO_POST_SNAPSHOT_SKIP_HEAP_RATIO || 0.62)));
+        if (pressure >= skipAt) {
+          logger.warn('Noncritical post-snapshot enrichment skipped under heap pressure.', {
+            accountId,
+            heapPressure: Number(pressure.toFixed(3)),
+            skipAt,
+          });
+          continue;
+        }
+        if (this.wisdoMemoryService?.updateFromSnapshot && (!lowMemoryRelayMode() || pressure < 0.50)) {
           await this.wisdoMemoryService.updateFromSnapshot(event).catch((error) => {
             logger.warn('WISDO memory update failed after MT4 sync.', { accountId, message: error.message });
           });
         }
         if (this.productEventSink?.ingestSnapshot) {
-          await this.productEventSink.ingestSnapshot(event).catch((error) => {
+          await this.productEventSink.ingestSnapshot({ ...event, lowMemoryRelayMode: lowMemoryRelayMode() }).catch((error) => {
             logger.warn('WISDO product ledger update failed after MT4 sync.', { accountId, message: error.message });
           });
         }
@@ -394,7 +418,7 @@ export class Mt4SyncService {
       this.pairingRecordCache.delete(code);
       return null;
     }
-    return structuredClone(cached.record);
+    return { ...cached.record };
   }
 
   cachePairingRecord(record) {
@@ -410,7 +434,7 @@ export class Mt4SyncService {
       if (!oldest) break;
       this.pairingRecordCache.delete(oldest);
     }
-    this.pairingRecordCache.set(String(record.pairingCode), { cachedAt: now, record: structuredClone(record) });
+    this.pairingRecordCache.set(String(record.pairingCode), { cachedAt: now, record: { ...record } });
     return record;
   }
 
@@ -467,7 +491,7 @@ export class Mt4SyncService {
     if (!code) return null;
     const cached = this.getCachedPairingRecord(code);
     if (cached) return cached;
-    if (this.pairingRecoveryByCode.has(code)) return structuredClone(await this.pairingRecoveryByCode.get(code));
+    if (this.pairingRecoveryByCode.has(code)) return { ...(await this.pairingRecoveryByCode.get(code)) };
 
     const maxRecoveries = Math.max(25, Math.min(1000, Number(process.env.WISDO_PAIRING_RECOVERY_MAX || 250)));
     while (this.pairingRecoveryByCode.size >= maxRecoveries) {
@@ -479,7 +503,7 @@ export class Mt4SyncService {
       .finally(() => this.pairingRecoveryByCode.delete(code));
     this.pairingRecoveryByCode.set(code, recovery);
     const record = await recovery;
-    return record ? structuredClone(record) : null;
+    return record ? { ...record } : null;
   }
 
   generatePairingCode(discordUserId = '') {
@@ -738,6 +762,38 @@ export class Mt4SyncService {
     }
     const previousSet = new Set(previousKeys);
     const nowSet = new Set(nowOpenKeys);
+    const newKeyCount = nowOpenKeys.reduce((count, key) => count + Number(Boolean(key && !previousSet.has(key))), 0);
+    const missingKeyCount = previousKeys.reduce((count, key) => count + Number(Boolean(key && !nowSet.has(key))), 0);
+    const maxNewSignals = Math.max(5, Math.min(200, Number(process.env.WISDO_MT4_MAX_NEW_SIGNALS_PER_SNAPSHOT || 40)));
+    const churnLimit = Math.max(5, Math.min(100, Number(process.env.WISDO_MT4_SIGNAL_CHURN_GUARD || 20)));
+    const replayExisting = String(process.env.WISDO_REPLAY_EXISTING_TRADES_ON_FIRST_SYNC || 'false').toLowerCase() === 'true';
+    const noReliablePriorTracking = !priorTracking || !Array.isArray(priorTracking.openKeys);
+    const unsafeBootstrap = !replayExisting && noReliablePriorTracking && nowOpenKeys.length > maxNewSignals;
+    const unsafeChurn = newKeyCount > churnLimit && missingKeyCount > churnLimit;
+    if (unsafeBootstrap || unsafeChurn) {
+      const nextTracking = {
+        schemaVersion: 3,
+        openKeys: [...new Set(nowOpenKeys)],
+        tradeKeyToSignalId: {},
+        tradeMetaByKey: currentMetaByKey,
+        updatedAt: new Date().toISOString(),
+        bootstrapReason: unsafeChurn ? 'signal-key-churn-guard' : 'existing-trade-bootstrap-guard',
+      };
+      logger.warn('MT4 signal replay was suppressed to protect relay memory and prevent duplicate copying.', {
+        accountId,
+        openTradeCount: nowOpenKeys.length,
+        newKeyCount,
+        missingKeyCount,
+        reason: nextTracking.bootstrapReason,
+      });
+      return {
+        opened: 0,
+        closed: 0,
+        skipped: true,
+        reason: nextTracking.bootstrapReason,
+        tracking: nextTracking,
+      };
+    }
 
     // Persist all newly detected trades in one operation. Copier execution and Discord
     // presentation are queued behind a bounded worker so 100+ trades cannot hold the
@@ -1084,11 +1140,12 @@ export class Mt4SyncService {
       };
     }
 
-    // One cached live-state read replaces multiple full PostgreSQL namespace loads.
-    const mt4StateBeforeSnapshot = await this.repository.getMt4State?.() || {};
-    const existingConnection = mt4StateBeforeSnapshot.connectionsByAccountId?.[accountId]
-      || mt4StateBeforeSnapshot.connections?.[pairingRecord.discordUserId]
-      || null;
+    // Database-first: fetch only this account row plus its signal-tracking row.
+    // Never reconstruct the complete MT4 namespace during a Reporter heartbeat.
+    const snapshotContext = this.repository.getMt4SnapshotContext
+      ? await this.repository.getMt4SnapshotContext(accountId, pairingRecord.discordUserId)
+      : { connection: null, settings: {}, tracking: null, activeAccountId: null };
+    const existingConnection = snapshotContext.connection || null;
     const lockedAccountNumber = pairingRecord.accountNumber;
 
     if (lockedAccountNumber && String(lockedAccountNumber) !== String(snapshot.accountNumber)) {
@@ -1102,7 +1159,7 @@ export class Mt4SyncService {
 
     const receivedAt = new Date().toISOString();
     const nextStatus = pairingRecord.status === 'connected' ? 'updated' : 'connected';
-    const existingAccountSettings = mt4StateBeforeSnapshot.accountSettingsByAccountId?.[accountId] || {};
+    const existingAccountSettings = snapshotContext.settings || {};
     const connectionRecord = {
       discordUserId: pairingRecord.discordUserId,
       channelId: pairingRecord.channelId,
@@ -1131,7 +1188,7 @@ export class Mt4SyncService {
       receivedAt,
     };
 
-    const priorTracking = mt4StateBeforeSnapshot.signalTrackingByAccountId?.[accountId] || null;
+    const priorTracking = snapshotContext.tracking || null;
     const signalSummary = await this.processTradeSignals({
       connectionRecord,
       latestSnapshotRecord,
@@ -1158,59 +1215,58 @@ export class Mt4SyncService {
       || signalSummary.closed > 0
       || Date.now() - lastHistoryAt >= historyIntervalMs;
 
-    // One short authoritative transaction persists pairing, connection, latest snapshot,
-    // signal tracking and bounded history. v6.0.6 used up to three transactions per beat.
-    await this.repository.updateMt4State((state) => {
-      state.pairingCodes ||= {};
-      state.connectionsByAccountId ||= {};
-      state.latestSnapshotsByAccountId ||= {};
-      state.activeAccountByUserId ||= {};
-      state.accountSettingsByAccountId ||= {};
-      state.signalTrackingByAccountId ||= {};
-      state.pairingCodes[snapshot.pairingCode] = {
-        ...pairingRecord,
-        status: 'connected',
-        connectedAt: pairingRecord.connectedAt || receivedAt,
-        accountNumber: String(snapshot.accountNumber),
-        accountId,
-      };
-      state.connectionsByAccountId[accountId] = {
-        ...(state.connectionsByAccountId[accountId] || {}),
-        ...connectionRecord,
-      };
-      state.latestSnapshotsByAccountId[accountId] = latestSnapshotRecord;
-      state.accountSettingsByAccountId[accountId] = {
-        ...(state.accountSettingsByAccountId[accountId] || {}),
-        nickname: state.accountSettingsByAccountId[accountId]?.nickname || connectionRecord.nickname,
-        accountRole: state.accountSettingsByAccountId[accountId]?.accountRole || connectionRecord.accountRole,
-        copyPermission: state.accountSettingsByAccountId[accountId]?.copyPermission || connectionRecord.copyPermission,
-        visibility: state.accountSettingsByAccountId[accountId]?.visibility || 'private',
-        copyRisk: state.accountSettingsByAccountId[accountId]?.copyRisk || { enabled: false, mode: 'fixed_lot', fixedLot: 0.01, maxLot: 0.05, multiplier: 1, maxOpenTrades: 5, copyBuys: true, copySells: true, copySLTP: true },
-      };
-      if (signalSummary.tracking) state.signalTrackingByAccountId[accountId] = signalSummary.tracking;
-      if (!state.activeAccountByUserId[pairingRecord.discordUserId]) {
-        state.activeAccountByUserId[pairingRecord.discordUserId] = accountId;
-      }
-      if (state.activeAccountByUserId[pairingRecord.discordUserId] === accountId || !state.connections?.[pairingRecord.discordUserId]) {
-        state.connections ||= {};
-        state.latestSnapshots ||= {};
-        state.connections[pairingRecord.discordUserId] = connectionRecord;
-        state.latestSnapshots[pairingRecord.discordUserId] = latestSnapshotRecord;
-      }
-      if (shouldAppendHistory) state.snapshotHistory = appendBoundedHistory(state.snapshotHistory, historyRecord);
-      return state;
-    });
-    if (shouldAppendHistory) {
-      this.lastHistoryAtByAccount.set(accountId, Date.now());
-      while (this.lastHistoryAtByAccount.size > 1500) this.lastHistoryAtByAccount.delete(this.lastHistoryAtByAccount.keys().next().value);
-    }
-    this.cachePairingRecord({
+    const connectedPairingRecord = {
       ...pairingRecord,
       status: 'connected',
       connectedAt: pairingRecord.connectedAt || receivedAt,
       accountNumber: String(snapshot.accountNumber),
+      brokerServer: snapshot.brokerServer,
       accountId,
-    });
+    };
+    const nextAccountSettings = {
+      ...existingAccountSettings,
+      nickname: existingAccountSettings.nickname || connectionRecord.nickname,
+      accountRole: existingAccountSettings.accountRole || connectionRecord.accountRole,
+      copyPermission: existingAccountSettings.copyPermission || connectionRecord.copyPermission,
+      visibility: existingAccountSettings.visibility || 'private',
+      copyRisk: existingAccountSettings.copyRisk || { enabled: false, mode: 'fixed_lot', fixedLot: 0.01, maxLot: 0.05, multiplier: 1, maxOpenTrades: 5, copyBuys: true, copySells: true, copySLTP: true },
+    };
+
+    // One row-level PostgreSQL transaction. This writes only pairing/account/tracking/history
+    // rows and never clones or serializes the complete WISDO ecosystem.
+    if (this.repository.persistMt4Snapshot) {
+      await this.repository.persistMt4Snapshot({
+        pairingRecord: connectedPairingRecord,
+        connectionRecord,
+        latestSnapshotRecord,
+        settings: nextAccountSettings,
+        tracking: signalSummary.tracking,
+        historyRecord,
+        appendHistory: shouldAppendHistory,
+      });
+    } else {
+      await this.repository.updateMt4State((state) => {
+        state.pairingCodes ||= {};
+        state.connectionsByAccountId ||= {};
+        state.latestSnapshotsByAccountId ||= {};
+        state.activeAccountByUserId ||= {};
+        state.accountSettingsByAccountId ||= {};
+        state.signalTrackingByAccountId ||= {};
+        state.pairingCodes[snapshot.pairingCode] = connectedPairingRecord;
+        state.connectionsByAccountId[accountId] = connectionRecord;
+        state.latestSnapshotsByAccountId[accountId] = latestSnapshotRecord;
+        state.accountSettingsByAccountId[accountId] = nextAccountSettings;
+        if (signalSummary.tracking) state.signalTrackingByAccountId[accountId] = signalSummary.tracking;
+        state.activeAccountByUserId[pairingRecord.discordUserId] ||= accountId;
+        if (shouldAppendHistory) state.snapshotHistory = appendBoundedHistory(state.snapshotHistory, historyRecord);
+        return state;
+      });
+    }
+    if (shouldAppendHistory) {
+      this.lastHistoryAtByAccount.set(accountId, Date.now());
+      while (this.lastHistoryAtByAccount.size > 1500) this.lastHistoryAtByAccount.delete(this.lastHistoryAtByAccount.keys().next().value);
+    }
+    this.cachePairingRecord(connectedPairingRecord);
 
     // Route reconciliation and AI/product ledgers are important but must never hold the
     // MT4 HTTP response open. They run immediately after the authoritative heartbeat.

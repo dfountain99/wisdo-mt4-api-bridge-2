@@ -62,12 +62,16 @@ function ensureMajorState(state={}){
 }
 const MUTATION_CONTROL = '__wisdoMutationControl';
 function mutationResult(value,{save=true}={}){ return {[MUTATION_CONTROL]:true,value,save}; }
-async function persistMutationWithinBudget(save,state,{durable=false}={}){
+async function persistMutationWithinBudget(save,state,{durable=false,sections=null}={}){
+  const persistState=()=>sections&&typeof save.sections==='function'
+    ? save.sections(state,sections,{durable})
+    : durable&&typeof save.durable==='function'
+      ? save.durable(state)
+      : save(state,durable?{durable:true}:undefined);
   if(durable){
     const raw=Number(process.env.WISDO_DURABLE_MUTATION_TIMEOUT_MS||12000);
     const timeoutMs=Math.max(1000,Math.min(60000,Number.isFinite(raw)?raw:12000));
-    const persist=typeof save.durable==='function'?save.durable(state):save(state,{durable:true});
-    const outcome=await settleWithin(Promise.resolve(persist),timeoutMs);
+    const outcome=await settleWithin(Promise.resolve().then(persistState),timeoutMs);
     if(outcome.status==='rejected')throw outcome.error;
     if(outcome.status==='timeout'){
       const error=new Error(`Culture Lane durable save timed out after ${timeoutMs}ms.`);
@@ -78,23 +82,23 @@ async function persistMutationWithinBudget(save,state,{durable=false}={}){
   }
   const raw=Number(process.env.WISDO_MUTATION_SAVE_BUDGET_MS||500);
   const budgetMs=Math.max(50,Math.min(5000,Number.isFinite(raw)?raw:500));
-  const outcome=await settleWithin(Promise.resolve().then(()=>save(state)),budgetMs);
+  const outcome=await settleWithin(Promise.resolve().then(persistState),budgetMs);
   if(outcome.status==='rejected')throw outcome.error;
   // A timeout does not cancel persistence. The save promise keeps running, while the
   // HTTP request is released so one slow database flush cannot freeze the workspace.
   return outcome.status;
 }
-async function mutate(load,save,fn,{durable=false}={}){
+async function mutate(load,save,fn,{durable=false,sections=null}={}){
   // Never place unrelated members, tabs, Reporter heartbeats, or background work
   // behind one process-wide promise chain. Culture Lane configuration mutations are
   // the exception: they wait for a confirmed PostgreSQL commit before returning.
   const state=ensureMajorState(await load());
   const result=await fn(state);
   if(result?.[MUTATION_CONTROL]){
-    if(result.save) await persistMutationWithinBudget(save,state,{durable});
+    if(result.save) await persistMutationWithinBudget(save,state,{durable,sections});
     return result.value;
   }
-  await persistMutationWithinBudget(save,state,{durable});
+  await persistMutationWithinBudget(save,state,{durable,sections});
   return result;
 }
 function mutateCultureLane(load,save,fn){return mutate(load,save,fn,{durable:true});}
@@ -461,7 +465,22 @@ function pruneAccountTradeLedger(state, accountId) {
   for (const trade of rows) if (!keep.has(String(trade.id || ''))) delete state.trades[trade.id];
 }
 
-export async function ingestReporterSnapshotToProductState({ connectionRecord, latestSnapshotRecord, signalSummary = {}, loadEcosystemState, saveEcosystemState }) {
+const REPORTER_PRODUCT_CORE_SECTIONS = [
+  'tradingAccounts',
+  'accountTelemetry',
+  'accountHealthState',
+  'relayDiagnostics',
+];
+const REPORTER_PRODUCT_FULL_SECTIONS = [
+  ...REPORTER_PRODUCT_CORE_SECTIONS,
+  'trades',
+  'alerts',
+  'liveTradeEventKeys',
+  'leaderCloseDetectionByTicket',
+];
+const REPORTER_PRODUCT_SECTIONS = REPORTER_PRODUCT_FULL_SECTIONS;
+
+export async function ingestReporterSnapshotToProductState({ connectionRecord, latestSnapshotRecord, signalSummary = {}, lowMemoryRelayMode = false, loadEcosystemState, saveEcosystemState }) {
   if (!connectionRecord?.accountId || !latestSnapshotRecord?.snapshot) return { openUpserts: 0, closedUpserts: 0, alerts: 0 };
   return mutate(loadEcosystemState, saveEcosystemState, (state) => {
     const snapshot = latestSnapshotRecord.snapshot || {};
@@ -523,6 +542,31 @@ export async function ingestReporterSnapshotToProductState({ connectionRecord, l
     let closedUpserts = 0;
     let alerts = 0;
     const newlyClosedLeaderTrades = [];
+
+    if (lowMemoryRelayMode) {
+      const health = {
+        terminalConnected: snapshot.terminalConnected !== false,
+        expertEnabled: snapshot.expertEnabled !== false,
+        reporterVersion: snapshot.reporterVersion || snapshot.eaVersion || '',
+      };
+      state.accountHealthState[accountId] = { ...health, updatedAt: receivedAt };
+      if (num(signalSummary.opened) > 0 || num(signalSummary.closed) > 0 || signalSummary.skipped) {
+        state.relayDiagnostics.unshift({
+          id: id('relaydiag'), userId, accountId, opened: num(signalSummary.opened), closed: num(signalSummary.closed),
+          skipped: Boolean(signalSummary.skipped), reason: signalSummary.reason || null, mode: 'low_memory_relay', createdAt: receivedAt,
+        });
+        state.relayDiagnostics = state.relayDiagnostics.slice(0, Math.max(50, Number(process.env.WISDO_RELAY_DIAGNOSTIC_LIMIT || 250)));
+      }
+      return {
+        openUpserts: 0,
+        closedUpserts: 0,
+        alerts: 0,
+        accountId,
+        userId,
+        newlyClosedLeaderTrades,
+        lightweight: true,
+      };
+    }
     const tradeLookup = buildAccountTradeLookup(state, accountId);
     const previousLeaderOpenTrades = [...tradeLookup.values()].filter((trade) =>
       String(trade.account_id || '') === accountId &&
@@ -632,7 +676,7 @@ export async function ingestReporterSnapshotToProductState({ connectionRecord, l
     }
     pruneAccountTradeLedger(state, accountId);
     return { openUpserts, closedUpserts, alerts, accountId, userId, newlyClosedLeaderTrades };
-  });
+  }, { sections: lowMemoryRelayMode ? REPORTER_PRODUCT_CORE_SECTIONS : REPORTER_PRODUCT_FULL_SECTIONS });
 }
 
 async function synchronizeLiveTradeLedger({ userId, mt4SyncService, loadEcosystemState, saveEcosystemState }) {
@@ -1312,8 +1356,10 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     }),
     ingestSnapshot: async (event) => {
       const ledger = await ingestReporterSnapshotToProductState({ ...event, loadEcosystemState, saveEcosystemState });
-      await queueFollowerClosesFromLedger({ closedTrades: ledger.newlyClosedLeaderTrades || [], mt4CommandService, loadEcosystemState, saveEcosystemState, logger });
-      await queueAutomaticHarvestsForAccount({ accountId: ledger.accountId, mt4CommandService, mt4SyncService, loadEcosystemState, saveEcosystemState, logger });
+      if (!event?.lowMemoryRelayMode) {
+        await queueFollowerClosesFromLedger({ closedTrades: ledger.newlyClosedLeaderTrades || [], mt4CommandService, loadEcosystemState, saveEcosystemState, logger });
+        await queueAutomaticHarvestsForAccount({ accountId: ledger.accountId, mt4CommandService, mt4SyncService, loadEcosystemState, saveEcosystemState, logger });
+      }
       return ledger;
     },
   });
@@ -2123,8 +2169,8 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
   app.post('/api/public/cron/refresh-market',cronGuard,async(req,res)=>{await mutate(loadEcosystemState,saveEcosystemState,state=>{state.marketCache={refreshedAt:nowIso(),providerConfigured:Boolean(process.env.FINNHUB_API_KEY||process.env.TRADING_ECONOMICS_API_KEY||process.env.FIRECRAWL_API_KEY)};return true});res.json({ok:true,refreshedAt:nowIso()})});
 
   app.post('/api/public/cron/wisdo-coach',cronGuard,async(req,res)=>{const generated=await runProactiveCoach({limit:Number(req.body?.limit||100),force:parseBool(req.body?.force)});res.json({ok:true,generated:generated.length,messageIds:generated})});
-  app.get('/api/public/health',async(req,res)=>{const security=sessionSecurityStatus();res.json({ok:true,service:'WISDO Major Product Pass',version:'7.0.6',time:nowIso(),persistence:'postgres',security,integrations:{discord:Boolean(process.env.DISCORD_TOKEN&&process.env.CLIENT_ID),square:Boolean(process.env.SQUARE_ACCESS_TOKEN&&process.env.SQUARE_LOCATION_ID),resend:Boolean(process.env.RESEND_API_KEY&&process.env.RESEND_FROM_EMAIL),sms:Boolean(process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN&&process.env.TWILIO_FROM_NUMBER),market:Boolean(process.env.FINNHUB_API_KEY||process.env.TRADING_ECONOMICS_API_KEY||process.env.FIRECRAWL_API_KEY),ai:Boolean(process.env.OPENAI_API_KEY||process.env.GOOGLE_AI_API_KEY),postgres:Boolean(process.env.DATABASE_URL)},features:{premiumPublicSite:true,pricingConfigurator:true,operationalApi:true,signedBrokerWebhook:true,accountSpecificCommands:true,academy:true,affiliate:true,unifiedCopierOptions:true,protectedPrivateStrategies:true,aiWebinarRoom:true,adminStrategyStudio:true,browserNarration:true,chartTeacher:true,tradingViewLessons:true,realHistoricalExamples:true,fakeChartFallbackDisabled:true,squareCheckout:true,renderMemoryRepair:true,growthFunnel:true,signupEmailSms:true,personalLearningRoom:true,educationDripSequence:true,portableLeadAi:true,videoEngagementTracking:true,persistentAccountRoles:true,persistenceBackupRecovery:true,immediateBulkClose:true,closeProfitableOnly:true,closeLosingOnly:true,compoundCloseTracker:true,dailyWeeklyTrendGauges:true,closeEmailDiscordNotifications:true,cultureLaneVault:true,smartSymbolRouting:true,harvestMode:true,laneGenomes:true,laneTimeline:true,tradePassports:true,laneDna:true,cultureIntelligence:true,redisStreamsRelay:true,commandDeadLetterRecovery:true,parallelLaneClose:true,visibleCultureLanePages:true,clickableLeaderSymbolMatrix:true,multiReceiverCultureLaneBuilder:true,combinedLaneDashboard:true,dashboardHarvestAuthority:true,leaderCloseSnapshotFailsafe:true,relaySelfRepair:true,postgresRedeployPersistence:true,dashboardLeaderClose:true,comprehensiveCompoundTracker:true,compoundScopeGoals:true,compoundAttributionTables:true,databaseOnlyPersistence:true,sharedPostgresPool:true,databaseReadCache:true,fastReporterHeartbeat:true,nonBlockingAiIngest:true,singleFlightWorkers:true,resilientReporterBackoff:true,metaApiAccountConnection:true,cTraderOAuthAccountDiscovery:true,brokerWebhookApi:true,aiAcademyCoach:true,proactiveLaneCoach:true,coachEmailSmsDmPreferences:true}})});
-  app.get('/api/runtime-audit',async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,version:'7.0.6',source:'wisdo-culture-lane-os-v7.0.6.zip',checks:{rootRoute:true,publicProductPages:true,loginReturnTo:true,signedSessions:sessionSecurityStatus().signedSessions,credentialEncryptionReady:sessionSecurityStatus().credentialEncryptionConfigured,copierRules:Object.keys(state.copierRules).length,accounts:Object.keys(state.tradingAccounts).length,trades:Object.keys(state.trades).length,closeSignalsBypassEntryFilters:true,followerSymbolGuaranteed:true,persistentStorageConfigured:Boolean(process.env.DATABASE_URL),executionAutomatchEnabled:parseBool(process.env.WISDO_SYMBOL_AUTOMATCH_EXECUTION_ENABLED),unifiedCopierOptions:true,privateStrategySourcePublic:false,aiWebinarRoom:true,adminStrategyStudio:true,browserNarration:true,chartTeacher:true,tradingViewLessons:true,realHistoricalExamples:true,fakeChartFallbackDisabled:true,squareCheckout:true,renderMemoryRepair:true,growthFunnel:true,signupEmailSms:true,personalLearningRoom:true,educationDripSequence:true,portableLeadAi:true,videoEngagementTracking:true,persistentAccountRoles:true,persistenceBackupRecovery:true,immediateBulkClose:true,closeProfitableOnly:true,closeLosingOnly:true,compoundCloseTracker:true,dailyWeeklyTrendGauges:true,closeEmailDiscordNotifications:true,cultureLaneVault:true,smartSymbolRouting:true,harvestMode:true,laneGenomes:true,laneTimeline:true,tradePassports:true,laneDna:true,cultureIntelligence:true,redisStreamsRelay:true,commandDeadLetterRecovery:true,parallelLaneClose:true,visibleCultureLanePages:true,clickableLeaderSymbolMatrix:true,multiReceiverCultureLaneBuilder:true,combinedLaneDashboard:true,dashboardHarvestAuthority:true,leaderCloseSnapshotFailsafe:true,relaySelfRepair:true,postgresRedeployPersistence:true,dashboardLeaderClose:true,comprehensiveCompoundTracker:true,compoundScopeGoals:true,compoundAttributionTables:true,databaseOnlyPersistence:true,sharedPostgresPool:true,databaseReadCache:true,fastReporterHeartbeat:true,nonBlockingAiIngest:true,singleFlightWorkers:true,resilientReporterBackoff:true,metaApiAccountConnection:true,cTraderOAuthAccountDiscovery:true,brokerWebhookApi:true,aiAcademyCoach:true,proactiveLaneCoach:true,coachEmailSmsDmPreferences:true}})});
+  app.get('/api/public/health',async(req,res)=>{const security=sessionSecurityStatus();res.json({ok:true,service:'WISDO Major Product Pass',version:'7.0.8',time:nowIso(),persistence:'postgres',security,integrations:{discord:Boolean(process.env.DISCORD_TOKEN&&process.env.CLIENT_ID),square:Boolean(process.env.SQUARE_ACCESS_TOKEN&&process.env.SQUARE_LOCATION_ID),resend:Boolean(process.env.RESEND_API_KEY&&process.env.RESEND_FROM_EMAIL),sms:Boolean(process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN&&process.env.TWILIO_FROM_NUMBER),market:Boolean(process.env.FINNHUB_API_KEY||process.env.TRADING_ECONOMICS_API_KEY||process.env.FIRECRAWL_API_KEY),ai:Boolean(process.env.OPENAI_API_KEY||process.env.GOOGLE_AI_API_KEY),postgres:Boolean(process.env.DATABASE_URL)},features:{premiumPublicSite:true,pricingConfigurator:true,operationalApi:true,signedBrokerWebhook:true,accountSpecificCommands:true,academy:true,affiliate:true,unifiedCopierOptions:true,protectedPrivateStrategies:true,aiWebinarRoom:true,adminStrategyStudio:true,browserNarration:true,chartTeacher:true,tradingViewLessons:true,realHistoricalExamples:true,fakeChartFallbackDisabled:true,squareCheckout:true,renderMemoryRepair:true,growthFunnel:true,signupEmailSms:true,personalLearningRoom:true,educationDripSequence:true,portableLeadAi:true,videoEngagementTracking:true,persistentAccountRoles:true,persistenceBackupRecovery:true,immediateBulkClose:true,closeProfitableOnly:true,closeLosingOnly:true,compoundCloseTracker:true,dailyWeeklyTrendGauges:true,closeEmailDiscordNotifications:true,cultureLaneVault:true,smartSymbolRouting:true,harvestMode:true,laneGenomes:true,laneTimeline:true,tradePassports:true,laneDna:true,cultureIntelligence:true,redisStreamsRelay:true,commandDeadLetterRecovery:true,parallelLaneClose:true,visibleCultureLanePages:true,clickableLeaderSymbolMatrix:true,multiReceiverCultureLaneBuilder:true,combinedLaneDashboard:true,dashboardHarvestAuthority:true,leaderCloseSnapshotFailsafe:true,relaySelfRepair:true,postgresRedeployPersistence:true,dashboardLeaderClose:true,comprehensiveCompoundTracker:true,compoundScopeGoals:true,compoundAttributionTables:true,databaseOnlyPersistence:true,sharedPostgresPool:true,databaseReadCache:true,fastReporterHeartbeat:true,nonBlockingAiIngest:true,singleFlightWorkers:true,resilientReporterBackoff:true,metaApiAccountConnection:true,cTraderOAuthAccountDiscovery:true,brokerWebhookApi:true,aiAcademyCoach:true,proactiveLaneCoach:true,coachEmailSmsDmPreferences:true}})});
+  app.get('/api/runtime-audit',async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,version:'7.0.8',source:'wisdo-culture-lane-os-v7.0.8.zip',checks:{rootRoute:true,publicProductPages:true,loginReturnTo:true,signedSessions:sessionSecurityStatus().signedSessions,credentialEncryptionReady:sessionSecurityStatus().credentialEncryptionConfigured,copierRules:Object.keys(state.copierRules).length,accounts:Object.keys(state.tradingAccounts).length,trades:Object.keys(state.trades).length,closeSignalsBypassEntryFilters:true,followerSymbolGuaranteed:true,persistentStorageConfigured:Boolean(process.env.DATABASE_URL),executionAutomatchEnabled:parseBool(process.env.WISDO_SYMBOL_AUTOMATCH_EXECUTION_ENABLED),unifiedCopierOptions:true,privateStrategySourcePublic:false,aiWebinarRoom:true,adminStrategyStudio:true,browserNarration:true,chartTeacher:true,tradingViewLessons:true,realHistoricalExamples:true,fakeChartFallbackDisabled:true,squareCheckout:true,renderMemoryRepair:true,growthFunnel:true,signupEmailSms:true,personalLearningRoom:true,educationDripSequence:true,portableLeadAi:true,videoEngagementTracking:true,persistentAccountRoles:true,persistenceBackupRecovery:true,immediateBulkClose:true,closeProfitableOnly:true,closeLosingOnly:true,compoundCloseTracker:true,dailyWeeklyTrendGauges:true,closeEmailDiscordNotifications:true,cultureLaneVault:true,smartSymbolRouting:true,harvestMode:true,laneGenomes:true,laneTimeline:true,tradePassports:true,laneDna:true,cultureIntelligence:true,redisStreamsRelay:true,commandDeadLetterRecovery:true,parallelLaneClose:true,visibleCultureLanePages:true,clickableLeaderSymbolMatrix:true,multiReceiverCultureLaneBuilder:true,combinedLaneDashboard:true,dashboardHarvestAuthority:true,leaderCloseSnapshotFailsafe:true,relaySelfRepair:true,postgresRedeployPersistence:true,dashboardLeaderClose:true,comprehensiveCompoundTracker:true,compoundScopeGoals:true,compoundAttributionTables:true,databaseOnlyPersistence:true,sharedPostgresPool:true,databaseReadCache:true,fastReporterHeartbeat:true,nonBlockingAiIngest:true,singleFlightWorkers:true,resilientReporterBackoff:true,metaApiAccountConnection:true,cTraderOAuthAccountDiscovery:true,brokerWebhookApi:true,aiAcademyCoach:true,proactiveLaneCoach:true,coachEmailSmsDmPreferences:true}})});
 
   app.get('/api/v2/admin/stats',requireUser,requireAdmin,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,users:Object.keys(state.profiles).length,accounts:Object.keys(state.tradingAccounts).length,rules:Object.keys(state.copierRules).length,trades:Object.keys(state.trades).length,subscriptions:Object.keys(state.subscriptions).length,alerts:Object.values(state.alerts).flat().length})});
   app.post('/api/v2/admin/firms',requireUser,requireAdmin,async(req,res)=>{const firm=await mutate(loadEcosystemState,saveEcosystemState,state=>{const firm={id:req.body.id||id('firm'),name:String(req.body.name||'').trim(),type:req.body.type==='broker'?'broker':'prop',logo_url:req.body.logo_url||'',max_drawdown_pct:num(req.body.max_drawdown_pct,null),daily_drawdown_pct:num(req.body.daily_drawdown_pct,null),profit_split_pct:num(req.body.profit_split_pct,null),refund_policy:req.body.refund_policy||'',min_trading_days:num(req.body.min_trading_days,0),supported_platforms:(req.body.supported_platforms||[]).filter(x=>PLATFORMS.includes(x)),rating:num(req.body.rating,0),updated_at:nowIso()};state.firms[firm.id]=firm;audit(state,req.wisdoUser.id,'firm.upserted','Firm',firm.id);return firm});res.json({ok:true,firm})});
@@ -2156,5 +2202,5 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     timer.unref?.();
   }
 
-  logger?.info?.('WISDO major upgrade routes registered', { source: 'wisdo-culture-lane-os-v7.0.6.zip', version: '7.0.6', durableCultureLanes: true });
+  logger?.info?.('WISDO major upgrade routes registered', { source: 'wisdo-culture-lane-os-v7.0.8.zip', version: '7.0.8', durableCultureLanes: true });
 }

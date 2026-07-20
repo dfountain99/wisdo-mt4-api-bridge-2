@@ -44,6 +44,16 @@ export class DatabaseStateStore {
     return isEmptyObject(current) ? this.fallback() : current;
   }
   async readHot() { return this.read({ cloneResult: false }); }
+  async readSection(section, { cloneResult = true } = {}) {
+    if (typeof this.adapter.loadSection === 'function') return this.adapter.loadSection(section, { cloneResult });
+    const state = await this.read({ cloneResult: false });
+    const value = state?.[section];
+    return cloneResult ? clone(value) : value;
+  }
+  async writeSection(section, value) {
+    if (typeof this.adapter.saveSection === 'function') return this.adapter.saveSection(section, value);
+    return this.update((state) => ({ ...state, [String(section)]: value }));
+  }
   async write(data) { return this.adapter.save(data, { cloneInput: true, cloneResult: false }); }
   async update(updater) {
     return this.adapter.atomicUpdate(async (current) => {

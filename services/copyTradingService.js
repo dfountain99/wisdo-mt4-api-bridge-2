@@ -255,9 +255,7 @@ export class CopyTradingService {
 
   async load() {
     const hot = await this.loadHot();
-    const copy = typeof globalThis.structuredClone === 'function'
-      ? globalThis.structuredClone(hot)
-      : JSON.parse(JSON.stringify(hot));
+    const copy = JSON.parse(JSON.stringify(hot));
     copy.copyCommandsByUserId = groupCopyCommands(copy.copyCommandQueue, 'followerUserId');
     copy.copyCommandsByAccountId = groupCopyCommands(copy.copyCommandQueue, 'followerAccountId');
     return copy;

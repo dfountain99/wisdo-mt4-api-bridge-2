@@ -70,6 +70,9 @@ export class RankService {
 
   async processSnapshot(discordUserId, accountId = null) {
     const key = accountGrowthKey(discordUserId, accountId || 'primary');
+    // Callers that receive high-frequency Reporter heartbeats must throttle before
+    // invoking RankService. Keep the service itself immediate so explicit account
+    // refreshes and milestone checks cannot silently miss a newly crossed level.
     const minIntervalMs = Math.max(0, Math.min(300_000, Number(process.env.WISDO_RANK_PROCESS_MIN_INTERVAL_MS || 0)));
     const lastAt = number(this.lastProcessAtByAccount.get(key));
     if (minIntervalMs > 0 && Date.now() - lastAt < minIntervalMs) return [];

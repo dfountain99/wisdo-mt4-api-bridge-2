@@ -1,24 +1,26 @@
-# WISDO Culture Lane OS v7.0.6
+# WISDO Culture Lane OS v7.0.8
 
-Production repair for repeated MT4 snapshot churn and Render heap exhaustion.
+Database-first production repair for repeated Render heap exhaustion.
+
+The high-frequency trading path no longer treats PostgreSQL like one large JSON file. Reporter heartbeats, account snapshots, pairing records, command queues, and trade signals use dedicated indexed PostgreSQL tables and row-level transactions.
 
 Key protections:
 
-- Ticket-stable signal tracking prevents unchanged trades from replaying as opens and closes.
-- Legacy signal keys migrate automatically.
-- Post-snapshot product and memory work is coalesced to one latest event per account.
-- Slow background tasks keep their worker slot until they actually finish.
-- Product trade ingestion uses indexed lookups and bounded account history.
-- Buffered authoritative saves no longer clone the discarded full PostgreSQL namespace.
-- Culture Lanes remain PostgreSQL-backed and restore after crashes or redeploys.
-- Website identity recognition and 50% growth milestone celebrations remain enabled.
+- One Reporter heartbeat reads only the requested account and signal-tracking rows.
+- One heartbeat commits only pairing, account, tracking, active-account, and optional compact-history rows.
+- MT4 commands use a bounded relational queue with dedupe and priority indexes.
+- Trade signals use a relational table keyed by signal and broker ticket.
+- Culture Lanes remain PostgreSQL-durable and restore after crashes or redeploys.
+- Account sharing and legacy copier-route metadata remain in a small compatibility namespace, separate from hot MT4 data.
+- Website identity recognition and each 50% growth milestone remain enabled.
+- Reporter v1.59 remains required so one terminal/account performs the polling lease.
 
 Validate before deployment:
 
 ```bash
 npm ci
 npm run check
-npm run pressure:v706
+npm run pressure:v708
 ```
 
-Use Reporter v1.59 and attach only one active Reporter instance per MT4 account.
+Render runs `npm run migrate:postgres` before starting the service.

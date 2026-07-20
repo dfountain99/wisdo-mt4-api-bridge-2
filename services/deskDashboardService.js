@@ -18,8 +18,9 @@ export class DeskDashboardService {
 
     this.store = createDatabaseStateStore('desk_dashboards', () => ({ dashboardsByUserId: {} }));
 
-    this.minUpdateMs = Number(process.env.WISDO_DASHBOARD_UPDATE_SECONDS || 30) * 1000;
+    this.minUpdateMs = Number(process.env.WISDO_DASHBOARD_UPDATE_SECONDS || 60) * 1000;
     this.inFlight = new Set();
+    this.lastAttemptAtByUser = new Map();
   }
 
   async load() {
@@ -40,10 +41,16 @@ export class DeskDashboardService {
       return null;
     }
 
+    const force = options.force === true;
+    const lastAttemptAt = Number(this.lastAttemptAtByUser.get(discordUserId) || 0);
+    if (!force && lastAttemptAt && Date.now() - lastAttemptAt < this.minUpdateMs) {
+      return { status: 'skipped-rate-limit', ageMs: Date.now() - lastAttemptAt };
+    }
+    this.lastAttemptAtByUser.set(discordUserId, Date.now());
+    while (this.lastAttemptAtByUser.size > 500) this.lastAttemptAtByUser.delete(this.lastAttemptAtByUser.keys().next().value);
     this.inFlight.add(discordUserId);
 
     try {
-      const force = options.force === true;
       const state = await this.load();
       const existing = state.dashboardsByUserId[discordUserId];
 

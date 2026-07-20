@@ -89,7 +89,9 @@ test('performance health uses compact metrics and server sheds noncritical reads
 
 test('persistence cloning avoids JSON stringify heap spikes and exposes a read-only hot peek', () => {
   const source = fs.readFileSync(path.resolve('services/persistenceAdapter.js'), 'utf8');
-  assert.match(source, /globalThis\.structuredClone/);
+  assert.doesNotMatch(source, /globalThis\.structuredClone/);
+  assert.match(source, /createTopLevelDraft/);
+  assert.match(source, /persistDirtySections/);
   assert.match(source, /peek\(\) \{ return this\.runtime\.state; \}/);
-  assert.match(source, /One working copy is enough/);
+  assert.match(source, /Avoid structuredClone/);
 });

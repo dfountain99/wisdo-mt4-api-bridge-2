@@ -1,6 +1,7 @@
 import { createDatabaseStateStore, createNamedDatabaseStateStore } from '../storage/stateStore.js';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { SignalCardService } from './signalCardService.js';
+import { PostgresTradeSignalStore } from './postgresTradeSignalStore.js';
 
 function normalizeSide(side) {
   const value = String(side || '').toLowerCase();
@@ -165,6 +166,7 @@ export class TradeSignalService {
     this.discordSignalGridService = discordSignalGridService;
     this.logger = logger;
     this.store = createDatabaseStateStore('trade_signals', () => ({ signalsById: {}, signalIds: [] }));
+    this.databaseSignalStore = process.env.DATABASE_URL ? new PostgresTradeSignalStore({ databaseUrl: process.env.DATABASE_URL, ssl: process.env.WISDO_DB_SSL }) : null;
     this.productStateStore = createNamedDatabaseStateStore('wisdo_phase_1', () => ({}));
     this.ttlSeconds = Number(process.env.SIGNAL_BUTTON_TTL_SECONDS || 180);
     this.signalChannelId = process.env.SIGNAL_CHANNEL_ID || process.env.TRADE_SIGNAL_CHANNEL_ID || '';
@@ -181,11 +183,21 @@ export class TradeSignalService {
   }
 
   async load() {
+    if (this.databaseSignalStore?.enabled) {
+      const rows = await this.databaseSignalStore.list(Math.max(100, Number(process.env.WISDO_SIGNAL_HISTORY_LIMIT || 500)));
+      return sanitizeSignalData({ signalsById: Object.fromEntries(rows.map((signal) => [signal.signalId, signal])), signalIds: rows.map((signal) => signal.signalId) });
+    }
     return sanitizeSignalData(await this.store.read());
   }
 
   async save(data) {
     const sanitized = sanitizeSignalData(data);
+    if (this.databaseSignalStore?.enabled) {
+      const rows = sanitized.signalIds.map((id) => sanitized.signalsById[id]).filter(Boolean);
+      await this.databaseSignalStore.upsertMany(rows);
+      await this.databaseSignalStore.prune(Math.max(100, Number(process.env.WISDO_SIGNAL_HISTORY_LIMIT || 500)));
+      return sanitized;
+    }
     await this.store.write(sanitized);
     return sanitized;
   }
@@ -297,13 +309,18 @@ export class TradeSignalService {
     const signals = inputs.map((input, index) => this.buildSignal(input, index)).filter(Boolean);
     if (!signals.length) return [];
 
-    const data = await this.load();
-    for (const signal of signals) data.signalsById[signal.signalId] = signal;
-    data.signalIds = [
-      ...signals.map((signal) => signal.signalId),
-      ...(data.signalIds || []).filter((id) => !signals.some((signal) => signal.signalId === id)),
-    ].slice(0, 500);
-    await this.save(data);
+    if (this.databaseSignalStore?.enabled) {
+      await this.databaseSignalStore.upsertMany(signals);
+      await this.databaseSignalStore.prune(Math.max(100, Number(process.env.WISDO_SIGNAL_HISTORY_LIMIT || 500))).catch(() => undefined);
+    } else {
+      const data = await this.load();
+      for (const signal of signals) data.signalsById[signal.signalId] = signal;
+      data.signalIds = [
+        ...signals.map((signal) => signal.signalId),
+        ...(data.signalIds || []).filter((id) => !signals.some((signal) => signal.signalId === id)),
+      ].slice(0, 500);
+      await this.save(data);
+    }
 
     // One copier batch and one presentation batch replace hundreds of per-trade
     // database/network tasks. This keeps the shared Render process responsive.
@@ -321,10 +338,14 @@ export class TradeSignalService {
   async createSignal(input = {}) {
     const signal = this.buildSignal(input, 0);
     if (!signal) return null;
-    const data = await this.load();
-    data.signalsById[signal.signalId] = signal;
-    data.signalIds = [signal.signalId, ...(data.signalIds || []).filter((id) => id !== signal.signalId)].slice(0, 500);
-    await this.save(data);
+    if (this.databaseSignalStore?.enabled) {
+      await this.databaseSignalStore.upsertMany([signal]);
+    } else {
+      const data = await this.load();
+      data.signalsById[signal.signalId] = signal;
+      data.signalIds = [signal.signalId, ...(data.signalIds || []).filter((id) => id !== signal.signalId)].slice(0, 500);
+      await this.save(data);
+    }
 
     // Direct/manual callers preserve the old execution-authority guarantee: when
     // createSignal resolves, the copier route has been queued. Discord rendering

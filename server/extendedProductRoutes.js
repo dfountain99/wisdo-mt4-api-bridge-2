@@ -965,7 +965,7 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
       strategy.publishedAt = nowIso();
       strategy.updatedAt = nowIso();
       strategy.updatedBy = String(req.wisdoUser.id);
-      const snapshot = structuredClone(strategy);
+      const snapshot = JSON.parse(JSON.stringify(strategy));
       const versions = state.aiWebinarStrategyVersions[strategy.strategyId] ||= [];
       versions.push({ ...snapshot, versionSnapshotAt: nowIso() });
       state.aiWebinarStrategyVersions[strategy.strategyId] = versions.slice(-50);

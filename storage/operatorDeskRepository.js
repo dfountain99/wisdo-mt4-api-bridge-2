@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createDatabaseStateStore } from './stateStore.js';
+import { PostgresMt4Store } from '../services/postgresMt4Store.js';
 
 function profileState() {
   return { profiles: {} };
@@ -108,6 +109,28 @@ function mt4State() {
     signalTrackingByAccountId: {},
     snapshotHistory: [],
   };
+}
+
+
+const MT4_METADATA_KEYS = Object.freeze([
+  'accountSharesById',
+  'accountAccessRequestsById',
+  'brokerLinkRequestsById',
+  'copyRoutesById',
+  'tradeLinksById',
+  'copyLinksById',
+]);
+
+function mt4MetadataState(state = {}) {
+  const result = mt4State();
+  for (const key of MT4_METADATA_KEYS) result[key] = state?.[key] || {};
+  return result;
+}
+
+function mergeMt4CoreAndMetadata(core = {}, metadata = {}) {
+  const merged = { ...mt4State(), ...core };
+  for (const key of MT4_METADATA_KEYS) merged[key] = metadata?.[key] || {};
+  return normalizeMt4State(merged);
 }
 
 function commerceState() {
@@ -226,6 +249,7 @@ export class OperatorDeskRepository {
     this.deskStore = createDatabaseStateStore('desks', deskState);
     this.logStore = createDatabaseStateStore('logs', logState);
     this.mt4Store = createDatabaseStateStore('mt4', mt4State);
+    this.mt4Database = process.env.DATABASE_URL ? new PostgresMt4Store({ databaseUrl: process.env.DATABASE_URL, ssl: process.env.WISDO_DB_SSL }) : null;
     this.commerceStore = createDatabaseStateStore('commerce', commerceState);
   }
 
@@ -235,6 +259,7 @@ export class OperatorDeskRepository {
       this.deskStore.ensure(),
       this.logStore.ensure(),
       this.mt4Store.ensure(),
+      this.mt4Database?.initialize?.(),
       this.commerceStore.ensure(),
     ]);
   }
@@ -336,6 +361,13 @@ export class OperatorDeskRepository {
   }
 
   async getMt4State() {
+    if (this.mt4Database?.enabled) {
+      const [core, metadata] = await Promise.all([
+        this.mt4Database.exportState(),
+        this.mt4Store.readHot(),
+      ]);
+      return mergeMt4CoreAndMetadata(core, metadata);
+    }
     return normalizeMt4State(await this.mt4Store.readHot());
   }
 
@@ -343,7 +375,58 @@ export class OperatorDeskRepository {
     return this.getMt4State();
   }
 
+  async getMt4SnapshotContext(accountId, discordUserId = '') {
+    if (this.mt4Database?.enabled) return this.mt4Database.getSnapshotContext(accountId, discordUserId);
+    const state = await this.getMt4State();
+    return {
+      connection: state.connectionsByAccountId?.[accountId] || null,
+      settings: state.accountSettingsByAccountId?.[accountId] || {},
+      latestSnapshot: state.latestSnapshotsByAccountId?.[accountId] || null,
+      tracking: state.signalTrackingByAccountId?.[accountId] || null,
+      activeAccountId: state.activeAccountByUserId?.[String(discordUserId || '')] || null,
+    };
+  }
+
+  async persistMt4Snapshot(payload) {
+    if (this.mt4Database?.enabled) return this.mt4Database.persistSnapshot(payload);
+    const { pairingRecord, connectionRecord, latestSnapshotRecord, settings, tracking, historyRecord, appendHistory } = payload || {};
+    await this.updateMt4State((state) => {
+      state.pairingCodes ||= {};
+      state.connectionsByAccountId ||= {};
+      state.latestSnapshotsByAccountId ||= {};
+      state.activeAccountByUserId ||= {};
+      state.accountSettingsByAccountId ||= {};
+      state.signalTrackingByAccountId ||= {};
+      state.pairingCodes[pairingRecord.pairingCode] = pairingRecord;
+      state.connectionsByAccountId[connectionRecord.accountId] = connectionRecord;
+      state.latestSnapshotsByAccountId[connectionRecord.accountId] = latestSnapshotRecord;
+      state.accountSettingsByAccountId[connectionRecord.accountId] = settings || {};
+      if (tracking) state.signalTrackingByAccountId[connectionRecord.accountId] = tracking;
+      state.activeAccountByUserId[connectionRecord.discordUserId] ||= connectionRecord.accountId;
+      if (appendHistory && historyRecord) state.snapshotHistory = trimSnapshotHistory([historyRecord, ...(state.snapshotHistory || [])]);
+      return state;
+    });
+    return latestSnapshotRecord;
+  }
+
   async updateMt4State(updater) {
+    if (this.mt4Database?.enabled) {
+      const [core, metadata] = await Promise.all([
+        this.mt4Database.exportState(),
+        this.mt4Store.readHot(),
+      ]);
+      const current = mergeMt4CoreAndMetadata(core, metadata);
+      const updated = await updater(current);
+      const next = normalizeMt4State(updated || current);
+      // High-frequency account/snapshot data is normalized into relational tables.
+      // Sharing, linking, and copier-route metadata remains in a small legacy namespace
+      // so older APIs keep working without rebuilding the full trading ecosystem object.
+      await Promise.all([
+        this.mt4Database.importState(next, { replace: false }),
+        this.mt4Store.write(mt4MetadataState(next)),
+      ]);
+      return next;
+    }
     const next = await this.mt4Store.update(async (state) => {
       const normalized = normalizeMt4State(state);
       const updated = await updater(normalized);
@@ -353,15 +436,18 @@ export class OperatorDeskRepository {
   }
 
   async flushMt4State() {
+    if (this.mt4Database?.enabled) return null;
     return this.mt4Store?.adapter?.flushBufferedWrites?.() || null;
   }
 
   async getPairingCode(pairingCode) {
+    if (this.mt4Database?.enabled) return this.mt4Database.getPairingCode(pairingCode);
     const state = await this.getMt4State();
     return state.pairingCodes[pairingCode] || null;
   }
 
   async getLatestPairingForUser(discordUserId) {
+    if (this.mt4Database?.enabled) return this.mt4Database.getLatestPairingForUser(discordUserId);
     const state = await this.getMt4State();
     return (
       Object.values(state.pairingCodes)
@@ -375,6 +461,7 @@ export class OperatorDeskRepository {
   }
 
   async getMt4Accounts(discordUserId) {
+    if (this.mt4Database?.enabled) return this.mt4Database.getAccounts(discordUserId);
     const state = await this.getMt4State();
     const userId = String(discordUserId || '');
     const accounts = Object.values(state.connectionsByAccountId || {})
@@ -847,6 +934,7 @@ export class OperatorDeskRepository {
   }
 
   async getPrimaryMt4Connection(discordUserId) {
+    if (this.mt4Database?.enabled) return this.mt4Database.getConnection(discordUserId);
     const state = await this.getMt4State();
     const userId = String(discordUserId || '');
     const activeId = state.activeAccountByUserId?.[userId];
@@ -858,6 +946,10 @@ export class OperatorDeskRepository {
   }
 
   async getMt4ConnectionByAccountId(discordUserId, accountId) {
+    if (this.mt4Database?.enabled) {
+      const owned = await this.mt4Database.getConnection(discordUserId, accountId);
+      if (owned) return owned;
+    }
     const state = await this.getMt4State();
     const userId = String(discordUserId || '');
     const record = state.connectionsByAccountId?.[accountId] || null;
@@ -875,6 +967,7 @@ export class OperatorDeskRepository {
 
   async setPrimaryMt4Account(discordUserId, accountId) {
     const userId = String(discordUserId || '');
+    if (this.mt4Database?.enabled) return this.mt4Database.setActiveAccount(userId, accountId);
     let selected = null;
     await this.updateMt4State((state) => {
       const record = state.connectionsByAccountId?.[accountId];
@@ -891,6 +984,19 @@ export class OperatorDeskRepository {
 
   async updateMt4AccountSettings(discordUserId, accountId, settings = {}) {
     const userId = String(discordUserId || '');
+    if (this.mt4Database?.enabled) {
+      const current = await this.mt4Database.getConnection(userId, accountId);
+      if (!current) return null;
+      const previous = current || {};
+      const patch = {
+        ...(settings.nickname !== undefined ? { nickname: String(settings.nickname || '').trim() } : {}),
+        ...(settings.accountRole !== undefined ? { accountRole: String(settings.accountRole || 'private').toLowerCase() } : {}),
+        ...(settings.copyPermission !== undefined ? { copyPermission: String(settings.copyPermission || 'private').toLowerCase() } : {}),
+        ...(settings.visibility !== undefined ? { visibility: String(settings.visibility || 'private').toLowerCase() } : {}),
+        ...(settings.copyRisk !== undefined ? { copyRisk: normalizeCopyRisk(settings.copyRisk, previous.copyRisk || {}) } : {}),
+      };
+      return this.mt4Database.updateAccountSettings(userId, accountId, patch);
+    }
     let updated = null;
     await this.updateMt4State((state) => {
       const record = state.connectionsByAccountId?.[accountId];
@@ -1093,6 +1199,7 @@ export class OperatorDeskRepository {
   }
 
   async getLatestMt4Snapshot(discordUserId) {
+    if (this.mt4Database?.enabled) return this.mt4Database.getLatestSnapshot(discordUserId);
     const primary = await this.getPrimaryMt4Connection(discordUserId);
     if (primary?.accountId) {
       const state = await this.getMt4State();
@@ -1103,6 +1210,7 @@ export class OperatorDeskRepository {
   }
 
   async getLatestMt4SnapshotForAccount(discordUserId, accountId) {
+    if (this.mt4Database?.enabled) return this.mt4Database.getLatestSnapshot(discordUserId, accountId);
     const state = await this.getMt4State();
     const snapshot = state.latestSnapshotsByAccountId?.[accountId] || null;
     if (!snapshot || String(snapshot.discordUserId) !== String(discordUserId)) return null;
@@ -1110,6 +1218,7 @@ export class OperatorDeskRepository {
   }
 
   async getMt4SnapshotHistory(discordUserId, limit = 50, accountId = null) {
+    if (this.mt4Database?.enabled) return this.mt4Database.getSnapshotHistory(discordUserId, limit, accountId ? { accountId } : {});
     const state = await this.getMt4State();
     return state.snapshotHistory
       .filter((record) => record.discordUserId === discordUserId && (!accountId || record.accountId === accountId))
