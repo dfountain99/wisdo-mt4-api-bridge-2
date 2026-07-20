@@ -39,17 +39,18 @@ export class DatabaseStateStore {
     await this.adapter.save(initial);
     return initial;
   }
-  async read() {
-    const current = await this.adapter.load();
+  async read({ cloneResult = true } = {}) {
+    const current = await this.adapter.load({ cloneResult });
     return isEmptyObject(current) ? this.fallback() : current;
   }
-  async write(data) { return this.adapter.save(clone(data)); }
+  async readHot() { return this.read({ cloneResult: false }); }
+  async write(data) { return this.adapter.save(data, { cloneInput: true, cloneResult: false }); }
   async update(updater) {
     return this.adapter.atomicUpdate(async (current) => {
       const base = isEmptyObject(current) ? this.fallback() : current;
-      const next = typeof updater === 'function' ? await updater(clone(base)) : base;
+      const next = typeof updater === 'function' ? await updater(base) : base;
       return next === undefined || next === null ? base : next;
-    });
+    }, { cloneResult: false });
   }
   async getAll() { return this.read(); }
   async setAll(data) { return this.write(data); }

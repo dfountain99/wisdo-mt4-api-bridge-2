@@ -336,7 +336,7 @@ export class OperatorDeskRepository {
   }
 
   async getMt4State() {
-    return normalizeMt4State(await this.mt4Store.read());
+    return normalizeMt4State(await this.mt4Store.readHot());
   }
 
   async loadMt4State() {

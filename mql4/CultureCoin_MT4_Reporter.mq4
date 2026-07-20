@@ -1,12 +1,12 @@
 #property strict
-#property version   "1.58"
+#property version   "1.59"
 #property description "Culture Coin MT4 Reporter - WISDO sync-account + close-authority copy/manual/profit dashboard"
 
 input string PairingCode = "";
 input string SyncUrl = "";
 input int ExportEverySeconds = 10;
-input int CommandPollEverySeconds = 1;
-input int CommandsPerPollTick = 3;
+input int CommandPollEverySeconds = 2;
+input int CommandsPerPollTick = 1;
 input bool PollCommandsBeforeSnapshot = true;
 // Resilient connection health. One transient Render/ISP failure no longer flips a healthy Reporter to Error.
 input int NetworkFailureGraceCount = 3;
@@ -84,7 +84,7 @@ input color DashboardWarnColor = clrOrange;
 input color DashboardBadColor = clrTomato;
 input color DashboardTextColor = clrSilver;
 
-string REPORTER_VERSION = "1.58";
+string REPORTER_VERSION = "1.59";
 string STATUS_LABEL = "CultureCoinReporterStatus";
 string DASH_PREFIX = "CEM_WISDO_DASH_";
 string g_lastStatus = "Waiting";
@@ -102,6 +102,51 @@ int g_lastNetworkErrorCode = 0;
 datetime g_lastNetworkSuccessAt = 0;
 datetime g_nextNetworkAttemptAt = 0;
 string g_lastNetworkSource = "";
+bool g_isPrimaryReporter = false;
+string g_reporterLeaseOwnerKey = "";
+string g_reporterLeaseBeatKey = "";
+int g_serverPollAfterSeconds = 2;
+
+string ReporterLeaseKey(string suffix)
+{
+   return "WISDO_RPT_" + IntegerToString(AccountNumber()) + "_" + suffix;
+}
+
+bool AcquireOrRefreshReporterLease()
+{
+   if(StringLen(g_reporterLeaseOwnerKey) == 0)
+   {
+      g_reporterLeaseOwnerKey = ReporterLeaseKey("OWNER");
+      g_reporterLeaseBeatKey = ReporterLeaseKey("BEAT");
+   }
+   double owner = GlobalVariableCheck(g_reporterLeaseOwnerKey) ? GlobalVariableGet(g_reporterLeaseOwnerKey) : 0.0;
+   double beat = GlobalVariableCheck(g_reporterLeaseBeatKey) ? GlobalVariableGet(g_reporterLeaseBeatKey) : 0.0;
+   double chartOwner = (double)ChartID();
+   int staleSeconds = CommandPollEverySeconds * 4;
+   if(staleSeconds < 8) staleSeconds = 8;
+   bool stale = beat <= 0.0 || (TimeLocal() - (datetime)beat) > staleSeconds;
+   if(owner == chartOwner || owner == 0.0 || stale)
+   {
+      GlobalVariableSet(g_reporterLeaseOwnerKey, chartOwner);
+      GlobalVariableSet(g_reporterLeaseBeatKey, (double)TimeLocal());
+      g_isPrimaryReporter = true;
+      return true;
+   }
+   g_isPrimaryReporter = false;
+   return false;
+}
+
+void ReleaseReporterLease()
+{
+   if(!g_isPrimaryReporter || StringLen(g_reporterLeaseOwnerKey) == 0) return;
+   double owner = GlobalVariableCheck(g_reporterLeaseOwnerKey) ? GlobalVariableGet(g_reporterLeaseOwnerKey) : 0.0;
+   if(owner == (double)ChartID())
+   {
+      GlobalVariableDel(g_reporterLeaseOwnerKey);
+      GlobalVariableDel(g_reporterLeaseBeatKey);
+   }
+   g_isPrimaryReporter = false;
+}
 
 
 int SafeNetworkBackoffSeconds()
@@ -2201,6 +2246,10 @@ void PollAndExecuteCommands()
 
    MarkNetworkSuccess("Command poll");
    g_lastCommandPollAt = TimeCurrent();
+   int pollAfterMs = JsonGetInt(response, "pollAfterMs", CommandPollEverySeconds * 1000);
+   g_serverPollAfterSeconds = pollAfterMs / 1000;
+   if(g_serverPollAfterSeconds < CommandPollEverySeconds) g_serverPollAfterSeconds = CommandPollEverySeconds;
+   if(g_serverPollAfterSeconds > 30) g_serverPollAfterSeconds = 30;
    bool hasCommand = JsonGetBool(response, "hasCommand", false);
    if(!hasCommand)
       return;
@@ -2326,9 +2375,14 @@ int OnInit()
    g_lastNetworkSuccessAt = 0;
    g_nextNetworkAttemptAt = 0;
    g_lastNetworkSource = "";
+   g_serverPollAfterSeconds = CommandPollEverySeconds;
+   if(g_serverPollAfterSeconds < 2) g_serverPollAfterSeconds = 2;
+   AcquireOrRefreshReporterLease();
+   if(!g_isPrimaryReporter)
+      g_lastStatus = "Standby";
    UpdateStatusLabel();
 
-   Print("CultureCoin Reporter V" + REPORTER_VERSION + " initialized with resilient heartbeat/backoff, immediate account sync, atomic basket sweep, close-authority ticket binding, and WISDO control dashboard.");
+   Print("CultureCoin Reporter V" + REPORTER_VERSION + " initialized with single-terminal polling lease, server-paced command polling, resilient heartbeat/backoff, immediate account sync, atomic basket sweep, close-authority ticket binding, and WISDO control dashboard.");
    Print("Copy trading execution: ", EnableCopyTrading ? "ENABLED" : "DISABLED");
    Print("Sync URL: ", SyncUrl);
    Print("Command poll URL: ", ResolveCommandPollUrl());
@@ -2339,18 +2393,29 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    EventKillTimer();
+   ReleaseReporterLease();
    DeleteDashboardObjects();
 }
 
 void OnTimer()
 {
    datetime now = TimeCurrent();
+   if(!AcquireOrRefreshReporterLease())
+   {
+      g_lastStatus = "Standby";
+      g_lastError = "Another Reporter instance owns this account polling lease";
+      UpdateStatusLabel();
+      return;
+   }
+   int effectivePollSeconds = g_serverPollAfterSeconds;
+   if(effectivePollSeconds < CommandPollEverySeconds) effectivePollSeconds = CommandPollEverySeconds;
+   if(effectivePollSeconds < 2) effectivePollSeconds = 2;
 
-   if(PollCommandsBeforeSnapshot && (g_lastFastPollAt == 0 || now - g_lastFastPollAt >= CommandPollEverySeconds))
+   if(PollCommandsBeforeSnapshot && (g_lastFastPollAt == 0 || now - g_lastFastPollAt >= effectivePollSeconds))
    {
       int loops = CommandsPerPollTick;
       if(loops < 1) loops = 1;
-      if(loops > 10) loops = 10;
+      if(loops > 2) loops = 2;
       for(int i = 0; i < loops; i++)
          PollAndExecuteCommands();
       g_lastFastPollAt = now;
@@ -2362,7 +2427,7 @@ void OnTimer()
       g_lastSnapshotAt = now;
    }
 
-   if(!PollCommandsBeforeSnapshot && (g_lastFastPollAt == 0 || now - g_lastFastPollAt >= CommandPollEverySeconds))
+   if(!PollCommandsBeforeSnapshot && (g_lastFastPollAt == 0 || now - g_lastFastPollAt >= effectivePollSeconds))
    {
       PollAndExecuteCommands();
       g_lastFastPollAt = now;

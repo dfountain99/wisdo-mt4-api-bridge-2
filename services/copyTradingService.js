@@ -6,51 +6,277 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function integerEnv(name, fallback, minimum = 1, maximum = 100000) {
+  const value = Number(process.env[name]);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(minimum, Math.min(maximum, Math.trunc(value)));
+}
+
+function emptyCopyState() {
+  return {
+    mastersByUserId: {},
+    followersByUserId: {},
+    copyCommandQueue: [],
+    copyCommandHistory: [],
+    signals: [],
+    ticketMapByFollowerAccountId: {},
+    copyRequestsById: {},
+    copyRelationshipsById: {},
+    copyTradeLogsById: {},
+    riskProfilesByUserId: {},
+    auditLogs: [],
+  };
+}
+
+function commandCreatedAt(command = {}) {
+  const value = Date.parse(command.createdAt || command.deliveredAt || command.completedAt || 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function isCriticalCopyCommand(command = {}) {
+  const name = String(command.command || '').toUpperCase();
+  return name.includes('CLOSE') || name.includes('EMERGENCY') || name.includes('PROTECT') || name.includes('LOCK');
+}
+
+function copyCommandDedupeKey(command = {}) {
+  const payload = command.payload || {};
+  const target = String(command.followerAccountId || payload.followerAccountId || command.followerAccountNumber || command.followerUserId || '');
+  const source = String(payload.sourceTicket || payload.leaderTicket || payload.copyKey || payload.signalId || '');
+  return [target, String(command.command || ''), source, String(payload.symbol || ''), String(payload.side || '')].join('|');
+}
+
+function compactCopyResult(result = {}) {
+  if (!result || typeof result !== 'object') return {};
+  return {
+    success: result.success !== false,
+    ticket: result.ticket ?? result.followerTicket ?? null,
+    followerTicket: result.followerTicket ?? result.ticket ?? null,
+    message: String(result.message || result.error || '').slice(0, 500),
+    errorCode: result.errorCode ?? result.code ?? null,
+    completedAt: result.completedAt || nowIso(),
+  };
+}
+
+function compactCopyCommand(command = {}) {
+  const payload = command.payload && typeof command.payload === 'object' ? command.payload : {};
+  const riskDecision = command.riskDecision && typeof command.riskDecision === 'object'
+    ? {
+        allowed: command.riskDecision.allowed !== false,
+        reason: String(command.riskDecision.reason || '').slice(0, 160),
+        lots: Number(command.riskDecision.lots || 0),
+      }
+    : null;
+  return {
+    id: String(command.id || `copy_${Date.now()}_${randomUUID().slice(0, 8)}`),
+    status: ['pending', 'delivered', 'completed', 'failed', 'skipped'].includes(command.status) ? command.status : 'pending',
+    skipReason: command.skipReason ? String(command.skipReason).slice(0, 240) : null,
+    riskDecision,
+    followerUserId: String(command.followerUserId || ''),
+    followerAccountId: command.followerAccountId ? String(command.followerAccountId) : null,
+    followerAccountNumber: command.followerAccountNumber ? String(command.followerAccountNumber) : null,
+    masterUserId: command.masterUserId ? String(command.masterUserId) : null,
+    command: String(command.command || '').slice(0, 80),
+    payload: {
+      signalId: payload.signalId ? String(payload.signalId).slice(0, 160) : null,
+      sourceTicket: payload.sourceTicket ? String(payload.sourceTicket).slice(0, 100) : null,
+      leaderTicket: payload.leaderTicket ? String(payload.leaderTicket).slice(0, 100) : null,
+      copyKey: payload.copyKey ? String(payload.copyKey).slice(0, 160) : null,
+      followerTicket: payload.followerTicket ? String(payload.followerTicket).slice(0, 100) : null,
+      symbol: String(payload.symbol || '').slice(0, 40),
+      side: String(payload.side || '').slice(0, 20),
+      lots: Number(payload.lots || 0),
+      stopLoss: toNumberOrNull(payload.stopLoss),
+      takeProfit: toNumberOrNull(payload.takeProfit),
+      maxLot: toNumberOrNull(payload.maxLot),
+      maxOpenTrades: Number(payload.maxOpenTrades || 0),
+      riskMode: String(payload.riskMode || '').slice(0, 40),
+      masterUserId: payload.masterUserId ? String(payload.masterUserId) : null,
+      followerAccountId: payload.followerAccountId ? String(payload.followerAccountId) : null,
+      paperMode: Boolean(payload.paperMode),
+    },
+    priority: Number(command.priority || (isCriticalCopyCommand(command) ? 300 : 150)),
+    immediate: command.immediate !== false,
+    dedupeKey: String(command.dedupeKey || copyCommandDedupeKey(command)).slice(0, 500),
+    createdAt: command.createdAt || nowIso(),
+    deliveredAt: command.deliveredAt || null,
+    completedAt: command.completedAt || null,
+    failedAt: command.failedAt || null,
+    result: command.result ? compactCopyResult(command.result) : null,
+  };
+}
+
+function boundedTicketMaps(value = {}) {
+  const accountLimit = integerEnv('WISDO_COPY_TICKET_ACCOUNT_LIMIT', 250, 25, 2000);
+  const perAccountLimit = integerEnv('WISDO_COPY_TICKET_PER_ACCOUNT_LIMIT', 500, 25, 5000);
+  const accountRows = Object.entries(value && typeof value === 'object' ? value : {}).slice(-accountLimit);
+  const result = {};
+  for (const [accountId, ticketMap] of accountRows) {
+    const rows = Object.entries(ticketMap && typeof ticketMap === 'object' ? ticketMap : {})
+      .sort(([, a], [, b]) => Date.parse(b?.updatedAt || b?.closedAt || b?.openedAt || 0) - Date.parse(a?.updatedAt || a?.closedAt || a?.openedAt || 0))
+      .slice(0, perAccountLimit);
+    result[accountId] = Object.fromEntries(rows);
+  }
+  return result;
+}
+
+function boundedObjectByDate(value, limit, dateFields = ['updatedAt', 'createdAt']) {
+  const rows = Object.entries(value && typeof value === 'object' ? value : {});
+  if (rows.length <= limit) return Object.fromEntries(rows);
+  rows.sort((a, b) => {
+    const read = (row) => {
+      for (const field of dateFields) {
+        const parsed = Date.parse(row?.[1]?.[field] || 0);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+      return 0;
+    };
+    return read(b) - read(a);
+  });
+  return Object.fromEntries(rows.slice(0, limit));
+}
+
+function pruneCopyQueue(commands = []) {
+  const globalLimit = integerEnv('WISDO_COPY_COMMAND_ACTIVE_LIMIT', 250, 25, 5000);
+  const perUserLimit = integerEnv('WISDO_COPY_COMMAND_PER_USER_LIMIT', 100, 10, 2000);
+  const perAccountLimit = integerEnv('WISDO_COPY_COMMAND_PER_ACCOUNT_LIMIT', 75, 10, 2000);
+  const criticalLimit = integerEnv('WISDO_COPY_COMMAND_CRITICAL_LIMIT', 100, 10, 1000);
+  const unique = new Map();
+  for (const raw of Array.isArray(commands) ? commands : []) {
+    const command = compactCopyCommand(raw);
+    if (!['pending', 'delivered'].includes(command.status)) continue;
+    const key = command.id || command.dedupeKey;
+    const previous = unique.get(key);
+    if (!previous || commandCreatedAt(command) >= commandCreatedAt(previous)) unique.set(key, command);
+  }
+  const ordered = [...unique.values()].sort((a, b) => {
+    const critical = Number(isCriticalCopyCommand(b)) - Number(isCriticalCopyCommand(a));
+    if (critical) return critical;
+    const priority = Number(b.priority || 0) - Number(a.priority || 0);
+    return priority || commandCreatedAt(a) - commandCreatedAt(b);
+  });
+  const kept = [];
+  const users = new Map();
+  const accounts = new Map();
+  let criticalCount = 0;
+  for (const command of ordered) {
+    const critical = isCriticalCopyCommand(command);
+    const user = String(command.followerUserId || '');
+    const account = String(command.followerAccountId || command.followerAccountNumber || '');
+    if (critical) {
+      if (criticalCount >= criticalLimit) continue;
+      criticalCount += 1;
+    } else {
+      if (kept.length >= globalLimit) continue;
+      if (user && (users.get(user) || 0) >= perUserLimit) continue;
+      if (account && (accounts.get(account) || 0) >= perAccountLimit) continue;
+    }
+    kept.push(command);
+    if (user) users.set(user, (users.get(user) || 0) + 1);
+    if (account) accounts.set(account, (accounts.get(account) || 0) + 1);
+  }
+  return kept.slice(0, globalLimit + criticalLimit);
+}
+
+function normalizeCopyState(input = {}) {
+  const data = input && typeof input === 'object' ? input : {};
+  const legacy = [];
+  for (const groups of [data.copyCommandsByUserId, data.copyCommandsByAccountId]) {
+    for (const list of Object.values(groups && typeof groups === 'object' ? groups : {})) {
+      if (Array.isArray(list)) legacy.push(...list);
+    }
+  }
+  const queue = pruneCopyQueue([...(Array.isArray(data.copyCommandQueue) ? data.copyCommandQueue : []), ...legacy]);
+  const historyLimit = integerEnv('WISDO_COPY_COMMAND_HISTORY_LIMIT', 100, 10, 1000);
+  const history = [...(Array.isArray(data.copyCommandHistory) ? data.copyCommandHistory : [])]
+    .map(compactCopyCommand)
+    .filter((row) => ['completed', 'failed', 'skipped'].includes(row.status))
+    .sort((a, b) => commandCreatedAt(b) - commandCreatedAt(a))
+    .slice(0, historyLimit);
+  const signalLimit = integerEnv('WISDO_COPY_SIGNAL_HISTORY_LIMIT', 300, 25, 2000);
+  const auditLimit = integerEnv('WISDO_COPY_AUDIT_LIMIT', 300, 25, 2000);
+  const logLimit = integerEnv('WISDO_COPY_TRADE_LOG_LIMIT', 300, 25, 2000);
+  return {
+    mastersByUserId: data.mastersByUserId && typeof data.mastersByUserId === 'object' ? data.mastersByUserId : {},
+    followersByUserId: data.followersByUserId && typeof data.followersByUserId === 'object' ? data.followersByUserId : {},
+    copyCommandQueue: queue,
+    copyCommandHistory: history,
+    signals: (Array.isArray(data.signals) ? data.signals : []).slice(0, signalLimit),
+    ticketMapByFollowerAccountId: boundedTicketMaps(data.ticketMapByFollowerAccountId),
+    copyRequestsById: boundedObjectByDate(data.copyRequestsById, integerEnv('WISDO_COPY_REQUEST_LIMIT', 750, 50, 5000)),
+    copyRelationshipsById: boundedObjectByDate(data.copyRelationshipsById, integerEnv('WISDO_COPY_RELATIONSHIP_LIMIT', 1000, 50, 5000)),
+    copyTradeLogsById: boundedObjectByDate(data.copyTradeLogsById, logLimit),
+    riskProfilesByUserId: data.riskProfilesByUserId && typeof data.riskProfilesByUserId === 'object' ? data.riskProfilesByUserId : {},
+    auditLogs: (Array.isArray(data.auditLogs) ? data.auditLogs : []).slice(0, auditLimit),
+  };
+}
+
+function groupCopyCommands(queue = [], field) {
+  const grouped = {};
+  for (const command of queue) {
+    const key = String(command?.[field] || '');
+    if (!key) continue;
+    grouped[key] ||= [];
+    grouped[key].push(command);
+  }
+  return grouped;
+}
+
 export class CopyTradingService {
   constructor(config) {
     this.dataDir = config.dataDir || 'data/operator-desks';
     this.persistence = createPersistenceAdapter(config, {
       fileName: 'copy-trading.json',
-      defaultState: () => ({}),
+      defaultState: emptyCopyState,
     });
+    this.hotState = null;
+    this.hotLoadPromise = null;
+  }
+
+  async loadHot() {
+    if (this.hotState) return this.hotState;
+    if (this.hotLoadPromise) return this.hotLoadPromise;
+    this.hotLoadPromise = (async () => {
+      try {
+        const raw = await this.persistence.load({ cloneResult: false });
+        const normalized = normalizeCopyState(raw);
+        const needsMigration = Boolean(raw?.copyCommandsByUserId || raw?.copyCommandsByAccountId || !Array.isArray(raw?.copyCommandQueue));
+        this.hotState = normalized;
+        if (needsMigration) {
+          this.hotState = await this.persistence.save(normalized, { cloneInput: false, cloneResult: false });
+        }
+        return this.hotState;
+      } catch {
+        this.hotState = emptyCopyState();
+        return this.hotState;
+      }
+    })().finally(() => { this.hotLoadPromise = null; });
+    return this.hotLoadPromise;
   }
 
   async load() {
-    try {
-      const data = await this.persistence.load();
-
-      return {
-        mastersByUserId: data.mastersByUserId || {},
-        followersByUserId: data.followersByUserId || {},
-        copyCommandsByUserId: data.copyCommandsByUserId || {},
-        copyCommandsByAccountId: data.copyCommandsByAccountId || {},
-        signals: data.signals || [],
-        ticketMapByFollowerAccountId: data.ticketMapByFollowerAccountId || {},
-        copyRequestsById: data.copyRequestsById || {},
-        copyRelationshipsById: data.copyRelationshipsById || {},
-        copyTradeLogsById: data.copyTradeLogsById || {},
-        riskProfilesByUserId: data.riskProfilesByUserId || {},
-        auditLogs: Array.isArray(data.auditLogs) ? data.auditLogs : [],
-      };
-    } catch {
-      return {
-        mastersByUserId: {},
-        followersByUserId: {},
-        copyCommandsByUserId: {},
-        copyCommandsByAccountId: {},
-        signals: [],
-        ticketMapByFollowerAccountId: {},
-        copyRequestsById: {},
-        copyRelationshipsById: {},
-        copyTradeLogsById: {},
-        riskProfilesByUserId: {},
-        auditLogs: [],
-      };
-    }
+    const hot = await this.loadHot();
+    const copy = typeof globalThis.structuredClone === 'function'
+      ? globalThis.structuredClone(hot)
+      : JSON.parse(JSON.stringify(hot));
+    copy.copyCommandsByUserId = groupCopyCommands(copy.copyCommandQueue, 'followerUserId');
+    copy.copyCommandsByAccountId = groupCopyCommands(copy.copyCommandQueue, 'followerAccountId');
+    return copy;
   }
 
   async save(data) {
-    await this.persistence.save(data);
+    const normalized = normalizeCopyState(data);
+    this.hotState = await this.persistence.save(normalized, { cloneInput: false, cloneResult: false });
+    return this.hotState;
+  }
+
+  async mutate(updater) {
+    const next = await this.persistence.atomicUpdate((current) => {
+      const state = normalizeCopyState(current);
+      const result = updater(state);
+      return normalizeCopyState(result || state);
+    }, { normalize: normalizeCopyState, cloneResult: false });
+    this.hotState = next;
+    return next;
   }
 
   async registerMaster({
@@ -520,13 +746,12 @@ export class CopyTradingService {
         };
         continue;
       }
-      data.copyCommandsByUserId[follower.followerUserId] ||= [];
-      data.copyCommandsByUserId[follower.followerUserId].push(command);
-      if (follower.followerAccountId) {
-        data.copyCommandsByAccountId ||= {};
-        data.copyCommandsByAccountId[follower.followerAccountId] ||= [];
-        data.copyCommandsByAccountId[follower.followerAccountId].push(command);
-      }
+      data.copyCommandQueue ||= [];
+      const compact = compactCopyCommand(command);
+      const duplicate = data.copyCommandQueue.find((item) =>
+        ['pending', 'delivered'].includes(item.status) && item.dedupeKey === compact.dedupeKey,
+      );
+      if (!duplicate) data.copyCommandQueue.push(compact);
     }
     return { signal, followerCount: followers.length };
   }
@@ -534,19 +759,17 @@ export class CopyTradingService {
   async queueMasterSignalsBatch(inputs = []) {
     const rows = Array.isArray(inputs) ? inputs.filter(Boolean) : [];
     if (!rows.length) return [];
-    const data = await this.load();
     const results = [];
-    let changed = false;
-    for (const input of rows) {
-      try {
-        results.push({ ok: true, result: this.applyMasterSignal(data, input) });
-        changed = true;
-      } catch (error) {
-        results.push({ ok: false, error: error.message });
+    await this.mutate((data) => {
+      for (const input of rows) {
+        try {
+          results.push({ ok: true, result: this.applyMasterSignal(data, input) });
+        } catch (error) {
+          results.push({ ok: false, error: error.message });
+        }
       }
-    }
-    data.signals = (data.signals || []).slice(0, 1000);
-    if (changed) await this.save(data);
+      return data;
+    });
     return results;
   }
 
@@ -599,42 +822,46 @@ export class CopyTradingService {
   }
 
   async getPendingCopyCommand(followerUserId, accountId = null) {
-    const data = await this.load();
-    const commands = accountId
-      ? (data.copyCommandsByAccountId?.[accountId] || [])
-      : (data.copyCommandsByUserId[followerUserId] || []);
-
-    return commands.find((command) => command.status === 'pending') || null;
+    const data = await this.loadHot();
+    const user = String(followerUserId || '');
+    const account = String(accountId || '');
+    const scanLimit = integerEnv('WISDO_COPY_COMMAND_SCAN_LIMIT', 2000, 100, 10000);
+    return (data.copyCommandQueue || []).slice(0, scanLimit).find((command) => {
+      if (command.status !== 'pending') return false;
+      if (account) return String(command.followerAccountId || '') === account;
+      return String(command.followerUserId || '') === user;
+    }) || null;
   }
 
   async markCopyCommandDelivered(followerUserId, commandId, accountId = null) {
-    const data = await this.load();
-    const commands = accountId ? (data.copyCommandsByAccountId?.[accountId] || []) : (data.copyCommandsByUserId[followerUserId] || []);
-    let command = commands.find((item) => item.id === commandId);
-    if (!command) command = (data.copyCommandsByUserId[followerUserId] || []).find((item) => item.id === commandId);
-
-    if (command) {
-      command.status = 'delivered';
-      command.deliveredAt = new Date().toISOString();
-    }
-
-    await this.save(data);
-
-    return command || null;
+    let delivered = null;
+    await this.mutate((data) => {
+      const command = (data.copyCommandQueue || []).find((item) => item.id === commandId && (
+        !accountId || String(item.followerAccountId || '') === String(accountId)
+      ));
+      if (command && command.status === 'pending') {
+        command.status = 'delivered';
+        command.deliveredAt = nowIso();
+        delivered = compactCopyCommand(command);
+      }
+      return data;
+    });
+    return delivered;
   }
 
   async markCopyCommandCompleted(followerUserId, commandId, result = {}, accountId = null) {
-    const data = await this.load();
-    const commands = accountId ? (data.copyCommandsByAccountId?.[accountId] || []) : (data.copyCommandsByUserId[followerUserId] || []);
-    let command = commands.find((item) => item.id === commandId);
-    if (!command) command = (data.copyCommandsByUserId[followerUserId] || []).find((item) => item.id === commandId);
-
-    if (command) {
+    let completed = null;
+    await this.mutate((data) => {
+      const index = (data.copyCommandQueue || []).findIndex((item) => item.id === commandId && (
+        !accountId || String(item.followerAccountId || '') === String(accountId)
+      ));
+      if (index < 0) return data;
+      const command = data.copyCommandQueue[index];
       const succeeded = result?.success !== false;
       command.status = succeeded ? 'completed' : 'failed';
-      if (succeeded) command.completedAt = new Date().toISOString();
-      else command.failedAt = new Date().toISOString();
-      command.result = result;
+      if (succeeded) command.completedAt = nowIso();
+      else command.failedAt = nowIso();
+      command.result = compactCopyResult(result);
 
       const followerAccountId = accountId || command.followerAccountId || command.payload?.followerAccountId || null;
       const sourceTicket = command.payload?.sourceTicket || command.payload?.leaderTicket || null;
@@ -649,28 +876,44 @@ export class CopyTradingService {
           leaderTicket: key,
           followerTicket: followerTicket ? String(followerTicket) : previous.followerTicket || null,
           followerAccountId,
-          followerUserId,
+          followerUserId: String(followerUserId || command.followerUserId || ''),
           masterUserId: command.masterUserId || command.payload?.masterUserId || previous.masterUserId || null,
           symbol: command.payload?.symbol || previous.symbol || '',
           side: command.payload?.side || previous.side || '',
           status: command.command === 'COPY_CLOSE_TRADE' ? 'closed' : 'mirrored',
           signalId: command.payload?.signalId || previous.signalId || null,
           lastCommandId: command.id,
-          updatedAt: new Date().toISOString(),
-          openedAt: previous.openedAt || (command.command === 'COPY_OPEN_TRADE' ? new Date().toISOString() : null),
-          closedAt: command.command === 'COPY_CLOSE_TRADE' ? new Date().toISOString() : previous.closedAt || null,
+          updatedAt: nowIso(),
+          openedAt: previous.openedAt || (command.command === 'COPY_OPEN_TRADE' ? nowIso() : null),
+          closedAt: command.command === 'COPY_CLOSE_TRADE' ? nowIso() : previous.closedAt || null,
         };
       }
-    }
-
-    await this.save(data);
-
-    return command || null;
+      completed = compactCopyCommand(command);
+      data.copyCommandQueue.splice(index, 1);
+      data.copyCommandHistory ||= [];
+      data.copyCommandHistory.unshift(completed);
+      return data;
+    });
+    return completed;
   }
 
   async getTicketMap(followerAccountId) {
     const data = await this.load();
     return data.ticketMapByFollowerAccountId?.[followerAccountId] || {};
+  }
+
+  async getQueueMetrics() {
+    const data = await this.loadHot();
+    const queue = Array.isArray(data.copyCommandQueue) ? data.copyCommandQueue : [];
+    return {
+      total: queue.length,
+      pending: queue.filter((row) => row.status === 'pending').length,
+      delivered: queue.filter((row) => row.status === 'delivered').length,
+      critical: queue.filter(isCriticalCopyCommand).length,
+      history: Array.isArray(data.copyCommandHistory) ? data.copyCommandHistory.length : 0,
+      signals: Array.isArray(data.signals) ? data.signals.length : 0,
+      ticketAccounts: Object.keys(data.ticketMapByFollowerAccountId || {}).length,
+    };
   }
 
   async getCopyStatus(discordUserId) {
@@ -681,10 +924,12 @@ export class CopyTradingService {
       following: (data.followersByUserId[discordUserId] || []).filter(
         (item) => item.status === 'active',
       ),
-      pendingCommands: (data.copyCommandsByUserId[discordUserId] || []).filter(
-        (item) => item.status === 'pending',
+      pendingCommands: (data.copyCommandQueue || []).filter(
+        (item) => item.status === 'pending' && String(item.followerUserId || '') === String(discordUserId),
       ),
-      relationships: await this.getCopyRelationships(discordUserId),
+      relationships: Object.values(data.copyRelationshipsById || {}).filter((relationship) =>
+        [relationship.followerUserId, relationship.masterUserId].includes(String(discordUserId)),
+      ),
       requests: Object.values(data.copyRequestsById || {}).filter((item) =>
         [item.followerUserId, item.masterUserId].includes(String(discordUserId)),
       ),
@@ -700,7 +945,7 @@ export class CopyTradingService {
       details,
       createdAt: nowIso(),
     });
-    data.auditLogs = data.auditLogs.slice(0, 1000);
+    data.auditLogs = data.auditLogs.slice(0, integerEnv('WISDO_COPY_AUDIT_LIMIT', 300, 25, 2000));
   }
 }
 

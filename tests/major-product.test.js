@@ -211,9 +211,9 @@ test('portable chart renderer produces a valid PNG without native canvas depende
   assert.ok(bytes.length > 1000);
 });
 
-test('Reporter v1.58 adds resilient connection backoff while retaining atomic basket sweep and close authority', async () => {
+test('Reporter v1.59 adds resilient connection backoff while retaining atomic basket sweep and close authority', async () => {
   const reporter = await fs.readFile(new URL('../mql4/CultureCoin_MT4_Reporter.mq4', import.meta.url), 'utf8');
-  assert.match(reporter, /#property version\s+"1\.58"/);
+  assert.match(reporter, /#property version\s+"1\.59"/);
   assert.match(reporter, /NetworkFailureGraceCount/);
   assert.match(reporter, /MarkNetworkFailure/);
   assert.match(reporter, /g_lastStatus = "Degraded"/);

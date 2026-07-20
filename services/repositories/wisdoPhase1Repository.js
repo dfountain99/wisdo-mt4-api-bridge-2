@@ -155,14 +155,14 @@ export class WisdoPhase1Repository {
 
   async loadState() {
     try {
-      const state = ensureWisdoPhase1State(await this.adapter.load());
+      const state = ensureWisdoPhase1State(await this.adapter.load({ cloneResult: false }));
       // Keep one last-known-good reference instead of cloning the entire ecosystem into
       // a second long-lived heap. The adapter already returns an isolated state object.
       this.lastKnownGood = state;
       this.lastDurableLaneDigest = cultureLaneConfigurationDigest(state);
       return state;
     } catch (error) {
-      if (this.lastKnownGood) return structuredClone(this.lastKnownGood);
+      if (this.lastKnownGood) return this.lastKnownGood;
       throw error;
     }
   }
@@ -171,7 +171,7 @@ export class WisdoPhase1Repository {
     const snapshot = ensureWisdoPhase1State(state);
     const laneDigest = cultureLaneConfigurationDigest(snapshot);
     const laneConfigurationChanged = this.lastDurableLaneDigest !== null && laneDigest !== this.lastDurableLaneDigest;
-    const saved = await this.adapter.save(snapshot);
+    const saved = await this.adapter.save(snapshot, { cloneInput: false, cloneResult: false });
     if ((durable || laneConfigurationChanged) && typeof this.adapter.flushNow === 'function') {
       await this.adapter.flushNow();
       this.lastDurableLaneDigest = laneDigest;
@@ -191,7 +191,7 @@ export class WisdoPhase1Repository {
   async updateState(updater, { durable = false } = {}) {
     if (typeof this.adapter.atomicUpdate === 'function') {
       const beforeDigest = this.lastDurableLaneDigest;
-      const saved = await this.adapter.atomicUpdate(updater, { normalize: ensureWisdoPhase1State });
+      const saved = await this.adapter.atomicUpdate(updater, { normalize: ensureWisdoPhase1State, cloneResult: false });
       const laneDigest = cultureLaneConfigurationDigest(saved);
       if ((durable || (beforeDigest !== null && laneDigest !== beforeDigest)) && typeof this.adapter.flushNow === 'function') {
         await this.adapter.flushNow();

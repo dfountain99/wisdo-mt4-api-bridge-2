@@ -1,9 +1,11 @@
-# WISDO v7.0.4
+# WISDO v7.0.5
 
-This release keeps the complete unified app remodel and Discord/MT4 repairs while adding bounded heap protection, personalized member recognition, persistent 50% account-growth celebrations, and commit-confirmed Culture Lane persistence.
+This release keeps the complete unified remodel, 77-command Discord system, personalized account recognition, 50% growth celebrations, and crash-safe Culture Lanes while repairing the remaining V8 deserializer heap failure.
 
-Culture Lane configuration is saved to PostgreSQL before the API returns success, and active relay routes automatically rebuild after crashes or Render redeploys. See:
+The MT4 command bridge now uses clone-free hot reads, one canonical bounded copy queue, compact JSON-only responses, server pacing, and Reporter v1.59 single-instance polling.
 
-- `WISDO_V7_0_4_HEAP_RECOGNITION_LANE_DURABILITY_AUDIT.md`
-- `WISDO_V7_0_4_DEPLOYMENT_CHECKLIST.md`
-- `WISDO_V7_0_4_RELEASE_NOTES.md`
+See:
+
+- `WISDO_V7_0_5_DESERIALIZER_POLL_REPAIR_AUDIT.md`
+- `WISDO_V7_0_5_DEPLOYMENT_CHECKLIST.md`
+- `WISDO_V7_0_5_RELEASE_NOTES.md`

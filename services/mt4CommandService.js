@@ -217,7 +217,7 @@ export class Mt4CommandService {
     this.hotLoadPromise = (async () => {
       try {
         const peeked = this.persistence.peek?.();
-        const raw = peeked || await this.persistence.load();
+        const raw = peeked || await this.persistence.load({ cloneResult: false });
         this.hotState = this.normalizeState(raw || {});
         return this.hotState;
       } catch {
@@ -241,7 +241,7 @@ export class Mt4CommandService {
       result = await mutator(data);
       nextHotState = this.pruneCommandState(data);
       return this.compactPersistenceState(nextHotState);
-    });
+    }, { cloneResult: false });
     // Use the already-normalized working state when available. Falling back to
     // the compact persisted result supports custom/test adapters.
     this.hotState = nextHotState || this.normalizeState(persisted || {});

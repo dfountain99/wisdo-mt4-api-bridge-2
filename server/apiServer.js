@@ -1053,15 +1053,63 @@ function botInstallSteps(bot) {
   return `<ol><li>Buy or unlock ${esc(bot.name)}.</li><li>Download the EA from your licensed bot library.</li><li>Place the EA in MetaTrader: File → Open Data Folder → MQL4 → Experts.</li><li>Restart MetaTrader, attach the EA, then connect the account with WISDO Trade Link.</li><li>Confirm the bot appears in Copier Engine and your private Discord desk.</li></ol>`;
 }
 
+const MT4_COMMAND_FIELDS = new Set([
+  'accountId', 'accountNumber', 'rawText', 'rawCommand', 'text', 'message', 'prompt',
+  'mode', 'botMode', 'riskMode', 'followerSymbol', 'symbol', 'targetSymbol', 'side',
+  'direction', 'type', 'lots', 'lot', 'volume', 'stopLoss', 'sl', 'takeProfit', 'tp',
+  'ticket', 'followerTicket', 'copyTicket', 'mirrorTicket', 'magicNumber', 'magic',
+  'targetMagic', 'bot', 'botName', 'percent', 'closePercent', 'partialPercent',
+  'closeMode', 'targetMode', 'equityFloor', 'floor', 'sourceTicket', 'leaderTicket',
+  'masterTicket', 'copyKey', 'signalId', 'globalName', 'name', 'key', 'globalKey',
+  'value', 'maxLot', 'maxOpenTrades', 'paperMode', 'masterUserId', 'followerAccountId',
+]);
+
+function compactMt4Scalar(value) {
+  if (typeof value === 'string') return value.slice(0, 1000);
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (typeof value === 'boolean' || value === null) return value;
+  return undefined;
+}
+
 function flattenCommandRecord(record) {
-  const payload = record?.payload || {};
-  const globals = payload.globals || {};
-  return {
+  const payload = record?.payload && typeof record.payload === 'object' ? record.payload : {};
+  const output = {
+    ok: true,
     hasCommand: true,
-    commandId: record.id,
-    command: record.command,
-    ...payload,
-    ...globals,
+    commandId: String(record?.id || '').slice(0, 180),
+    command: String(record?.command || '').slice(0, 100),
+  };
+  for (const [key, value] of Object.entries(payload)) {
+    if (!MT4_COMMAND_FIELDS.has(key)) continue;
+    const compact = compactMt4Scalar(value);
+    if (compact !== undefined) output[key] = compact;
+  }
+  const globals = payload.globals && typeof payload.globals === 'object' && !Array.isArray(payload.globals)
+    ? payload.globals
+    : {};
+  let globalCount = 0;
+  for (const [rawKey, value] of Object.entries(globals)) {
+    if (globalCount >= 64) break;
+    const key = String(rawKey || '').replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 80);
+    if (!key || Object.hasOwn(output, key)) continue;
+    const compact = compactMt4Scalar(value);
+    if (compact === undefined) continue;
+    output[key] = compact;
+    globalCount += 1;
+  }
+  const maxBytes = Math.max(2048, Math.min(32768, Number(process.env.WISDO_MT4_COMMAND_RESPONSE_MAX_BYTES || 16384)));
+  if (Buffer.byteLength(JSON.stringify(output), 'utf8') <= maxBytes) return output;
+  return {
+    ok: true,
+    hasCommand: true,
+    commandId: output.commandId,
+    command: output.command,
+    symbol: output.symbol || output.followerSymbol || '',
+    side: output.side || output.direction || '',
+    lots: Number(output.lots || output.lot || output.volume || 0),
+    sourceTicket: output.sourceTicket || output.leaderTicket || '',
+    followerTicket: output.followerTicket || null,
+    payloadTruncated: true,
   };
 }
 
@@ -4125,6 +4173,22 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   await redisCommandBridge.connect();
   redisCommandBridge.decorate(mt4CommandService);
   const reporterHeartbeatAtByReceiver = new Map();
+  const reporterPollAtByReceiver = new Map();
+  const reporterPollBurstMs = Math.max(250, Math.min(5000, Number(process.env.WISDO_MT4_POLL_BURST_MS || 750)));
+  const reporterPollCacheMax = Math.max(100, Math.min(5000, Number(process.env.WISDO_MT4_POLL_CACHE_MAX || 750)));
+  function shouldThrottleReporterPoll(key = '') {
+    const normalized = String(key || '').slice(0, 500);
+    if (!normalized) return false;
+    const now = Date.now();
+    const last = reporterPollAtByReceiver.get(normalized) || 0;
+    reporterPollAtByReceiver.set(normalized, now);
+    while (reporterPollAtByReceiver.size > reporterPollCacheMax) {
+      const oldest = reporterPollAtByReceiver.keys().next().value;
+      if (oldest === undefined) break;
+      reporterPollAtByReceiver.delete(oldest);
+    }
+    return now - last < reporterPollBurstMs;
+  }
   const reporterHeartbeatIntervalMs = Math.max(5_000, Number(process.env.WISDO_REPORTER_HEARTBEAT_INTERVAL_MS || 15_000));
   const reporterHeartbeatCacheMax = Math.max(100, Math.min(5000, Number(process.env.WISDO_REPORTER_HEARTBEAT_CACHE_MAX || 1000)));
   function scheduleReporterHeartbeat(payload = {}) {
@@ -4162,6 +4226,9 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     slowRequests: 0,
     eventLoopLagMs: 0,
     recentSlowRequests: [],
+    mt4PollResponses: 0,
+    mt4PollThrottled: 0,
+    mt4PollResponseBytesMax: 0,
   };
   let expectedLoopTick = Date.now() + 1000;
   setInterval(() => {
@@ -4245,6 +4312,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
 
   app.get('/health/performance', async (_req, res) => {
     const commands = await mt4CommandService?.getQueueMetrics?.().catch(() => null) || { total: 0, active: 0, history: 0, historyLimit: mt4CommandService?.commandHistoryLimit || null };
+    const copyCommands = await copyTradingService?.getQueueMetrics?.().catch(() => null) || null;
     const memoryPressure = memoryPressureSnapshot();
     const { memory } = memoryPressure;
     const database = getDatabaseRuntimeHealth();
@@ -4268,6 +4336,13 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
       },
       database,
       commands,
+      copyCommands,
+      mt4Poll: {
+        responses: performanceRuntime.mt4PollResponses,
+        throttled: performanceRuntime.mt4PollThrottled,
+        maxResponseBytes: performanceRuntime.mt4PollResponseBytesMax,
+        responseLimitBytes: Math.max(2048, Math.min(32768, Number(process.env.WISDO_MT4_COMMAND_RESPONSE_MAX_BYTES || 16384))),
+      },
       signalBackground,
       pairing: {
         cached: mt4SyncService?.pairingRecordCache?.size || 0,
@@ -6091,19 +6166,38 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     }
   });
 
+  function sendMt4PollJson(res, body, statusCode = 200) {
+    const compact = body && typeof body === 'object' ? body : { ok: false, error: 'Invalid MT4 response' };
+    const bytes = Buffer.byteLength(JSON.stringify(compact), 'utf8');
+    performanceRuntime.mt4PollResponses += 1;
+    if (compact.throttled) performanceRuntime.mt4PollThrottled += 1;
+    performanceRuntime.mt4PollResponseBytesMax = Math.max(performanceRuntime.mt4PollResponseBytesMax, bytes);
+    res.status(statusCode);
+    res.type('application/json');
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('X-Wisdo-MT4-Route', 'command-poll-v705');
+    res.set('X-Wisdo-Payload-Bytes', String(bytes));
+    return res.json(compact);
+  }
+
   app.post('/mt4-command-poll', async (req, res) => {
     try {
       const pairingCode = String(req.body?.pairingCode || '').trim();
       await mt4SyncService.validateReporterAuth(req.headers, { pairingCode });
       const pairing = await mt4SyncService.getOrRecoverPairingCode(pairingCode);
-      if (!pairing?.discordUserId) return res.status(400).json({ ok: false, error: 'Unknown pairing code' });
+      if (!pairing?.discordUserId) return sendMt4PollJson(res, { ok: false, error: 'Unknown pairing code' }, 400);
       const accountId = pairing.accountId || null;
       const accountNumber = String(req.body?.accountNumber || pairing.accountNumber || '').trim();
+      const receiverId = String(req.body?.receiverId || req.body?.terminalId || pairingCode);
+      if (shouldThrottleReporterPoll(`${pairingCode}:${accountId || accountNumber}:${receiverId}`)) {
+        return sendMt4PollJson(res, { ok: true, hasCommand: false, throttled: true, pollAfterMs: Math.max(1000, Number(process.env.WISDO_MT4_POLL_AFTER_MS || 2000)) });
+      }
       scheduleReporterHeartbeat({
         userId: pairing.discordUserId || pairing.requestedByUserId || '',
         accountId,
         terminal: String(req.body?.terminal || req.body?.platform || 'MT4'),
-        receiverId: String(req.body?.receiverId || req.body?.terminalId || pairingCode),
+        receiverId,
         meta: { accountNumber, reporterVersion: req.body?.reporterVersion || '', poll: true },
       });
       const deliveryUserIds = await resolveMt4DeliveryUserIds(loadEcosystemState, pairing);
@@ -6114,8 +6208,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
         } else {
           await mt4CommandService.markCommandDelivered(commandOwnerId, command.id, accountId);
         }
-        res.set('Cache-Control', 'no-store');
-        return res.json({ ...flattenCommandRecord(command), deliveryUserId: commandOwnerId });
+        return sendMt4PollJson(res, { ...flattenCommandRecord(command), deliveryUserId: commandOwnerId });
       }
       let copyCommand = null;
       let copyOwnerId = '';
@@ -6125,11 +6218,10 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
           if (copyCommand) { copyOwnerId = candidateUserId; break; }
         }
       }
-      if (!copyCommand) { res.set('Cache-Control', 'no-store'); return res.json({ ok: true, hasCommand: false }); }
+      if (!copyCommand) return sendMt4PollJson(res, { ok: true, hasCommand: false, pollAfterMs: Math.max(1000, Number(process.env.WISDO_MT4_POLL_AFTER_MS || 2000)) });
       await copyTradingService.markCopyCommandDelivered(copyOwnerId || pairing.discordUserId, copyCommand.id, accountId);
-      res.set('Cache-Control', 'no-store');
-      return res.json({ ...flattenCommandRecord(copyCommand), deliveryUserId: copyOwnerId || pairing.discordUserId });
-    } catch (error) { res.status(error.statusCode || 500).json({ ok: false, error: error.message }); }
+      return sendMt4PollJson(res, { ...flattenCommandRecord(copyCommand), deliveryUserId: copyOwnerId || pairing.discordUserId });
+    } catch (error) { return sendMt4PollJson(res, { ok: false, error: String(error.message || 'MT4 poll failed').slice(0, 500) }, error.statusCode || 500); }
   });
 
   app.post('/mt4-command-complete', async (req, res) => {

@@ -83,7 +83,7 @@ test('WISDO notification delivery advertises opt-in Discord DM support', () => {
   if (previous === undefined) delete process.env.DISCORD_TOKEN; else process.env.DISCORD_TOKEN = previous;
 });
 
-test('member UI exposes Broker API, active Lane Coach, contextual Academy AI, and Reporter v1.58 resilience', async () => {
+test('member UI exposes Broker API, active Lane Coach, contextual Academy AI, and Reporter v1.59 resilience', async () => {
   const [workspace, reporter, config, routes] = await Promise.all([
     fs.readFile(new URL('../public/js/workspace.js', import.meta.url), 'utf8'),
     fs.readFile(new URL('../mql4/CultureCoin_MT4_Reporter.mq4', import.meta.url), 'utf8'),
@@ -93,7 +93,7 @@ test('member UI exposes Broker API, active Lane Coach, contextual Academy AI, an
   assert.match(workspace, /Connect without Reporter/);
   assert.match(workspace, /Active WISDO portfolio coach/);
   assert.match(workspace, /Build lesson from my lane/);
-  assert.match(reporter, /#property version\s+"1\.58"/);
+  assert.match(reporter, /#property version\s+"1\.59"/);
   assert.match(reporter, /NetworkBackoffMaxSeconds/);
   assert.match(config, /databaseRequired = isProductionRuntime/);
   assert.match(routes, /sync-broker-apis/);

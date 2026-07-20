@@ -1,7 +1,7 @@
 {
   "name": "culture-coin-operator-desks-bot",
-  "version": "7.0.4",
-  "description": "WISDO v7.0.4 bounded MT4 command queues, heap-leak protection, personalized website recognition, and persistent 50% growth milestones.",
+  "version": "7.0.5",
+  "description": "WISDO v7.0.5 deserializer-safe MT4 polling, canonical copy queues, single-instance Reporter pacing, durable Culture Lanes, and personalized growth recognition.",
   "type": "module",
   "private": true,
   "scripts": {

@@ -2125,5 +2125,5 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     timer.unref?.();
   }
 
-  logger?.info?.('WISDO major upgrade routes registered', { source: 'wisdo-culture-lane-os-v7.0.4.zip', version: '7.0.4', durableCultureLanes: true });
+  logger?.info?.('WISDO major upgrade routes registered', { source: 'wisdo-culture-lane-os-v7.0.5.zip', version: '7.0.5', durableCultureLanes: true });
 }

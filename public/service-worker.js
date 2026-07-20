@@ -1,12 +1,24 @@
-const CACHE_NAME = 'wisdo-shell-v7.0.4-recognition-heap';
-const SHELL = [
-  '/', '/pricing', '/copier', '/analyzer', '/compare', '/academy',
-  '/js/workspace.js', '/js/wisdo-recognition.js', '/js/wisdo-assistant.js', '/js/df-sauce-academy.js', '/media/wisdo-og.svg', '/platforms/mt4.svg',
-  '/platforms/mt5.svg', '/platforms/ctrader.svg'
+const CACHE_NAME = 'wisdo-static-v7.0.5-heap-transport';
+const STATIC_ASSETS = [
+  '/js/workspace.js',
+  '/js/wisdo-recognition.js',
+  '/js/wisdo-assistant.js',
+  '/js/df-sauce-academy.js',
+  '/media/wisdo-og.svg',
+  '/platforms/mt4.svg',
+  '/platforms/mt5.svg',
+  '/platforms/ctrader.svg'
 ];
 
+function isCacheableStatic(url, request) {
+  if (request.method !== 'GET' || url.origin !== self.location.origin) return false;
+  if (request.mode === 'navigate' || request.headers.get('accept')?.includes('text/html')) return false;
+  if (request.headers.has('range') || url.pathname.endsWith('.mp4')) return false;
+  return url.pathname.startsWith('/js/') || url.pathname.startsWith('/media/') || url.pathname.startsWith('/platforms/');
+}
+
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL)).catch(() => undefined));
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS)).catch(() => undefined));
   self.skipWaiting();
 });
 
@@ -17,19 +29,19 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const request = event.request;
-  if (request.method !== 'GET') return;
   const url = new URL(request.url);
-  if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
-  // Never intercept or cache large video/range traffic. Decorative media must not
-  // compete with account APIs, scripts, or service-worker storage.
-  if (url.pathname.endsWith('.mp4') || request.headers.has('range')) return;
-  event.respondWith(fetch(request).then((response) => {
-    if (response.ok && response.type === 'basic') {
-      const copy = response.clone();
-      caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {});
-    }
-    return response;
-  }).catch(() => caches.match(request).then((cached) => cached || caches.match('/'))));
+  // API, MT4, app/member/admin HTML, navigations, and the service worker itself are
+  // always network-owned. A stale shell must never answer a trading bridge request.
+  if (!isCacheableStatic(url, request) || url.pathname === '/service-worker.js') return;
+  event.respondWith(caches.match(request).then((cached) => {
+    const network = fetch(request).then((response) => {
+      if (response.ok && response.type === 'basic') {
+        caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone())).catch(() => {});
+      }
+      return response;
+    });
+    return cached || network;
+  }));
 });
 
 self.addEventListener('push', (event) => {

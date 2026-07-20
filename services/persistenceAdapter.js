@@ -212,10 +212,14 @@ export class MemoryPersistenceAdapter {
     this.revision = 0;
   }
   peek() { return this.state; }
-  async load() { return clone(this.state); }
-  async save(data) { this.state = clone(data); this.revision += 1; return clone(this.state); }
-  async flushNow() { return clone(this.state); }
-  async atomicUpdate(updater, { normalize = (value) => value } = {}) {
+  async load({ cloneResult = true } = {}) { return cloneResult ? clone(this.state) : this.state; }
+  async save(data, { cloneInput = true, cloneResult = true } = {}) {
+    this.state = cloneInput ? clone(data) : data;
+    this.revision += 1;
+    return cloneResult ? clone(this.state) : this.state;
+  }
+  async flushNow({ cloneResult = true } = {}) { return cloneResult ? clone(this.state) : this.state; }
+  async atomicUpdate(updater, { normalize = (value) => value, cloneResult = true } = {}) {
     for (let attempt = 0; attempt < 256; attempt += 1) {
       const revision = this.revision;
       const current = normalize(clone(this.state));
@@ -225,7 +229,7 @@ export class MemoryPersistenceAdapter {
       if (revision !== this.revision) continue;
       this.state = clone(next);
       this.revision += 1;
-      return clone(this.state);
+      return cloneResult ? clone(this.state) : this.state;
     }
     throw new Error('Memory state changed too frequently to complete the update.');
   }
@@ -317,8 +321,8 @@ export class PostgresKeyValuePersistenceAdapter {
       await this.importLegacyIfNeeded(pool);
       const state = this.rowsToState(await this.loadRows(pool));
       // Never replace newer hot state with an older database snapshot while a flush is pending.
-      if (this.runtime.dirtySnapshot) return clone(this.runtime.state || state);
-      return this.setCache(state, 'postgres');
+      if (this.runtime.dirtySnapshot) return this.runtime.state || state;
+      return this.setCache(state, 'postgres', { cloneState: false });
     })().catch((error) => { this.recordRuntimeError(error); throw error; })
       .finally(() => { this.runtime.pendingLoad = null; });
     return this.runtime.pendingLoad;
@@ -326,24 +330,26 @@ export class PostgresKeyValuePersistenceAdapter {
 
   async load(options = {}) {
     const force = Boolean(options?.force);
+    const cloneResult = options?.cloneResult !== false;
     const age = this.runtime.loadedAt ? Date.now() - this.runtime.loadedAt : Number.POSITIVE_INFINITY;
-    if (!force && this.runtime.state && age <= this.cacheTtlMs) return clone(this.runtime.state);
+    if (!force && this.runtime.state && age <= this.cacheTtlMs) return cloneResult ? clone(this.runtime.state) : this.runtime.state;
     // Stale-while-revalidate keeps tabs responsive while PostgreSQL refreshes.
     if (!force && this.runtime.state && age <= this.maxStaleMs) {
       this.refreshFromDatabase().catch(() => undefined);
-      return clone(this.runtime.state);
+      return cloneResult ? clone(this.runtime.state) : this.runtime.state;
     }
     try {
-      return await this.refreshFromDatabase();
+      const refreshed = await this.refreshFromDatabase();
+      return cloneResult ? clone(refreshed) : refreshed;
     } catch (error) {
-      if (this.runtime.state) return clone(this.runtime.state);
+      if (this.runtime.state) return cloneResult ? clone(this.runtime.state) : this.runtime.state;
       if (!this.allowDegradedReads) throw error;
       // No files are used. This disposable in-process fallback keeps HTML/API routes alive
       // while PostgreSQL recovers; a background refresh will hydrate durable records.
       const fallback = clone(this.defaultState());
       this.setCache(fallback, 'degraded-memory');
       setTimeout(() => this.refreshFromDatabase().catch(() => undefined), this.retryMs).unref?.();
-      return clone(fallback);
+      return cloneResult ? clone(fallback) : fallback;
     }
   }
 
@@ -363,7 +369,7 @@ export class PostgresKeyValuePersistenceAdapter {
     return changed;
   }
 
-  async runLockedMutation(mutator) {
+  async runLockedMutation(mutator, { cloneResult = true } = {}) {
     const pool = await this.getPool();
     await this.importLegacyIfNeeded(pool);
     const client = await pool.connect();
@@ -376,14 +382,14 @@ export class PostgresKeyValuePersistenceAdapter {
         throw error;
       }
       const current = this.rowsToState(await this.loadRows(client));
-      const next = await mutator(clone(current));
+      const next = await mutator(current);
       const finalState = next || current;
       const changedSections = await this.persistChangedSections(client, current, finalState);
       await client.query('commit');
       this.runtime.lastPersistedAt = new Date().toISOString();
       this.runtime.lastError = '';
-      this.setCache(finalState, 'postgres');
-      return { state: clone(finalState), changedSections };
+      this.setCache(finalState, 'postgres', { cloneState: false });
+      return { state: cloneResult ? clone(finalState) : finalState, changedSections };
     } catch (error) {
       await client.query('rollback').catch(() => undefined);
       this.recordRuntimeError(error);
@@ -417,7 +423,7 @@ export class PostgresKeyValuePersistenceAdapter {
       try {
         // A buffered snapshot is authoritative, including deletions. Do not deep-merge it
         // into an older database image or removed accounts/routes can reappear.
-        const result = await this.runLockedMutation(() => pending);
+        const result = await this.runLockedMutation(() => pending, { cloneResult: false });
         return result.state;
       } catch (error) {
         // Keep the newest complete snapshot. A later mutation may already contain more
@@ -452,7 +458,7 @@ export class PostgresKeyValuePersistenceAdapter {
     return clone(this.runtime.state || this.defaultState());
   }
 
-  async bufferedUpdate(updater, { normalize = (value) => value } = {}) {
+  async bufferedUpdate(updater, { normalize = (value) => value, cloneResult = true } = {}) {
     for (let attempt = 0; attempt < 256; attempt += 1) {
       const loaded = this.runtime.state || await this.load();
       const revision = Number(this.runtime.revision || 0);
@@ -468,17 +474,17 @@ export class PostgresKeyValuePersistenceAdapter {
       // Future updates clone before mutation, so the flush cannot be changed in place.
       this.runtime.dirtySnapshot = next;
       this.scheduleFlush();
-      return clone(next);
+      return cloneResult ? clone(next) : next;
     }
     const error = new Error(`Hot state changed too frequently: ${this.namespace}`);
     error.code = 'WISDO_HOT_STATE_CONTENTION';
     throw error;
   }
 
-  async save(data) {
-    const snapshot = clone(data);
-    if (this.bufferWrites) return this.bufferedUpdate(() => snapshot);
-    return (await this.runLockedMutation(() => snapshot)).state;
+  async save(data, { cloneInput = true, cloneResult = true } = {}) {
+    const snapshot = cloneInput ? clone(data) : data;
+    if (this.bufferWrites) return this.bufferedUpdate(() => snapshot, { cloneResult });
+    return (await this.runLockedMutation(() => snapshot, { cloneResult })).state;
   }
   async saveSection(section, value) {
     const name = String(section || '').trim();
@@ -490,12 +496,12 @@ export class PostgresKeyValuePersistenceAdapter {
     const result = await this.runLockedMutation((current) => ({ ...current, [name]: clone(value) }));
     return result.state[name];
   }
-  async atomicUpdate(updater, { normalize = (value) => value } = {}) {
-    if (this.bufferWrites) return this.bufferedUpdate(updater, { normalize });
+  async atomicUpdate(updater, { normalize = (value) => value, cloneResult = true } = {}) {
+    if (this.bufferWrites) return this.bufferedUpdate(updater, { normalize, cloneResult });
     const result = await this.runLockedMutation(async (current) => {
       const normalized = normalize(current);
       return normalize((await updater(normalized)) || normalized);
-    });
+    }, { cloneResult });
     return result.state;
   }
   async close() {}
