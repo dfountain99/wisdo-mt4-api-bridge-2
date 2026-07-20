@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { createPersistenceAdapter } from '../persistenceAdapter.js';
 
@@ -8,6 +8,28 @@ function nowIso() {
 
 function makeId(prefix) {
   return `${prefix}_${Date.now()}_${randomUUID().slice(0, 8)}`;
+}
+
+const CULTURE_LANE_DURABLE_SECTIONS = [
+  'cultureLanesById',
+  'symbolPoliciesByLaneId',
+  'harvestPoliciesByLaneId',
+  'brokerSymbolInventoriesByAccountId',
+];
+
+function cultureLaneConfigurationSnapshot(state = {}) {
+  const laneRules = Object.fromEntries(Object.entries(state.copierRules || {})
+    .filter(([, rule]) => String(rule?.culture_lane_id || rule?.cultureLaneId || '').trim()));
+  return {
+    ...Object.fromEntries(CULTURE_LANE_DURABLE_SECTIONS.map((key) => [key, state[key] || {}])),
+    laneCopierRulesById: laneRules,
+  };
+}
+
+function cultureLaneConfigurationDigest(state = {}) {
+  return createHash('sha256')
+    .update(JSON.stringify(cultureLaneConfigurationSnapshot(state)))
+    .digest('hex');
 }
 
 export function createWisdoPhase1State() {
@@ -78,6 +100,7 @@ export function createWisdoPhase1State() {
     funnelEvents: [],
     leads: [],
     tradingAccounts: {},
+    copierRules: {},
     accountControlSettingsById: {},
     deletedTradingAccounts: {},
     compoundCloseTrackersById: {},
@@ -127,12 +150,16 @@ export class WisdoPhase1Repository {
       defaultState: createWisdoPhase1State,
     });
     this.lastKnownGood = null;
+    this.lastDurableLaneDigest = null;
   }
 
   async loadState() {
     try {
       const state = ensureWisdoPhase1State(await this.adapter.load());
-      this.lastKnownGood = structuredClone(state);
+      // Keep one last-known-good reference instead of cloning the entire ecosystem into
+      // a second long-lived heap. The adapter already returns an isolated state object.
+      this.lastKnownGood = state;
+      this.lastDurableLaneDigest = cultureLaneConfigurationDigest(state);
       return state;
     } catch (error) {
       if (this.lastKnownGood) return structuredClone(this.lastKnownGood);
@@ -140,24 +167,42 @@ export class WisdoPhase1Repository {
     }
   }
 
-  async saveState(state) {
+  async saveState(state, { durable = false } = {}) {
     const snapshot = ensureWisdoPhase1State(state);
+    const laneDigest = cultureLaneConfigurationDigest(snapshot);
+    const laneConfigurationChanged = this.lastDurableLaneDigest !== null && laneDigest !== this.lastDurableLaneDigest;
     const saved = await this.adapter.save(snapshot);
-    this.lastKnownGood = structuredClone(snapshot);
+    if ((durable || laneConfigurationChanged) && typeof this.adapter.flushNow === 'function') {
+      await this.adapter.flushNow();
+      this.lastDurableLaneDigest = laneDigest;
+    } else if (this.lastDurableLaneDigest === null) {
+      this.lastDurableLaneDigest = laneDigest;
+    }
+    this.lastKnownGood = snapshot;
     return saved;
   }
 
-  async updateState(updater) {
+  async flushState() {
+    const flushed = typeof this.adapter.flushNow === 'function' ? await this.adapter.flushNow() : null;
+    if (this.lastKnownGood) this.lastDurableLaneDigest = cultureLaneConfigurationDigest(this.lastKnownGood);
+    return flushed;
+  }
+
+  async updateState(updater, { durable = false } = {}) {
     if (typeof this.adapter.atomicUpdate === 'function') {
+      const beforeDigest = this.lastDurableLaneDigest;
       const saved = await this.adapter.atomicUpdate(updater, { normalize: ensureWisdoPhase1State });
-      this.lastKnownGood = structuredClone(saved);
+      const laneDigest = cultureLaneConfigurationDigest(saved);
+      if ((durable || (beforeDigest !== null && laneDigest !== beforeDigest)) && typeof this.adapter.flushNow === 'function') {
+        await this.adapter.flushNow();
+        this.lastDurableLaneDigest = laneDigest;
+      }
+      this.lastKnownGood = saved;
       return saved;
     }
     const state = await this.loadState();
     const next = ensureWisdoPhase1State((await updater(state)) || state);
-    const saved = await this.adapter.save(next);
-    this.lastKnownGood = structuredClone(next);
-    return saved;
+    return this.saveState(next, { durable });
   }
 
   async getDesk(userId) {

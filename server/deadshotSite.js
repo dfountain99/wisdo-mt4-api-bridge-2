@@ -2485,10 +2485,18 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
       const recent = (funnelRateLimits.get(rateKey) || []).filter((time) => now - time < 60_000);
       if (recent.length >= 10) throw new Error('Too many submissions. Try again in one minute.');
       recent.push(now);
-      funnelRateLimits.set(rateKey, recent);
-      if (funnelRateLimits.size > 2000) {
-        for (const [key, times] of funnelRateLimits) if (!times.some((time) => now - time < 60_000)) funnelRateLimits.delete(key);
+      const funnelRateLimitMax = Math.max(100, Math.min(5000, Number(process.env.WISDO_FUNNEL_RATE_CACHE_MAX || 1000)));
+      if (!funnelRateLimits.has(rateKey)) {
+        for (const [key, times] of funnelRateLimits) {
+          if (!times.some((time) => now - time < 60_000)) funnelRateLimits.delete(key);
+        }
+        while (funnelRateLimits.size >= funnelRateLimitMax) {
+          const oldest = funnelRateLimits.keys().next().value;
+          if (oldest === undefined) break;
+          funnelRateLimits.delete(oldest);
+        }
       }
+      funnelRateLimits.set(rateKey, recent);
       const smsConsent = formBoolean(req.body?.smsConsent);
       const marketingConsent = formBoolean(req.body?.marketingConsent);
       const result = await growthFunnelService.recordLead({

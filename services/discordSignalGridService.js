@@ -178,6 +178,15 @@ export class DiscordSignalGridService {
   scheduleGridRefresh(channelId = '') {
     const key = String(channelId || '');
     clearTimeout(this.refreshTimers.get(key));
+    const maxTimers = Math.max(25, Math.min(1000, Number(process.env.WISDO_DISCORD_GRID_TIMER_MAX || 250)));
+    if (!this.refreshTimers.has(key)) {
+      while (this.refreshTimers.size >= maxTimers) {
+        const oldest = this.refreshTimers.keys().next().value;
+        if (oldest === undefined) break;
+        clearTimeout(this.refreshTimers.get(oldest));
+        this.refreshTimers.delete(oldest);
+      }
+    }
     const timer = setTimeout(() => {
       this.updatePinnedGridMessage(key).catch((error) => {
         this.logger?.warn?.('Signal grid pinned update failed', { channelId: key, message: error.message });

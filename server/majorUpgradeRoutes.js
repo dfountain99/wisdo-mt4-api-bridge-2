@@ -62,7 +62,20 @@ function ensureMajorState(state={}){
 }
 const MUTATION_CONTROL = '__wisdoMutationControl';
 function mutationResult(value,{save=true}={}){ return {[MUTATION_CONTROL]:true,value,save}; }
-async function persistMutationWithinBudget(save,state){
+async function persistMutationWithinBudget(save,state,{durable=false}={}){
+  if(durable){
+    const raw=Number(process.env.WISDO_DURABLE_MUTATION_TIMEOUT_MS||12000);
+    const timeoutMs=Math.max(1000,Math.min(60000,Number.isFinite(raw)?raw:12000));
+    const persist=typeof save.durable==='function'?save.durable(state):save(state,{durable:true});
+    const outcome=await settleWithin(Promise.resolve(persist),timeoutMs);
+    if(outcome.status==='rejected')throw outcome.error;
+    if(outcome.status==='timeout'){
+      const error=new Error(`Culture Lane durable save timed out after ${timeoutMs}ms.`);
+      error.code='WISDO_CULTURE_LANE_DURABLE_TIMEOUT';
+      throw error;
+    }
+    return outcome.status;
+  }
   const raw=Number(process.env.WISDO_MUTATION_SAVE_BUDGET_MS||500);
   const budgetMs=Math.max(50,Math.min(5000,Number.isFinite(raw)?raw:500));
   const outcome=await settleWithin(Promise.resolve().then(()=>save(state)),budgetMs);
@@ -71,19 +84,20 @@ async function persistMutationWithinBudget(save,state){
   // HTTP request is released so one slow database flush cannot freeze the workspace.
   return outcome.status;
 }
-async function mutate(load,save,fn){
+async function mutate(load,save,fn,{durable=false}={}){
   // Never place unrelated members, tabs, Reporter heartbeats, or background work
-  // behind one process-wide promise chain. The hot state mirror is updated first;
-  // database persistence receives a strict time budget and continues in background.
+  // behind one process-wide promise chain. Culture Lane configuration mutations are
+  // the exception: they wait for a confirmed PostgreSQL commit before returning.
   const state=ensureMajorState(await load());
   const result=await fn(state);
   if(result?.[MUTATION_CONTROL]){
-    if(result.save) await persistMutationWithinBudget(save,state);
+    if(result.save) await persistMutationWithinBudget(save,state,{durable});
     return result.value;
   }
-  await persistMutationWithinBudget(save,state);
+  await persistMutationWithinBudget(save,state,{durable});
   return result;
 }
+function mutateCultureLane(load,save,fn){return mutate(load,save,fn,{durable:true});}
 function settleWithin(promise, timeoutMs = 5000){
   return new Promise((resolve) => {
     let settled = false;
@@ -262,6 +276,11 @@ async function synchronizeReporterAccounts({userId,mt4SyncService,loadEcosystemS
 const accountListCacheByUser = new Map();
 const accountSyncFlightByUser = new Map();
 const coachGenerationFlightByLane = new Map();
+let cultureLaneRelayBootstrapStarted = false;
+function boundFlightMap(map,max){
+  const limit=Math.max(25,Math.min(2000,Number(max)||250));
+  while(map.size>=limit){const oldest=map.keys().next().value;if(oldest===undefined)break;map.delete(oldest);}
+}
 function accountRowsFromStoredState(state, userId) {
   const uid = String(userId || '');
   return Object.values(ensureMajorState(state).tradingAccounts || {})
@@ -271,6 +290,18 @@ function accountRowsFromStoredState(state, userId) {
 }
 function cacheAccountList(userId, result) {
   const uid = String(userId || '');
+  const now = Date.now();
+  const maxEntries = Math.max(50, Math.min(2000, Number(process.env.WISDO_ACCOUNT_CACHE_MAX_USERS || 500)));
+  const staleMs = Math.max(30_000, Number(process.env.WISDO_ACCOUNT_CACHE_STALE_MS || 300_000));
+  for (const [key, row] of accountListCacheByUser) {
+    if (now - Number(row?.at || 0) > staleMs) accountListCacheByUser.delete(key);
+    if (accountListCacheByUser.size < maxEntries) break;
+  }
+  while (accountListCacheByUser.size >= maxEntries) {
+    const oldest = accountListCacheByUser.keys().next().value;
+    if (!oldest) break;
+    accountListCacheByUser.delete(oldest);
+  }
   const normalized = {
     accounts: Array.isArray(result?.accounts) ? result.accounts : [],
     importedReporterAccounts: Number(result?.importedReporterAccounts || 0),
@@ -296,6 +327,7 @@ async function listAccountsWithinBudget({ userId, mt4SyncService, loadEcosystemS
     flight = synchronizeReporterAccounts({ userId: uid, mt4SyncService, loadEcosystemState, saveEcosystemState })
       .then((result) => cacheAccountList(uid, { ...result, source: 'reporter-sync' }))
       .finally(() => accountSyncFlightByUser.delete(uid));
+    boundFlightMap(accountSyncFlightByUser,process.env.WISDO_ACCOUNT_SYNC_FLIGHT_MAX||250);
     accountSyncFlightByUser.set(uid, flight);
   }
 
@@ -602,6 +634,7 @@ function scheduleLiveTradeLedgerSync(options) {
   const flight = synchronizeLiveTradeLedger(options)
     .catch((error) => ({ accounts: 0, snapshots: 0, error: error.message }))
     .finally(() => liveLedgerSyncFlightByUser.delete(uid));
+  boundFlightMap(liveLedgerSyncFlightByUser,process.env.WISDO_LEDGER_SYNC_FLIGHT_MAX||250);
   liveLedgerSyncFlightByUser.set(uid, flight);
   return flight;
 }
@@ -1109,7 +1142,7 @@ function presenceGreetingExperience(){
   function paint(arrival,presence){latest={arrival:arrival||{},presence:presence||{}};var a=latest.arrival,p=latest.presence;document.getElementById('wisdo-arrival-kicker').textContent=reasonLabel(a.reason);document.getElementById('wisdo-arrival-title').textContent=a.greeting||p.greeting||'Welcome back.';document.getElementById('wisdo-arrival-message').textContent=a.message||'Your Culture Desk is online and ready.';document.getElementById('wisdo-arrival-mode').textContent=String(a.activeMode||p.activeMode||'focus').replace(/\b\w/g,function(c){return c.toUpperCase()});document.getElementById('wisdo-arrival-account').textContent=a.currentAccountId||p.currentAccountId||'Desk default';var path=a.resumePath||p.resumePath||'/app/dashboard';resume.href=path;document.getElementById('wisdo-arrival-resume-label').textContent=prettyPath(path)}
   function open(){if(latest)modal.classList.add('open')}
   function close(){modal.classList.remove('open')}
-  function heartbeat(eventType,status,allowGreeting){return fetch('/api/presence/heartbeat',{method:'POST',headers:{'content-type':'application/json'},credentials:'same-origin',body:JSON.stringify(payload(eventType,status))}).then(function(r){if(!r.ok)throw new Error('presence '+r.status);return r.json()}).then(function(data){paint(data.arrival,data.presence);if(allowGreeting&&data.arrival&&data.arrival.shouldGreet)open();return data}).catch(function(){return null})}
+  function heartbeat(eventType,status,allowGreeting){return fetch('/api/presence/heartbeat',{method:'POST',headers:{'content-type':'application/json'},credentials:'same-origin',body:JSON.stringify(payload(eventType,status))}).then(function(r){if(!r.ok)throw new Error('presence '+r.status);return r.json()}).then(function(data){paint(data.arrival,data.presence);if(allowGreeting&&!window.WISDO_RECOGNITION_V2&&data.arrival&&data.arrival.shouldGreet)open();return data}).catch(function(){return null})}
   orb.addEventListener('click',function(){if(latest)open();else heartbeat('orb_open','online',false).then(open)});closeButton.addEventListener('click',close);continueButton.addEventListener('click',close);modal.addEventListener('click',function(event){if(event.target===modal)close()});document.addEventListener('keydown',function(event){if(event.key==='Escape')close()});
   document.addEventListener('visibilitychange',function(){if(document.hidden){hiddenAt=Date.now();fetch('/api/presence/status',{method:'POST',headers:{'content-type':'application/json'},credentials:'same-origin',keepalive:true,body:JSON.stringify(payload('away','away'))}).catch(function(){})}else{var awayFor=hiddenAt?Date.now()-hiddenAt:0;heartbeat(awayFor>=900000?'resume':'focus','online',awayFor>=900000)}});
   document.addEventListener('change',function(event){if(event.target&&event.target.id==='mobile-account')heartbeat('account_changed','online',false)});
@@ -1123,7 +1156,7 @@ function workspaceShell(page,user){
  const nav=[['command-center','Command Center'],['dashboard','Combined Dashboard'],['accounts','Accounts'],['copier-engine','Copier Engine'],['lane-audit','Lane Audit'],['lane-intelligence','Lane Intelligence'],['compound-tracker','Compound Tracker'],['trades','Trades'],['analyzer','Insight Engine'],['alerts','Alerts'],['education','Academy'],['affiliate','Affiliate'],['settings','Settings'],['settings/billing','Billing']];
  const pageTitle=nav.find(([p])=>p===page)?.[1]||'WISDO';
  const bootMarkup=`<div id="wisdo-boot" class="wisdo-boot" aria-live="polite" aria-label="WISDO Command Center loading"><div class="wisdo-boot-stars"></div><div class="wisdo-boot-grid"></div><section class="wisdo-boot-shell"><button class="wisdo-boot-skip" type="button" data-wisdo-boot-skip>Skip</button><div class="wisdo-boot-orb"><div class="wisdo-boot-core"><img src="/media/logo_transparent_background.png" alt=""></div></div><h1>WISDO</h1><span class="wisdo-boot-kicker">Command Center Startup</span><div id="wisdo-boot-status" class="wisdo-boot-status">Waking WISDO Core…</div><div class="wisdo-boot-track"><span id="wisdo-boot-progress"></span></div><div class="wisdo-boot-meta"><span id="wisdo-boot-stage">Core 01</span><span id="wisdo-boot-percent">4%</span></div></section></div>`;
- return `<!doctype html><html data-theme="midnight" data-background="mesh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${pageTitle} — WISDO</title><link rel="icon" href="/media/logo_transparent_background.png"><style>${PUBLIC_CSS}</style><script>try{document.documentElement.dataset.theme=localStorage.getItem('wisdo.theme')||'midnight';document.documentElement.dataset.background=localStorage.getItem('wisdo.background')||'mesh'}catch{}</script></head><body>${bootMarkup}<video id="workspace-video-a" class="workspace-bg-video" muted loop playsinline preload="none" data-src="/media/14683743_3840_2160_30fps.mp4"></video><video id="workspace-video-b" class="workspace-bg-video" muted loop playsinline preload="none" data-src="/media/14250431_1920_1080_30fps.mp4"></video><div class="workspace-bg-overlay"></div><div class="workspace"><aside><a class="brand" href="/app/command-center" data-wisdo-dashboard-launch><img src="/media/logo_transparent_background.png"><span>WISDO</span></a><div class="member-identity"><small>Member desk</small><strong>${esc(user.username||user.name||user.email||user.id)}</strong></div>${nav.map(([p,l])=>`<a class="${p===page?'active':''}" href="/app/${p}" ${p==='dashboard'?'data-wisdo-dashboard-launch':''}>${l}</a>`).join('')}<div class="aside-spacer"></div><a href="/contact">Support</a><a href="/logout">Logout</a></aside><main><header class="workspace-topbar"><div><span class="eyebrow">Connect · Copy · Control</span><strong>${pageTitle}</strong></div><div class="topbar-account"><span id="workspace-account-status">Loading accounts…</span><select class="input mobile-page-nav" id="mobile-page-nav" aria-label="WISDO page">${nav.map(([p,l])=>`<option value="/app/${p}" ${p===page?'selected':''}>${l}</option>`).join('')}</select><select class="input mobile-account" id="mobile-account" aria-label="Trading account"></select></div></header><div id="app-root"><div class="card loading-card">Loading ${pageTitle}…</div></div></main></div><script>window.WISDO_PAGE=${JSON.stringify(page)};window.WISDO_USER=${JSON.stringify({id:user.id,username:user.username||user.name||user.email||user.id})};</script>${presenceGreetingExperience()}<script src="/js/df-sauce-academy.js" defer></script><script src="/js/workspace.js" defer></script><script src="/js/wisdo-assistant.js" defer></script></body></html>`;
+ return `<!doctype html><html data-theme="midnight" data-background="mesh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${pageTitle} — WISDO</title><link rel="icon" href="/media/logo_transparent_background.png"><style>${PUBLIC_CSS}</style><script>try{document.documentElement.dataset.theme=localStorage.getItem('wisdo.theme')||'midnight';document.documentElement.dataset.background=localStorage.getItem('wisdo.background')||'mesh'}catch{}</script></head><body>${bootMarkup}<video id="workspace-video-a" class="workspace-bg-video" muted loop playsinline preload="none" data-src="/media/14683743_3840_2160_30fps.mp4"></video><video id="workspace-video-b" class="workspace-bg-video" muted loop playsinline preload="none" data-src="/media/14250431_1920_1080_30fps.mp4"></video><div class="workspace-bg-overlay"></div><div class="workspace"><aside><a class="brand" href="/app/command-center" data-wisdo-dashboard-launch><img src="/media/logo_transparent_background.png"><span>WISDO</span></a><div class="member-identity"><small>Member desk</small><strong>${esc(user.username||user.name||user.email||user.id)}</strong></div>${nav.map(([p,l])=>`<a class="${p===page?'active':''}" href="/app/${p}" ${p==='dashboard'?'data-wisdo-dashboard-launch':''}>${l}</a>`).join('')}<div class="aside-spacer"></div><a href="/contact">Support</a><a href="/logout">Logout</a></aside><main><header class="workspace-topbar"><div><span class="eyebrow">Connect · Copy · Control</span><strong>${pageTitle}</strong></div><div class="topbar-account"><span id="workspace-account-status">Loading accounts…</span><select class="input mobile-page-nav" id="mobile-page-nav" aria-label="WISDO page">${nav.map(([p,l])=>`<option value="/app/${p}" ${p===page?'selected':''}>${l}</option>`).join('')}</select><select class="input mobile-account" id="mobile-account" aria-label="Trading account"></select></div></header><div id="app-root"><div class="card loading-card">Loading ${pageTitle}…</div></div></main></div><script>window.WISDO_PAGE=${JSON.stringify(page)};window.WISDO_USER=${JSON.stringify({id:user.id,username:user.username||user.name||user.email||user.id})};window.WISDO_RECOGNITION_V2=true;</script>${presenceGreetingExperience()}<script src="/js/df-sauce-academy.js" defer></script><script src="/js/wisdo-recognition.js" defer></script><script src="/js/workspace.js" defer></script><script src="/js/wisdo-assistant.js" defer></script></body></html>`;
 }
 function rangeStart(period='month'){ const d=new Date(); if(period==='day') d.setHours(0,0,0,0); else if(period==='week') d.setDate(d.getDate()-7); else if(period==='year') d.setFullYear(d.getFullYear()-1); else d.setMonth(d.getMonth()-1); return d; }
 function calculateSlaveLot(rule, masterLot, masterEquity=0, slaveEquity=0, masterBalance=0, slaveBalance=0){ const type=rule.risk_type||'multiplier'; const value=Math.max(0,num(rule.risk_value,1)); let lot=masterLot; if(type==='fixed_lot')lot=value; else if(type==='multiplier')lot=masterLot*value; else if(type==='equity_ratio')lot=masterEquity>0?masterLot*(slaveEquity/masterEquity)*value:masterLot*value; else if(type==='balance_ratio')lot=masterBalance>0?masterLot*(slaveBalance/masterBalance)*value:masterLot*value; return Math.round(clamp(lot,num(rule.min_lot,.01),num(rule.max_lot,100))*100)/100; }
@@ -1495,7 +1528,7 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     const requestedFollowers=Array.isArray(req.body?.slave_ids)?req.body.slave_ids:Array.isArray(req.body?.followerAccountIds)?req.body.followerAccountIds:[req.body?.slave_id].filter(Boolean);
     logger?.info?.('Multi-account Culture Lane save started',{requestId,userId:String(req.wisdoUser.id),masterId:String(req.body.master_id||''),receiverIds:requestedFollowers.map(String)});
     try{
-      const outcome=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+      const outcome=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>{
         const master=state.tradingAccounts[String(req.body.master_id||'')];
         if(!master)return {error:'Select a Culture Lead. No lead account was found for that ID.'};
         if(!canAccessLeader(state,req.wisdoUser.id,master.id))return {error:'That account is not assigned as a Culture Lead or is not shared with this desk.'};
@@ -1532,7 +1565,7 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     }
   });
   app.patch('/api/v2/copier-rules/:id',requireUser,async(req,res)=>{
-    const rule=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+    const rule=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>{
       if(!ownRule(state,req.wisdoUser.id,req.params.id))return null;
       const r=state.copierRules[req.params.id];
       for(const k of ['risk_type','risk_value','min_lot','max_lot','equity_protection_pct','max_daily_loss','max_open_trades','max_spread_points','max_slippage_points','trading_hours_start','trading_hours_end','reverse_signals','copy_sl_tp','copy_pending_orders'])if(req.body[k]!==undefined)r[k]=req.body[k];
@@ -1555,7 +1588,7 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     res.json({ok:true,rule,relayRoute,executionReady:Boolean(relayRoute)});
   });
   app.post('/api/v2/copier-rules/:id/toggle',requireUser,async(req,res)=>{
-    const rule=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+    const rule=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>{
       if(!ownRule(state,req.wisdoUser.id,req.params.id))return null;
       const r=state.copierRules[req.params.id];
       r.is_active=req.body?.is_active===undefined?!r.is_active:parseBool(req.body.is_active);
@@ -1570,7 +1603,7 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     res.json({ok:true,rule,relayRoute,executionReady:Boolean(relayRoute)});
   });
   app.delete('/api/v2/copier-rules/:id',requireUser,async(req,res)=>{
-    const removed=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+    const removed=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>{
       if(!ownRule(state,req.wisdoUser.id,req.params.id))return null;
       const r=state.copierRules[req.params.id];
       delete state.copierRules[req.params.id];
@@ -1732,7 +1765,7 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
 
   // WISDO v6 Culture Lane Portfolio Operating System foundation.
   app.get('/api/v2/culture-lanes',requireUser,async(req,res)=>{
-    const lanes=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+    const lanes=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>{
       let changed=false;
       const ownedRules=Object.values(state.copierRules).filter(item=>String(item.user_id)===String(req.wisdoUser.id));
       const groups=new Map();
@@ -1774,7 +1807,7 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
   });
   app.post('/api/v2/culture-lanes',requireUser,async(req,res)=>{
     try{
-      const lane=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+      const lane=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>{
         const leaderId=String(req.body?.leaderAccountId||'');
         const followerIds=Array.isArray(req.body?.followerAccountIds)?req.body.followerAccountIds:[];
         if(!canAccessLeader(state,req.wisdoUser.id,leaderId))return mutationResult({error:'Leader account is not owned/shared to this member.'});
@@ -1789,13 +1822,13 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     }catch(error){res.status(400).json({ok:false,error:error.message});}
   });
   app.patch('/api/v2/culture-lanes/:laneId',requireUser,async(req,res)=>{
-    const lane=await mutate(loadEcosystemState,saveEcosystemState,state=>updateCultureLane(state,req.params.laneId,req.wisdoUser.id,req.body||{}));
+    const lane=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>updateCultureLane(state,req.params.laneId,req.wisdoUser.id,req.body||{}));
     if(!lane)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
     res.json({ok:true,lane});
   });
   app.put('/api/v2/culture-lanes/:laneId/copier-configuration',requireUser,async(req,res)=>{
     try{
-      const outcome=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+      const outcome=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>{
         const lane=state.cultureLanesById[req.params.laneId];
         if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return {error:'Culture Lane not found.'};
         const leaderId=String(req.body?.master_id||req.body?.leaderAccountId||lane.leaderAccountId||'');
@@ -1823,7 +1856,7 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     }catch(error){res.status(500).json({ok:false,error:'Culture Lane update failed.',detail:error.message});}
   });
   app.post('/api/v2/culture-lanes/:laneId/toggle',requireUser,async(req,res)=>{
-    const outcome=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+    const outcome=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>{
       const lane=state.cultureLanesById[req.params.laneId];if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return null;
       const active=req.body?.is_active===undefined?lane.status!=='active':parseBool(req.body.is_active);
       lane.status=active?'active':'paused';lane.updatedAt=nowIso();
@@ -1837,7 +1870,7 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     res.json({ok:true,lane:outcome.lane,rules:outcome.rules});
   });
   app.delete('/api/v2/culture-lanes/:laneId',requireUser,async(req,res)=>{
-    const outcome=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+    const outcome=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>{
       const lane=state.cultureLanesById[req.params.laneId];if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return null;
       const rules=Object.values(state.copierRules).filter(rule=>String(rule.culture_lane_id||'')===String(lane.laneId)&&String(rule.user_id)===String(req.wisdoUser.id));
       for(const rule of rules)delete state.copierRules[rule.id];
@@ -1866,7 +1899,7 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     res.json({ok:true,inventory});
   });
   app.put('/api/v2/culture-lanes/:laneId/symbol-policy',requireUser,async(req,res)=>{
-    const outcome=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+    const outcome=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>{
       const policy=setLaneSymbolPolicy(state,req.params.laneId,req.wisdoUser.id,req.body||{});
       if(!policy)return null;
       const lane=state.cultureLanesById[req.params.laneId];
@@ -1924,7 +1957,7 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     const requestedAccountIds=Array.isArray(req.body?.accountIds)?req.body.accountIds.map(String):null;
     const executionLane=requestedAccountIds?{...lane,accountIds:[...new Set(requestedAccountIds.filter(accountId=>(lane.accountIds||[]).map(String).includes(accountId)))]}:lane;
     const fanout=await queueLaneSweep({mt4CommandService,lane:executionLane,userId:req.wisdoUser.id,reason:'culture_lane_close_all',force:true});
-    await mutate(loadEcosystemState,saveEcosystemState,working=>{appendLaneTimelineEvent(working,lane.laneId,'lane.close_all_parallel_queued',{accountIds:fanout.accountIds,commandIds:fanout.commands.map(item=>item.commandId),failures:fanout.failures,fanoutMs:fanout.fanoutMs});return true;});
+    await mutateCultureLane(loadEcosystemState,saveEcosystemState,working=>{appendLaneTimelineEvent(working,lane.laneId,'lane.close_all_parallel_queued',{accountIds:fanout.accountIds,commandIds:fanout.commands.map(item=>item.commandId),failures:fanout.failures,fanoutMs:fanout.fanoutMs});return true;});
     res.status(fanout.failures.length?207:202).json({ok:fanout.failures.length===0,parallel:true,...fanout});
   });
   app.post('/api/v2/culture-lanes/:laneId/close-leader',requireUser,async(req,res)=>{
@@ -1947,11 +1980,11 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
       laneId:lane.laneId,
       force:true,
     });
-    await mutate(loadEcosystemState,saveEcosystemState,working=>{appendLaneTimelineEvent(working,lane.laneId,'lane.leader_close_queued',{leaderAccountId,commandId:command.id,queueLatencyMs:Date.now()-queuedAt});return true;});
+    await mutateCultureLane(loadEcosystemState,saveEcosystemState,working=>{appendLaneTimelineEvent(working,lane.laneId,'lane.leader_close_queued',{leaderAccountId,commandId:command.id,queueLatencyMs:Date.now()-queuedAt});return true;});
     res.status(202).json({ok:true,leaderOnly:true,leaderAccountId,commandId:command.id,queueLatencyMs:Date.now()-queuedAt,command});
   });
   app.put('/api/v2/culture-lanes/:laneId/harvest-policy',requireUser,async(req,res)=>{
-    const policy=await mutate(loadEcosystemState,saveEcosystemState,state=>setHarvestPolicy(state,req.params.laneId,req.wisdoUser.id,req.body||{}));
+    const policy=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>setHarvestPolicy(state,req.params.laneId,req.wisdoUser.id,req.body||{}));
     if(!policy)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
     res.json({ok:true,policy});
   });
@@ -1963,9 +1996,9 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     if(!evaluation.triggered||req.body?.execute!==true)return res.json({ok:true,evaluation,executed:false,message:evaluation.triggered?'Goal reached. Press Harvest Lane Now to execute immediately.':'Goal has not been reached.'});
     if(req.body?.confirmation!=='confirmed')return res.status(409).json({ok:false,error:'confirmation_required',evaluation,requiredConfirmation:'confirmed'});
     if(evaluation.vault.disconnectedAccountIds.length)return res.status(409).json({ok:false,error:'receiver_health_degraded',evaluation,message:'Reconnect every lane account before automatic Harvest execution.'});
-    const reservation=await mutate(loadEcosystemState,saveEcosystemState,working=>{const refreshed=evaluateLaneHarvest(working,req.params.laneId,req.wisdoUser.id)||evaluation;const created=createHarvestCycle(working,req.params.laneId,req.wisdoUser.id,refreshed,[]);created.status='queueing';created.manual=false;created.updatedAt=nowIso();return created;});
+    const reservation=await mutateCultureLane(loadEcosystemState,saveEcosystemState,working=>{const refreshed=evaluateLaneHarvest(working,req.params.laneId,req.wisdoUser.id)||evaluation;const created=createHarvestCycle(working,req.params.laneId,req.wisdoUser.id,refreshed,[]);created.status='queueing';created.manual=false;created.updatedAt=nowIso();return created;});
     const fanout=await queueLaneSweep({mt4CommandService,lane,userId:req.wisdoUser.id,reason:'harvest_goal_reached',cycleId:reservation.cycleId});
-    const cycle=await mutate(loadEcosystemState,saveEcosystemState,working=>{const created=working.harvestCyclesById[reservation.cycleId];created.commandIds=fanout.commands.map(item=>item.commandId);created.failures=fanout.failures;created.parallelFanout=true;created.fanoutMs=fanout.fanoutMs;created.status=fanout.failures.length?'partially_queued':'commands_queued';created.updatedAt=nowIso();appendLaneTimelineEvent(working,lane.laneId,'harvest.goal_close_queued',{cycleId:created.cycleId,commandIds:created.commandIds,failures:created.failures,fanoutMs:created.fanoutMs});return created;});
+    const cycle=await mutateCultureLane(loadEcosystemState,saveEcosystemState,working=>{const created=working.harvestCyclesById[reservation.cycleId];created.commandIds=fanout.commands.map(item=>item.commandId);created.failures=fanout.failures;created.parallelFanout=true;created.fanoutMs=fanout.fanoutMs;created.status=fanout.failures.length?'partially_queued':'commands_queued';created.updatedAt=nowIso();appendLaneTimelineEvent(working,lane.laneId,'harvest.goal_close_queued',{cycleId:created.cycleId,commandIds:created.commandIds,failures:created.failures,fanoutMs:created.fanoutMs});return created;});
     res.status(fanout.failures.length?207:202).json({ok:fanout.failures.length===0,evaluation,cycle,commandIds:cycle.commandIds,failures:fanout.failures,fanoutMs:fanout.fanoutMs});
   });
   app.post('/api/v2/culture-lanes/:laneId/harvest/execute',requireUser,async(req,res)=>{
@@ -1975,13 +2008,13 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     if(req.body?.confirmation!=='confirmed')return res.status(409).json({ok:false,error:'confirmation_required',requiredConfirmation:'confirmed'});
     const vault=computeCultureLaneVault(state,lane.laneId,req.wisdoUser.id);
     const evaluation=evaluateLaneHarvest(state,lane.laneId,req.wisdoUser.id)||{triggered:false,current:vault?.combinedProfit||0,target:0,vault,policy:state.harvestPoliciesByLaneId[lane.laneId]||{goalType:'manual',goalValue:0}};
-    const reservation=await mutate(loadEcosystemState,saveEcosystemState,working=>{const current=evaluateLaneHarvest(working,lane.laneId,req.wisdoUser.id)||evaluation;const created=createHarvestCycle(working,lane.laneId,req.wisdoUser.id,current,[]);created.status='queueing';created.manual=true;created.forceExecuted=true;created.updatedAt=nowIso();return created;});
+    const reservation=await mutateCultureLane(loadEcosystemState,saveEcosystemState,working=>{const current=evaluateLaneHarvest(working,lane.laneId,req.wisdoUser.id)||evaluation;const created=createHarvestCycle(working,lane.laneId,req.wisdoUser.id,current,[]);created.status='queueing';created.manual=true;created.forceExecuted=true;created.updatedAt=nowIso();return created;});
     const fanout=await queueLaneSweep({mt4CommandService,lane,userId:req.wisdoUser.id,reason:'manual_harvest_now',cycleId:reservation.cycleId,force:true});
-    const cycle=await mutate(loadEcosystemState,saveEcosystemState,working=>{const created=working.harvestCyclesById[reservation.cycleId];created.commandIds=fanout.commands.map(item=>item.commandId);created.failures=fanout.failures;created.parallelFanout=true;created.fanoutMs=fanout.fanoutMs;created.status=fanout.failures.length?'partially_queued':'commands_queued';created.updatedAt=nowIso();appendLaneTimelineEvent(working,lane.laneId,'harvest.manual_close_queued',{cycleId:created.cycleId,commandIds:created.commandIds,failures:created.failures,fanoutMs:created.fanoutMs});return created;});
+    const cycle=await mutateCultureLane(loadEcosystemState,saveEcosystemState,working=>{const created=working.harvestCyclesById[reservation.cycleId];created.commandIds=fanout.commands.map(item=>item.commandId);created.failures=fanout.failures;created.parallelFanout=true;created.fanoutMs=fanout.fanoutMs;created.status=fanout.failures.length?'partially_queued':'commands_queued';created.updatedAt=nowIso();appendLaneTimelineEvent(working,lane.laneId,'harvest.manual_close_queued',{cycleId:created.cycleId,commandIds:created.commandIds,failures:created.failures,fanoutMs:created.fanoutMs});return created;});
     res.status(fanout.failures.length?207:202).json({ok:fanout.failures.length===0,evaluation,cycle,commandIds:cycle.commandIds,failures:fanout.failures,fanoutMs:fanout.fanoutMs,manual:true});
   });
   app.post('/api/v2/culture-lanes/:laneId/genomes',requireUser,async(req,res)=>{
-    const genome=await mutate(loadEcosystemState,saveEcosystemState,state=>createLaneGenome(state,req.params.laneId,req.wisdoUser.id,req.body||{}));
+    const genome=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>createLaneGenome(state,req.params.laneId,req.wisdoUser.id,req.body||{}));
     if(!genome)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
     res.status(201).json({ok:true,genome});
   });
@@ -1992,12 +2025,12 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     res.json({ok:true,genomes});
   });
   app.post('/api/v2/culture-lanes/:laneId/passports',requireUser,async(req,res)=>{
-    const passport=await mutate(loadEcosystemState,saveEcosystemState,state=>createTradePassport(state,req.params.laneId,req.wisdoUser.id,req.body||{}));
+    const passport=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>createTradePassport(state,req.params.laneId,req.wisdoUser.id,req.body||{}));
     if(!passport)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
     res.status(201).json({ok:true,passport});
   });
   app.post('/api/v2/trade-passports/:passportId/finalize',requireUser,async(req,res)=>{
-    const passport=await mutate(loadEcosystemState,saveEcosystemState,state=>finalizeTradePassport(state,req.params.passportId,req.wisdoUser.id,req.body?.result||req.body||{}));
+    const passport=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>finalizeTradePassport(state,req.params.passportId,req.wisdoUser.id,req.body?.result||req.body||{}));
     if(!passport)return res.status(404).json({ok:false,error:'Trade Passport not found, not authorized, or already finalized.'});
     res.json({ok:true,passport});
   });
@@ -2024,6 +2057,7 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
             if(generated.notificationIds.length&&notificationDeliveryService?.deliverByIds) await notificationDeliveryService.deliverByIds(generated.notificationIds).catch(error=>logger?.warn?.('WISDO coach delivery failed',{error:error.message}));
             return generated;
           })().catch(error=>logger?.warn?.('WISDO coach background generation failed',{laneId,error:error.message})).finally(()=>coachGenerationFlightByLane.delete(key));
+          boundFlightMap(coachGenerationFlightByLane,process.env.WISDO_COACH_FLIGHT_MAX||150);
           coachGenerationFlightByLane.set(key,flight);
         }
         generationDeferred=true;
@@ -2042,12 +2076,12 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
     res.json({ok:true,preferences});
   });
   app.post('/api/v2/culture-lanes/:laneId/dna',requireUser,async(req,res)=>{
-    const dna=await mutate(loadEcosystemState,saveEcosystemState,state=>calculateLaneDna(state,req.params.laneId,req.wisdoUser.id));
+    const dna=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>calculateLaneDna(state,req.params.laneId,req.wisdoUser.id));
     if(!dna)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
     res.json({ok:true,dna});
   });
   app.post('/api/v2/culture-lanes/:laneId/intelligence',requireUser,async(req,res)=>{
-    const report=await mutate(loadEcosystemState,saveEcosystemState,state=>buildCultureIntelligenceReport(state,req.params.laneId,req.wisdoUser.id));
+    const report=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>buildCultureIntelligenceReport(state,req.params.laneId,req.wisdoUser.id));
     if(!report)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
     res.json({ok:true,report});
   });
@@ -2064,5 +2098,32 @@ export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEc
   app.get('/api/v2/admin/stats',requireUser,requireAdmin,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,users:Object.keys(state.profiles).length,accounts:Object.keys(state.tradingAccounts).length,rules:Object.keys(state.copierRules).length,trades:Object.keys(state.trades).length,subscriptions:Object.keys(state.subscriptions).length,alerts:Object.values(state.alerts).flat().length})});
   app.post('/api/v2/admin/firms',requireUser,requireAdmin,async(req,res)=>{const firm=await mutate(loadEcosystemState,saveEcosystemState,state=>{const firm={id:req.body.id||id('firm'),name:String(req.body.name||'').trim(),type:req.body.type==='broker'?'broker':'prop',logo_url:req.body.logo_url||'',max_drawdown_pct:num(req.body.max_drawdown_pct,null),daily_drawdown_pct:num(req.body.daily_drawdown_pct,null),profit_split_pct:num(req.body.profit_split_pct,null),refund_policy:req.body.refund_policy||'',min_trading_days:num(req.body.min_trading_days,0),supported_platforms:(req.body.supported_platforms||[]).filter(x=>PLATFORMS.includes(x)),rating:num(req.body.rating,0),updated_at:nowIso()};state.firms[firm.id]=firm;audit(state,req.wisdoUser.id,'firm.upserted','Firm',firm.id);return firm});res.json({ok:true,firm})});
 
-  logger?.info?.('WISDO major upgrade routes registered', { source: 'wisdo-culture-lane-os-v6.1.0.zip', version: '6.1.0' });
+  if(!cultureLaneRelayBootstrapStarted&&mt4SyncService){
+    cultureLaneRelayBootstrapStarted=true;
+    const restoreCultureLaneRelays=async(attempt=1)=>{
+      try{
+        const state=ensureMajorState(await loadEcosystemState());
+        const activeLaneRules=Object.values(state.copierRules||{}).filter(rule=>String(rule.culture_lane_id||'').trim()&&rule.is_active!==false);
+        const userIds=[...new Set(activeLaneRules.map(rule=>String(rule.user_id||'')).filter(Boolean))];
+        const results=[];
+        for(const userId of userIds){
+          const ruleIds=activeLaneRules.filter(rule=>String(rule.user_id)===userId).map(rule=>String(rule.id));
+          results.push(...await synchronizeCopierRulesToRelay({userId,mt4SyncService,loadEcosystemState,ruleIds}));
+        }
+        const failed=results.filter(item=>item.status!=='registered');
+        logger?.info?.('Culture Lane relay restoration completed',{attempt,activeLaneRules:activeLaneRules.length,registered:results.length-failed.length,failed:failed.length});
+        if(failed.length&&attempt<5){
+          const timer=setTimeout(()=>restoreCultureLaneRelays(attempt+1),Math.min(30000,2000*(2**attempt)));
+          timer.unref?.();
+        }
+      }catch(error){
+        logger?.warn?.('Culture Lane relay restoration delayed',{attempt,message:error.message});
+        if(attempt<5){const timer=setTimeout(()=>restoreCultureLaneRelays(attempt+1),Math.min(30000,2000*(2**attempt)));timer.unref?.();}
+      }
+    };
+    const timer=setTimeout(()=>restoreCultureLaneRelays(1),1000);
+    timer.unref?.();
+  }
+
+  logger?.info?.('WISDO major upgrade routes registered', { source: 'wisdo-culture-lane-os-v7.0.4.zip', version: '7.0.4', durableCultureLanes: true });
 }

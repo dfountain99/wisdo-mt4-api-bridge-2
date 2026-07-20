@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { createPersistenceAdapter } from './persistenceAdapter.js';
 
@@ -8,6 +8,8 @@ function clone(value) {
   return typeof globalThis.structuredClone === 'function' ? globalThis.structuredClone(source) : JSON.parse(JSON.stringify(source));
 }
 function addMinutes(minutes) { const d = new Date(); d.setMinutes(d.getMinutes() + minutes); return d.toISOString(); }
+function cleanKey(value = '') { return String(value || '').trim().replace(/[^a-zA-Z0-9_.:-]/g, '_').slice(0, 180); }
+function shortHash(value = '') { return createHash('sha256').update(String(value)).digest('hex').slice(0, 24); }
 function isExpired(record) { return record?.expiresAt && new Date(record.expiresAt).getTime() < Date.now(); }
 function deliveryRetryReady(record) {
   if (record.status !== 'delivered') return false;
@@ -84,21 +86,69 @@ export class Mt4CommandService {
     return String(record?.status || 'pending');
   }
 
-  pruneCommandState(data) {
+  isCriticalCommand(record = {}) {
+    const command = String(record.command || '').toUpperCase();
+    return Boolean(record.validation?.dangerous)
+      || DANGEROUS_COMMANDS.has(command)
+      || command.includes('CLOSE')
+      || command.includes('EMERGENCY')
+      || command === 'PROTECT_ACCOUNT'
+      || command === 'LOCK_PROFIT';
+  }
+
+  deriveDedupeKey(userId, accountId, command, payload = {}) {
+    if (payload.dedupeKey) return cleanKey(payload.dedupeKey);
+    const action = String(command || '').toUpperCase();
+    if (!['COPY_OPEN_TRADE', 'COPY_CLOSE_TRADE'].includes(action)) return '';
+    const sourceTicket = payload.sourceTicket || payload.leaderTicket || payload.masterTicket || '';
+    const routeId = payload.routeId || payload.copyRouteId || '';
+    const signalId = payload.signalId || '';
+    const leaderAccountId = payload.leaderAccountId || payload.masterAccountId || '';
+    const followerAccountId = accountId || payload.accountId || '';
+    const stableIdentity = [action, userId, followerAccountId, routeId, leaderAccountId, sourceTicket || signalId].map(cleanKey).join('|');
+    if (!sourceTicket && !signalId) return '';
+    return `copy:${shortHash(stableIdentity)}`;
+  }
+
+  activeQueueLimits() {
+    return {
+      global: Math.max(100, Math.min(5000, Number(process.env.WISDO_MT4_ACTIVE_COMMAND_LIMIT || 750))),
+      perUser: Math.max(50, Math.min(2500, Number(process.env.WISDO_MT4_ACTIVE_PER_USER_LIMIT || 400))),
+      perAccount: Math.max(25, Math.min(1000, Number(process.env.WISDO_MT4_ACTIVE_PER_ACCOUNT_LIMIT || 175))),
+      critical: Math.max(25, Math.min(1000, Number(process.env.WISDO_MT4_CRITICAL_COMMAND_LIMIT || 250))),
+      scan: Math.max(250, Math.min(20000, Number(process.env.WISDO_MT4_COMMAND_SCAN_LIMIT || 5000))),
+    };
+  }
+
+  pruneCommandState(raw = {}) {
+    const limits = this.activeQueueLimits();
+    const primaryQueue = Array.isArray(raw.commandQueue) ? raw.commandQueue : [];
+    const legacyStores = primaryQueue.length ? [] : [
+      ...Object.values(raw.commandsByUserId || {}),
+      ...Object.values(raw.commandsByAccountId || {}),
+    ];
+    const sources = [primaryQueue, ...legacyStores];
     const unique = new Map();
-    for (const store of this.commandStores(data)) {
-      for (const command of store || []) {
+    let scanned = 0;
+    for (const store of sources) {
+      if (!Array.isArray(store)) continue;
+      for (const command of store) {
+        if (scanned >= limits.scan) break;
+        scanned += 1;
         if (!command?.id) continue;
-        const previous = unique.get(command.id);
+        const key = String(command.dedupeKey || command.id);
+        const previous = unique.get(key);
         const currentTime = new Date(command.completedAt || command.failedAt || command.deliveredAt || command.createdAt || 0).getTime();
         const previousTime = previous ? new Date(previous.completedAt || previous.failedAt || previous.deliveredAt || previous.createdAt || 0).getTime() : -1;
-        if (!previous || currentTime >= previousTime) unique.set(command.id, command);
+        if (!previous || currentTime >= previousTime) unique.set(key, command);
       }
+      if (scanned >= limits.scan) break;
     }
 
     const active = [];
     const history = [];
     for (const command of unique.values()) {
+      command.dedupeKey ||= this.deriveDedupeKey(command.userId, command.accountId, command.command, command.payload || {});
       const status = this.effectiveStatus(command);
       if (status === 'expired' && command.status !== 'expired') {
         command.status = 'expired';
@@ -109,45 +159,55 @@ export class Mt4CommandService {
     }
     active.sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0) || new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
     history.sort((a, b) => new Date(b.completedAt || b.failedAt || b.expiredAt || b.createdAt || 0) - new Date(a.completedAt || a.failedAt || a.expiredAt || a.createdAt || 0));
-    const retained = [...active, ...history.slice(0, this.commandHistoryLimit)];
 
-    data.commandQueue = retained;
-    data.commandsByUserId = {};
-    data.commandsByAccountId = {};
-    for (const record of retained) {
-      data.commandsByUserId[record.userId] ||= [];
-      data.commandsByUserId[record.userId].push(record);
-      if (record.accountId) {
-        data.commandsByAccountId[record.accountId] ||= [];
-        data.commandsByAccountId[record.accountId].push(record);
+    const retainedActive = [];
+    const byUser = new Map();
+    const byAccount = new Map();
+    let criticalCount = 0;
+    let droppedActive = 0;
+    for (const command of active) {
+      const critical = this.isCriticalCommand(command);
+      const userKey = String(command.userId || '');
+      const accountKey = String(command.accountId || '');
+      const userCount = byUser.get(userKey) || 0;
+      const accountCount = accountKey ? (byAccount.get(accountKey) || 0) : 0;
+      const overNormalLimit = retainedActive.length >= limits.global || userCount >= limits.perUser || (accountKey && accountCount >= limits.perAccount);
+      const overCriticalLimit = critical && criticalCount >= limits.critical;
+      if ((!critical && overNormalLimit) || overCriticalLimit) {
+        droppedActive += 1;
+        continue;
       }
+      retainedActive.push(command);
+      byUser.set(userKey, userCount + 1);
+      if (accountKey) byAccount.set(accountKey, accountCount + 1);
+      if (critical) criticalCount += 1;
     }
-    data.commandAuditLog = (data.commandAuditLog || []).slice(0, this.commandAuditLimit);
-    return data;
+
+    const retainedHistory = history.slice(0, this.commandHistoryLimit);
+    return {
+      commandQueue: [...retainedActive, ...retainedHistory],
+      commandAuditLog: (raw.commandAuditLog || []).slice(0, this.commandAuditLimit),
+      schemaVersion: 2,
+      queueCompaction: {
+        scanned,
+        retainedActive: retainedActive.length,
+        retainedHistory: retainedHistory.length,
+        droppedActive,
+        compactedAt: nowIso(),
+      },
+    };
   }
 
   emptyState() {
-    return { commandsByUserId: {}, commandsByAccountId: {}, commandQueue: [], commandAuditLog: [] };
+    return { commandQueue: [], commandAuditLog: [], schemaVersion: 2, queueCompaction: null };
   }
 
   normalizeState(raw = {}) {
-    return this.pruneCommandState({
-      // Legacy indexes are accepted for migration, but v7.0.3 no longer persists
-      // them. The queue is the single durable source of truth.
-      commandsByUserId: raw?.commandsByUserId || {},
-      commandsByAccountId: raw?.commandsByAccountId || {},
-      commandQueue: Array.isArray(raw?.commandQueue) ? raw.commandQueue : [],
-      commandAuditLog: Array.isArray(raw?.commandAuditLog) ? raw.commandAuditLog : [],
-    });
+    return this.pruneCommandState(raw || {});
   }
 
   compactPersistenceState(data = {}) {
-    const normalized = this.pruneCommandState(data);
-    return {
-      commandQueue: normalized.commandQueue,
-      commandAuditLog: normalized.commandAuditLog,
-      schemaVersion: 2,
-    };
+    return this.pruneCommandState(data || {});
   }
 
   async loadHot() {
@@ -219,10 +279,18 @@ export class Mt4CommandService {
     const immediate = payload.immediate !== false;
     const priority = Number(payload.priority ?? (immediate ? 100 : 10));
     const ttlMinutes = Number(payload.ttlMinutes || payload.ttl || (immediate ? 2 : 15));
+    const resolvedAccountId = accountId || payload.accountId || null;
+    const dedupeKey = this.deriveDedupeKey(userId, resolvedAccountId, command, payload);
+    const commandId = payload.commandId
+      ? cleanKey(payload.commandId)
+      : dedupeKey
+        ? `dedupe_${shortHash(dedupeKey)}`
+        : `${Date.now()}_${randomUUID().slice(0, 8)}`;
     return {
-      id: payload.commandId ? `wisdo_${payload.commandId}` : `wisdo_${Date.now()}_${randomUUID().slice(0, 8)}`,
+      id: `wisdo_${commandId}`,
+      dedupeKey,
       userId,
-      accountId: accountId || payload.accountId || null,
+      accountId: resolvedAccountId,
       accountNumber: payload.accountNumber || null,
       pairingCode: payload.pairingCode || null,
       command,
@@ -236,21 +304,30 @@ export class Mt4CommandService {
     };
   }
 
+  ensureQueueCapacity(data, record) {
+    const queue = Array.isArray(data.commandQueue) ? data.commandQueue : [];
+    const limits = this.activeQueueLimits();
+    const active = queue.filter((item) => ['pending', 'delivered'].includes(this.effectiveStatus(item)));
+    const critical = this.isCriticalCommand(record);
+    const userCount = active.filter((item) => String(item.userId || '') === String(record.userId || '')).length;
+    const accountCount = record.accountId ? active.filter((item) => String(item.accountId || '') === String(record.accountId || '')).length : 0;
+    const over = active.length >= limits.global || userCount >= limits.perUser || (record.accountId && accountCount >= limits.perAccount);
+    if (!over || critical) return;
+    const error = new Error('MT4 command queue is at capacity for this account. New entry commands are paused until the Reporter drains the queue.');
+    error.code = 'WISDO_MT4_QUEUE_CAPACITY';
+    error.queue = { active: active.length, userActive: userCount, accountActive: accountCount, limits };
+    throw error;
+  }
+
   addRecord(data, record, { sortQueue = true } = {}) {
-    data.commandsByUserId ||= {};
-    data.commandsByAccountId ||= {};
     data.commandQueue ||= [];
-    data.commandsByUserId[record.userId] ||= [];
-    data.commandsByUserId[record.userId].push(record);
+    this.ensureQueueCapacity(data, record);
     data.commandQueue.push(record);
     if (sortQueue) data.commandQueue.sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0) || new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
-    if (record.accountId) {
-      data.commandsByAccountId[record.accountId] ||= [];
-      data.commandsByAccountId[record.accountId].push(record);
-    }
     const dangerous = DANGEROUS_COMMANDS.has(String(record.command || '').toUpperCase()) || Boolean(record.validation?.dangerous);
     this.appendAudit(data, dangerous ? 'mt4_command.dangerous_requested' : 'mt4_command.queued', {
       commandId: record.id,
+      dedupeKey: record.dedupeKey || null,
       userId: record.userId,
       accountId: record.accountId,
       command: record.command,
@@ -260,32 +337,29 @@ export class Mt4CommandService {
   }
 
   commandStores(data) {
-    return [
-      data.commandQueue || [],
-      ...Object.values(data.commandsByUserId || {}),
-      ...Object.values(data.commandsByAccountId || {}),
-    ];
+    return [data.commandQueue || []];
   }
 
   findCommandCopies(data, commandId) {
     const id = String(commandId || '');
     if (!id) return [];
-    const seen = new Set();
     const copies = [];
-    for (const store of this.commandStores(data)) {
-      for (const command of store || []) {
-        if (!command || command.id !== id || seen.has(command)) continue;
-        seen.add(command);
-        copies.push(command);
-      }
+    const stores = [
+      data.commandQueue || [],
+      ...Object.values(data.commandsByUserId || {}),
+      ...Object.values(data.commandsByAccountId || {}),
+    ];
+    for (const store of stores) {
+      if (!Array.isArray(store)) continue;
+      for (const item of store) if (String(item?.id || '') === id) copies.push(item);
     }
     return copies;
   }
 
   syncCommandCopies(data, commandId, patch = {}) {
-    const copies = this.findCommandCopies(data, commandId);
-    for (const command of copies) Object.assign(command, patch);
-    return copies[0] || null;
+    const command = this.findCommandCopies(data, commandId)[0] || null;
+    if (command) Object.assign(command, patch);
+    return command;
   }
 
   validateCommand(commandOrUserId, maybeAccountId = null, maybeCommand = null, maybePayload = {}) {
@@ -348,10 +422,11 @@ export class Mt4CommandService {
       throw error;
     }
     return this.mutate(async (data) => {
-      const deterministicId = payload?.commandId ? `wisdo_${payload.commandId}` : '';
-      if (deterministicId) {
+      const dedupeKey = this.deriveDedupeKey(userId, validation.accountId, validation.command, payload);
+      const deterministicId = payload?.commandId ? `wisdo_${cleanKey(payload.commandId)}` : (dedupeKey ? `wisdo_dedupe_${shortHash(dedupeKey)}` : '');
+      if (deterministicId || dedupeKey) {
         const existing = (data.commandQueue || []).find((item) =>
-          String(item?.id || '') === deterministicId &&
+          (String(item?.id || '') === deterministicId || (dedupeKey && String(item?.dedupeKey || '') === dedupeKey)) &&
           String(item?.accountId || '') === String(validation.accountId || '') &&
           String(item?.command || '').toUpperCase() === String(validation.command || '').toUpperCase() &&
           !['failed', 'expired', 'cancelled'].includes(String(item?.status || '').toLowerCase())
@@ -389,10 +464,11 @@ export class Mt4CommandService {
     return this.mutate(async (data) => {
       const results = [];
       for (const input of prepared) {
-        const deterministicId = input.payload?.commandId ? `wisdo_${input.payload.commandId}` : '';
-        const existing = deterministicId
+        const dedupeKey = this.deriveDedupeKey(input.userId, input.accountId, input.command, input.payload);
+        const deterministicId = input.payload?.commandId ? `wisdo_${cleanKey(input.payload.commandId)}` : (dedupeKey ? `wisdo_dedupe_${shortHash(dedupeKey)}` : '');
+        const existing = (deterministicId || dedupeKey)
           ? (data.commandQueue || []).find((item) =>
-            String(item?.id || '') === deterministicId &&
+            (String(item?.id || '') === deterministicId || (dedupeKey && String(item?.dedupeKey || '') === dedupeKey)) &&
             String(item?.accountId || '') === String(input.accountId || '') &&
             String(item?.command || '').toUpperCase() === String(input.command || '').toUpperCase() &&
             !['failed', 'expired', 'cancelled'].includes(this.effectiveStatus(item)))
@@ -487,16 +563,9 @@ export class Mt4CommandService {
     const accountId = scope?.accountId || null;
     const accountNumber = scope?.accountNumber ? String(scope.accountNumber) : null;
     const pairingCode = scope?.pairingCode ? String(scope.pairingCode) : null;
-    const queue = (data.commandQueue || []).filter((command) => String(command.userId) === String(userId));
-    const accountQueue = accountId ? (data.commandsByAccountId?.[accountId] || []) : [];
-    const commands = [...accountQueue, ...queue, ...(data.commandsByUserId?.[userId] || [])];
-    const seen = new Set();
-    const unique = commands.filter((command) => {
-      if (!command?.id || seen.has(command.id)) return false;
-      seen.add(command.id);
-      return true;
-    }).sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0) || new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
-    return unique.find((command) => this.commandMatches(command, { accountId, accountNumber, pairingCode })) || null;
+    return (data.commandQueue || []).find((command) =>
+      String(command.userId) === String(userId) && this.commandMatches(command, { accountId, accountNumber, pairingCode })
+    ) || null;
   }
 
   async getAllPendingCommands(userId) {
@@ -608,10 +677,7 @@ export class Mt4CommandService {
 
   async listAccountCommands(userId, accountId, { limit = 50, status = null } = {}) {
     const data = await this.loadHot();
-    const rows = [
-      ...(data.commandsByAccountId?.[accountId] || []),
-      ...(data.commandsByUserId?.[userId] || []),
-    ];
+    const rows = data.commandQueue || [];
     const seen = new Set();
     return rows
       .filter((command) => {
@@ -673,6 +739,7 @@ export class Mt4CommandService {
       historyLimit: this.commandHistoryLimit,
       audit: (data.commandAuditLog || []).length,
       schemaVersion: 2,
+      compaction: data.queueCompaction || null,
     };
   }
 

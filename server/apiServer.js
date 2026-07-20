@@ -237,12 +237,14 @@ async function loadEcosystemState() {
   return ecosystemStateLoadPromise;
 }
 
-async function saveEcosystemState(state) {
+async function saveEcosystemState(state, options = {}) {
   ecosystemStateCache = ensureWisdoStateCollections(ensureWisdoPhase1State(state || ecosystemStateCache || {}));
-  // The repository writes through the hot cloud mirror and flushes to PostgreSQL.
-  // No global promise tail is allowed to hold unrelated HTTP requests.
-  return getWisdoPhase1Repository().saveState(ecosystemStateCache);
+  // The repository writes through the hot cloud mirror. Culture Lane configuration
+  // changes and explicitly durable saves are committed to PostgreSQL before success.
+  return getWisdoPhase1Repository().saveState(ecosystemStateCache, options);
 }
+saveEcosystemState.durable = (state) => saveEcosystemState(state, { durable: true });
+saveEcosystemState.flush = () => getWisdoPhase1Repository().flushState?.();
 
 function ensureWisdoStateCollections(state = {}) {
   const objectBuckets = [
@@ -1074,7 +1076,7 @@ function deliveryIdentityCacheKey(pairing = {}) {
 }
 function rememberMt4DeliveryIds(key, ids) {
   if (!key) return ids;
-  if (mt4DeliveryIdentityCache.size >= 5000) {
+  if (mt4DeliveryIdentityCache.size >= Math.max(100, Number(process.env.WISDO_MT4_DELIVERY_CACHE_MAX || 1000))) {
     const oldest = mt4DeliveryIdentityCache.keys().next().value;
     if (oldest) mt4DeliveryIdentityCache.delete(oldest);
   }
@@ -4124,15 +4126,20 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   redisCommandBridge.decorate(mt4CommandService);
   const reporterHeartbeatAtByReceiver = new Map();
   const reporterHeartbeatIntervalMs = Math.max(5_000, Number(process.env.WISDO_REPORTER_HEARTBEAT_INTERVAL_MS || 15_000));
+  const reporterHeartbeatCacheMax = Math.max(100, Math.min(5000, Number(process.env.WISDO_REPORTER_HEARTBEAT_CACHE_MAX || 1000)));
   function scheduleReporterHeartbeat(payload = {}) {
     const key = `${String(payload.userId || '')}:${String(payload.accountId || '')}:${String(payload.receiverId || '')}`;
     const last = reporterHeartbeatAtByReceiver.get(key) || 0;
     if (Date.now() - last < reporterHeartbeatIntervalMs) return false;
     reporterHeartbeatAtByReceiver.set(key, Date.now());
-    if (reporterHeartbeatAtByReceiver.size > 5000) {
+    if (reporterHeartbeatAtByReceiver.size > reporterHeartbeatCacheMax) {
       for (const [entryKey, at] of reporterHeartbeatAtByReceiver) {
         if (Date.now() - at > reporterHeartbeatIntervalMs * 4) reporterHeartbeatAtByReceiver.delete(entryKey);
-        if (reporterHeartbeatAtByReceiver.size <= 4000) break;
+      }
+      while (reporterHeartbeatAtByReceiver.size > reporterHeartbeatCacheMax) {
+        const oldest = reporterHeartbeatAtByReceiver.keys().next().value;
+        if (oldest === undefined) break;
+        reporterHeartbeatAtByReceiver.delete(oldest);
       }
     }
     Promise.resolve(redisCommandBridge.heartbeat(payload)).catch(() => undefined);
@@ -4374,6 +4381,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     loadEcosystemState,
     saveEcosystemState,
     paymentService,
+    rankService,
     logger,
   });
 
@@ -6056,7 +6064,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
       }
       if (result?.coalesced) return res.status(202).json({ ...result, responseMs });
       if (result?.discordUserId && rankService && announcementService) {
-        rankService.processSnapshot(result.discordUserId)
+        rankService.processSnapshot(result.discordUserId, result.accountId)
           .then((events) => announcementService.postRankEvents(events))
           .catch((error) => logger?.warn?.('Rank processing failed after MT4 sync', { discordUserId: result.discordUserId, message: error.message }));
       }

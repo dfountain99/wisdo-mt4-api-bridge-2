@@ -45,19 +45,57 @@ services:
       - key: WISDO_SIGNAL_TASK_TIMEOUT_MS
         value: "15000"
       - key: WISDO_SIGNAL_BACKGROUND_MAX_QUEUE
+        value: "150"
+      - key: WISDO_MT4_ACTIVE_COMMAND_LIMIT
+        value: "500"
+      - key: WISDO_MT4_ACTIVE_PER_USER_LIMIT
+        value: "300"
+      - key: WISDO_MT4_ACTIVE_PER_ACCOUNT_LIMIT
+        value: "125"
+      - key: WISDO_MT4_CRITICAL_COMMAND_LIMIT
         value: "200"
+      - key: WISDO_MT4_COMMAND_SCAN_LIMIT
+        value: "3000"
       - key: WISDO_MT4_COMMAND_HISTORY_LIMIT
-        value: "250"
+        value: "150"
       - key: WISDO_MT4_COMMAND_AUDIT_LIMIT
-        value: "250"
+        value: "150"
       - key: WISDO_MT4_DELIVERY_ID_CACHE_MS
         value: "300000"
+      - key: WISDO_MT4_DELIVERY_CACHE_MAX
+        value: "500"
+      - key: WISDO_MT4_RATE_LIMIT_CACHE_MAX
+        value: "750"
+      - key: WISDO_PAIRING_CACHE_MAX
+        value: "750"
+      - key: WISDO_PAIRING_RECOVERY_MAX
+        value: "150"
       - key: WISDO_REPORTER_HEARTBEAT_INTERVAL_MS
         value: "15000"
+      - key: WISDO_REPORTER_HEARTBEAT_CACHE_MAX
+        value: "500"
+      - key: WISDO_ACCOUNT_CACHE_MAX_USERS
+        value: "250"
+      - key: WISDO_FUNNEL_RATE_CACHE_MAX
+        value: "500"
+      - key: WISDO_DISCORD_GRID_TIMER_MAX
+        value: "100"
+      - key: WISDO_RANK_PROCESS_MIN_INTERVAL_MS
+        value: "10000"
+      - key: WISDO_RANK_PROCESS_CACHE_MAX
+        value: "500"
+      - key: WISDO_ACCOUNT_SYNC_FLIGHT_MAX
+        value: "250"
+      - key: WISDO_LEDGER_SYNC_FLIGHT_MAX
+        value: "250"
+      - key: WISDO_COACH_FLIGHT_MAX
+        value: "150"
       - key: WISDO_MEMORY_SHED_RATIO
-        value: "0.85"
+        value: "0.78"
       - key: WISDO_RENDER_MEMORY_LIMIT_MB
         value: "512"
+      - key: WISDO_DURABLE_MUTATION_TIMEOUT_MS
+        value: "12000"
       - key: WISDO_JSON_BODY_LIMIT
         value: 4mb
       - key: WISDO_COMPRESSION_THRESHOLD_BYTES

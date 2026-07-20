@@ -193,6 +193,7 @@ export class Mt4SyncService {
     this.copyTradingService = copyTradingService;
     this.wisdoMemoryService = wisdoMemoryService;
     this.requestTimestamps = new Map();
+    this.lastRateLimitSweepAt = 0;
     this.productEventSink = null;
     this.routePreparationByAccount = new Map();
     this.lastHistoryAtByAccount = new Map();
@@ -304,7 +305,18 @@ export class Mt4SyncService {
 
   cachePairingRecord(record) {
     if (!record?.pairingCode) return record || null;
-    this.pairingRecordCache.set(String(record.pairingCode), { cachedAt: Date.now(), record: structuredClone(record) });
+    const now = Date.now();
+    const maxEntries = Math.max(100, Math.min(5000, Number(process.env.WISDO_PAIRING_CACHE_MAX || 1500)));
+    for (const [key, cached] of this.pairingRecordCache) {
+      if (now - Number(cached?.cachedAt || 0) > this.pairingCacheTtlMs) this.pairingRecordCache.delete(key);
+      if (this.pairingRecordCache.size < maxEntries) break;
+    }
+    while (this.pairingRecordCache.size >= maxEntries) {
+      const oldest = this.pairingRecordCache.keys().next().value;
+      if (!oldest) break;
+      this.pairingRecordCache.delete(oldest);
+    }
+    this.pairingRecordCache.set(String(record.pairingCode), { cachedAt: now, record: structuredClone(record) });
     return record;
   }
 
@@ -363,6 +375,12 @@ export class Mt4SyncService {
     if (cached) return cached;
     if (this.pairingRecoveryByCode.has(code)) return structuredClone(await this.pairingRecoveryByCode.get(code));
 
+    const maxRecoveries = Math.max(25, Math.min(1000, Number(process.env.WISDO_PAIRING_RECOVERY_MAX || 250)));
+    while (this.pairingRecoveryByCode.size >= maxRecoveries) {
+      const oldest = this.pairingRecoveryByCode.keys().next().value;
+      if (oldest === undefined) break;
+      this.pairingRecoveryByCode.delete(oldest);
+    }
     const recovery = this.recoverSignedPairingCode(code, defaults)
       .finally(() => this.pairingRecoveryByCode.delete(code));
     this.pairingRecoveryByCode.set(code, recovery);
@@ -799,9 +817,18 @@ export class Mt4SyncService {
       ? Math.max(100, Math.min(10_000, configuredInterval))
       : 750;
 
-    for (const [entryKey, timestamp] of this.requestTimestamps.entries()) {
-      if (now - timestamp > 60_000) {
-        this.requestTimestamps.delete(entryKey);
+    const maxEntries = Math.max(100, Math.min(10_000, Number(process.env.WISDO_MT4_RATE_LIMIT_CACHE_MAX || 1500)));
+    if (now - Number(this.lastRateLimitSweepAt || 0) >= 60_000 || this.requestTimestamps.size >= maxEntries) {
+      for (const [entryKey, timestamp] of this.requestTimestamps.entries()) {
+        if (now - timestamp > 60_000) this.requestTimestamps.delete(entryKey);
+      }
+      this.lastRateLimitSweepAt = now;
+    }
+    if (!this.requestTimestamps.has(key)) {
+      while (this.requestTimestamps.size >= maxEntries) {
+        const oldest = this.requestTimestamps.keys().next().value;
+        if (oldest === undefined) break;
+        this.requestTimestamps.delete(oldest);
       }
     }
 
@@ -1029,7 +1056,10 @@ export class Mt4SyncService {
       if (shouldAppendHistory) state.snapshotHistory = appendBoundedHistory(state.snapshotHistory, historyRecord);
       return state;
     });
-    if (shouldAppendHistory) this.lastHistoryAtByAccount.set(accountId, Date.now());
+    if (shouldAppendHistory) {
+      this.lastHistoryAtByAccount.set(accountId, Date.now());
+      while (this.lastHistoryAtByAccount.size > 1500) this.lastHistoryAtByAccount.delete(this.lastHistoryAtByAccount.keys().next().value);
+    }
     this.cachePairingRecord({
       ...pairingRecord,
       status: 'connected',
@@ -1054,6 +1084,7 @@ export class Mt4SyncService {
           });
         });
       this.routePreparationByAccount.set(accountId, record);
+      while (this.routePreparationByAccount.size > 1000) this.routePreparationByAccount.delete(this.routePreparationByAccount.keys().next().value);
     }
 
     setImmediate(() => {

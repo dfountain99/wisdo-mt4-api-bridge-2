@@ -214,6 +214,7 @@ export class MemoryPersistenceAdapter {
   peek() { return this.state; }
   async load() { return clone(this.state); }
   async save(data) { this.state = clone(data); this.revision += 1; return clone(this.state); }
+  async flushNow() { return clone(this.state); }
   async atomicUpdate(updater, { normalize = (value) => value } = {}) {
     for (let attempt = 0; attempt < 256; attempt += 1) {
       const revision = this.revision;
@@ -399,10 +400,18 @@ export class PostgresKeyValuePersistenceAdapter {
     this.runtime.flushTimer.unref?.();
   }
 
-  async flushBufferedWrites() {
-    if (this.runtime.flushPromise) return this.runtime.flushPromise;
+  async flushBufferedWrites({ strict = false } = {}) {
+    if (this.runtime.flushPromise) {
+      const result = await this.runtime.flushPromise;
+      if (strict && this.runtime.dirtySnapshot && this.runtime.lastError) {
+        const error = new Error(this.runtime.lastError);
+        error.code = 'WISDO_DURABLE_FLUSH_PENDING';
+        throw error;
+      }
+      return result;
+    }
     const pending = this.runtime.dirtySnapshot;
-    if (!pending) return null;
+    if (!pending) return clone(this.runtime.state || this.defaultState());
     this.runtime.dirtySnapshot = null;
     this.runtime.flushPromise = (async () => {
       try {
@@ -415,6 +424,7 @@ export class PostgresKeyValuePersistenceAdapter {
         // recent state than the failed pending snapshot.
         this.runtime.dirtySnapshot = clone(this.runtime.state || this.runtime.dirtySnapshot || pending);
         this.scheduleFlush(this.retryMs);
+        if (strict) throw error;
         return clone(this.runtime.state || pending);
       }
     })().finally(() => {
@@ -422,6 +432,24 @@ export class PostgresKeyValuePersistenceAdapter {
       if (this.runtime.dirtySnapshot) this.scheduleFlush();
     });
     return this.runtime.flushPromise;
+  }
+
+  async flushNow() {
+    if (!this.bufferWrites) return clone(this.runtime.state || this.defaultState());
+    // A previous background flush may be in flight. Wait for it, then force the newest
+    // complete hot snapshot through PostgreSQL before reporting a durable save.
+    if (this.runtime.flushPromise) await this.runtime.flushPromise;
+    let attempts = 0;
+    while (this.runtime.dirtySnapshot && attempts < 3) {
+      attempts += 1;
+      await this.flushBufferedWrites({ strict: true });
+    }
+    if (this.runtime.dirtySnapshot) {
+      const error = new Error(`Durable PostgreSQL flush did not settle for ${this.namespace}.`);
+      error.code = 'WISDO_DURABLE_FLUSH_UNSETTLED';
+      throw error;
+    }
+    return clone(this.runtime.state || this.defaultState());
   }
 
   async bufferedUpdate(updater, { normalize = (value) => value } = {}) {

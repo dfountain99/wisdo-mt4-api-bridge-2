@@ -222,11 +222,17 @@
       if (selector.value) sessionStorage.setItem('wisdo.selectedAccountId', selector.value);
       selector.onchange = async () => {
         sessionStorage.setItem('wisdo.selectedAccountId', selector.value);
+        window.dispatchEvent(new CustomEvent('wisdo:account-selected', {
+          detail: { accounts, selectedAccountId: selector.value || '' },
+        }));
         await renderCurrentPage();
       };
     }
     const status = document.querySelector('#workspace-account-status');
     if (status) status.textContent = `${accounts.filter((account) => account.reporter_connected || reporterFresh(account)).length}/${accounts.length} Reporter accounts live`;
+    window.dispatchEvent(new CustomEvent('wisdo:accounts-ready', {
+      detail: { accounts, selectedAccountId: selector?.value || '' },
+    }));
     if (!silent && result.importedReporterAccounts) toast(`${result.importedReporterAccounts} Reporter account${result.importedReporterAccounts === 1 ? '' : 's'} synchronized into the workspace.`);
     return accounts;
   }

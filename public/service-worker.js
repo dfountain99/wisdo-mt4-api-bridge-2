@@ -1,7 +1,7 @@
-const CACHE_NAME = 'wisdo-shell-v6.1.0-full-queue-audit';
+const CACHE_NAME = 'wisdo-shell-v7.0.4-recognition-heap';
 const SHELL = [
   '/', '/pricing', '/copier', '/analyzer', '/compare', '/academy',
-  '/js/workspace.js', '/js/wisdo-assistant.js', '/js/df-sauce-academy.js', '/media/wisdo-og.svg', '/platforms/mt4.svg',
+  '/js/workspace.js', '/js/wisdo-recognition.js', '/js/wisdo-assistant.js', '/js/df-sauce-academy.js', '/media/wisdo-og.svg', '/platforms/mt4.svg',
   '/platforms/mt5.svg', '/platforms/ctrader.svg'
 ];
 

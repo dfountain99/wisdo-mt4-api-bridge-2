@@ -82,6 +82,20 @@ export class AnnouncementService {
       ].join('\n');
     }
 
+    if (event.type === 'growth_milestone') {
+      return [
+        '✨ **WISDO GROWTH RECOGNITION**',
+        '',
+        `<@${event.discordUserId}> crossed **${formatPercent(event.milestonePercent)}% account growth** on **${event.accountLabel || event.accountId || 'a connected account'}**.`,
+        '',
+        `Baseline Equity: **$${formatMoney(event.baselineEquity)}**`,
+        `Current Equity: **$${formatMoney(event.currentEquity)}**`,
+        `Floating P/L: **$${formatMoney(event.floatingPL)}**`,
+        '',
+        event.message || 'Protect the growth and keep execution disciplined.',
+      ].join('\n');
+    }
+
     if (event.type === 'green_streak') {
       return [
         '🔥 **STREAK ALERT!**',
