@@ -41,6 +41,17 @@ export function registerCommandBusRoutes(app, dependencies = {}) {
     try { res.json({ ok:true, command: await service.completeCommand(req.wisdoDevice, req.params.commandId, req.body || {}) }); } catch (error) { next(error); }
   });
 
+  app.get('/api/device/v1/operations', auth, async (req, res, next) => {
+    try {
+      const [devices,bots,commands] = await Promise.all([
+        service.pool.query(`SELECT device_id,device_name,device_type,status,last_seen_at,capabilities FROM wisdo_devices WHERE owner_user_id=$1 ORDER BY device_type,device_name`,[req.wisdoDevice.owner_user_id]),
+        service.pool.query(`SELECT bot_id,bot_name,account_id,terminal_name,status,last_seen_at,capabilities FROM wisdo_bots WHERE owner_user_id=$1 ORDER BY bot_name`,[req.wisdoDevice.owner_user_id]),
+        service.pool.query(`SELECT command_id,intent,target_type,target_id,status,result_message,created_at,completed_at FROM wisdo_commands WHERE owner_user_id=$1 ORDER BY created_at DESC LIMIT 100`,[req.wisdoDevice.owner_user_id])
+      ]);
+      res.json({ok:true,devices:devices.rows,bots:bots.rows,commands:commands.rows,health:await service.health()});
+    } catch(error){ next(error); }
+  });
+
   app.get('/health/command-bus', async (_req, res, next) => {
     try { res.json(await service.health()); } catch (error) { next(error); }
   });
