@@ -1,0 +1,18 @@
+Wisdo Render hotfix
+
+Fixes deploy error:
+SyntaxError: The requested module './commands/index.js' does not provide an export named 'createCommandRegistry'
+
+What this patch includes:
+- commands/index.js with named export: createCommandRegistry
+- src/commands/index.js with named export: createCommandRegistry
+- package.json engine pinned to Node 22.x for Render stability
+- server/package.json engine pinned to Node 22.x if the nested server package is used
+
+Apply from repo root:
+unzip wisdo-render-command-registry-hotfix.zip -d .
+git add commands/index.js src/commands/index.js package.json server/package.json WISDO_RENDER_COMMAND_REGISTRY_HOTFIX.txt
+git commit -m "Fix command registry export for Render deploy"
+git push
+
+After deploy, Render should no longer fail at the missing createCommandRegistry export.

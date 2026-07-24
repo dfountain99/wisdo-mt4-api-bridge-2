@@ -1,0 +1,40 @@
+WISDO COPIER CLOSE AUTHORITY V5.1.1 DEPLOYMENT CHECKLIST
+
+SERVER
+[ ] Replace the local project with the V5.1.1 package.
+[ ] Run npm ci.
+[ ] Run npm run check and confirm 10 passed, 0 failed.
+[ ] Commit and push to the GitHub main branch.
+[ ] In Render, clear build cache and deploy.
+[ ] Confirm /api/public/health reports version 5.1.1.
+[ ] Keep DATA_DIR=/var/data/wisdo.
+[ ] Keep WISDO_STORAGE_PATH=/var/data/wisdo.
+[ ] Keep WISDO_PERSISTENCE_MODE=json unless PostgreSQL is fully migrated.
+[ ] Keep WISDO_SYMBOL_AUTOMATCH_EXECUTION_ENABLED=false during demo certification.
+
+FOLLOWER MT4 — REQUIRED
+[ ] Open MT4 -> File -> Open Data Folder -> MQL4 -> Experts.
+[ ] Remove or rename the older CultureCoin_MT4_Reporter.ex4.
+[ ] Copy CultureCoin_MT4_Reporter.mq4 v1.55 into Experts.
+[ ] Open it in MetaEditor and press Compile.
+[ ] Confirm MetaEditor reports 0 errors.
+[ ] Refresh MT4 Navigator.
+[ ] Remove the old Reporter from the chart.
+[ ] Attach the newly compiled Reporter v1.55.
+[ ] Confirm EnableCopyTrading=true.
+[ ] Confirm AutoTrading is ON.
+[ ] Confirm PairingCode, SyncUrl, and ApiKey are correct.
+[ ] Confirm the Reporter dashboard displays v1.55 and FOLLOWER COPY ON.
+
+TWO-ACCOUNT DEMO CERTIFICATION
+[ ] Lead opens one trade.
+[ ] Follower opens exactly one mirrored trade.
+[ ] WISDO command history records the follower MT4 ticket.
+[ ] Lead closes the trade.
+[ ] Follower closes the exact mirrored ticket.
+[ ] Repeat while the Culture Lane is paused.
+[ ] Repeat after changing the allowed-symbol list.
+[ ] Repeat after reconnecting the follower Reporter.
+[ ] Confirm duplicate close events do not close unrelated positions.
+[ ] Confirm missing-ticket cases show FAILED rather than completed.
+[ ] Only after all checks pass, consider enabling live symbol automatch execution.

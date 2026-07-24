@@ -1,0 +1,8 @@
+Apply the patch ZIP at the repository root, preserving paths.
+
+Then run:
+  npm ci
+  npm run check
+
+Deploy with the existing Render persistent disk mounted at /var/data.
+Do not copy node_modules, data/, .env, or local secrets into GitHub.

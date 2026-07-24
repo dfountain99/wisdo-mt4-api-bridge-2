@@ -1,0 +1,7 @@
+cd /d "C:\Users\jaque\Documents\Codex\2026-04-24\build-a-discord-bot-feature-for"
+
+git add services/mt4SyncService.js services/tradeSignalService.js commands/mt4.js server/apiServer.js src/services/mt4SyncService.js src/services/tradeSignalService.js src/commands/mt4.js src/server/apiServer.js CULTURECOIN_TRADE_SIGNAL_HARD_FIX_V30.md CULTURECOIN_TRADE_SIGNAL_HARD_FIX_V30_PUSH.txt
+git commit -m "Hard fix Discord trade signal creation"
+git push origin main
+
+node scripts/registerCommands.js

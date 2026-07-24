@@ -1,0 +1,13 @@
+WISDO V5.5.0 TRADINGVIEW AI CHART TEACHER PATCH
+
+1. Extract this ZIP directly into the repository root and allow replacement of existing files.
+2. Run: npm ci
+3. Run: npm run check
+4. Confirm: 18 tests passed, 0 failed.
+5. Commit the changed files and push to the deployment branch, normally main.
+6. After deployment, hard refresh /app/education once to activate wisdo-shell-v5.5.
+
+Expected health response:
+- version: 5.5.0
+- features.chartTeacher: true
+- features.tradingViewLessons: true

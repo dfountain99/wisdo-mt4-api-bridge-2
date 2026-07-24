@@ -1,0 +1,35 @@
+WISDO SQUARE CHECKOUT + REAL HISTORICAL STUDY ROOM V5.6.0
+Version: 5.6.0
+Build command: npm ci --omit=dev --no-audit --no-fund
+Start command: npm start
+Web-only smoke: npm run start:web
+Validation: npm run check
+Primary migration: migrations/2026-07-10-wisdo-major-production-v5.sql
+Additive V5.6 migration: migrations/2026-07-12-square-real-study-room-v5.6.sql
+Tests: 19 passed, 0 failed
+JavaScript syntax/build validation: 80 files passed
+
+PAYMENTS
+Provider: Square
+Hosted checkout: subscriptions + one-time products + bots + affiliate activation + paid links
+Webhook: /api/public/webhooks/square
+Webhook verification: exact notification URL + raw body HMAC signature
+Stripe runtime dependency: removed
+Subscription variation envs: monthly, quarterly, semiannual, annual
+
+STUDY ROOM
+Mode: on-demand AI video with real historical chart teacher
+Simulated/fake candle fallback: disabled
+Historical source labels: required
+Exact example date range: required
+Live TradingView: enabled
+AI Historical Markup: enabled only when verified OHLC is available
+Automatic zoom: context, confirmation, risk, historical follow-through
+Manual zoom: in, out, reset
+Historical providers: WISDO bridge, Twelve Data, supported Coinbase markets
+
+SAFETY
+Private strategy source: excluded
+Quiz answer indices: excluded from member payloads
+AI chart annotations: educational, not live signals
+No provider means no generated candles

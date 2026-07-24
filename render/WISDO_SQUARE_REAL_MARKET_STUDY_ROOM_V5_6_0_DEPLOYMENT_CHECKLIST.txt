@@ -1,0 +1,42 @@
+WISDO V5.6.0 DEPLOYMENT CHECKLIST
+
+CODE
+[ ] Extract the V5.6 patch over the deployed V5.5 source tree.
+[ ] Run npm ci.
+[ ] Run npm run check and confirm 19 tests pass.
+[ ] Apply migrations/2026-07-12-square-real-study-room-v5.6.sql.
+[ ] Commit and push to the branch watched by Render (normally main).
+
+SQUARE SANDBOX
+[ ] SQUARE_ENVIRONMENT=sandbox
+[ ] SQUARE_ACCESS_TOKEN set
+[ ] SQUARE_APPLICATION_ID set
+[ ] SQUARE_LOCATION_ID set
+[ ] SQUARE_WEBHOOK_SIGNATURE_KEY set
+[ ] SQUARE_WEBHOOK_NOTIFICATION_URL exactly matches https://YOUR_DOMAIN/api/public/webhooks/square
+[ ] Monthly/quarterly/semiannual/annual Square Catalog plan variation IDs set
+[ ] Square webhook subscribes to payment and subscription events
+[ ] One-time setup checkout tested
+[ ] Monthly subscription checkout tested
+[ ] Affiliate activation tested
+[ ] Invalid webhook signature returns 403
+[ ] Completed payment activates access only after webhook
+[ ] Cancel and resume tested
+
+REAL HISTORICAL STUDY ROOM
+[ ] Set TWELVE_DATA_API_KEY or WISDO_MARKET_DATA_URL
+[ ] If using custom bridge, set WISDO_MARKET_DATA_TOKEN
+[ ] Generate XAUUSD, forex, index, and crypto lessons
+[ ] Verify source, symbol, timeframe, and exact dates display
+[ ] Verify AI Historical Markup zooms through all four stages
+[ ] Temporarily remove provider key and confirm AI Markup disables with zero fake candles
+[ ] Verify Live TradingView still opens when historical provider is unavailable
+
+DEPLOYMENT
+[ ] Render environment variables saved
+[ ] Deploy latest main commit
+[ ] GET /api/public/health reports version 5.6.0
+[ ] Health features show squareCheckout=true
+[ ] Health features show realHistoricalExamples=true
+[ ] Health features show fakeChartFallbackDisabled=true
+[ ] Hard refresh /app/education (Ctrl+Shift+R)

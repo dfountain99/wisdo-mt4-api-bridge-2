@@ -1,0 +1,21 @@
+WISDO V5.4.0 AI WEBINAR ROOM DEPLOYMENT CHECKLIST
+
+[ ] Replace the current project with the V5.4.0 full ZIP; do not nest the ZIP inside the repository.
+[ ] Preserve production secrets and persistent data before replacement.
+[ ] Run: npm ci --omit=dev --no-audit --no-fund
+[ ] Run: npm run check
+[ ] Confirm PUBLIC_BASE_URL, SESSION_SECRET, ENCRYPTION_KEY, BROKER_WEBHOOK_SECRET, and CRON_SECRET.
+[ ] Optional: configure OPENAI_API_KEY and WISDO_AI_MODEL for generated webinar content.
+[ ] Optional MP4 renderer: configure WISDO_AI_VIDEO_PROVIDER_URL and WISDO_AI_VIDEO_PROVIDER_KEY.
+[ ] When MP4 rendering is enabled, configure a long random WISDO_AI_VIDEO_WEBHOOK_SECRET.
+[ ] Start the application and open /api/public/health; confirm version 5.4.0.
+[ ] Sign in and open /app/education.
+[ ] Confirm the AI Webinar Room tab appears.
+[ ] Generate a general lesson and verify scene navigation, browser narration, quiz, follow-up question, and saved library.
+[ ] Sign in as an administrator and confirm Strategy Studio appears.
+[ ] Create a draft strategy and confirm members cannot select it.
+[ ] Add summary, teaching rules, and invalidation; publish it.
+[ ] Confirm members can select the published version and generate a strategy webinar.
+[ ] Edit the published strategy and confirm it returns to review and disappears from member selection until republished.
+[ ] Confirm protected Pine/MQ source is not present under public/.
+[ ] Keep WISDO_SYMBOL_AUTOMATCH_EXECUTION_ENABLED=false unless live execution has been separately validated.

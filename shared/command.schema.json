@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wisdo.local/schemas/command.v1.json",
+  "title": "Wisdo Command v1",
+  "type": "object",
+  "required": [
+    "intent",
+    "target"
+  ],
+  "properties": {
+    "intent": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "target": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "bot",
+            "account",
+            "culture_lane",
+            "desktop",
+            "all"
+          ]
+        },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 200
+        },
+        "alias": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 200
+        }
+      }
+    },
+    "parameters": {
+      "type": "object"
+    },
+    "spokenText": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 1000
+    },
+    "requestId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 200
+    }
+  }
+}

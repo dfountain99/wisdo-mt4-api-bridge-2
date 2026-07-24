@@ -1,0 +1,392 @@
+services:
+  - type: web
+    name: culture-coin-operator-desks-bot
+    runtime: node
+    plan: starter
+    autoDeploy: true
+    buildCommand: npm ci --omit=dev --no-audit --no-fund
+    preDeployCommand: npm run migrate:postgres
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 22.22.0
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=320
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: CLIENT_ID
+        sync: false
+      - key: GUILD_ID
+        sync: false
+      - key: CULTURE_COIN_ROLE_ID
+        sync: false
+      - key: COACH_ROLE_ID
+        sync: false
+      - key: OWNER_USER_ID
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: MT4_SYNC_PATH
+        value: /mt4-sync
+      - key: ENABLE_LEGACY_DEADSHOT_MT4_SYNC
+        value: "false"
+      - key: MT4_SYNC_API_KEY
+        sync: false
+      - key: MT4_SYNC_PREVIOUS_API_KEYS
+        sync: false
+      - key: MT4_PAIRING_SIGNING_SECRET
+        generateValue: true
+      - key: MT4_ALLOW_PAIRING_CODE_AUTH
+        value: "true"
+      - key: WISDO_PAIRING_CACHE_TTL_MS
+        value: "300000"
+      - key: WISDO_SIGNAL_BACKGROUND_CONCURRENCY
+        value: "1"
+      - key: WISDO_SIGNAL_TASK_TIMEOUT_MS
+        value: "15000"
+      - key: WISDO_SIGNAL_BACKGROUND_MAX_QUEUE
+        value: "150"
+      - key: WISDO_MT4_ACTIVE_COMMAND_LIMIT
+        value: "500"
+      - key: WISDO_MT4_ACTIVE_PER_USER_LIMIT
+        value: "300"
+      - key: WISDO_MT4_ACTIVE_PER_ACCOUNT_LIMIT
+        value: "125"
+      - key: WISDO_MT4_CRITICAL_COMMAND_LIMIT
+        value: "200"
+      - key: WISDO_MT4_COMMAND_SCAN_LIMIT
+        value: "3000"
+      - key: WISDO_MT4_COMMAND_HISTORY_LIMIT
+        value: "150"
+      - key: WISDO_MT4_COMMAND_AUDIT_LIMIT
+        value: "150"
+      - key: WISDO_MT4_DELIVERY_ID_CACHE_MS
+        value: "300000"
+      - key: WISDO_MT4_DELIVERY_CACHE_MAX
+        value: "500"
+      - key: WISDO_MT4_RATE_LIMIT_CACHE_MAX
+        value: "750"
+      - key: WISDO_PAIRING_CACHE_MAX
+        value: "750"
+      - key: WISDO_PAIRING_RECOVERY_MAX
+        value: "150"
+      - key: WISDO_REPORTER_HEARTBEAT_INTERVAL_MS
+        value: "15000"
+      - key: WISDO_REPORTER_HEARTBEAT_CACHE_MAX
+        value: "500"
+      - key: WISDO_ACCOUNT_CACHE_MAX_USERS
+        value: "250"
+      - key: WISDO_FUNNEL_RATE_CACHE_MAX
+        value: "500"
+      - key: WISDO_DISCORD_GRID_TIMER_MAX
+        value: "100"
+      - key: WISDO_RANK_PROCESS_MIN_INTERVAL_MS
+        value: "10000"
+      - key: WISDO_RANK_PROCESS_CACHE_MAX
+        value: "500"
+      - key: WISDO_ACCOUNT_SYNC_FLIGHT_MAX
+        value: "250"
+      - key: WISDO_LEDGER_SYNC_FLIGHT_MAX
+        value: "250"
+      - key: WISDO_COACH_FLIGHT_MAX
+        value: "150"
+      - key: WISDO_MEMORY_SHED_RATIO
+        value: "0.65"
+      - key: WISDO_RENDER_MEMORY_LIMIT_MB
+        value: "512"
+      - key: WISDO_LOW_MEMORY_RELAY_MODE
+        value: "true"
+      - key: WISDO_POST_SNAPSHOT_SKIP_HEAP_RATIO
+        value: "0.58"
+      - key: WISDO_POST_SNAPSHOT_QUEUE_MAX
+        value: "25"
+      - key: WISDO_MT4_MAX_NEW_SIGNALS_PER_SNAPSHOT
+        value: "40"
+      - key: WISDO_MT4_SIGNAL_CHURN_GUARD
+        value: "20"
+      - key: WISDO_REPLAY_EXISTING_TRADES_ON_FIRST_SYNC
+        value: "false"
+      - key: WISDO_DASHBOARD_UPDATE_SECONDS
+        value: "60"
+      - key: WISDO_DURABLE_MUTATION_TIMEOUT_MS
+        value: "12000"
+      - key: WISDO_JSON_BODY_LIMIT
+        value: 4mb
+      - key: WISDO_COMPRESSION_THRESHOLD_BYTES
+        value: "1024"
+      - key: WISDO_SLOW_REQUEST_MS
+        value: "2500"
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: BROKER_WEBHOOK_SECRET
+        generateValue: true
+      - key: CRON_SECRET
+        generateValue: true
+      - key: WISDO_SYMBOL_AUTOMATCH_ENABLED
+        value: "true"
+      - key: WISDO_SYMBOL_SPIN_WHEEL_ENABLED
+        value: "true"
+      - key: WISDO_SYMBOL_AUTOMATCH_EXECUTION_ENABLED
+        value: "false"
+      - key: MT4_PAIRING_CODE_TTL_HOURS
+        value: "24"
+      - key: MT4_REQUIRE_KNOWN_PAIRING
+        value: "true"
+      - key: MT4_MAX_PAYLOAD_KB
+        value: "256"
+      - key: WISDO_MT4_HISTORY_GLOBAL_LIMIT
+        value: "200"
+      - key: WISDO_MT4_HISTORY_ACCOUNT_LIMIT
+        value: "40"
+      - key: WISDO_MT4_SIGNAL_TRACKING_ACCOUNT_LIMIT
+        value: "250"
+      - key: WISDO_SIGNAL_HISTORY_LIMIT
+        value: "200"
+      - key: WISDO_STATE_QUARANTINE_MB
+        value: "96"
+      - key: AUTO_REGISTER_COMMANDS_ON_START
+        value: "true"
+      - key: DATA_DIR
+        value: /var/data/wisdo
+      - key: WISDO_STORAGE_PATH
+        value: /var/data/wisdo
+      - key: CREATE_PRIVATE_VOICE_CHANNELS
+        value: "false"
+      - key: WISDO_ENABLED
+        value: "true"
+      - key: WISDO_TONE
+        value: old_head_wizard
+      - key: WISDO_AUTO_ANALYZE_CLOCK_IN
+        value: "true"
+      - key: WISDO_AUTO_ANALYZE_EA_LOG
+        value: "true"
+      - key: WISDO_AUTO_ANALYZE_CLOCK_OUT
+        value: "true"
+      - key: WISDO_AUTO_ANALYZE_WEEKLY_REVIEW
+        value: "true"
+      - key: WISDO_MAX_SAFE_OPEN_TRADES
+        value: "5"
+      - key: WISDO_DRAWDOWN_WARN_PERCENT
+        value: "10"
+      - key: WISDO_DRAWDOWN_DANGER_PERCENT
+        value: "20"
+      - key: WISDO_PROFIT_PROTECT_PERCENT
+        value: "5"
+      - key: WISDO_ENABLE_STRONG_WARNINGS
+        value: "true"
+      - key: WISDO_MT4_STALE_MINUTES
+        value: "5"
+      - key: BOT_STORE_ENABLED
+        value: "true"
+      - key: BOT_DELIVERY_DIR
+        value: /var/data/wisdo/bot-deliveries
+      - key: BOT_SOURCE_DIRS
+        value: ./private-downloads/mt4-bots;./mql4
+      - key: BOT_AUTO_SYNC_ON_START
+        value: "true"
+      - key: BOT_BASE_PRICE
+        value: "500"
+      - key: CULTURE_COIN_BOT_PRICE
+        value: "400"
+      - key: BOT_NEGOTIATION_FLOOR
+        value: "350"
+      - key: BOT_BUY_3_GET_3_FREE
+        value: "true"
+      - key: CULTURE_COIN_FREE_BOT_ENABLED
+        value: "true"
+      - key: WELCOME_DM_ENABLED
+        value: "true"
+      - key: WELCOME_CHANNEL_ID
+        sync: false
+      - key: CULTURE_COIN_JOIN_URL
+        sync: false
+      - key: CULTURE_COIN_SUPPORT_CONTACT
+        sync: false
+      - key: BOT_STORE_CURRENCY
+        value: usd
+      - key: BOT_QUOTE_TTL_HOURS
+        value: "24"
+      - key: SQUARE_ENVIRONMENT
+        value: sandbox
+      - key: SQUARE_ACCESS_TOKEN
+        sync: false
+      - key: SQUARE_APPLICATION_ID
+        sync: false
+      - key: SQUARE_LOCATION_ID
+        sync: false
+      - key: SQUARE_API_VERSION
+        value: 2026-05-20
+      - key: SQUARE_WEBHOOK_SIGNATURE_KEY
+        sync: false
+      - key: SQUARE_WEBHOOK_PATH
+        value: /api/public/webhooks/square
+      - key: SQUARE_WEBHOOK_NOTIFICATION_URL
+        sync: false
+      - key: SQUARE_SUCCESS_PATH
+        value: /checkout/success
+      - key: SQUARE_CANCEL_PATH
+        value: /checkout/cancel
+      - key: SQUARE_SUBSCRIPTION_PLAN_ID
+        sync: false
+      - key: SQUARE_SUBSCRIPTION_PLAN_MONTHLY_ID
+        sync: false
+      - key: SQUARE_SUBSCRIPTION_PLAN_QUARTERLY_ID
+        sync: false
+      - key: SQUARE_SUBSCRIPTION_PLAN_SEMIANNUAL_ID
+        sync: false
+      - key: SQUARE_SUBSCRIPTION_PLAN_ANNUAL_ID
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: WISDO_EMAIL_REPLY_TO
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
+      - key: FUNNEL_MONTHLY_LEAD_TARGET
+        value: "1000"
+      - key: FUNNEL_TARGET_CONVERSION_RATE
+        value: "20"
+      - key: FINNHUB_API_KEY
+        sync: false
+      - key: TRADING_ECONOMICS_API_KEY
+        sync: false
+      - key: FIRECRAWL_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GOOGLE_AI_API_KEY
+        sync: false
+      - key: WISDO_HISTORICAL_DATA_PROVIDER
+        value: auto
+      - key: TWELVE_DATA_API_KEY
+        sync: false
+      - key: WISDO_MARKET_DATA_URL
+        sync: false
+      - key: WISDO_MARKET_DATA_TOKEN
+        sync: false
+      - key: WISDO_MARKET_DATA_TIMEOUT_MS
+        value: "12000"
+      - key: WISDO_AI_MODEL
+        value: gpt-5-mini
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        value: mailto:support@wisdo.app
+      - key: DATABASE_URL
+        sync: false
+      - key: WISDO_PERSISTENCE_MODE
+        value: postgres
+      - key: WISDO_DB_SSL
+        value: "true"
+      - key: DB_POOL_MAX
+        value: "2"
+      - key: DB_POOL_MIN
+        value: "0"
+      - key: WISDO_DB_CACHE_TTL_MS
+        value: "10000"
+      - key: WISDO_DB_CACHE_MAX_STALE_MS
+        value: "300000"
+      - key: WISDO_DB_FAIL_OPEN_READS
+        value: "true"
+      - key: WISDO_DB_BUFFER_LIVE_WRITES
+        value: "false"
+      - key: WISDO_DATABASE_FIRST_TRADING
+        value: "true"
+      - key: WISDO_MT4_DB_HISTORY_ENABLED
+        value: "true"
+      - key: WISDO_MT4_DB_COMMAND_HISTORY_LIMIT
+        value: "250"
+      - key: WISDO_MT4_DB_SIGNAL_LIMIT
+        value: "500"
+      - key: WISDO_DB_QUERY_TIMEOUT_MS
+        value: "5000"
+      - key: WISDO_DB_STATEMENT_TIMEOUT_MS
+        value: "4000"
+      - key: WISDO_DB_CIRCUIT_BREAKER_MS
+        value: "5000"
+      - key: WISDO_DB_WRITE_DEBOUNCE_MS
+        value: "100"
+      - key: WISDO_DB_RETRY_MS
+        value: "1500"
+      - key: WISDO_ACCOUNTS_API_BUDGET_MS
+        value: "1500"
+      - key: WISDO_ACCOUNTS_RESPONSE_CACHE_MS
+        value: "5000"
+      - key: WISDO_MT4_HISTORY_INTERVAL_MS
+        value: "15000"
+      - key: CTRADER_CLIENT_ID
+        sync: false
+      - key: CTRADER_CLIENT_SECRET
+        sync: false
+      - key: CTRADER_REDIRECT_URI
+        value: https://wisdo-mt4-api-bridge.onrender.com/api/v2/broker-api/ctrader/callback
+      - key: METAAPI_DEFAULT_REGION
+        value: new-york
+      - key: WISDO_BACKGROUND_WORKERS_ENABLED
+        value: "false"
+      - key: WISDO_BROKER_SYNC_INTERVAL_SECONDS
+        value: "120"
+      - key: WISDO_COACH_MIN_INTERVAL_MINUTES
+        value: "15"
+      - key: WISDO_COACH_POLL_INTERVAL_SECONDS
+        value: "180"
+      - key: WISDO_NOTIFICATION_RETRY_INTERVAL_SECONDS
+        value: "300"
+      - key: REDIS_ENABLED
+        value: "false"
+      - key: REDIS_URL
+        sync: false
+      - key: REDIS_PREFIX
+        value: wisdo
+      - key: REDIS_HEALTH_TTL_SECONDS
+        value: "90"
+      - key: REDIS_RECOVERY_INTERVAL_MS
+        value: "15000"
+      - key: REDIS_VISIBILITY_TIMEOUT_MS
+        value: "30000"
+      - key: REDIS_MAX_DELIVERY_ATTEMPTS
+        value: "5"
+      - key: CLIENT_SECRET
+        sync: false
+      - key: DISCORD_CLIENT_SECRET
+        sync: false
+      - key: DISCORD_COMMAND_API_SECRET
+        sync: false
+      - key: DISCORD_NOTIFICATION_WEBHOOK_URL
+        sync: false
+      - key: WISDO_NOTIFICATION_WEBHOOK_URL
+        sync: false
+      - key: WISDO_WIN_GIF_URLS
+        sync: false
+      - key: SIGNAL_CHANNEL_ID
+        sync: false
+      - key: TRADE_SIGNAL_CHANNEL_ID
+        sync: false
+      - key: SIGNAL_BUTTON_TTL_SECONDS
+        value: "180"
+      - key: WISDO_SIGNALS_FROM_ALL_CONNECTED
+        value: "true"
+      - key: RANK_ANNOUNCEMENTS_ENABLED
+        value: "true"
+      - key: RANK_ANNOUNCEMENT_CHANNEL_ID
+        sync: false
+      - key: DISCORD_CONNECTION_CHANNEL_ID
+        sync: false
+

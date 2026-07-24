@@ -1,0 +1,37 @@
+{
+  "name": "culture-coin-operator-desks-bot",
+  "version": "8.0.0",
+  "description": "WISDO OS v1.0 unified command bus: Render authority, Pi voice edge, Windows desktop agent, bot registry, PostgreSQL audit.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "register-commands": "node scripts/registerCommands.js",
+    "start:web": "node scripts/startWebOnly.js",
+    "dev:web": "node --watch scripts/startWebOnly.js",
+    "test": "node --test tests/*.test.js",
+    "check": "node scripts/checkBuild.js && npm test",
+    "migrate:postgres": "node scripts/migratePostgres.js",
+    "postinstall": "node scripts/patchWsHandshake.js",
+    "pressure:v706": "node --max-old-space-size=64 --expose-gc scripts/pressureSnapshotChurn.js 1000",
+    "pressure:v707": "node --max-old-space-size=64 --expose-gc scripts/pressureSectionPersistence.js 5000 20000",
+    "pressure:v708": "node --max-old-space-size=64 --expose-gc scripts/pressureDatabaseFirstTrading.js 5000 100",
+    "test:command-bus": "node --test tests/commandBusContract.test.js"
+  },
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "compression": "^1.8.1",
+    "discord.js": "^14.27.0",
+    "dotenv": "^16.6.1",
+    "express": "^5.2.1",
+    "pg": "^8.22.0",
+    "redis": "^5.8.2",
+    "web-push": "^3.6.7"
+  },
+  "overrides": {
+    "ws": "8.21.1"
+  }
+}

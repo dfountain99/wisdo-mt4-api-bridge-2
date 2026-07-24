@@ -1,0 +1,14 @@
+WISDO V5.6.0 PATCH
+
+Base: WISDO V5.5.0 TradingView AI Chart Teacher
+Adds: Square checkout + verified historical Study Room examples
+
+1. Extract this ZIP over the clean V5.5 project root.
+2. Run npm ci.
+3. Run npm run check. Expected: 19 tests passed.
+4. Apply migrations/2026-07-12-square-real-study-room-v5.6.sql.
+5. Configure Square and historical data environment variables.
+6. Commit and push to the branch watched by Render, normally main.
+7. Hard refresh /app/education after deployment.
+
+WISDO does not generate fake Study Room candles when historical data is unavailable.

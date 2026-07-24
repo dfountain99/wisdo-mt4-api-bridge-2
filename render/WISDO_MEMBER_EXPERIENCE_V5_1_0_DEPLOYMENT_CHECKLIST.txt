@@ -1,0 +1,20 @@
+WISDO MEMBER EXPERIENCE V5.1.0 DEPLOYMENT CHECKLIST
+
+1. Replace the contents of the local wisdo-v5 folder with this release.
+2. Do not nest the ZIP inside the repository.
+3. Confirm package.json, index.js, render.yaml, server/, public/, services/, and storage/ are in the repository root.
+4. Run: npm ci
+5. Run: npm run check
+6. Confirm: tests 7, pass 7, fail 0.
+7. Commit and push to main.
+8. In Render, clear build cache and deploy the latest commit.
+9. Confirm DATA_DIR=/var/data/wisdo and WISDO_STORAGE_PATH=/var/data/wisdo.
+10. Confirm a persistent disk is mounted at /var/data.
+11. Keep WISDO_SYMBOL_AUTOMATCH_EXECUTION_ENABLED=false.
+12. Test /app/dashboard and verify the WISDO startup sequence.
+13. Test /app/accounts and save a demo MT4 account; verify pairing code and no frozen submit button.
+14. Start the Reporter and verify the same account appears in Dashboard, Trades, Copier Engine, and WISDO Insight Engine.
+15. Open /member/education?bot=df-sauce-final-ai and verify redirect into /app/education.
+16. Test Chart Replay, Interactive Video, TradingView Watch Room, and Pine Lab.
+17. Change theme/background in Settings, reload, and verify persistence.
+18. Perform two-demo-account open/close relay certification before enabling symbol execution automatch.

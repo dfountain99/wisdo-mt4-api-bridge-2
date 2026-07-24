@@ -1,0 +1,13 @@
+Culture Coin MT4 Bot Install Guide
+
+1. Download the .ex4 file from your private Discord delivery message.
+2. In MT4, open File -> Open Data Folder -> MQL4 -> Experts.
+3. Drop the .ex4 file into the Experts folder.
+4. Restart MT4 or refresh Navigator.
+5. Attach the bot to the chart you want to operate on.
+6. Load any preset or operating rules Coach provided separately.
+
+Important:
+- These files are for the licensed user only.
+- Do not reshare, repost, or redistribute them.
+- If you are a Culture Coin member, ask Coach for the matching operating rules and desk workflow.

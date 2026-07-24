@@ -1,0 +1,60 @@
+CEM MEMBER PORTAL ADVANCED LINKING + COPY ENGINE PATCH
+Date: 2026-06-26
+
+Purpose:
+- Upgrade /member/copy-pro from a basic copier page into a full CEM Culture Relay Engine advanced linking portal.
+- Make every linked account on the Discord user's desk appear in copy-from/copy-to dropdowns.
+- Make approved shared reporters appear as copy-from Culture Lead options.
+- Make other users' active/discoverable reporters appear in a community discovery dropdown.
+- Add access request / approve / reject workflow before another user's reporter can be copied.
+- Add broker-login/account-number staging flow that generates a pairing code without storing broker passwords.
+- Add bot lane matrix for many bots running across many accounts/users.
+- Add direct member nav routes for Advanced Link and Community Reporters.
+
+Important Safety Note:
+- The broker-link form stages broker login/account number, server, demo/live, platform, role, and bot notes.
+- It rejects password fields. Members should verify actual account access through MT4 Reporter pairing or VPS-assisted setup.
+
+Patched areas:
+- server/apiServer.js
+- src/server/apiServer.js
+- server/server/apiServer.js
+- server/src/server/apiServer.js
+- storage/operatorDeskRepository.js
+- src/storage/operatorDeskRepository.js
+- server/storage/operatorDeskRepository.js
+- server/src/storage/operatorDeskRepository.js
+
+New/expanded member portal routes:
+- /member/copy-pro
+- /member/advanced-link -> /member/copy-pro#broker-link
+- /member/community-reporters -> /member/copy-pro#discover
+- /member/copy -> /member/copy-pro
+
+New/expanded API routes:
+- GET  /api/me/discoverable-reporters
+- GET  /api/me/access-requests
+- POST /api/me/access-requests
+- POST /api/me/access-requests/:requestId/approve
+- POST /api/me/access-requests/:requestId/reject
+- GET  /api/me/broker-link-requests
+- POST /api/me/broker-link-requests
+
+Repository additions:
+- getDiscoverableMt4Accounts
+- createAccountAccessRequest
+- getAccountAccessRequestsForUser
+- approveAccountAccessRequest
+- rejectAccountAccessRequest
+- createBrokerLinkRequest
+- getBrokerLinkRequestsForUser
+
+Validation:
+- node --check passed for patched API server and repository files.
+
+Deploy:
+- Copy zip contents into project root.
+- git add -A
+- git commit -m "Add advanced CEM copier linking portal"
+- git push origin main
+- redeploy Render service.

@@ -1,0 +1,22 @@
+WISDO v5.9.0 POSTGRESQL + REDIS INFRASTRUCTURE
+
+Modified:
+- package.json
+- package-lock.json
+- README.md
+- server/apiServer.js
+- services/persistenceAdapter.js
+
+Added:
+- services/redisCommandBridge.js
+- scripts/migratePostgres.js
+- tests/postgres-redis-upgrade.test.js
+- WISDO_V5_9_POSTGRES_REDIS_DEPLOYMENT.md
+
+Key behavior:
+- No lazy loading
+- Eager full-state loading
+- Sectioned PostgreSQL persistence
+- Automatic legacy PostgreSQL JSON-row import
+- Redis command publish/acknowledgement bridge
+- Copier infrastructure health endpoint

@@ -1,0 +1,12 @@
+WISDO v6.0.8 CLOUD-ONLY EMERGENCY RECOVERY
+- PostgreSQL durable truth
+- no JSON runtime files
+- no laptop dependency
+- one shared database pool
+- nonblocking advisory locks
+- query timeout and circuit breaker
+- hot read cache
+- buffered live-state persistence with retry
+- shared Redis/PostgreSQL pool
+- database runtime health endpoint
+- Reporter v1.58 compatible

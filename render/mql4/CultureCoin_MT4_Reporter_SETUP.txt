@@ -1,0 +1,86 @@
+
+IMPORTANT — ONE REPORTER PER MT4 ACCOUNT
+----------------------------------------
+Attach CultureCoin_MT4_Reporter to only one chart in each MT4 terminal/account.
+The default snapshot interval is 10 seconds. Command polling remains 1 second so trade
+open/close commands stay responsive. Multiple Reporter copies on the same account can
+create near-simultaneous sync requests; v5.6.2 coalesces them, but removing duplicates
+is still the correct setup.
+
+Culture Coin MT4 Reporter v1.59 — Sync Account + Close Authority Setup
+
+ACTIVE FILES
+- CultureCoin_MT4_Reporter.mq4  (v1.59 source — compile this in MetaEditor)
+- CultureCoin_MT4_Reporter_Package.zip
+
+IMPORTANT
+The older compiled EX4 from the previous package does NOT contain the lead-close repair.
+Every follower terminal must compile and install the v1.59 MQ4 source before testing.
+
+INSTALL / UPGRADE
+1. In MT4 choose File -> Open Data Folder.
+2. Open MQL4 -> Experts.
+3. Remove or rename the older CultureCoin_MT4_Reporter.ex4.
+4. Copy CultureCoin_MT4_Reporter.mq4 into MQL4 -> Experts.
+5. Open the file in MetaEditor and press Compile.
+6. Confirm MetaEditor reports 0 errors, then return to MT4 and refresh Navigator.
+7. Remove the old Reporter from the chart and attach the newly compiled Reporter.
+8. Paste the WISDO PairingCode and SyncUrl.
+9. On follower/receiver terminals set EnableCopyTrading=true.
+10. Turn MT4 AutoTrading ON.
+11. In Tools -> Options -> Expert Advisors, allow WebRequest for the WISDO base URL only, for example:
+    https://wisdo-mt4-api-bridge.onrender.com
+12. Confirm the Reporter dashboard displays v1.59 and FOLLOWER COPY ON.
+
+REQUIRED REPORTER URLS
+- Sync: <base-url>/mt4-sync
+- Command poll: <base-url>/mt4-command-poll
+- Command complete: <base-url>/mt4-command-complete
+
+CLOSE-AUTHORITY CERTIFICATION
+1. Open one trade on the Culture Lead.
+2. Confirm the follower opens one mirrored position.
+3. Confirm WISDO records the follower MT4 ticket returned by OrderSend.
+4. Close the lead trade.
+5. Confirm a COPY_CLOSE_TRADE command is delivered to the same follower account.
+6. Confirm the follower closes the exact stored follower ticket.
+7. Repeat with the Culture Lane paused and with the allowed-symbol list changed.
+   Existing mirrored positions must still close; pause and entry filters block opens only.
+8. Check WISDO alerts/command history. A missing ticket must show FAILED, never a false completed result.
+
+SYMBOL NOTES
+Use SymbolAliasMap for broker-specific names, for example:
+NASUSD=NAS100;US30=US30.cash;XAUUSD=XAUUSDm
+
+SAFETY
+Keep WISDO_SYMBOL_AUTOMATCH_EXECUTION_ENABLED=false until two demo accounts pass open, close, reconnect, duplicate-webhook, and stale-heartbeat tests.
+
+SYNC_ACCOUNT CERTIFICATION
+1. From WISDO Accounts click Sync / Refresh.
+2. Confirm MT4 logs: SYNC_ACCOUNT -> Account synchronized.
+3. Confirm Dashboard balance, equity, positions, terminal and Expert status update immediately.
+4. Confirm the command history is completed rather than unsupported.
+
+
+V1.59 RESILIENT CONNECTION + ATOMIC CLOSE UPGRADE
+
+Reporter v1.59 no longer changes from Connected to Error after one temporary network failure.
+It preserves the last healthy heartbeat, backs off repeated WebRequest failures, and displays Connected, Degraded, Retrying, or Offline.
+
+Recommended resilient inputs:
+- NetworkFailureGraceCount = 3
+- NetworkBackoffBaseSeconds = 2
+- NetworkBackoffMaxSeconds = 60
+- NetworkOfflineAfterSeconds = 120
+
+- Close All, Profit Secure, and Close Losing use one atomic basket sweep command per account.
+- The Reporter snapshots all matching tickets first and closes the basket immediately without waiting for separate website commands.
+- Culture Lane close-all fans one sweep command to every account in parallel.
+
+
+V1.59 SINGLE-INSTANCE POLLING + SERVER PACING
+----------------------------------------------
+- Only one Reporter chart per MT4 account owns the command-poll lease. Other attached copies show Standby.
+- Default command polling is every 2 seconds with one command request per timer tick.
+- WISDO can return pollAfterMs so the Reporter automatically follows server pacing.
+- Replace every older Reporter instance; old v1.58 copies can still create three requests per second per chart.

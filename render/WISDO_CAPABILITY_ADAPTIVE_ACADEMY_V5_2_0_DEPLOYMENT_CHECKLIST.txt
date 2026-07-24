@@ -1,0 +1,45 @@
+WISDO CAPABILITY + ADAPTIVE ACADEMY V5.2.0 DEPLOYMENT CHECKLIST
+
+BUILD
+[ ] Extract the V5.2.0 package over the current local project.
+[ ] Run npm ci.
+[ ] Run npm run check and confirm all tests pass.
+[ ] Confirm no .env, runtime JSON, node_modules, or .pine strategy source is committed.
+[ ] Keep the GitHub repository private while private-downloads/mt4-bots contains compiled EX4 products.
+
+RENDER
+[ ] Build command: npm ci --omit=dev --no-audit --no-fund
+[ ] Start command: npm start
+[ ] DATA_DIR=/var/data/wisdo
+[ ] WISDO_STORAGE_PATH=/var/data/wisdo
+[ ] WISDO_PERSISTENCE_MODE=json
+[ ] Persistent disk mounted at /var/data
+[ ] WISDO_SYMBOL_AUTOMATCH_EXECUTION_ENABLED=false until demo certification
+[ ] Set WISDO_DF_SAUCE_TRADINGVIEW_URL to the private TradingView layout URL
+[ ] Set OPENAI_API_KEY only if live adaptive AI tutoring is desired
+
+COPIER CERTIFICATION
+[ ] Open /app/accounts and assign explicit desk roles.
+[ ] Confirm at least one Culture Lead or Dual Role account.
+[ ] Confirm at least one owned Mirror Receiver or Dual Role account.
+[ ] Confirm /copier/options shows the same accounts as Dashboard.
+[ ] Confirm the receiver reports canExecute=true before live copying.
+[ ] Test lead open, follower open, lead close, and follower close on demo accounts.
+[ ] Test close while route is paused and while symbol filters have changed.
+
+ACADEMY PRIVACY
+[ ] Confirm /academy/df-sauce-campaign-character.pine returns 404.
+[ ] Confirm GitHub contains no .pine source.
+[ ] Confirm the TradingView button opens the private layout.
+[ ] Confirm generic embedded TradingView remains educational only.
+
+MEMBER EXPERIENCE
+[ ] Confirm Dashboard, Accounts, Copier Engine, Trades, Insight Engine, and Academy use the same selected account.
+[ ] Confirm account role updates immediately refresh copier options.
+[ ] Confirm tutor history saves and clears.
+[ ] Confirm themes and backgrounds persist after login.
+
+SECURITY / CONTENT
+[ ] Verify no public route serves private strategy source or unrestricted private bot binaries.
+[ ] Review Academy content, AI disclosures, risk notices, and jurisdiction-specific material before public launch.
+[ ] Confirm AI tutor does not provide individualized live-trade instructions or guaranteed-return language.

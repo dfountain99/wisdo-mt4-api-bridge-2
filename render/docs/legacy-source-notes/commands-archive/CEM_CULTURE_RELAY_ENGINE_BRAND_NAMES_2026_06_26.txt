@@ -1,0 +1,29 @@
+CEM Culture copier brand naming applied in this build
+
+Primary product name:
+- CEM Culture Relay Engine
+
+Core copier objects:
+- Culture Lane = one leader-to-follower copier route
+- Culture Lead = copy-from / master account
+- Mirror Receiver = copy-to / follower account
+- WISDO Risk Dial = TraderConnect-style risk calculator
+- Balance Bridge = balance/equity ratio copy mode
+- Culture % Risk = percentage-based risk mode
+- Lane Multiplier = lot multiplier mode
+- Fixed Culture Lot = fixed lot mode
+- Match Leader Lot = same-lot mode
+- Culture Signal Card = Discord trade signal card
+- Mirror This Trade = Discord copy button
+- Close My Mirror = Discord close-copy button
+- Create Culture Lane = Discord future auto-copy route button
+
+Default risk safety:
+- Copy SL/TP is OFF by default.
+- Copy pending orders is OFF by default.
+- Receiver market-executes after the lead trade becomes active.
+- Receiver closes when the lead trade close command arrives.
+
+Why this avoids cloning TraderConnect:
+- The flow mirrors the useful setup logic, but the names match CEM Culture/WISDO language.
+- The platform speaks in lanes, leads, mirrors, risk dials, and signal cards.

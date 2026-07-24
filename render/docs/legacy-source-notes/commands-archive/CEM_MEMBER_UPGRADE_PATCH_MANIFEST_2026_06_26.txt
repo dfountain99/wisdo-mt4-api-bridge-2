@@ -1,0 +1,37 @@
+CEM MEMBER UPGRADE PATCH - 2026-06-26
+
+Fixed in this build:
+- TradeSignalService wiring accepted by API server and server startup entrypoints.
+- Discord signal buttons now route all signal_* and take_signal* interactions.
+- Signal cards use Copy This Trade, Auto Copy Setup, Close My Copy, Signal Info, Mute Updates.
+- MT4 signal creation supports all non-follower accounts by default and logs signal skip reasons.
+- Rank announcements are now processed after every /mt4-sync snapshot.
+- Desks can hold multiple active MT4 accounts using connectionsByAccountId/latestSnapshotsByAccountId.
+- Website /api/me/accounts returns accessible owned/shared accounts.
+- Added accountSharesById permission model foundations.
+- Added copyRoutesById model for Leader -> Follower auto-copy routes.
+- Added Copy Engine Pro website page with leader/follower selectors, risk settings, routes, and route delete.
+- Added per-account website copy risk API: PATCH /api/me/accounts/:accountId/copy-risk.
+- Added copy route APIs: GET/POST /api/me/copy-routes and DELETE /api/me/copy-routes/:routeId.
+- Added YTD equity graph endpoint: GET /api/me/equity-history?period=ytd&accountId=...
+- Added Trade Results page with YTD equity/balance chart from MT4 snapshots.
+- Signal buttons now use Website Risk settings, same lot, fixed 0.01, and fixed 0.02.
+- Auto-copy routes queue COPY_OPEN_TRADE when future leader signals are created.
+- COPY_CLOSE_TRADE now sends sourceTicket so the MT4 reporter can locate copied trades.
+- MT4 Reporter copy execution now resolves broker suffix/aliases, accepts direction/lot/volume/sl/tp, falls back sourceTicket to commandId, and uses one truncated WISDO_COPY marker for open/duplicate/close.
+
+Recommended Render env vars:
+SIGNAL_CHANNEL_ID=your_trade_signal_channel
+TRADE_SIGNAL_CHANNEL_ID=your_trade_signal_channel
+SIGNAL_BUTTON_TTL_SECONDS=180
+WISDO_SIGNALS_FROM_ALL_CONNECTED=true
+RANK_ANNOUNCEMENTS_ENABLED=true
+RANK_ANNOUNCEMENT_CHANNEL_ID=your_rank_channel
+AUTO_REGISTER_COMMANDS_ON_START=true
+
+After deploy:
+1. npm install
+2. npm run register-commands
+3. Restart Render service from the root folder using npm start.
+4. Compile mql4/CultureCoin_MT4_Reporter.mq4 in MetaEditor and place the .ex4 in MQL4/Experts.
+5. Connect separate pairing codes for leader and follower accounts.

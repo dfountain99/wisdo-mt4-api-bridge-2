@@ -1,0 +1,39 @@
+WISDO CULTURE LANE OS v6.1.0
+FULL QUEUE AUDIT + PERFORMANCE RECOVERY
+
+Primary changed runtime files:
+- server/majorUpgradeRoutes.js
+- server/apiServer.js
+- services/persistenceAdapter.js
+- services/mt4CommandService.js
+- services/mt4SyncService.js
+- services/tradeSignalService.js
+- services/notificationDeliveryService.js
+- services/growthFunnelService.js
+- services/repositories/wisdoPhase1Repository.js
+- public/js/workspace.js
+- public/service-worker.js
+- render.yaml
+- package.json
+- package-lock.json
+
+New validation and documentation:
+- tests/v610-full-queue-audit.test.js
+- WISDO_V6_1_0_FULL_QUEUE_AUDIT.md
+- WISDO_V6_1_0_RELEASE_NOTES.md
+- WISDO_V6_1_0_DEPLOYMENT_AND_TEST_CHECKLIST.md
+
+Validation:
+- Build check: PASS
+- Production JavaScript files checked: 95
+- Required production assets checked: 14
+- Automated tests: 69
+- Passed: 69
+- Failed: 0
+- Fresh extraction: PASS
+- Fresh npm ci: PASS
+- Flat ZIP root: PASS
+- Runtime JSON state fallback: DISABLED
+- PostgreSQL durable state: ENABLED
+- Redis required: NO
+- Reporter v1.58 compatible: YES

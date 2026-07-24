@@ -1,0 +1,28 @@
+CEM Full Website Route + Copier Engine Upgrade - 2026-06-26
+
+Fixed:
+- Live portal uses /app/* route family instead of hidden /member/* pages.
+- /app/copier-engine now renders full CEM Culture Relay Engine instead of old simple copier gate.
+- Added aliases for wrong/legacy routes: /app/copier, /app/copy, /app/trade-copier, /app/dashboard/memeber, /app/member, /member/copy-pro, /copier-engine, and more.
+- Added world clock bar to every rendered command-center screen.
+- Added Advanced Broker Link live form into /app/copier-engine.
+- Added Community Active Reporter discovery into /app/copier-engine.
+- Added Discord Copier Channel setup for trade signals, connection/pairing, and rank-up channels.
+- Added TraderConnect-inspired setup steps using CEM language: Culture Lead, Mirror Receiver, WISDO Risk Dial, Balance Bridge, Lane Multiplier, Fixed Culture Lot, Symbol Translator, Covenant Guard, Culture Ledger.
+- Patched TradeSignalService to use saved website Discord signal channel when env SIGNAL_CHANNEL_ID is blank.
+- Patched /api/signal-health to show env/saved channel source.
+- Kept broker passwords rejected; broker login means account number/server only.
+
+Main routes to test after deploy:
+/app/dashboard
+/app/dashboard/memeber
+/app/notifications
+/app/copier-engine
+/app/advanced-link
+/app/community-reporters
+/app/discord-copier
+/api/signal-health
+/api/discord/copier-channel
+/api/me/broker-link-requests
+/api/me/discoverable-reporters
+/api/me/copy-routes

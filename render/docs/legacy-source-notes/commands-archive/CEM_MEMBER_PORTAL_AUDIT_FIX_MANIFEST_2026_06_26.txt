@@ -1,0 +1,29 @@
+CEM Member Portal Audit Fix - 2026-06-26
+
+Audited and patched uploaded Culture Relay zip.
+
+Key fixes:
+1. /member/copy now redirects to /member/copy-pro so old Copier Engine buttons cannot land on the stale Copy Hub page.
+2. Member portal navigation now shows Copier Engine directly.
+3. Home/marketplace/link-account references to Copy Hub now point to the CEM Culture Relay Engine.
+4. Rebuilt /member/copy-pro with TraderConnect-style flow:
+   - connect reporters
+   - choose Culture Lead / copy-from account
+   - choose Mirror Receiver / copy-to account
+   - WISDO Risk Dial
+   - default copy SL/TP off
+   - default copy pending orders off
+   - Discord signal card test path
+5. Added desk multi-account role controls from the Copier Engine page.
+6. Added owned/shared reporter support in the Copier Engine UI.
+7. Added account-share API endpoints for cross-desk reporter access.
+8. Added deleteAccountShare repository method.
+9. Kept YTD equity graph linked from Copier Engine and portal.
+10. Duplicated patches across server/src copies included in the zip.
+
+Post-deploy check:
+- /member/copy should redirect to /member/copy-pro
+- /member/copy-pro should show CEM Culture Relay Engine path
+- /api/me/account-shares should return JSON
+- /api/me/copy-routes should return JSON
+- /api/signal-health should show signal service status

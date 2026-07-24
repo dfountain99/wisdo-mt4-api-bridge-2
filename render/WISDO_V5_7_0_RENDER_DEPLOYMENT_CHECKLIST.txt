@@ -1,0 +1,22 @@
+WISDO v5.7.0 Render Deployment Checklist
+
+1. Deploy the latest GitHub main commit containing package version 5.7.0.
+2. Keep existing Resend and Twilio environment variables.
+3. Add a long random WISDO_LEAD_PORTAL_SECRET.
+4. Keep WISDO_LEAD_PORTAL_TTL_DAYS=30 unless another expiry is required.
+5. Keep WISDO_FUNNEL_SEQUENCE_STEP_MINUTES=0 in production.
+6. Confirm PUBLIC_BASE_URL is the live HTTPS domain.
+7. Confirm persistent storage remains mounted and WISDO_STORAGE_PATH points to it.
+8. Open /api/public/health and confirm version 5.7.0 plus:
+   personalLearningRoom=true
+   educationDripSequence=true
+   portableLeadAi=true
+   videoEngagementTracking=true
+9. Submit a test lead with marketing consent.
+10. Confirm the response redirects to /learn/<signed-token>.
+11. Confirm the immediate email includes the personal learning-room link.
+12. Confirm four future marketing_education messages appear in the notification outbox.
+13. Open the learning room and verify webinar, video, and WISDO AI sections.
+14. Ask WISDO AI a question, change pages, and confirm history persists.
+15. Use the unsubscribe link and confirm scheduled education messages become cancelled.
+16. Confirm /admin/growth-funnel shows engagement and sequence metrics.

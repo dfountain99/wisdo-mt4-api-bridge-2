@@ -1,0 +1,16 @@
+CultureCoin Account-Aware Copy Link V29
+
+Push commands:
+
+cd /d "C:\Users\jaque\Documents\Codex\2026-04-24\build-a-discord-bot-feature-for"
+
+git add index.js commands/mt4.js services/mt4SyncService.js services/mt4CommandService.js services/copyTradingService.js services/tradeSignalService.js storage/operatorDeskRepository.js server/apiServer.js src/server/apiServer.js src/services/mt4SyncService.js src/services/mt4CommandService.js src/services/copyTradingService.js src/services/tradeSignalService.js src/storage/operatorDeskRepository.js mql4/CultureCoin_MT4_Reporter.mq4 CultureCoin_MT4_Reporter.mq4 CULTURECOIN_ACCOUNT_AWARE_COPY_LINK_V29.md CULTURECOIN_ACCOUNT_AWARE_COPY_LINK_V29_PUSH.txt
+
+git commit -m "Add account aware copy linking and risk selection"
+git push origin main
+
+After push:
+1. Compile mql4/CultureCoin_MT4_Reporter.mq4 in MetaEditor.
+2. Create a unique pairing code for every MT4 terminal/account.
+3. Use /my-accounts in Discord to view all linked accounts.
+4. Use /set-active-account when you want a default account for Discord commands.

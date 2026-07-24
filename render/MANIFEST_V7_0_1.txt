@@ -1,0 +1,35 @@
+WISDO v7.0.1 Runtime Repair
+Release date: 2026-07-19
+
+Primary additions
+- utils/discordInteractionGuard.js
+- tests/v701-runtime-repair.test.js
+- WISDO_V7_0_1_RUNTIME_REPAIR_AUDIT.md
+- WISDO_V7_0_1_DEPLOYMENT_CHECKLIST.md
+- WISDO_V7_0_1_DISCORD_COMMAND_INVENTORY.txt
+- .env.example
+
+Primary repairs
+- commands/admin.js
+- commands/index.js
+- commands/mt4.js
+- commands/profile.js
+- commands/trading.js
+- index.js
+- render.yaml
+- scripts/registerCommands.js
+- server/apiServer.js
+- server/deadshotSite.js
+- server/majorUpgradeRoutes.js
+- server/presenceIdentityRoutes.js
+- services/culturePresenceService.js
+- services/operatorDeskService.js
+- services/tradeSignalService.js
+- package.json
+- package-lock.json
+
+Verification
+- npm run check: PASS
+- JavaScript build check: 103 files PASS
+- Automated tests: 83 PASS, 0 FAIL
+- Discord commands: 77 unique, 0 duplicates

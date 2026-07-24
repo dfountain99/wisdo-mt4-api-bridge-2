@@ -1,0 +1,2206 @@
+import crypto from 'node:crypto';
+import { getSessionUser, verifyHmacSha256, encryptCredential, sessionSecurityStatus, safeReturnPath } from './security.js';
+import { applyBrokerWebhookSnapshot, applyCtraderAuthorization, connectMetaApiAccount, consumeCtraderOAuthState, createBrokerWebhookConnection, createCtraderOAuthState, discoverCtraderAccounts, ensureBrokerApiState, exchangeCtraderAuthorizationCode, refreshMetaApiConnection, sanitizeBrokerApiConnection, verifyBrokerWebhookSecret } from '../services/brokerApiConnectionService.js';
+import { enqueueCoachNotifications, ensureWisdoCoachState, generateWisdoCoachMessage, listWisdoCoachMessages, setWisdoCoachPreferences } from '../services/wisdoAiCoachService.js';
+import { attachCloseTrackerCommand, buildCompoundTrackerReport, buildTrendAnalytics, commandForCloseMode, createCloseTracker, ensureCloseIntelligenceState, listCloseTrackers, setCompoundTrackerGoals } from '../services/tradeCloseIntelligence.js';
+import {
+  appendLaneTimelineEvent, buildCultureIntelligenceReport, calculateLaneDna, computeCultureLaneVault,
+  createCultureLane, createHarvestCycle, createLaneGenome, createTradePassport, ensureCultureLaneState,
+  evaluateLaneHarvest, finalizeTradePassport, laneAccessibleTo, resolveLaneSymbol, setHarvestPolicy,
+  setLaneSymbolPolicy, updateCultureLane, upsertBrokerSymbolInventory,
+} from '../services/cultureLaneOperatingSystemService.js';
+
+const PLATFORMS = ['mt4','mt5','ctrader','matchtrader','tradelocker','dxtrade','ninjatrader','tradovate','projectx','rithmic'];
+const RISK_TYPES = ['fixed_lot','multiplier','equity_ratio','balance_ratio'];
+const ACCOUNT_DESK_ROLES = ['private','lead','receiver','dual'];
+const ACCOUNT_SHARING_MODES = ['private','shared','community'];
+const BASE = { standard: 1000, premium: 1500, futures: 3000 };
+const CYCLE_MONTHS = { monthly: 1, quarterly: 3, semiannual: 5, annual: 10 };
+const CYCLE_LABEL = { monthly: 'Monthly', quarterly: 'Quarterly', semiannual: '6 months · 1 month free', annual: 'Annual · 2 months free' };
+const ADDON = { analyzer: 2999, dedicatedEnv: 3000, extraEnvAccount: 1000 };
+const SYMBOL_FIXES = { GBPJP: 'GBPJPY', USOUSD: 'USOIL', GOLD: 'XAUUSD', GOLDUSD: 'XAUUSD', NASDAQ: 'NAS100', USTEC: 'NAS100' };
+
+const FIRMS = [
+  { id:'firm_alpha', name:'Alpha Prop', type:'prop', max_drawdown_pct:10, daily_drawdown_pct:5, profit_split_pct:90, refund_policy:'Refund after first payout', min_trading_days:3, supported_platforms:['mt5','ctrader'], rating:4.7 },
+  { id:'firm_futures', name:'Futures Forge', type:'prop', max_drawdown_pct:6, daily_drawdown_pct:3, profit_split_pct:90, refund_policy:'Activation refunded at payout', min_trading_days:5, supported_platforms:['ninjatrader','tradovate','rithmic'], rating:4.6 },
+  { id:'broker_prime', name:'Prime Markets', type:'broker', max_drawdown_pct:null, daily_drawdown_pct:null, profit_split_pct:null, refund_policy:'N/A', min_trading_days:0, supported_platforms:['mt4','mt5','ctrader'], rating:4.5 },
+  { id:'firm_scale', name:'Scale Capital', type:'prop', max_drawdown_pct:12, daily_drawdown_pct:5, profit_split_pct:85, refund_policy:'Challenge fee refunded', min_trading_days:0, supported_platforms:['mt5','tradelocker'], rating:4.4 },
+];
+
+const BLOG_POSTS = [
+  { slug:'copy-trading-risk-engine', title:'How a copier risk engine should protect follower accounts', excerpt:'Fixed lots, ratios, equity protection, symbol mapping, and why closes must bypass entry filters.', date:'2026-07-10', body:'A reliable copier treats opening and closing as different safety problems. Entry rules can block new risk, but close instructions must remain deliverable so a follower is never trapped in a position. WISDO evaluates account health, route rules, trading hours, daily loss, and broker symbol mapping before an opening command is queued.' },
+  { slug:'multi-account-command-center', title:'Designing a multi-account command center for mobile', excerpt:'Account switching, account-specific actions, confirmation gates, and live relay health.', date:'2026-07-08', body:'A mobile control surface must always make the selected account visible. Every high-risk command should carry an account ID, require a confirmation phrase, and report delivery plus completion separately.' },
+  { slug:'df-sauce-interactive-education', title:'From passive videos to interactive DF Sauce training', excerpt:'Chart replay, campaign character, bot-brain explanations, and decision scoring.', date:'2026-07-05', body:'Interactive education lets a trader pause candle replay, identify the campaign character, choose buy, sell, wait, or close, then compare the answer with WISDO bot logic.' },
+];
+
+function nowIso(){ return new Date().toISOString(); }
+function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')){ const hash=crypto.pbkdf2Sync(String(password||''),salt,120000,32,'sha256').toString('hex'); return `${salt}:${hash}`; }
+function id(prefix){ return `${prefix}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`; }
+function esc(value=''){ return String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;'); }
+function num(value, fallback=0){ const n=Number(value); return Number.isFinite(n)?n:fallback; }
+function clamp(value,min,max){ return Math.max(min,Math.min(max,num(value,min))); }
+function moneyCents(value){ return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(num(value)/100); }
+function normalizeSymbol(value=''){ const raw=String(value).trim().toUpperCase().replace(/[^A-Z0-9._-]/g,''); const base=raw.replace(/[._-](PRO|RAW|ECN|M|MINI|CASH)$/,''); return SYMBOL_FIXES[base] || base; }
+function parseBool(value){ return value===true || ['true','on','1','yes'].includes(String(value||'').toLowerCase()); }
+function parseSymbols(value){ const list=Array.isArray(value)?value:String(value||'').split(/[;,\s]+/); return [...new Set(list.map(normalizeSymbol).filter(Boolean))]; }
+function normalizeMap(value){ if(!value) return {}; if(typeof value==='object'&&!Array.isArray(value)) return Object.fromEntries(Object.entries(value).map(([k,v])=>[normalizeSymbol(k),normalizeSymbol(v)]).filter(([k,v])=>k&&v)); try{return normalizeMap(JSON.parse(value));}catch{return {};}}
+function resolveFollowerSymbol(leaderSymbol, rule={}){ const leader=normalizeSymbol(leaderSymbol); const map=normalizeMap(rule.symbol_mapping||rule.symbolMapping); return normalizeSymbol(map[leader]||leader); }
+function currentUser(req){ const session=getSessionUser(req); if(session?.id) return session; if((process.env.NODE_ENV==='test'||parseBool(process.env.WISDO_ALLOW_TEST_IDENTITY)) && req.headers['x-wisdo-test-user']) return {id:String(req.headers['x-wisdo-test-user']),username:'Test Operator',roles:['admin']}; return null; }
+function wantsHtml(req){ return String(req.headers.accept||'').includes('text/html'); }
+function requireUser(req,res,next){ const user=currentUser(req); if(!user){ const returnTo=safeReturnPath(req.originalUrl||req.url,'/app/dashboard'); if(wantsHtml(req)) return res.redirect(`/login?returnTo=${encodeURIComponent(returnTo)}`); return res.status(401).json({ok:false,error:'Authentication required.'}); } req.wisdoUser=user; next(); }
+function isAdmin(user){ return Boolean(user?.admin || user?.role==='admin' || (user?.roles||[]).includes('admin') || String(process.env.OWNER_USER_ID||'')===String(user?.id||'')); }
+function requireAdmin(req,res,next){ if(!isAdmin(req.wisdoUser||currentUser(req))) return res.status(403).json({ok:false,error:'Admin role required.'}); next(); }
+
+function ensureMajorState(state={}){
+  state.profiles ||= {}; state.userRoles ||= {}; state.tradingAccounts ||= {}; state.accountShares ||= {}; state.copierRules ||= {}; state.trades ||= {}; state.subscriptions ||= {}; state.alerts ||= {}; state.firms ||= {}; state.passwordResetTokens ||= {}; state.marketCache ||= {}; state.pushSubscriptions ||= {}; state.aiThreads ||= {}; state.affiliates ||= {}; state.affiliateConversions ||= {}; state.auditLog ||= []; state.accountTelemetry ||= {}; state.liveTradeEventKeys ||= {}; state.accountHealthState ||= {}; state.relayDiagnostics ||= []; state.accountControlSettingsById ||= {}; state.deletedTradingAccounts ||= {}; state.compoundCloseTrackersById ||= {}; state.leaderCloseDetectionByTicket ||= {};
+  ensureCloseIntelligenceState(state);
+  ensureCultureLaneState(state);
+  ensureBrokerApiState(state);
+  ensureWisdoCoachState(state);
+  for(const firm of FIRMS) state.firms[firm.id] ||= firm;
+  return state;
+}
+const MUTATION_CONTROL = '__wisdoMutationControl';
+function mutationResult(value,{save=true}={}){ return {[MUTATION_CONTROL]:true,value,save}; }
+async function persistMutationWithinBudget(save,state,{durable=false,sections=null}={}){
+  const persistState=()=>sections&&typeof save.sections==='function'
+    ? save.sections(state,sections,{durable})
+    : durable&&typeof save.durable==='function'
+      ? save.durable(state)
+      : save(state,durable?{durable:true}:undefined);
+  if(durable){
+    const raw=Number(process.env.WISDO_DURABLE_MUTATION_TIMEOUT_MS||12000);
+    const timeoutMs=Math.max(1000,Math.min(60000,Number.isFinite(raw)?raw:12000));
+    const outcome=await settleWithin(Promise.resolve().then(persistState),timeoutMs);
+    if(outcome.status==='rejected')throw outcome.error;
+    if(outcome.status==='timeout'){
+      const error=new Error(`Culture Lane durable save timed out after ${timeoutMs}ms.`);
+      error.code='WISDO_CULTURE_LANE_DURABLE_TIMEOUT';
+      throw error;
+    }
+    return outcome.status;
+  }
+  const raw=Number(process.env.WISDO_MUTATION_SAVE_BUDGET_MS||500);
+  const budgetMs=Math.max(50,Math.min(5000,Number.isFinite(raw)?raw:500));
+  const outcome=await settleWithin(Promise.resolve().then(persistState),budgetMs);
+  if(outcome.status==='rejected')throw outcome.error;
+  // A timeout does not cancel persistence. The save promise keeps running, while the
+  // HTTP request is released so one slow database flush cannot freeze the workspace.
+  return outcome.status;
+}
+async function mutate(load,save,fn,{durable=false,sections=null}={}){
+  // Never place unrelated members, tabs, Reporter heartbeats, or background work
+  // behind one process-wide promise chain. Culture Lane configuration mutations are
+  // the exception: they wait for a confirmed PostgreSQL commit before returning.
+  const state=ensureMajorState(await load());
+  const result=await fn(state);
+  if(result?.[MUTATION_CONTROL]){
+    if(result.save) await persistMutationWithinBudget(save,state,{durable,sections});
+    return result.value;
+  }
+  await persistMutationWithinBudget(save,state,{durable,sections});
+  return result;
+}
+function mutateCultureLane(load,save,fn){return mutate(load,save,fn,{durable:true});}
+function settleWithin(promise, timeoutMs = 5000){
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve({ status: 'timeout' });
+    }, Math.max(50, Number(timeoutMs) || 5000));
+    Promise.resolve(promise).then((value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ status: 'fulfilled', value });
+    }).catch((error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ status: 'rejected', error });
+    });
+  });
+}
+function audit(state,userId,action,targetType,targetId,data={}){ state.auditLog.unshift({id:id('audit'),userId:String(userId||'system'),action,targetType,targetId:String(targetId||''),data,createdAt:nowIso()}); state.auditLog=state.auditLog.slice(0,2000); }
+function normalizeDeskRole(value, fallback = 'private'){
+  const role=String(value||'').trim().toLowerCase().replace(/[\s-]+/g,'_');
+  if(['lead','leader','master','culture_lead'].includes(role)) return 'lead';
+  if(['receiver','follower','slave','mirror_receiver'].includes(role)) return 'receiver';
+  if(['dual','both','lead_and_receiver','leader_and_follower'].includes(role)) return 'dual';
+  if(['private','private_desk','desk','none'].includes(role)) return 'private';
+  return ACCOUNT_DESK_ROLES.includes(fallback)?fallback:'private';
+}
+function normalizeSharingMode(value, fallback = 'private'){
+  const mode=String(value||'').trim().toLowerCase();
+  if(ACCOUNT_SHARING_MODES.includes(mode)) return mode;
+  return ACCOUNT_SHARING_MODES.includes(fallback)?fallback:'private';
+}
+function legacyRoleForDeskRole(deskRole){ return ['lead','dual'].includes(normalizeDeskRole(deskRole))?'master':'slave'; }
+function accountCanLead(account={}){ return ['lead','dual'].includes(normalizeDeskRole(account.desk_role||account.role, account.role==='master'?'lead':'private')); }
+function accountCanReceive(account={}){ return ['receiver','dual'].includes(normalizeDeskRole(account.desk_role||account.role, account.role==='slave'?'receiver':'private')); }
+function accountCanExecute(account={}){
+  const platform=String(account.platform||'mt4').toLowerCase();
+  const reporterReady=Boolean(account.reporter_connected)&&['mt4','mt5'].includes(platform)&&account.terminal_connected!==false&&account.expert_enabled!==false;
+  const providerExecutionReady=Boolean(account.api_execution_enabled)&&String(account.execution_transport||'')!=='monitor_only';
+  return accountCanReceive(account)&&(reporterReady||providerExecutionReady);
+}
+function decorateAccount(account={}){
+  const deskRole=normalizeDeskRole(account.desk_role||account.role, account.role==='master'?'lead':account.role==='slave'?'receiver':'private');
+  const sharingMode=normalizeSharingMode(account.sharing_mode, account.community_visible?'community':'private');
+  const decorated={...account,desk_role:deskRole,sharing_mode:sharingMode,role:legacyRoleForDeskRole(deskRole),community_visible:sharingMode==='community'};
+  const canLead=accountCanLead(decorated);
+  const canReceive=accountCanReceive(decorated);
+  const canExecute=accountCanExecute(decorated);
+  const isShared=sharingMode==='shared';
+  const isCommunity=sharingMode==='community';
+  const capabilityWarnings=[];
+  if(deskRole==='private') capabilityWarnings.push('Assign Culture Lead, Mirror Receiver, or Dual Role before using this account in a Culture Lane.');
+  if(canReceive&&!decorated.reporter_connected) capabilityWarnings.push('Receiver role is assigned, but a fresh Reporter heartbeat is required for live execution.');
+  if(canReceive&&decorated.terminal_connected===false) capabilityWarnings.push('MT4 terminal is offline.');
+  if(canReceive&&decorated.expert_enabled===false) capabilityWarnings.push('AutoTrading / Expert execution is disabled.');
+  return {...decorated,canLead,canReceive,canExecute,isShared,isCommunity,can_lead:canLead,can_receive:canReceive,can_execute:canExecute,is_shared:isShared,is_community:isCommunity,capabilities:{canLead,canReceive,canExecute,isShared,isCommunity},capabilityWarnings};
+}
+function ownAccount(state,userId,accountId){ const account=state.tradingAccounts[accountId]; return account && String(account.user_id)===String(userId); }
+function canAccessLeader(state,userId,accountId){ const account=state.tradingAccounts[accountId]; if(!account||!accountCanLead(account))return false; if(String(account.user_id)===String(userId)||normalizeSharingMode(account.sharing_mode,account.community_visible?'community':'private')==='community')return true; return Object.values(state.accountShares||{}).some(share=>share.account_id===accountId&&String(share.shared_with_user_id)===String(userId)&&share.status!=='revoked'&&['copy','control'].includes(String(share.permission||'copy'))); }
+function ownRule(state,userId,ruleId){ const rule=state.copierRules[ruleId]; return rule && String(rule.user_id)===String(userId); }
+
+async function recoverCompletedFollowerTicket(mt4CommandService,{routeId,leaderTicket,followerAccountId}={}){
+  if(!mt4CommandService?.load||!routeId||!leaderTicket||!followerAccountId)return null;
+  try{
+    const data=await mt4CommandService.load();
+    const stores=[data.commandQueue||[],...Object.values(data.commandsByUserId||{}),...Object.values(data.commandsByAccountId||{})];
+    const seen=new Set();
+    const matches=[];
+    for(const store of stores){
+      for(const command of store||[]){
+        if(!command?.id||seen.has(command.id))continue;
+        seen.add(command.id);
+        const payload=command.payload||{};
+        if(command.command!=='COPY_OPEN_TRADE')continue;
+        if(String(payload.routeId||'')!==String(routeId))continue;
+        if(String(payload.followerAccountId||command.accountId||'')!==String(followerAccountId))continue;
+        if(String(payload.sourceTicket||payload.leaderTicket||payload.copyKey||'')!==String(leaderTicket))continue;
+        const ticket=command.result?.ticket||command.result?.followerTicket||null;
+        if(ticket&&command.result?.success!==false)matches.push({ticket:String(ticket),completedAt:command.completedAt||command.createdAt||''});
+      }
+    }
+    matches.sort((a,b)=>new Date(b.completedAt||0)-new Date(a.completedAt||0));
+    return matches[0]?.ticket||null;
+  }catch{return null;}
+}
+
+function normalizeServer(value=''){ return String(value||'').trim().toLowerCase().replace(/\s+/g,'_'); }
+function stableAccountControlKey(userId, accountNumber, server=''){ return `${String(userId||'')}:${String(accountNumber||'').trim()}:${normalizeServer(server)}`; }
+function accountControlSettings(state, userId, accountId, accountNumber='', server=''){
+  const stableKey=stableAccountControlKey(userId,accountNumber,server);
+  return state.accountControlSettingsById[accountId]||state.accountControlSettingsById[stableKey]||null;
+}
+function persistAccountControlSettings(state, account={}){
+  const settings={account_id:String(account.id||''),user_id:String(account.user_id||''),account_number:String(account.account_number||''),server:String(account.server||''),desk_role:normalizeDeskRole(account.desk_role,account.role==='master'?'lead':account.role==='slave'?'receiver':'private'),sharing_mode:normalizeSharingMode(account.sharing_mode,account.community_visible?'community':'private'),community_name:String(account.community_name||account.nickname||'').trim(),updated_at:nowIso(),created_at:account.created_at||nowIso()};
+  if(settings.account_id) state.accountControlSettingsById[settings.account_id]=settings;
+  state.accountControlSettingsById[stableAccountControlKey(settings.user_id,settings.account_number,settings.server)]=settings;
+  delete state.deletedTradingAccounts[settings.account_id];
+  delete state.deletedTradingAccounts[stableAccountControlKey(settings.user_id,settings.account_number,settings.server)];
+  return settings;
+}
+function tombstoneAccount(state, account={}){
+  const tombstone={account_id:String(account.id||''),user_id:String(account.user_id||''),account_number:String(account.account_number||''),server:String(account.server||''),deleted_at:nowIso()};
+  if(tombstone.account_id) state.deletedTradingAccounts[tombstone.account_id]=tombstone;
+  state.deletedTradingAccounts[stableAccountControlKey(tombstone.user_id,tombstone.account_number,tombstone.server)]=tombstone;
+  delete state.accountControlSettingsById[tombstone.account_id];
+  delete state.accountControlSettingsById[stableAccountControlKey(tombstone.user_id,tombstone.account_number,tombstone.server)];
+}
+function accountSyncSignature(account={}){
+  const copy={...account}; delete copy.updated_at; return JSON.stringify(copy);
+}
+function reporterDeskRole(account={}, fallback='private'){
+  const role=String(account.accountRole||account.role||account.deskRole||'').toLowerCase();
+  if(['both','dual'].includes(role)) return 'dual';
+  if(['leader','master','lead'].includes(role)) return 'lead';
+  if(['follower','slave','receiver'].includes(role)) return 'receiver';
+  return normalizeDeskRole(fallback,'private');
+}
+function reporterRole(account={}, fallback='slave'){ return legacyRoleForDeskRole(reporterDeskRole(account,fallback==='master'?'lead':fallback==='slave'?'receiver':'private')); }
+function sanitizeAccount(account={}){ const safe=decorateAccount(account); delete safe.encrypted_credentials; return safe; }
+async function synchronizeReporterAccounts({userId,mt4SyncService,loadEcosystemState,saveEcosystemState}){
+  const repository=mt4SyncService?.repository;
+  if(!repository){
+    const state=ensureMajorState(await loadEcosystemState());
+    return {accounts:Object.values(state.tradingAccounts).filter(row=>String(row.user_id)===String(userId)).map(sanitizeAccount).sort((a,b)=>new Date(b.last_sync_at||b.updated_at||0)-new Date(a.last_sync_at||a.updated_at||0)),importedReporterAccounts:0,reporterSourceAvailable:false};
+  }
+  let reporterAccounts=[];
+  let reporterSourceAvailable=true;
+  try{ reporterAccounts=repository.getAccessibleMt4Accounts?await repository.getAccessibleMt4Accounts(userId):await repository.getMt4Accounts?.(userId)||[]; }catch{ reporterAccounts=[]; reporterSourceAvailable=false; }
+  let imported=0;
+  let changed=false;
+  const accounts=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+    const uid=String(userId);
+    for(const reporter of reporterAccounts){
+      const accountNumber=String(reporter.accountNumber||reporter.account_number||'').trim();
+      const server=String(reporter.server||reporter.brokerServer||'').trim();
+      if(!accountNumber) continue;
+      const canonicalId=String(reporter.accountId||repository.getMt4AccountId?.(accountNumber,server)||`${accountNumber}:${server||'server'}`);
+      const stableKey=stableAccountControlKey(uid,accountNumber,server);
+      if(state.deletedTradingAccounts[canonicalId]||state.deletedTradingAccounts[stableKey]) continue;
+      const existingEntry=Object.entries(state.tradingAccounts).find(([key,row])=>String(row.user_id)===uid&&String(row.account_number||'')===accountNumber&&normalizeServer(row.server)===normalizeServer(server));
+      const oldId=existingEntry?.[0];
+      const previous=state.tradingAccounts[canonicalId]||existingEntry?.[1]||{};
+      const settings=accountControlSettings(state,uid,canonicalId,accountNumber,server)||{};
+      if(oldId&&oldId!==canonicalId){
+        for(const rule of Object.values(state.copierRules)){ if(rule.master_id===oldId)rule.master_id=canonicalId; if(rule.slave_id===oldId)rule.slave_id=canonicalId; }
+        for(const trade of Object.values(state.trades)){ if(trade.account_id===oldId)trade.account_id=canonicalId; }
+        if(state.accountControlSettingsById[oldId]) state.accountControlSettingsById[canonicalId]=state.accountControlSettingsById[oldId];
+        delete state.accountControlSettingsById[oldId];
+        delete state.tradingAccounts[oldId];
+        changed=true;
+      }
+      const lastSync=reporter.lastSyncAt||reporter.latestSnapshot?.receivedAt||previous.last_sync_at||null;
+      const fresh=lastSync?Date.now()-new Date(lastSync).getTime()<5*60*1000:false;
+      const deskRole=normalizeDeskRole(settings.desk_role||previous.desk_role||reporterDeskRole(reporter,previous.role==='master'?'lead':previous.role==='slave'?'receiver':'private'),'private');
+      const sharingMode=normalizeSharingMode(settings.sharing_mode||previous.sharing_mode,previous.community_visible?'community':'private');
+      const snapshot=reporter.latestSnapshot?.snapshot||{};
+      const reporterConnectionState=String(snapshot.reporterConnectionState||previous.reporter_connection_state||(fresh?'Connected':'Offline'));
+      const candidate={...previous,id:canonicalId,user_id:uid,platform:String(reporter.platform||previous.platform||'mt4').toLowerCase(),broker:String(previous.broker||reporter.broker||server.split('-')[0]||'').trim(),account_number:accountNumber,server,nickname:String(previous.nickname||reporter.nickname||reporter.accountNickname||'').trim(),desk_role:deskRole,sharing_mode:sharingMode,role:legacyRoleForDeskRole(deskRole),community_visible:sharingMode==='community',community_name:String(settings.community_name||previous.community_name||previous.nickname||reporter.nickname||'').trim(),status:reporter.pendingReporter?'awaiting_reporter':fresh?'connected':'stale',balance:num(reporter.balance??snapshot.balance??previous.balance),equity:num(reporter.equity??snapshot.equity??previous.equity),floating_pl:num(reporter.floatingPL??snapshot.floatingPL??previous.floating_pl),open_trades:num(reporter.openTrades??snapshot.openTradeCount??previous.open_trades),currency:String(reporter.currency||snapshot.currency||previous.currency||'USD'),reporter_connected:Boolean(!reporter.pendingReporter&&fresh),reporter_connection_state:reporterConnectionState,reporter_network_failures:num(snapshot.reporterNetworkFailures,previous.reporter_network_failures||0),reporter_last_network_success_at:String(snapshot.reporterLastNetworkSuccessAt||previous.reporter_last_network_success_at||lastSync||''),terminal_connected:reporter.terminalConnected!==false,expert_enabled:reporter.expertEnabled!==false,last_sync_at:lastSync,reporter_account_id:canonicalId,reporter_owner_user_id:String(reporter.ownerUserId||reporter.discordUserId||uid),is_primary:Boolean(reporter.isPrimary),source:'mt4_reporter',created_at:previous.created_at||reporter.connectedAt||nowIso()};
+      const rowChanged=!previous.id||accountSyncSignature(previous)!==accountSyncSignature(candidate);
+      candidate.updated_at=rowChanged?nowIso():(previous.updated_at||nowIso());
+      if(!state.tradingAccounts[canonicalId]) imported++;
+      if(rowChanged){ state.tradingAccounts[canonicalId]=candidate; changed=true; }
+      else if(!state.tradingAccounts[canonicalId]) state.tradingAccounts[canonicalId]=candidate;
+      if(!settings.desk_role||settings.desk_role!==deskRole||settings.sharing_mode!==sharingMode||settings.community_name!==candidate.community_name){ persistAccountControlSettings(state,candidate); changed=true; }
+    }
+    const rows=Object.values(state.tradingAccounts).filter(row=>String(row.user_id)===uid).map(sanitizeAccount).sort((a,b)=>new Date(b.last_sync_at||b.updated_at||0)-new Date(a.last_sync_at||a.updated_at||0));
+    return mutationResult(rows,{save:changed});
+  });
+  return {accounts,importedReporterAccounts:imported,reporterSourceAvailable};
+}
+
+
+const accountListCacheByUser = new Map();
+const accountSyncFlightByUser = new Map();
+const coachGenerationFlightByLane = new Map();
+let cultureLaneRelayBootstrapStarted = false;
+function boundFlightMap(map,max){
+  const limit=Math.max(25,Math.min(2000,Number(max)||250));
+  while(map.size>=limit){const oldest=map.keys().next().value;if(oldest===undefined)break;map.delete(oldest);}
+}
+function accountRowsFromStoredState(state, userId) {
+  const uid = String(userId || '');
+  return Object.values(ensureMajorState(state).tradingAccounts || {})
+    .filter((row) => String(row.user_id) === uid)
+    .map(sanitizeAccount)
+    .sort((a, b) => new Date(b.last_sync_at || b.updated_at || 0) - new Date(a.last_sync_at || a.updated_at || 0));
+}
+function cacheAccountList(userId, result) {
+  const uid = String(userId || '');
+  const now = Date.now();
+  const maxEntries = Math.max(50, Math.min(2000, Number(process.env.WISDO_ACCOUNT_CACHE_MAX_USERS || 500)));
+  const staleMs = Math.max(30_000, Number(process.env.WISDO_ACCOUNT_CACHE_STALE_MS || 300_000));
+  for (const [key, row] of accountListCacheByUser) {
+    if (now - Number(row?.at || 0) > staleMs) accountListCacheByUser.delete(key);
+    if (accountListCacheByUser.size < maxEntries) break;
+  }
+  while (accountListCacheByUser.size >= maxEntries) {
+    const oldest = accountListCacheByUser.keys().next().value;
+    if (!oldest) break;
+    accountListCacheByUser.delete(oldest);
+  }
+  const normalized = {
+    accounts: Array.isArray(result?.accounts) ? result.accounts : [],
+    importedReporterAccounts: Number(result?.importedReporterAccounts || 0),
+    reporterSourceAvailable: result?.reporterSourceAvailable !== false,
+    source: result?.source || 'reporter-sync',
+    degraded: Boolean(result?.degraded),
+    syncDeferred: Boolean(result?.syncDeferred),
+  };
+  accountListCacheByUser.set(uid, { result: normalized, at: Date.now() });
+  return normalized;
+}
+async function listAccountsWithinBudget({ userId, mt4SyncService, loadEcosystemState, saveEcosystemState }) {
+  const uid = String(userId || '');
+  const cacheTtlMs = process.env.NODE_ENV === 'test' ? 0 : Math.max(500, Number(process.env.WISDO_ACCOUNTS_RESPONSE_CACHE_MS || 5000));
+  const budgetMs = Math.max(250, Number(process.env.WISDO_ACCOUNTS_API_BUDGET_MS || 1500));
+  const cached = accountListCacheByUser.get(uid);
+  if (cached && Date.now() - cached.at < cacheTtlMs) {
+    return { ...cached.result, cacheHit: true, responseMode: 'hot-cache' };
+  }
+
+  let flight = accountSyncFlightByUser.get(uid);
+  if (!flight) {
+    flight = synchronizeReporterAccounts({ userId: uid, mt4SyncService, loadEcosystemState, saveEcosystemState })
+      .then((result) => cacheAccountList(uid, { ...result, source: 'reporter-sync' }))
+      .finally(() => accountSyncFlightByUser.delete(uid));
+    boundFlightMap(accountSyncFlightByUser,process.env.WISDO_ACCOUNT_SYNC_FLIGHT_MAX||250);
+    accountSyncFlightByUser.set(uid, flight);
+  }
+
+  const synchronized = await settleWithin(flight, budgetMs);
+  if (synchronized.status === 'fulfilled') {
+    return { ...synchronized.value, cacheHit: false, responseMode: 'reporter-sync' };
+  }
+
+  const stored = await settleWithin(loadEcosystemState(), Math.min(1000, budgetMs));
+  if (stored.status === 'fulfilled') {
+    const fallback = cacheAccountList(uid, {
+      accounts: accountRowsFromStoredState(stored.value, uid),
+      importedReporterAccounts: 0,
+      reporterSourceAvailable: false,
+      source: 'postgres-hot-state',
+      degraded: true,
+      syncDeferred: true,
+    });
+    return { ...fallback, cacheHit: false, responseMode: 'fail-open' };
+  }
+
+  if (cached) {
+    return { ...cached.result, cacheHit: true, degraded: true, syncDeferred: true, responseMode: 'stale-cache' };
+  }
+
+  return {
+    accounts: [],
+    importedReporterAccounts: 0,
+    reporterSourceAvailable: false,
+    source: 'empty-recovery',
+    degraded: true,
+    syncDeferred: true,
+    cacheHit: false,
+    responseMode: 'empty-recovery',
+  };
+}
+
+function stableLiveTradeId(accountId, ticket) {
+  return `live_${crypto.createHash('sha256').update(`${String(accountId)}:${String(ticket)}`).digest('hex').slice(0, 20)}`;
+}
+
+function netTradePnl(trade = {}) {
+  return num(trade.profit, 0) + num(trade.swap, 0) + num(trade.commission, 0);
+}
+
+function appendMemberAlert(state, userId, alert = {}, eventKey = '') {
+  const uid = String(userId || '');
+  if (!uid) return null;
+  state.alerts[uid] ||= [];
+  if (eventKey && state.liveTradeEventKeys[eventKey]) return null;
+  const row = {
+    id: alert.id || id('alert'),
+    user_id: uid,
+    type: alert.type || 'system',
+    title: String(alert.title || 'WISDO update'),
+    body: String(alert.body || ''),
+    metadata: { ...(alert.metadata || {}), ...(eventKey ? { eventKey } : {}) },
+    read_at: null,
+    created_at: alert.created_at || nowIso(),
+  };
+  state.alerts[uid].unshift(row);
+  state.alerts[uid] = state.alerts[uid].slice(0, Math.max(50, Number(process.env.WISDO_MEMBER_ALERT_LIMIT || 250)));
+  if (eventKey) {
+    state.liveTradeEventKeys[eventKey] = row.created_at;
+    const entries = Object.entries(state.liveTradeEventKeys);
+    if (entries.length > 2500) state.liveTradeEventKeys = Object.fromEntries(entries.sort((a,b)=>new Date(b[1])-new Date(a[1])).slice(0, 2000));
+  }
+  return row;
+}
+
+function upsertSnapshotTrade(state, { userId, accountId, trade, closed = false, receivedAt = nowIso(), tradeLookup = null }) {
+  const ticket = String(trade?.ticket ?? '').trim();
+  if (!ticket || !accountId) return { trade: null, created: false, changedToClosed: false };
+  const deterministicId = stableLiveTradeId(accountId, ticket);
+  const existing = state.trades?.[deterministicId] || tradeLookup?.get(ticket) || null;
+  const tradeId = existing?.id || deterministicId;
+  const previousStatus = existing?.status || null;
+  const row = {
+    ...(existing || {}),
+    id: tradeId,
+    user_id: String(userId),
+    account_id: String(accountId),
+    copier_rule_id: existing?.copier_rule_id || null,
+    source_trade_id: existing?.source_trade_id || null,
+    external_ticket: ticket,
+    symbol: normalizeSymbol(trade.symbol || existing?.symbol || ''),
+    side: String(trade.type || existing?.side || 'buy').toLowerCase().includes('sell') ? 'sell' : 'buy',
+    lot_size: num(trade.lots, existing?.lot_size || 0.01),
+    open_price: num(trade.openPrice, existing?.open_price ?? null),
+    close_price: closed ? num(trade.closePrice, existing?.close_price ?? null) : existing?.close_price ?? null,
+    current_price: closed ? null : num(trade.currentPrice, existing?.current_price ?? null),
+    stop_loss: num(trade.stopLoss, existing?.stop_loss ?? null),
+    take_profit: num(trade.takeProfit, existing?.take_profit ?? null),
+    commission: num(trade.commission, existing?.commission || 0),
+    swap: num(trade.swap, existing?.swap || 0),
+    pnl: closed ? netTradePnl(trade) : num(trade.profit, existing?.pnl ?? 0) + num(trade.swap, 0) + num(trade.commission, 0),
+    status: closed ? 'closed' : 'open',
+    opened_at: trade.openTime || existing?.opened_at || receivedAt,
+    closed_at: closed ? (trade.closeTime || existing?.closed_at || receivedAt) : null,
+    copy_latency_ms: existing?.copy_latency_ms ?? null,
+    magic_number: trade.magicNumber ?? existing?.magic_number ?? null,
+    comment: String(trade.comment || existing?.comment || ''),
+    source: existing?.source || 'mt4_reporter_snapshot',
+    last_seen_at: receivedAt,
+    updated_at: receivedAt,
+  };
+  state.trades[tradeId] = row;
+  tradeLookup?.set(ticket, row);
+  return { trade: row, created: !existing, changedToClosed: closed && previousStatus !== 'closed' };
+}
+
+function buildAccountTradeLookup(state, accountId) {
+  const lookup = new Map();
+  for (const trade of Object.values(state.trades || {})) {
+    if (String(trade?.account_id || '') !== String(accountId)) continue;
+    const ticket = String(trade?.external_ticket || '').trim();
+    if (ticket) lookup.set(ticket, trade);
+  }
+  return lookup;
+}
+
+function pruneAccountTradeLedger(state, accountId) {
+  const limit = Math.max(100, Math.min(5000, Number(process.env.WISDO_PRODUCT_TRADES_PER_ACCOUNT_LIMIT || 1000)));
+  const rows = Object.values(state.trades || {}).filter((trade) => String(trade?.account_id || '') === String(accountId));
+  if (rows.length <= limit) return;
+  const open = rows.filter((trade) => ['open', 'closing', 'closed_pending_history'].includes(String(trade?.status || '')));
+  const closed = rows.filter((trade) => !open.includes(trade)).sort((a, b) =>
+    new Date(b?.closed_at || b?.updated_at || b?.opened_at || 0) - new Date(a?.closed_at || a?.updated_at || a?.opened_at || 0)
+  );
+  const keep = new Set([...open, ...closed.slice(0, Math.max(0, limit - open.length))].map((trade) => String(trade.id || '')));
+  for (const trade of rows) if (!keep.has(String(trade.id || ''))) delete state.trades[trade.id];
+}
+
+const REPORTER_PRODUCT_CORE_SECTIONS = [
+  'tradingAccounts',
+  'accountTelemetry',
+  'accountHealthState',
+  'relayDiagnostics',
+];
+const REPORTER_PRODUCT_FULL_SECTIONS = [
+  ...REPORTER_PRODUCT_CORE_SECTIONS,
+  'trades',
+  'alerts',
+  'liveTradeEventKeys',
+  'leaderCloseDetectionByTicket',
+];
+const REPORTER_PRODUCT_SECTIONS = REPORTER_PRODUCT_FULL_SECTIONS;
+
+export async function ingestReporterSnapshotToProductState({ connectionRecord, latestSnapshotRecord, signalSummary = {}, lowMemoryRelayMode = false, loadEcosystemState, saveEcosystemState }) {
+  if (!connectionRecord?.accountId || !latestSnapshotRecord?.snapshot) return { openUpserts: 0, closedUpserts: 0, alerts: 0 };
+  return mutate(loadEcosystemState, saveEcosystemState, (state) => {
+    const snapshot = latestSnapshotRecord.snapshot || {};
+    const userId = String(connectionRecord.discordUserId || latestSnapshotRecord.discordUserId || '');
+    const accountId = String(connectionRecord.accountId);
+    const receivedAt = latestSnapshotRecord.receivedAt || nowIso();
+    const account = state.tradingAccounts[accountId] || {};
+    state.tradingAccounts[accountId] = {
+      ...account,
+      id: accountId,
+      user_id: userId,
+      platform: account.platform || 'mt4',
+      broker: account.broker || String(connectionRecord.brokerServer || '').split('-')[0] || 'MT4',
+      account_number: String(connectionRecord.accountNumber || account.account_number || ''),
+      server: String(connectionRecord.brokerServer || account.server || ''),
+      nickname: account.nickname || connectionRecord.nickname || connectionRecord.accountNickname || `${connectionRecord.accountNumber || ''} ${connectionRecord.brokerServer || ''}`.trim(),
+      desk_role: account.desk_role || reporterDeskRole(connectionRecord, 'private'),
+      sharing_mode: account.sharing_mode || 'private',
+      role: account.role || reporterRole(connectionRecord, 'slave'),
+      status: snapshot.terminalConnected === false ? 'error' : 'connected',
+      balance: num(snapshot.balance, account.balance),
+      equity: num(snapshot.equity, account.equity),
+      floating_pl: num(snapshot.floatingPL, account.floating_pl),
+      daily_closed_pl: num(snapshot.dailyClosedPL, account.daily_closed_pl),
+      open_trades: num(snapshot.openTradeCount, account.open_trades),
+      reporter_connected: true,
+      terminal_connected: snapshot.terminalConnected !== false,
+      expert_enabled: snapshot.expertEnabled !== false,
+      last_sync_at: receivedAt,
+      updated_at: receivedAt,
+      created_at: account.created_at || receivedAt,
+      source: 'mt4_reporter',
+    };
+
+    state.accountTelemetry[accountId] ||= [];
+    const telemetryKey = `${receivedAt}:${snapshot.balance}:${snapshot.equity}:${snapshot.openTradeCount}`;
+    if (!state.accountTelemetry[accountId].some((point) => point.key === telemetryKey)) {
+      state.accountTelemetry[accountId].push({
+        key: telemetryKey,
+        receivedAt,
+        balance: num(snapshot.balance),
+        equity: num(snapshot.equity),
+        floatingPL: num(snapshot.floatingPL),
+        dailyClosedPL: num(snapshot.dailyClosedPL),
+        margin: num(snapshot.margin),
+        freeMargin: num(snapshot.freeMargin),
+        marginLevel: num(snapshot.marginLevel),
+        openTradeCount: num(snapshot.openTradeCount),
+      });
+      const telemetryLimit = Math.max(50, Math.min(2500, Number(process.env.WISDO_ACCOUNT_TELEMETRY_LIMIT || 500)));
+      const telemetry = state.accountTelemetry[accountId];
+      if (telemetry.length > 1 && new Date(telemetry.at(-2)?.receivedAt || 0) > new Date(telemetry.at(-1)?.receivedAt || 0)) {
+        telemetry.sort((a,b)=>new Date(a.receivedAt)-new Date(b.receivedAt));
+      }
+      state.accountTelemetry[accountId] = telemetry.slice(-telemetryLimit);
+    }
+
+    let openUpserts = 0;
+    let closedUpserts = 0;
+    let alerts = 0;
+    const newlyClosedLeaderTrades = [];
+
+    if (lowMemoryRelayMode) {
+      const health = {
+        terminalConnected: snapshot.terminalConnected !== false,
+        expertEnabled: snapshot.expertEnabled !== false,
+        reporterVersion: snapshot.reporterVersion || snapshot.eaVersion || '',
+      };
+      state.accountHealthState[accountId] = { ...health, updatedAt: receivedAt };
+      if (num(signalSummary.opened) > 0 || num(signalSummary.closed) > 0 || signalSummary.skipped) {
+        state.relayDiagnostics.unshift({
+          id: id('relaydiag'), userId, accountId, opened: num(signalSummary.opened), closed: num(signalSummary.closed),
+          skipped: Boolean(signalSummary.skipped), reason: signalSummary.reason || null, mode: 'low_memory_relay', createdAt: receivedAt,
+        });
+        state.relayDiagnostics = state.relayDiagnostics.slice(0, Math.max(50, Number(process.env.WISDO_RELAY_DIAGNOSTIC_LIMIT || 250)));
+      }
+      return {
+        openUpserts: 0,
+        closedUpserts: 0,
+        alerts: 0,
+        accountId,
+        userId,
+        newlyClosedLeaderTrades,
+        lightweight: true,
+      };
+    }
+    const tradeLookup = buildAccountTradeLookup(state, accountId);
+    const previousLeaderOpenTrades = [...tradeLookup.values()].filter((trade) =>
+      String(trade.account_id || '') === accountId &&
+      !trade.copier_rule_id &&
+      ['open', 'closing'].includes(String(trade.status || '')) &&
+      String(trade.external_ticket || '').trim()
+    );
+    const snapshotOpenTickets = new Set((Array.isArray(snapshot.openTrades) ? snapshot.openTrades : []).map((trade) => String(trade?.ticket ?? '').trim()).filter(Boolean));
+    const snapshotClosedTickets = new Set((Array.isArray(snapshot.closedTradesToday) ? snapshot.closedTradesToday : []).map((trade) => String(trade?.ticket ?? '').trim()).filter(Boolean));
+    for (const trade of Array.isArray(snapshot.openTrades) ? snapshot.openTrades : []) {
+      const result = upsertSnapshotTrade(state, { userId, accountId, trade, closed: false, receivedAt, tradeLookup });
+      if (!result.trade) continue;
+      openUpserts += 1;
+      if (result.created) {
+        const eventKey = `trade-open:${accountId}:${result.trade.external_ticket}:${result.trade.opened_at}`;
+        if (appendMemberAlert(state, userId, {
+          type: result.trade.copier_rule_id ? 'trade_copied' : 'trade_opened',
+          title: result.trade.copier_rule_id ? 'Mirrored position confirmed' : 'Trade detected by Reporter',
+          body: `${result.trade.side.toUpperCase()} ${result.trade.symbol} · ${result.trade.lot_size} lots · ticket ${result.trade.external_ticket}`,
+          metadata: { accountId, tradeId: result.trade.id, ticket: result.trade.external_ticket, symbol: result.trade.symbol },
+        }, eventKey)) alerts += 1;
+      }
+    }
+    for (const trade of Array.isArray(snapshot.closedTradesToday) ? snapshot.closedTradesToday : []) {
+      const result = upsertSnapshotTrade(state, { userId, accountId, trade, closed: true, receivedAt, tradeLookup });
+      if (!result.trade) continue;
+      closedUpserts += 1;
+      if (result.changedToClosed) {
+        if (!result.trade.copier_rule_id) {
+          newlyClosedLeaderTrades.push({
+            tradeId: result.trade.id,
+            accountId,
+            sourceTicket: String(result.trade.external_ticket || result.trade.id || ''),
+            symbol: result.trade.symbol,
+            side: result.trade.side,
+            closedAt: result.trade.closed_at || receivedAt,
+          });
+        }
+        const eventKey = `trade-close:${accountId}:${result.trade.external_ticket}:${result.trade.closed_at}`;
+        if (appendMemberAlert(state, userId, {
+          type: 'trade_closed',
+          title: 'Trade close confirmed',
+          body: `${result.trade.symbol} ticket ${result.trade.external_ticket} closed · net P/L ${result.trade.pnl.toFixed(2)}`,
+          metadata: { accountId, tradeId: result.trade.id, ticket: result.trade.external_ticket, symbol: result.trade.symbol, pnl: result.trade.pnl },
+        }, eventKey)) alerts += 1;
+      }
+    }
+
+    // Reporter snapshots are complete account snapshots. If an open leader ticket disappears
+    // and is not already present in today's closed history, treat that disappearance as close
+    // authority immediately. The deterministic command ID prevents duplication when MT4 history
+    // reports the same close on the next heartbeat.
+    const reportedOpenCount = Number(snapshot.openTradeCount);
+    const completeOpenSnapshot = Array.isArray(snapshot.openTrades) && (!Number.isFinite(reportedOpenCount) || reportedOpenCount === snapshotOpenTickets.size);
+    if (completeOpenSnapshot) {
+      for (const trade of previousLeaderOpenTrades) {
+        const sourceTicket = String(trade.external_ticket || '').trim();
+        if (!sourceTicket || snapshotOpenTickets.has(sourceTicket) || snapshotClosedTickets.has(sourceTicket)) continue;
+        const detectionKey = `${accountId}:${sourceTicket}`;
+        if (state.leaderCloseDetectionByTicket[detectionKey]) continue;
+        state.leaderCloseDetectionByTicket[detectionKey] = { accountId, sourceTicket, detectedAt: receivedAt, source: 'complete_open_snapshot_absence' };
+        trade.status = 'closed_pending_history';
+        trade.close_detected_at = receivedAt;
+        trade.close_detection_source = 'complete_open_snapshot_absence';
+        trade.updated_at = receivedAt;
+        newlyClosedLeaderTrades.push({
+          tradeId: trade.id,
+          accountId,
+          sourceTicket,
+          symbol: trade.symbol,
+          side: trade.side,
+          closedAt: receivedAt,
+          detectionSource: 'complete_open_snapshot_absence',
+        });
+      }
+    }
+
+    const health = {
+      terminalConnected: snapshot.terminalConnected !== false,
+      expertEnabled: snapshot.expertEnabled !== false,
+      reporterVersion: snapshot.reporterVersion || snapshot.eaVersion || '',
+    };
+    const previousHealth = state.accountHealthState[accountId] || null;
+    state.accountHealthState[accountId] = { ...health, updatedAt: receivedAt };
+    if (!previousHealth) {
+      if (appendMemberAlert(state, userId, {
+        type: 'system',
+        title: 'Reporter data pipeline online',
+        body: `${state.tradingAccounts[accountId].nickname || accountId} is feeding Trades, Insight Engine, Alerts, and Copier diagnostics.`,
+        metadata: { accountId, health },
+      }, `reporter-online:${accountId}`)) alerts += 1;
+    } else if (previousHealth.terminalConnected !== health.terminalConnected || previousHealth.expertEnabled !== health.expertEnabled) {
+      const healthy = health.terminalConnected && health.expertEnabled;
+      if (appendMemberAlert(state, userId, {
+        type: healthy ? 'system' : 'drawdown',
+        title: healthy ? 'Execution authority restored' : 'Execution authority needs attention',
+        body: healthy ? 'MT4 terminal and AutoTrading are reporting ready.' : `Terminal ${health.terminalConnected ? 'online' : 'offline'} · AutoTrading ${health.expertEnabled ? 'on' : 'off'}.`,
+        metadata: { accountId, health },
+      }, `health-change:${accountId}:${health.terminalConnected}:${health.expertEnabled}:${receivedAt}`)) alerts += 1;
+    }
+
+    if (num(signalSummary.opened) > 0 || num(signalSummary.closed) > 0 || signalSummary.skipped) {
+      state.relayDiagnostics.unshift({
+        id: id('relaydiag'), userId, accountId, opened: num(signalSummary.opened), closed: num(signalSummary.closed), skipped: Boolean(signalSummary.skipped), reason: signalSummary.reason || null, createdAt: receivedAt,
+      });
+      state.relayDiagnostics = state.relayDiagnostics.slice(0, Math.max(100, Number(process.env.WISDO_RELAY_DIAGNOSTIC_LIMIT || 500)));
+    }
+    pruneAccountTradeLedger(state, accountId);
+    return { openUpserts, closedUpserts, alerts, accountId, userId, newlyClosedLeaderTrades };
+  }, { sections: lowMemoryRelayMode ? REPORTER_PRODUCT_CORE_SECTIONS : REPORTER_PRODUCT_FULL_SECTIONS });
+}
+
+async function synchronizeLiveTradeLedger({ userId, mt4SyncService, loadEcosystemState, saveEcosystemState }) {
+  const repository = mt4SyncService?.repository;
+  if (!repository?.getAccessibleMt4Accounts) return { accounts: 0, snapshots: 0 };
+  let accounts = [];
+  try { accounts = await repository.getAccessibleMt4Accounts(userId); } catch { return { accounts: 0, snapshots: 0 }; }
+  let snapshots = 0;
+  for (const account of accounts.filter((row) => String(row.ownerUserId || row.discordUserId || userId) === String(userId))) {
+    const latestSnapshotRecord = account.latestSnapshot;
+    if (!latestSnapshotRecord?.snapshot) continue;
+    await ingestReporterSnapshotToProductState({
+      connectionRecord: { ...account, discordUserId: String(account.ownerUserId || account.discordUserId || userId), accountId: account.accountId, accountNumber: account.accountNumber, brokerServer: account.server || account.brokerServer },
+      latestSnapshotRecord,
+      signalSummary: {},
+      loadEcosystemState,
+      saveEcosystemState,
+    });
+    snapshots += 1;
+  }
+  return { accounts: accounts.length, snapshots };
+}
+
+const liveLedgerSyncFlightByUser = new Map();
+function scheduleLiveTradeLedgerSync(options) {
+  const uid = String(options?.userId || '');
+  if (!uid) return Promise.resolve({ accounts: 0, snapshots: 0, skipped: true });
+  const existing = liveLedgerSyncFlightByUser.get(uid);
+  if (existing) return existing;
+  const flight = synchronizeLiveTradeLedger(options)
+    .catch((error) => ({ accounts: 0, snapshots: 0, error: error.message }))
+    .finally(() => liveLedgerSyncFlightByUser.delete(uid));
+  boundFlightMap(liveLedgerSyncFlightByUser,process.env.WISDO_LEDGER_SYNC_FLIGHT_MAX||250);
+  liveLedgerSyncFlightByUser.set(uid, flight);
+  return flight;
+}
+async function liveLedgerSyncWithinBudget(options, timeoutMs = 350) {
+  const settled = await settleWithin(scheduleLiveTradeLedgerSync(options), Math.max(50, Number(timeoutMs) || 350));
+  if (settled.status === 'fulfilled') return { ...settled.value, deferred: false };
+  return { accounts: 0, snapshots: 0, deferred: true, status: settled.status };
+}
+
+function relayRiskFromRule(rule = {}) {
+  const mode = rule.risk_type || 'fixed_lot';
+  return {
+    enabled: Boolean(rule.is_active),
+    mode,
+    fixedLot: mode === 'fixed_lot' ? num(rule.risk_value, 0.01) : num(rule.min_lot, 0.01),
+    targetFixedLot: mode === 'fixed_lot' ? num(rule.risk_value, 0.01) : num(rule.min_lot, 0.01),
+    multiplier: mode === 'multiplier' || mode === 'equity_ratio' ? num(rule.risk_value, 1) : 1,
+    maxLot: num(rule.max_lot, 100),
+    maxOpenTrades: num(rule.max_open_trades, 5),
+    allowedSymbols: Array.isArray(rule.allowed_symbols) ? rule.allowed_symbols : [],
+    blockedSymbols: Array.isArray(rule.blocked_symbols) ? rule.blocked_symbols : [],
+    allowOnlyHighlighted: Boolean(rule.allow_only_highlighted),
+    copyBuys: true,
+    copySells: true,
+    copySLTP: rule.copy_sl_tp !== false,
+    copyPendingOrders: Boolean(rule.copy_pending_orders),
+    reverseCopy: Boolean(rule.reverse_signals),
+    copierPaused: !rule.is_active,
+    equityFloor: 0,
+    maxDailyLossPercent: 0,
+    maxDrawdownPercent: num(rule.equity_protection_pct, 0),
+    symbolMapping: rule.symbol_mapping || {},
+  };
+}
+
+function relayConnectionMatch(connection = {}, account = {}, fallbackId = '') {
+  const wantedId = String(account?.reporter_account_id || account?.id || fallbackId || '');
+  if (wantedId && String(connection.accountId || '') === wantedId) return true;
+  const wantedNumber = String(account?.account_number || account?.accountNumber || '').trim();
+  const liveNumber = String(connection.accountNumber || connection.account_number || '').trim();
+  if (!wantedNumber || wantedNumber !== liveNumber) return false;
+  const wantedServer = normalizeServer(account?.server || account?.brokerServer || '');
+  const liveServer = normalizeServer(connection.brokerServer || connection.server || '');
+  return !wantedServer || !liveServer || wantedServer === liveServer;
+}
+
+function resolveLiveRelayConnection(liveState = {}, account = {}, fallbackId = '') {
+  const connections = Object.values(liveState?.connectionsByAccountId || {});
+  const wantedId = String(account?.reporter_account_id || account?.id || fallbackId || '');
+  const exact = wantedId ? liveState?.connectionsByAccountId?.[wantedId] : null;
+  if (exact) return { ...exact, accountId: String(exact.accountId || wantedId) };
+  const match = connections.find((connection) => relayConnectionMatch(connection, account, fallbackId));
+  return match ? { ...match, accountId: String(match.accountId || fallbackId || '') } : null;
+}
+
+async function syncCopierRuleToRelay(mt4SyncService, rule, accountRegistry = {}) {
+  const repository = mt4SyncService?.repository;
+  if (!rule) throw new Error('Relay registration requires a copier rule.');
+  if (!repository?.upsertCopyRoute) throw new Error('Live relay repository is unavailable.');
+  const productLeader = accountRegistry?.[rule.master_id] || { id: rule.master_id, account_number: rule.master_account_number, server: rule.master_server, reporter_account_id: rule.master_relay_account_id };
+  const productFollower = accountRegistry?.[rule.slave_id] || { id: rule.slave_id, account_number: rule.slave_account_number, server: rule.slave_server, reporter_account_id: rule.slave_relay_account_id };
+  let liveState = null;
+  try { liveState = repository.getMt4State ? await repository.getMt4State() : null; } catch { liveState = null; }
+  const hasLiveConnectionRegistry = Boolean(liveState && Object.keys(liveState.connectionsByAccountId || {}).length);
+  const liveLeader = hasLiveConnectionRegistry ? resolveLiveRelayConnection(liveState, productLeader, rule.master_id) : null;
+  const liveFollower = hasLiveConnectionRegistry ? resolveLiveRelayConnection(liveState, productFollower, rule.slave_id) : null;
+  if (hasLiveConnectionRegistry && !liveLeader) throw new Error(`Culture Lead Reporter is not registered in the live relay repository (${productLeader.account_number || rule.master_id}).`);
+  if (hasLiveConnectionRegistry && !liveFollower) throw new Error(`Mirror Receiver Reporter is not registered in the live relay repository (${productFollower.account_number || rule.slave_id}).`);
+  const leaderAccountId = String(liveLeader?.accountId || productLeader.reporter_account_id || rule.master_relay_account_id || rule.master_id);
+  const followerAccountId = String(liveFollower?.accountId || productFollower.reporter_account_id || rule.slave_relay_account_id || rule.slave_id);
+  const authorizedOwnerUserIds = [...new Set([
+    rule.user_id,
+    liveLeader?.discordUserId,
+    liveLeader?.ownerUserId,
+    liveFollower?.discordUserId,
+    liveFollower?.ownerUserId,
+    productLeader?.reporter_owner_user_id,
+    productFollower?.reporter_owner_user_id,
+  ].map((value) => String(value || '').trim()).filter(Boolean))];
+  const route = await repository.upsertCopyRoute(rule.user_id, {
+    routeId: rule.id,
+    leaderAccountId,
+    followerAccountId,
+    productLeaderAccountId: String(rule.master_id),
+    productFollowerAccountId: String(rule.slave_id),
+    authorizedOwnerUserIds,
+    status: rule.is_active ? 'active' : 'paused',
+    risk: relayRiskFromRule(rule),
+  });
+  if (!route) throw new Error('Live relay repository rejected the route. Reconnect both Reporters, verify account ownership, then use Repair Live Relay.');
+  return route;
+}
+
+async function synchronizeCopierRulesToRelay({ userId, mt4SyncService, loadEcosystemState, ruleIds = null }) {
+  const state = ensureMajorState(await loadEcosystemState());
+  const selected = ruleIds ? new Set(ruleIds.map(String)) : null;
+  const rules = Object.values(state.copierRules).filter((rule) => String(rule.user_id) === String(userId) && (!selected || selected.has(String(rule.id))));
+  const results = [];
+  for (const rule of rules) {
+    try { results.push({ ruleId: rule.id, status: 'registered', route: await syncCopierRuleToRelay(mt4SyncService, rule, state.tradingAccounts) }); }
+    catch (error) { results.push({ ruleId: rule.id, status: 'failed', error: error.message }); }
+  }
+  return results;
+}
+
+
+function leaderSymbolHistoryFromState(state, leaderAccountId) {
+  const stats = {};
+  for (const trade of Object.values(state.trades || {})) {
+    if (String(trade?.account_id || '') !== String(leaderAccountId || '') || !trade?.symbol) continue;
+    const symbol = normalizeSymbol(trade.symbol);
+    if (!symbol) continue;
+    const row = stats[symbol] || { symbol, count: 0, lastTradedAt: null, openCount: 0, closedCount: 0 };
+    row.count += 1;
+    if (String(trade.status || '').toLowerCase() === 'open') row.openCount += 1;
+    else row.closedCount += 1;
+    const stamp = trade.opened_at || trade.updated_at || trade.closed_at || null;
+    if (stamp && (!row.lastTradedAt || new Date(stamp) > new Date(row.lastTradedAt))) row.lastTradedAt = stamp;
+    stats[symbol] = row;
+  }
+  return Object.values(stats).sort((a, b) => b.count - a.count || new Date(b.lastTradedAt || 0) - new Date(a.lastTradedAt || 0));
+}
+
+function buildCopierRuleRecord(state, userId, master, follower, input = {}, { laneId = '', existing = null } = {}) {
+  const risk = RISK_TYPES.includes(input.risk_type) ? input.risk_type : (existing?.risk_type || 'multiplier');
+  const allowedSymbols = parseSymbols(input.allowed_symbols ?? existing?.allowed_symbols ?? []);
+  const rule = {
+    ...(existing || {}),
+    id: existing?.id || id('rule'),
+    user_id: String(userId),
+    master_id: String(master.id),
+    slave_id: String(follower.id),
+    master_relay_account_id: String(master.reporter_account_id || master.id),
+    slave_relay_account_id: String(follower.reporter_account_id || follower.id),
+    master_account_number: String(master.account_number || ''),
+    slave_account_number: String(follower.account_number || ''),
+    master_server: String(master.server || ''),
+    slave_server: String(follower.server || ''),
+    master_reporter_owner_user_id: String(master.reporter_owner_user_id || ''),
+    slave_reporter_owner_user_id: String(follower.reporter_owner_user_id || ''),
+    risk_type: risk,
+    risk_value: num(input.risk_value, existing?.risk_value ?? 1),
+    min_lot: num(input.min_lot, existing?.min_lot ?? .01),
+    max_lot: num(input.max_lot, existing?.max_lot ?? 100),
+    equity_protection_pct: input.equity_protection_pct === '' ? null : num(input.equity_protection_pct, existing?.equity_protection_pct ?? null),
+    max_daily_loss: input.max_daily_loss === '' ? null : num(input.max_daily_loss, existing?.max_daily_loss ?? null),
+    max_open_trades: input.max_open_trades === '' ? null : num(input.max_open_trades, existing?.max_open_trades ?? null),
+    max_spread_points: input.max_spread_points === '' ? null : num(input.max_spread_points, existing?.max_spread_points ?? null),
+    max_slippage_points: input.max_slippage_points === '' ? null : num(input.max_slippage_points, existing?.max_slippage_points ?? null),
+    allowed_symbols: allowedSymbols,
+    blocked_symbols: parseSymbols(input.blocked_symbols ?? existing?.blocked_symbols ?? []),
+    allow_only_highlighted: input.allow_only_highlighted === undefined ? Boolean(existing?.allow_only_highlighted || allowedSymbols.length) : parseBool(input.allow_only_highlighted),
+    symbol_mapping: normalizeMap(input.symbol_mapping ?? existing?.symbol_mapping ?? {}),
+    trading_hours_start: input.trading_hours_start || existing?.trading_hours_start || null,
+    trading_hours_end: input.trading_hours_end || existing?.trading_hours_end || null,
+    is_active: input.is_active === undefined ? (existing?.is_active ?? true) : parseBool(input.is_active),
+    reverse_signals: input.reverse_signals === undefined ? Boolean(existing?.reverse_signals) : parseBool(input.reverse_signals),
+    copy_sl_tp: input.copy_sl_tp === undefined ? (existing?.copy_sl_tp ?? true) : parseBool(input.copy_sl_tp),
+    copy_pending_orders: input.copy_pending_orders === undefined ? Boolean(existing?.copy_pending_orders) : parseBool(input.copy_pending_orders),
+    culture_lane_id: laneId || existing?.culture_lane_id || null,
+    created_at: existing?.created_at || nowIso(),
+    updated_at: nowIso(),
+  };
+  state.copierRules[rule.id] = rule;
+  return rule;
+}
+
+async function queueLaneSweep({ mt4CommandService, lane, userId, reason = 'culture_lane_close', cycleId = '', force = false }) {
+  const accountIds = [...new Set((lane.accountIds || [lane.leaderAccountId, ...(lane.followerAccountIds || [])]).map(String).filter(Boolean))];
+  const startedAt = Date.now();
+  const results = await Promise.allSettled(accountIds.map((accountId) => mt4CommandService.queueCommandForAccount(userId, accountId, 'CLOSE_ALL_TRADES', {
+    accountId,
+    confirmation: 'confirmed',
+    immediate: true,
+    priority: 10000,
+    ttlMinutes: 2,
+    commandId: `${reason}-${cycleId || lane.laneId}-${accountId}`,
+    fanoutMode: 'parallel_lane_atomic_sweep',
+    requestedFrom: reason,
+    laneId: lane.laneId,
+    harvestCycleId: cycleId || undefined,
+    force: Boolean(force),
+  })));
+  const commands = [];
+  const failures = [];
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') commands.push({ accountId: accountIds[index], commandId: result.value.id, command: result.value });
+    else failures.push({ accountId: accountIds[index], error: String(result.reason?.message || result.reason || 'Queue failed') });
+  });
+  return { accountIds, commands, failures, fanoutMs: Date.now() - startedAt };
+}
+
+async function queueFollowerClosesFromLedger({ closedTrades = [], mt4CommandService, loadEcosystemState, saveEcosystemState, logger }) {
+  if (!closedTrades.length || !mt4CommandService?.queueCommandForAccount) return { queued: [], failures: [] };
+  const state = ensureMajorState(await loadEcosystemState());
+  const tasks = [];
+  for (const closed of closedTrades) {
+    const masterTrade = state.trades?.[closed.tradeId] || Object.values(state.trades || {}).find((trade) =>
+      !trade?.copier_rule_id && String(trade.account_id || '') === String(closed.accountId || '') && String(trade.external_ticket || trade.id || '') === String(closed.sourceTicket || '')
+    );
+    const sourceTicket = String(closed.sourceTicket || masterTrade?.external_ticket || masterTrade?.id || '');
+    if (!sourceTicket) continue;
+    const rules = Object.values(state.copierRules || {}).filter((rule) => String(rule.master_id || '') === String(closed.accountId || masterTrade?.account_id || '')); // Closing authority bypasses paused entry routing.
+    for (const rule of rules) {
+      const copied = Object.values(state.trades || {}).find((trade) =>
+        String(trade.copier_rule_id || '') === String(rule.id) &&
+        String(trade.account_id || '') === String(rule.slave_id) &&
+        (String(trade.source_trade_id || '') === String(masterTrade?.id || '') || String(trade.source_ticket || '') === sourceTicket)
+      );
+      if (copied?.status === 'closed') continue;
+      if (copied?.status === 'closing' && copied?.close_command_id) continue;
+      tasks.push({
+        rule,
+        copiedTradeId: copied?.id || null,
+        ownerUserId: String(rule.user_id),
+        followerAccountId: String(rule.slave_id),
+        leaderAccountId: String(rule.master_id),
+        leaderTicket: sourceTicket,
+        followerTicket: copied?.external_ticket ? String(copied.external_ticket) : '',
+        leaderSymbol: normalizeSymbol(masterTrade?.symbol || closed.symbol || ''),
+        followerSymbol: normalizeSymbol(copied?.symbol || resolveFollowerSymbol(masterTrade?.symbol || closed.symbol || '', rule)),
+        side: masterTrade?.side || closed.side || '',
+        laneId: rule.culture_lane_id || `lane_${rule.id}`,
+      });
+    }
+  }
+  const results = await Promise.allSettled(tasks.map((task) => mt4CommandService.queueCommandForAccount(task.ownerUserId, task.followerAccountId, 'COPY_CLOSE_TRADE', {
+    accountId: task.followerAccountId,
+    followerAccountId: task.followerAccountId,
+    leaderAccountId: task.leaderAccountId,
+    routeId: task.rule.id,
+    laneId: task.laneId,
+    sourceTicket: task.leaderTicket,
+    leaderTicket: task.leaderTicket,
+    masterTicket: task.leaderTicket,
+    followerTicket: task.followerTicket || undefined,
+    leaderSymbol: task.leaderSymbol,
+    masterSymbol: task.leaderSymbol,
+    followerSymbol: task.followerSymbol,
+    symbol: task.followerSymbol,
+    side: task.side,
+    copyKey: `${task.rule.id}:${task.leaderTicket}`,
+    commandId: `copy-close-${task.rule.id}-${task.leaderTicket}`,
+    confirmation: 'confirmed',
+    closeAuthority: true,
+    immediate: true,
+    priority: 10000,
+    ttlMinutes: 2,
+    requestedFrom: 'reporter_leader_close_failsafe',
+  })));
+  const queued = [];
+  const failures = [];
+  results.forEach((result, index) => {
+    const task = tasks[index];
+    if (result.status === 'fulfilled') queued.push({ ...task, commandId: result.value.id });
+    else failures.push({ ...task, error: String(result.reason?.message || result.reason || 'Queue failed') });
+  });
+  if (queued.length || failures.length) {
+    await mutate(loadEcosystemState, saveEcosystemState, (working) => {
+      for (const item of queued) {
+        if (item.copiedTradeId && working.trades[item.copiedTradeId]) {
+          working.trades[item.copiedTradeId].status = 'closing';
+          working.trades[item.copiedTradeId].close_requested_at = nowIso();
+          working.trades[item.copiedTradeId].close_command_id = item.commandId;
+          working.trades[item.copiedTradeId].close_requested_from = 'reporter_leader_close_failsafe';
+        }
+        if (working.cultureLanesById[item.laneId]) appendLaneTimelineEvent(working, item.laneId, 'leader.close_relay_queued', { routeId: item.rule.id, leaderTicket: item.leaderTicket, followerAccountId: item.followerAccountId, commandId: item.commandId });
+      }
+      return true;
+    });
+  }
+  if (failures.length) logger?.warn?.('Follower close failsafe had queue failures.', { failures });
+  return { queued, failures };
+}
+
+async function queueAutomaticHarvestsForAccount({ accountId, mt4CommandService, mt4SyncService, loadEcosystemState, saveEcosystemState, logger }) {
+  const outcome = await mutate(loadEcosystemState, saveEcosystemState, (state) => {
+    const reservations = [];
+    const pausedRules = [];
+    for (const lane of Object.values(state.cultureLanesById || {})) {
+      if (!(lane.accountIds || []).map(String).includes(String(accountId || ''))) continue;
+      const vault = computeCultureLaneVault(state, lane.laneId, lane.ownerUserId);
+      const activeCycles = Object.values(state.harvestCyclesById || {}).filter((cycle) => cycle.laneId === lane.laneId && ['queueing', 'commands_queued', 'partially_queued', 'awaiting_confirmation'].includes(cycle.status));
+      let completedCycle = false;
+      if (vault && vault.openTrades === 0 && activeCycles.length) {
+        const policy = state.harvestPoliciesByLaneId?.[lane.laneId] || {};
+        for (const cycle of activeCycles) {
+          cycle.status = 'completed';
+          cycle.completedAt = nowIso();
+          cycle.updatedAt = cycle.completedAt;
+          cycle.confirmedFlatAccountIds = (vault.accounts || []).map((item) => item.accountId);
+          cycle.finalBalance = vault.balance;
+          cycle.finalEquity = vault.equity;
+          cycle.finalClosedProfit = vault.closedProfit;
+        }
+        policy.baselineBalance = vault.balance;
+        policy.baselineEquity = vault.equity;
+        policy.baselineClosedProfit = vault.closedProfit;
+        policy.baselineCombinedProfit = vault.combinedProfit;
+        policy.baselineCapturedAt = nowIso();
+        policy.lastHarvestAt = nowIso();
+        if (policy.mode === 'harvest_once') {
+          lane.status = 'paused';
+          lane.updatedAt = nowIso();
+          for (const rule of Object.values(state.copierRules || {})) {
+            if (String(rule.culture_lane_id || '') !== String(lane.laneId)) continue;
+            rule.is_active = false;
+            rule.updated_at = nowIso();
+            pausedRules.push({ ...rule });
+          }
+        }
+        appendLaneTimelineEvent(state, lane.laneId, 'harvest.flat_confirmed', { cycleIds: activeCycles.map((cycle) => cycle.cycleId), accountIds: vault.accounts.map((item) => item.accountId), mode: policy.mode || 'manual' });
+        completedCycle = true;
+      }
+      if (completedCycle) continue;
+      const policy = state.harvestPoliciesByLaneId?.[lane.laneId];
+      if (!policy?.enabled || lane.status === 'paused' || activeCycles.length) continue;
+      const evaluation = evaluateLaneHarvest(state, lane.laneId, lane.ownerUserId);
+      if (!evaluation?.triggered || evaluation.vault.openTrades <= 0 || evaluation.vault.disconnectedAccountIds.length) continue;
+      const cycle = createHarvestCycle(state, lane.laneId, lane.ownerUserId, evaluation, []);
+      cycle.status = 'queueing';
+      cycle.automatic = true;
+      cycle.triggerAccountId = String(accountId || '');
+      cycle.updatedAt = nowIso();
+      reservations.push({ lane: { ...lane }, ownerUserId: lane.ownerUserId, evaluation, cycleId: cycle.cycleId });
+    }
+    return { reservations, pausedRules };
+  });
+  if (outcome.pausedRules.length) { const relayState=ensureMajorState(await loadEcosystemState()); await Promise.allSettled(outcome.pausedRules.map((rule) => syncCopierRuleToRelay(mt4SyncService, rule, relayState.tradingAccounts))); }
+  for (const reservation of outcome.reservations) {
+    try {
+      const fanout = await queueLaneSweep({ mt4CommandService, lane: reservation.lane, userId: reservation.ownerUserId, reason: 'automatic_harvest', cycleId: reservation.cycleId });
+      await mutate(loadEcosystemState, saveEcosystemState, (state) => {
+        const cycle = state.harvestCyclesById?.[reservation.cycleId];
+        if (!cycle) return false;
+        cycle.commandIds = fanout.commands.map((item) => item.commandId);
+        cycle.failures = fanout.failures;
+        cycle.parallelFanout = true;
+        cycle.fanoutMs = fanout.fanoutMs;
+        cycle.status = fanout.failures.length ? 'partially_queued' : 'commands_queued';
+        cycle.updatedAt = nowIso();
+        appendLaneTimelineEvent(state, reservation.lane.laneId, 'harvest.automatic_close_queued', { cycleId: cycle.cycleId, commandIds: cycle.commandIds, failures: cycle.failures, fanoutMs: cycle.fanoutMs });
+        return true;
+      });
+    } catch (error) {
+      logger?.warn?.('Automatic Harvest queue failed.', { laneId: reservation.lane.laneId, message: error.message });
+      await mutate(loadEcosystemState, saveEcosystemState, (state) => {
+        const cycle = state.harvestCyclesById?.[reservation.cycleId];
+        if (cycle) { cycle.status = 'queue_failed'; cycle.error = error.message; cycle.updatedAt = nowIso(); }
+        return true;
+      });
+    }
+  }
+  return outcome.reservations;
+}
+
+async function synchronizeCopierRulesForAccount({ accountId, mt4SyncService, loadEcosystemState }) {
+  const normalizedAccountId = String(accountId || '');
+  if (!normalizedAccountId) return [];
+  const state = ensureMajorState(await loadEcosystemState());
+  let liveState = null;
+  try { liveState = mt4SyncService?.repository?.getMt4State ? await mt4SyncService.repository.getMt4State() : null; } catch { liveState = null; }
+  const liveConnection = liveState?.connectionsByAccountId?.[normalizedAccountId] || null;
+  const accountMatches = (productId, relayId, accountNumber, server) => {
+    if ([productId, relayId].map(String).includes(normalizedAccountId)) return true;
+    const product = state.tradingAccounts?.[productId] || { id: productId, reporter_account_id: relayId, account_number: accountNumber, server };
+    return liveConnection ? relayConnectionMatch(liveConnection, product, productId) : false;
+  };
+  const rules = Object.values(state.copierRules).filter((rule) =>
+    accountMatches(rule.master_id, rule.master_relay_account_id, rule.master_account_number, rule.master_server) ||
+    accountMatches(rule.slave_id, rule.slave_relay_account_id, rule.slave_account_number, rule.slave_server),
+  );
+  const results = [];
+  for (const rule of rules) {
+    try { results.push({ ruleId: rule.id, status: 'registered', route: await syncCopierRuleToRelay(mt4SyncService, rule, state.tradingAccounts) }); }
+    catch (error) { results.push({ ruleId: rule.id, status: 'failed', error: error.message }); }
+  }
+  return results;
+}
+
+function analyzerFromState(state, userId, { accountId = '', period = 'month' } = {}) {
+  const start = rangeStart(period);
+  let trades = Object.values(state.trades).filter((trade) => String(trade.user_id) === String(userId) && new Date(trade.opened_at || trade.updated_at || 0) >= start);
+  if (accountId) trades = trades.filter((trade) => String(trade.account_id) === String(accountId));
+  const base = analyzeTrades(trades);
+  const accountIds = accountId ? [String(accountId)] : Object.values(state.tradingAccounts).filter((account) => String(account.user_id) === String(userId)).map((account) => String(account.id));
+  const telemetry = accountIds.flatMap((idValue) => state.accountTelemetry[idValue] || []).filter((point) => new Date(point.receivedAt || 0) >= start).sort((a,b)=>new Date(a.receivedAt)-new Date(b.receivedAt));
+  const series = telemetry.map((point) => ({ date: point.receivedAt, value: num(point.equity), balance: num(point.balance), floatingPL: num(point.floatingPL), openTradeCount: num(point.openTradeCount) }));
+  return {
+    ...base,
+    series: series.length ? series : base.series,
+    openTradeCount: trades.filter((trade) => trade.status === 'open').length,
+    closedTradeCount: trades.filter((trade) => trade.status === 'closed').length,
+    telemetryPoints: telemetry.length,
+    dataSource: telemetry.length || trades.length ? 'mt4_reporter_ledger' : 'waiting_for_reporter_trade_data',
+  };
+}
+
+
+export function computePrice(input={}){
+  const productType=input.productType==='futures'?'futures':'cfd';
+  const plan=productType==='futures'?'futures':(input.plan==='premium'?'premium':'standard');
+  const quantity=Math.round(clamp(input.accountQuantity||input.quantity||1,1,100));
+  const billingCycle=CYCLE_MONTHS[input.billingCycle||input.cycle]?input.billingCycle||input.cycle:'monthly';
+  const addons=input.addons||{};
+  const analyzer=parseBool(addons.analyzer??input.addonAnalyzer);
+  const dedicatedEnv=parseBool(addons.dedicatedEnv??input.addonDedicatedEnv);
+  const extraEnvAccounts=Math.round(clamp(addons.extraEnvAccounts??input.extraEnvAccounts??0,0,100));
+  const basePerMonth=BASE[plan]*quantity;
+  const addonsMonthly=(analyzer?ADDON.analyzer:0)+(dedicatedEnv?ADDON.dedicatedEnv+extraEnvAccounts*ADDON.extraEnvAccount:0);
+  const months=CYCLE_MONTHS[billingCycle];
+  const perMonth=basePerMonth+addonsMonthly;
+  return { productType,plan,accountQuantity:quantity,billingCycle,cycleLabel:CYCLE_LABEL[billingCycle],addons:{analyzer,dedicatedEnv,extraEnvAccounts},basePerMonth,addonsMonthly,perMonth,total:perMonth*months,months,savingsMonths:billingCycle==='semiannual'?1:billingCycle==='annual'?2:0,currency:'USD' };
+}
+
+function metadata(title,description,path='/'){
+  const base=String(process.env.PUBLIC_BASE_URL||'https://wisdo.app').replace(/\/$/,'');
+  const url=`${base}${path}`; const image=`${base}/media/wisdo-og.svg`;
+  return `<title>${esc(title)}</title><meta name="description" content="${esc(description)}"><link rel="canonical" href="${esc(url)}"><meta property="og:type" content="website"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(description)}"><meta property="og:url" content="${esc(url)}"><meta property="og:image" content="${esc(image)}"><meta name="twitter:card" content="summary_large_image">`;
+}
+function publicNav(active='/'){ return [['/','Home'],['/features','Features'],['/copier','Copier'],['/analyzer','Analyzer'],['/pricing','Pricing'],['/academy','Academy'],['/resources','Resources'],['/about','About']].map(([p,l])=>`<a class="${active===p?'active':''}" href="${p}">${l}</a>`).join(''); }
+function publicShell({title,description,path,body,active=path,scripts='',schema=''}){
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${metadata(title,description,path)}<link rel="icon" href="/media/logo_transparent_background.png">${schema}<style>${PUBLIC_CSS}</style></head><body><div class="noise"></div><header class="top"><a class="brand" href="/"><img src="/media/logo_transparent_background.png" alt="WISDO"><span>WISDO</span><small>CONNECT · COPY · CONTROL</small></a><nav>${publicNav(active)}</nav><div class="nav-actions"><a class="btn ghost" href="/login">Login</a><a class="btn primary" href="/register">Start now</a></div><button class="mobile-menu" aria-label="Open navigation">☰</button></header>${body}<footer><div><strong>WISDO</strong><p>Trading infrastructure, education, and account controls in one command ecosystem.</p></div><div><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/risk-disclosure">Risk disclosure</a><a href="/contact">Support</a></div><p class="risk">Trading involves substantial risk of loss. Past performance does not guarantee future results.</p></footer><div id="cookie" class="cookie"><div><strong>Privacy controls</strong><p>We use necessary cookies for authentication and optional analytics only after consent.</p></div><button class="btn ghost" data-cookie="necessary">Necessary only</button><button class="btn primary" data-cookie="all">Accept all</button></div><script>${PUBLIC_JS}${scripts}</script><script src="/js/wisdo-assistant.js" defer></script></body></html>`;
+}
+
+const PUBLIC_CSS = `
+:root{--bg:#03060b;--panel:#09111c;--panel2:#0d1928;--line:rgba(116,255,211,.16);--green:#68f7c4;--blue:#59a8ff;--purple:#9b7bff;--gold:#ffcc74;--text:#f6fbff;--muted:#94a9bb;--red:#ff6f82}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 15% 0,rgba(39,154,255,.13),transparent 33%),radial-gradient(circle at 85% 12%,rgba(104,247,196,.10),transparent 29%),var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;overflow-x:hidden}.noise{position:fixed;inset:0;pointer-events:none;opacity:.16;z-index:9;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.12'/%3E%3C/svg%3E")}.top{height:82px;display:flex;align-items:center;gap:24px;padding:0 max(24px,calc((100vw - 1280px)/2));position:sticky;top:0;z-index:20;background:rgba(3,6,11,.72);backdrop-filter:blur(22px);border-bottom:1px solid rgba(255,255,255,.07)}.brand{display:flex;align-items:center;gap:10px;color:white;text-decoration:none;font-weight:950;letter-spacing:.08em}.brand img{width:40px;height:40px;object-fit:contain}.brand small{font-size:9px;color:var(--muted);letter-spacing:.18em;margin-left:4px}.top nav{display:flex;gap:4px;margin-left:auto}.top nav a,.nav-actions a{color:#cfe0ed;text-decoration:none;padding:10px 12px;border-radius:12px;font-weight:750;font-size:14px}.top nav a:hover,.top nav a.active{background:rgba(104,247,196,.08);color:var(--green)}.nav-actions{display:flex;align-items:center;gap:7px}.btn{border:1px solid rgba(255,255,255,.13);background:rgba(255,255,255,.04);color:white;text-decoration:none;padding:11px 16px;border-radius:12px;font-weight:850;display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer}.btn.primary{background:linear-gradient(135deg,var(--green),#2ccba5);color:#03120f;border-color:transparent;box-shadow:0 13px 40px rgba(104,247,196,.18)}.btn.ghost:hover{border-color:var(--green);color:var(--green)}.mobile-menu{display:none}.hero{min-height:720px;display:grid;grid-template-columns:1.05fr .95fr;align-items:center;gap:60px;max-width:1280px;margin:auto;padding:80px 24px 64px;position:relative}.hero:before{content:'';position:absolute;inset:0;background:linear-gradient(125deg,transparent 20%,rgba(89,168,255,.05),transparent 57%);transform:skewX(-13deg);pointer-events:none}.eyebrow{color:var(--green);font-size:12px;text-transform:uppercase;letter-spacing:.2em;font-weight:900}.hero h1,.page-hero h1{font-size:clamp(50px,7vw,92px);line-height:.92;letter-spacing:-.065em;margin:18px 0;max-width:900px}.gradient{background:linear-gradient(100deg,#fff 10%,var(--green) 50%,var(--blue));-webkit-background-clip:text;color:transparent}.lead{color:var(--muted);font-size:19px;line-height:1.72;max-width:680px}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:30px}.hero-console{background:linear-gradient(180deg,rgba(14,28,44,.95),rgba(5,12,20,.94));border:1px solid rgba(104,247,196,.22);border-radius:26px;box-shadow:0 45px 120px rgba(0,0,0,.45),0 0 90px rgba(89,168,255,.09);padding:18px;position:relative;transform:perspective(1000px) rotateY(-5deg) rotateX(2deg)}.hero-console:after{content:'';position:absolute;inset:-1px;border-radius:26px;background:linear-gradient(135deg,rgba(104,247,196,.3),transparent 25%,transparent 75%,rgba(89,168,255,.25));z-index:-1}.console-head{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,.08);padding:6px 4px 15px}.live{color:var(--green);font-size:12px}.live:before{content:'';display:inline-block;width:8px;height:8px;background:var(--green);border-radius:50%;box-shadow:0 0 18px var(--green);margin-right:7px}.account-row,.metric-grid,.route{display:grid;gap:10px}.account-row{grid-template-columns:1fr auto;align-items:center;padding:14px 4px}.select{background:#081522;border:1px solid rgba(255,255,255,.1);color:white;border-radius:12px;padding:10px}.metric-grid{grid-template-columns:repeat(3,1fr)}.metric{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:15px}.metric small{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.12em}.metric strong{font-size:23px;display:block;margin-top:7px}.green{color:var(--green)}.red{color:var(--red)}.route{grid-template-columns:1fr auto 1fr;align-items:center;margin-top:12px;padding:18px;border-radius:18px;background:linear-gradient(90deg,rgba(89,168,255,.07),rgba(104,247,196,.07))}.route-arrow{width:55px;height:2px;background:linear-gradient(90deg,var(--blue),var(--green));position:relative}.route-arrow:after{content:'›';position:absolute;right:-2px;top:-15px;color:var(--green);font-size:26px}.trust{border-block:1px solid rgba(255,255,255,.07);display:grid;grid-template-columns:repeat(4,1fr);max-width:1280px;margin:auto}.trust div{padding:25px;text-align:center;border-right:1px solid rgba(255,255,255,.07)}.trust div:last-child{border:0}.trust strong{font-size:30px}.trust small{display:block;color:var(--muted);margin-top:4px}.section{max-width:1280px;margin:auto;padding:100px 24px}.section-head{display:flex;justify-content:space-between;gap:30px;align-items:end;margin-bottom:34px}.section h2,.page-section h2{font-size:clamp(34px,4.7vw,62px);letter-spacing:-.055em;line-height:1;margin:10px 0}.section-head p{max-width:560px;color:var(--muted);line-height:1.65}.grid2,.grid3,.grid4{display:grid;gap:18px}.grid2{grid-template-columns:repeat(2,1fr)}.grid3{grid-template-columns:repeat(3,1fr)}.grid4{grid-template-columns:repeat(4,1fr)}.card{background:linear-gradient(180deg,rgba(13,25,40,.82),rgba(6,13,22,.88));border:1px solid rgba(255,255,255,.08);border-radius:21px;padding:24px;position:relative;overflow:hidden;transition:.25s transform,.25s border,.25s box-shadow}.card:hover{transform:translateY(-5px);border-color:rgba(104,247,196,.28);box-shadow:0 30px 70px rgba(0,0,0,.25)}.card h3{font-size:20px;margin:7px 0}.card p,.muted{color:var(--muted);line-height:1.65}.icon{width:48px;height:48px;border-radius:15px;background:linear-gradient(145deg,rgba(104,247,196,.16),rgba(89,168,255,.11));display:grid;place-items:center;font-size:22px;border:1px solid rgba(104,247,196,.15)}.platform-strip{display:flex;gap:16px;overflow:hidden;mask-image:linear-gradient(90deg,transparent,#000 10%,#000 90%,transparent)}.platform-track{display:flex;gap:16px;animation:marquee 36s linear infinite;min-width:max-content}.platform-track img{width:144px;height:58px;object-fit:contain;filter:grayscale(1) brightness(1.9);opacity:.72;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:12px}@keyframes marquee{to{transform:translateX(-50%)}}.market-grid{display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:18px}.sentiment{height:12px;background:#111d29;border-radius:999px;overflow:hidden;display:flex}.sentiment span:first-child{background:var(--green)}.sentiment span:last-child{background:var(--red)}table{width:100%;border-collapse:collapse}th,td{padding:13px;text-align:left;border-bottom:1px solid rgba(255,255,255,.07);font-size:14px}th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.1em}.impact{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 12px var(--red)}.price-layout{display:grid;grid-template-columns:1.15fr .85fr;gap:22px}.control{padding:18px 0;border-bottom:1px solid rgba(255,255,255,.07)}.control label{display:block;font-weight:850;margin-bottom:12px}.segments{display:flex;gap:7px;flex-wrap:wrap}.segments button,.stepper button{background:#091522;border:1px solid rgba(255,255,255,.1);color:white;border-radius:11px;padding:10px 13px;cursor:pointer}.segments button.active{background:rgba(104,247,196,.13);border-color:var(--green);color:var(--green)}.stepper{display:flex;align-items:center;gap:12px}.stepper output{font-size:24px;font-weight:950;min-width:45px;text-align:center}.check{display:flex;justify-content:space-between;align-items:center;padding:13px;border:1px solid rgba(255,255,255,.08);border-radius:14px;margin-top:9px}.price-card{position:sticky;top:105px}.price-total{font-size:56px;letter-spacing:-.05em;margin:10px 0}.price-breakdown{list-style:none;padding:0}.price-breakdown li{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid rgba(255,255,255,.07);color:var(--muted)}.page-hero{max-width:1280px;margin:auto;padding:105px 24px 70px;text-align:center}.page-hero h1{margin-inline:auto;max-width:1000px}.page-hero .lead{margin-inline:auto}.page-section{max-width:1280px;margin:auto;padding:55px 24px 100px}.compare-controls{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:22px}.input,select,textarea{width:100%;background:#07121d;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:12px;color:white}.auth-wrap{min-height:calc(100vh - 82px);display:grid;place-items:center;padding:50px 20px}.auth-card{width:min(520px,100%);background:rgba(9,17,28,.92);border:1px solid rgba(104,247,196,.18);border-radius:24px;padding:30px;box-shadow:0 40px 100px rgba(0,0,0,.4)}.auth-card form{display:grid;gap:13px}.auth-card label{font-size:13px;font-weight:800}.testimonials{display:flex;overflow:auto;scroll-snap-type:x mandatory;gap:18px;padding-bottom:10px}.testimonial{min-width:min(430px,90vw);scroll-snap-align:start}.stars{color:var(--gold)}footer{max-width:1280px;margin:70px auto 0;padding:45px 24px;border-top:1px solid rgba(255,255,255,.08);display:grid;grid-template-columns:1fr auto;gap:24px;color:var(--muted)}footer a{color:#cfe0ed;text-decoration:none;margin-left:18px}.risk{grid-column:1/-1;font-size:12px}.cookie{position:fixed;z-index:100;left:22px;right:22px;bottom:22px;background:rgba(8,17,27,.96);border:1px solid rgba(104,247,196,.18);border-radius:18px;padding:16px;display:none;align-items:center;gap:12px;box-shadow:0 30px 80px rgba(0,0,0,.5)}.cookie div{margin-right:auto}.cookie p{margin:4px 0;color:var(--muted)}.reveal{opacity:0;transform:translateY(24px);transition:.7s ease}.reveal.visible{opacity:1;transform:none}.workspace{display:grid;grid-template-columns:250px 1fr;min-height:100vh;background:#050910}.workspace aside{padding:22px;border-right:1px solid rgba(255,255,255,.07);position:sticky;top:0;height:100vh;background:#07101a;overflow-y:auto;overscroll-behavior:contain}.workspace main{padding:28px;min-width:0}.workspace aside a{display:block;color:#c9d8e5;text-decoration:none;padding:11px 12px;border-radius:10px;margin:4px 0}.workspace aside a.active,.workspace aside a:hover{background:rgba(104,247,196,.1);color:var(--green)}.workspace .mobile-account,.workspace .mobile-page-nav{display:none}.toast{position:fixed;right:20px;bottom:20px;background:#0b1b29;border:1px solid var(--green);padding:14px;border-radius:13px;z-index:100}@media(max-width:980px){.top nav{display:none}.brand small{display:none}.mobile-menu{display:block;background:transparent;color:white;border:0;font-size:24px}.hero{grid-template-columns:1fr;min-height:auto}.hero-console{transform:none}.grid3,.grid4,.market-grid{grid-template-columns:1fr 1fr}.price-layout{grid-template-columns:1fr}.price-card{position:relative;top:auto}.workspace{grid-template-columns:1fr}.workspace aside{display:none}.workspace .mobile-account,.workspace .mobile-page-nav{display:block}.trust{grid-template-columns:1fr 1fr}}@media(max-width:640px){.receiver-grid{grid-template-columns:1fr}.academy-course-grid,.academy-profile-grid,.command-map,.lesson-progress-nav,.lesson-context-grid,.lesson-vocabulary{grid-template-columns:1fr}.academy-filter{grid-template-columns:1fr}.scenario-actions{grid-template-columns:1fr 1fr}.tutor-compose{grid-template-columns:1fr}.academy-stat-grid{grid-template-columns:1fr 1fr}.top{padding:0 16px}.nav-actions .ghost{display:none}.hero,.section,.page-hero,.page-section{padding-inline:17px}.hero h1,.page-hero h1{font-size:48px}.metric-grid,.grid2,.grid3,.grid4,.market-grid{grid-template-columns:1fr}.trust{grid-template-columns:1fr 1fr}.trust div{padding:17px}.route{grid-template-columns:1fr}.route-arrow{transform:rotate(90deg);margin:12px auto}.section-head{display:block}.cookie{display:grid;left:10px;right:10px}.workspace main{padding:16px}}
+.btn.danger{border-color:rgba(255,111,130,.45);color:#ff9bab;background:rgba(255,111,130,.08)}.btn.danger:hover{background:rgba(255,111,130,.16)}dialog{border:0;padding:0;background:transparent;color:inherit;max-width:720px;width:min(94vw,720px)}dialog::backdrop{background:rgba(0,0,0,.76);backdrop-filter:blur(7px)}.dialog-form{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-height:88vh;overflow:auto}.dialog-form h3,.dialog-form p,.dialog-form .actions{grid-column:1/-1}.dialog-form label{display:grid;gap:7px;color:#cfe0ed;font-weight:700}.full{grid-column:1/-1}.account-line{display:flex;justify-content:space-between;gap:15px;align-items:center;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.07)}.feature-list{padding-left:20px;color:var(--muted);line-height:1.9}.table-wrap{overflow:auto}.mini-chart{display:flex;align-items:end;height:270px;gap:6px}.mini-chart i{flex:1;min-width:5px;background:linear-gradient(var(--green),var(--blue));border-radius:6px 6px 0 0}.danger-zone{margin-top:18px;border-color:rgba(255,111,130,.25)}.toast.warn{border-color:var(--gold)}pre{white-space:pre-wrap;overflow:auto}.workspace label{display:grid;gap:7px}.workspace input[type=checkbox]{accent-color:var(--green)}@media(max-width:640px){.academy-course-grid,.academy-profile-grid,.command-map,.lesson-progress-nav,.lesson-context-grid,.lesson-vocabulary{grid-template-columns:1fr}.academy-filter{grid-template-columns:1fr}.scenario-actions{grid-template-columns:1fr 1fr}.tutor-compose{grid-template-columns:1fr}.academy-stat-grid{grid-template-columns:1fr 1fr}.dialog-form{grid-template-columns:1fr}.account-line{align-items:flex-start;flex-direction:column}}
+
+html[data-theme="cobalt"]{--bg:#020817;--panel:#08162c;--panel2:#0d2240;--green:#66d9ff;--blue:#508cff;--purple:#9a7cff;--gold:#8ed8ff;--line:rgba(102,217,255,.18)}html[data-theme="emerald"]{--bg:#03110d;--panel:#082019;--panel2:#0b2a20;--green:#5cffb2;--blue:#54d6c7;--purple:#9cead0;--gold:#d5ff7a;--line:rgba(92,255,178,.18)}html[data-theme="violet"]{--bg:#0a0614;--panel:#171027;--panel2:#21163a;--green:#d09aff;--blue:#8e8cff;--purple:#c368ff;--gold:#ffb3eb;--line:rgba(208,154,255,.2)}html[data-theme="gold"]{--bg:#0d0902;--panel:#1b1307;--panel2:#2a1b08;--green:#ffcc74;--blue:#eaa64e;--purple:#d79654;--gold:#ffd36e;--line:rgba(255,204,116,.2)}html[data-theme="ember"]{--bg:#100506;--panel:#210b0e;--panel2:#321116;--green:#ff9e75;--blue:#ff6f82;--purple:#d86190;--gold:#ffc06a;--line:rgba(255,111,130,.22)}html[data-theme="light"]{--bg:#eef4fb;--panel:#ffffff;--panel2:#e7f0fa;--green:#087f68;--blue:#1767d7;--purple:#7147c7;--gold:#9a5b00;--text:#07111e;--muted:#526577;--red:#bb2744;--line:rgba(23,103,215,.18)}html[data-theme="light"] body,html[data-theme="light"] .workspace{color:var(--text)}html[data-theme="light"] .card,html[data-theme="light"] .workspace aside,html[data-theme="light"] .workspace-topbar{background:rgba(255,255,255,.9);color:var(--text)}html[data-theme="light"] .input,html[data-theme="light"] select,html[data-theme="light"] textarea{background:#fff;color:#07111e;border-color:rgba(7,17,30,.15)}
+.workspace-bg-video{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:-4;opacity:0;transition:opacity .6s;filter:saturate(1.05) brightness(.34)}.workspace-bg-video.active{opacity:.55}.workspace-bg-overlay{position:fixed;inset:0;z-index:-3;background:radial-gradient(circle at 15% 0,rgba(89,168,255,.16),transparent 34%),radial-gradient(circle at 86% 8%,rgba(104,247,196,.12),transparent 32%),linear-gradient(145deg,rgba(3,6,11,.96),rgba(7,16,26,.88));pointer-events:none}html[data-background="terminal"] .workspace-bg-overlay{background:repeating-linear-gradient(0deg,rgba(104,247,196,.025) 0 1px,transparent 1px 5px),#020604}html[data-background="solid"] .workspace-bg-overlay{background:var(--bg)}html[data-background="motion-a"] .workspace-bg-overlay,html[data-background="motion-b"] .workspace-bg-overlay{background:linear-gradient(145deg,rgba(3,6,11,.88),rgba(7,16,26,.7))}.workspace{background:transparent}.workspace aside{display:flex;flex-direction:column;background:color-mix(in srgb,var(--panel) 88%,transparent);backdrop-filter:blur(22px);border-color:var(--line);z-index:4}.member-identity{padding:14px 10px 18px;border-bottom:1px solid var(--line);margin-bottom:8px}.member-identity small{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.14em}.member-identity strong{display:block;margin-top:5px;overflow:hidden;text-overflow:ellipsis}.aside-spacer{flex:1}.workspace main{padding:0 28px 32px}.workspace-topbar{position:sticky;top:0;z-index:5;min-height:82px;display:flex;align-items:center;justify-content:space-between;gap:20px;padding:14px 0;background:color-mix(in srgb,var(--bg) 78%,transparent);backdrop-filter:blur(20px);border-bottom:1px solid var(--line);margin-bottom:25px}.workspace-topbar strong{display:block;font-size:20px}.topbar-account{display:flex;align-items:center;gap:12px;min-width:min(560px,55vw)}.topbar-account>span{font-size:12px;color:var(--muted);white-space:nowrap}.workspace .mobile-account{display:block}.workspace-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:22px}.workspace-heading h1{font-size:clamp(34px,5vw,58px);letter-spacing:-.055em;line-height:1;margin:8px 0}.live-chip,.status-pill{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;padding:7px 10px;font-size:12px;color:var(--green);background:color-mix(in srgb,var(--green) 8%,transparent)}.status-pill.connected{color:var(--green)}.status-pill.waiting{color:var(--gold)}.selected-account-banner{display:flex;justify-content:space-between;align-items:center;gap:24px;margin-bottom:18px;border-color:var(--line)}.mini-metrics{display:grid;grid-template-columns:repeat(4,minmax(90px,1fr));gap:10px}.mini-metrics>div{padding:10px 12px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);border-radius:13px}.mini-metrics small{display:block;color:var(--muted)}.mini-metrics strong{display:block;margin-top:5px}.card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.account-select-line{width:100%;background:transparent;color:var(--text);border:0;text-align:left;cursor:pointer}.account-select-line:hover{background:rgba(255,255,255,.025)}.account-heartbeat{display:flex;justify-content:space-between;gap:12px;padding:12px 0;margin-top:10px;border-top:1px solid rgba(255,255,255,.07);font-size:12px}.account-heartbeat span{color:var(--muted)}.capability-row{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0}.account-role-form{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.07)}.account-role-form .full{grid-column:1/-1}.account-role-form label{font-size:12px;color:var(--muted)}.account-role-form .input{margin-top:5px}.pairing-code{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:8px;padding:12px;background:rgba(104,247,196,.06);border:1px solid var(--line);border-radius:14px;margin-top:12px}.pairing-code small{grid-column:1/-1;color:var(--muted)}.pairing-code code{overflow:auto}.setup-note,.form-status{padding:13px 15px;border:1px solid var(--line);border-radius:14px;background:rgba(89,168,255,.06)}.setup-note{grid-column:1/-1}.setup-note p{margin:5px 0 0}.form-status{grid-column:1/-1;color:var(--muted)}.form-status.working{color:var(--blue)}.form-status.success{color:var(--green);background:rgba(104,247,196,.07)}.form-status.error{color:var(--red);background:rgba(255,111,130,.07);border-color:rgba(255,111,130,.3)}.dialog-x{border:0;background:transparent;color:var(--text);font-size:26px;cursor:pointer}.dialog-form details{grid-column:1/-1;border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:13px}.dialog-form summary{cursor:pointer;font-weight:850}.toast.error{border-color:var(--red)}button:disabled{opacity:.55;cursor:wait}.heat-row{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid rgba(255,255,255,.07)}.appearance-panel{padding:18px;border:1px solid var(--line);border-radius:17px}.theme-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:9px;margin-top:14px}.theme-choice{cursor:pointer;text-align:center}.theme-choice input{position:absolute;opacity:0}.theme-choice span{display:block;height:46px;border-radius:12px;border:2px solid transparent;background:linear-gradient(135deg,#050910,#68f7c4)}.theme-choice.cobalt span{background:linear-gradient(135deg,#020817,#508cff)}.theme-choice.emerald span{background:linear-gradient(135deg,#03110d,#5cffb2)}.theme-choice.violet span{background:linear-gradient(135deg,#0a0614,#c368ff)}.theme-choice.gold span{background:linear-gradient(135deg,#0d0902,#ffd36e)}.theme-choice.ember span{background:linear-gradient(135deg,#100506,#ff6f82)}.theme-choice.light span{background:linear-gradient(135deg,#fff,#1767d7)}.theme-choice input:checked+span{border-color:var(--text);box-shadow:0 0 0 3px color-mix(in srgb,var(--green) 32%,transparent)}.theme-choice strong{font-size:11px;text-transform:capitalize}.background-choice{display:inline-flex!important;cursor:pointer}.background-choice input{position:absolute;opacity:0}.background-choice span{padding:10px 13px;border:1px solid var(--line);border-radius:12px;text-transform:capitalize}.background-choice input:checked+span{background:color-mix(in srgb,var(--green) 15%,transparent);color:var(--green)}.receiver-picker,.symbol-builder{grid-column:1/-1;padding:18px;border:1px solid var(--line);border-radius:18px;background:rgba(255,255,255,.025)}.receiver-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px}.receiver-choice{display:flex!important;gap:12px;align-items:center;padding:14px;border:1px solid rgba(255,255,255,.09);border-radius:14px;cursor:pointer;background:rgba(255,255,255,.02)}.receiver-choice:has(input:checked){border-color:var(--green);background:color-mix(in srgb,var(--green) 10%,transparent)}.receiver-choice span{display:grid;gap:3px}.receiver-choice small{color:var(--muted)}.symbol-highlight-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-top:14px}.symbol-highlight{display:grid;gap:5px;text-align:left;padding:14px;border-radius:14px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.025);color:var(--muted);cursor:pointer}.symbol-highlight.allowed{border-color:var(--green);background:color-mix(in srgb,var(--green) 14%,transparent);color:var(--green);box-shadow:0 0 24px color-mix(in srgb,var(--green) 13%,transparent)}.symbol-highlight.blocked{filter:saturate(.45);opacity:.72}.symbol-highlight small{font-size:10px}.actions.compact{margin-top:0}.portfolio-hero{border-color:color-mix(in srgb,var(--green) 38%,transparent);background:radial-gradient(circle at 100% 0,color-mix(in srgb,var(--green) 14%,transparent),transparent 38%),linear-gradient(180deg,rgba(13,25,40,.92),rgba(6,13,22,.92))}.portfolio-total{font-size:clamp(42px,7vw,76px);letter-spacing:-.06em;margin:8px 0}.lane-account-breakdown{display:grid;gap:8px}.harvest-inline{border-color:color-mix(in srgb,var(--gold) 30%,transparent)}
+
+.wisdo-boot{position:fixed;inset:0;z-index:10000;display:none;place-items:center;overflow:hidden;background:radial-gradient(circle at 50% 42%,color-mix(in srgb,var(--green) 20%,transparent),transparent 25%),radial-gradient(circle at 50% 50%,#071526 0,#03070d 56%,#010204 100%);color:#fff}.wisdo-boot.active{display:grid}.wisdo-boot-grid{position:absolute;inset:-20%;opacity:.25;background-image:linear-gradient(color-mix(in srgb,var(--green) 15%,transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb,var(--blue) 13%,transparent) 1px,transparent 1px);background-size:52px 52px;transform:perspective(550px) rotateX(62deg) translateY(35%);animation:wisdoGridMove 5s linear infinite}.wisdo-boot-stars{position:absolute;inset:0;background-image:radial-gradient(circle,#fff 0 1px,transparent 1.5px);background-size:79px 83px;opacity:.25;animation:wisdoStars 9s linear infinite}.wisdo-boot-shell{position:relative;width:min(720px,calc(100vw - 30px));padding:36px 30px 28px;text-align:center;border:1px solid color-mix(in srgb,var(--green) 28%,transparent);border-radius:30px;background:linear-gradient(180deg,rgba(7,20,34,.84),rgba(2,7,13,.92));box-shadow:0 0 110px color-mix(in srgb,var(--green) 20%,transparent),0 40px 100px rgba(0,0,0,.6);backdrop-filter:blur(20px)}.wisdo-boot-orb{position:relative;width:168px;height:168px;margin:0 auto 24px;display:grid;place-items:center}.wisdo-boot-orb:before,.wisdo-boot-orb:after{content:'';position:absolute;border-radius:50%;inset:0;border:1px solid color-mix(in srgb,var(--green) 55%,transparent);box-shadow:inset 0 0 40px color-mix(in srgb,var(--green) 18%,transparent),0 0 45px color-mix(in srgb,var(--green) 22%,transparent);animation:wisdoBootRing 2.1s ease-in-out infinite}.wisdo-boot-orb:after{inset:17px;border-color:color-mix(in srgb,var(--blue) 55%,transparent);animation-delay:-.7s;animation-direction:reverse}.wisdo-boot-core{position:relative;width:92px;height:92px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 35% 25%,#ecfff8,var(--green) 23%,#087f68 58%,#02150e 100%);box-shadow:0 0 35px var(--green),0 0 90px color-mix(in srgb,var(--green) 55%,transparent);animation:wisdoBootCore 1.55s ease-in-out infinite}.wisdo-boot-core img{width:64px;height:64px;object-fit:contain;filter:drop-shadow(0 4px 12px rgba(0,0,0,.35))}.wisdo-boot h1{font-size:clamp(30px,5vw,52px);letter-spacing:.18em;margin:0;text-transform:uppercase}.wisdo-boot-kicker{display:block;margin:9px 0 22px;color:var(--green);font-size:11px;font-weight:900;letter-spacing:.25em;text-transform:uppercase}.wisdo-boot-status{min-height:26px;color:#d8eafa;font-weight:800}.wisdo-boot-track{height:8px;margin:18px auto 13px;overflow:hidden;border:1px solid rgba(255,255,255,.12);border-radius:999px;background:rgba(255,255,255,.055)}.wisdo-boot-track span{display:block;width:4%;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--blue),var(--green),#fff);box-shadow:0 0 18px var(--green);transition:width .38s ease}.wisdo-boot-meta{display:flex;justify-content:space-between;gap:12px;color:#8297aa;font:700 11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.07em;text-transform:uppercase}.wisdo-boot-skip{position:absolute;right:18px;top:18px;border:1px solid rgba(255,255,255,.13);background:rgba(255,255,255,.05);color:#d9e7f2;border-radius:999px;padding:8px 12px;cursor:pointer}.wisdo-boot.ready .wisdo-boot-core{background:radial-gradient(circle at 35% 25%,#fff,var(--green) 30%,#0c9f78 65%,#02150e 100%)}.wisdo-boot.error .wisdo-boot-core{background:radial-gradient(circle at 35% 25%,#fff,#ff9bab 30%,#a51f3c 65%,#21030a 100%);box-shadow:0 0 35px var(--red)}@keyframes wisdoBootRing{0%,100%{transform:scale(.88) rotate(0);opacity:.45}50%{transform:scale(1.06) rotate(180deg);opacity:1}}@keyframes wisdoBootCore{50%{transform:scale(1.07);filter:saturate(1.25)}}@keyframes wisdoGridMove{to{background-position:0 104px,104px 0}}@keyframes wisdoStars{to{transform:translate3d(-79px,83px,0)}}@media(prefers-reduced-motion:reduce){.wisdo-boot-grid,.wisdo-boot-stars,.wisdo-boot-orb:before,.wisdo-boot-orb:after,.wisdo-boot-core{animation:none}}
+.academy-hero{display:grid;grid-template-columns:1fr auto;gap:24px;align-items:center;background:linear-gradient(135deg,color-mix(in srgb,var(--green) 11%,var(--panel)),color-mix(in srgb,var(--blue) 9%,var(--panel)))}.academy-hero h1{font-size:clamp(34px,5vw,64px);letter-spacing:-.055em;line-height:.98;margin:10px 0}.academy-score{min-width:160px;text-align:center;border:1px solid var(--line);border-radius:20px;padding:20px}.academy-score small,.academy-score span{color:var(--muted)}.academy-score strong{font-size:54px;display:block}.academy-panel{margin-top:18px}.academy-replay-grid,.academy-video-grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(310px,.7fr);gap:18px}.chart-card{padding:14px}.academy-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}.academy-toolbar .input{width:auto;min-width:150px}.chart-card canvas{width:100%;height:440px;background:#03070d;border:1px solid rgba(255,255,255,.08);border-radius:15px}.replay-progress{height:7px;background:rgba(255,255,255,.08);border-radius:999px;overflow:hidden;margin-top:10px}.replay-progress span{display:block;height:100%;background:linear-gradient(90deg,var(--green),var(--blue));width:0}.brain-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0}.brain-grid>div,.card.mini{padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:13px;background:rgba(255,255,255,.025)}.brain-grid small{display:block;color:var(--muted)}.decision-box{padding:15px;border:1px solid var(--line);border-radius:16px;background:rgba(104,247,196,.045)}.video-stage{padding:12px}.video-stage video{display:block;width:100%;max-height:520px;border-radius:15px;background:#000}.video-prompt{position:absolute;left:28px;right:28px;bottom:28px;background:rgba(3,6,11,.86);backdrop-filter:blur(15px);border:1px solid var(--line);border-radius:16px;padding:16px}.chapter{display:block;width:100%;text-align:left;padding:13px;border:1px solid rgba(255,255,255,.08);background:transparent;color:var(--text);border-radius:12px;margin:8px 0;cursor:pointer}.chapter.active,.chapter:hover{border-color:var(--green);background:rgba(104,247,196,.07)}.tv-frame{width:100%;height:650px;border:1px solid var(--line);border-radius:16px;background:#07121d}.lesson-map{color:var(--muted);line-height:1.8}.track-card{padding:14px;border:1px solid rgba(255,255,255,.08);border-radius:15px;background:rgba(255,255,255,.025)}.academy-progress{text-align:right}.academy-progress strong{font-size:32px;display:block}.academy-progress span{color:var(--muted)}
+
+.lesson-player{display:grid;gap:18px}.lesson-context-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.lesson-context-grid>div{padding:13px;border:1px solid rgba(255,255,255,.08);border-radius:13px;background:rgba(255,255,255,.025)}.lesson-context-grid small{display:block;color:var(--muted);margin-bottom:5px}.lesson-progress-nav{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}.lesson-step{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:8px;text-align:left;padding:10px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.025);color:var(--text);cursor:pointer}.lesson-step span{width:28px;height:28px;display:grid;place-items:center;border-radius:50%;background:rgba(255,255,255,.07);font-weight:900}.lesson-step small{line-height:1.25}.lesson-step.active{border-color:var(--green);background:rgba(104,247,196,.08)}.lesson-step.complete span{background:var(--green);color:#03120f}.lesson-stage-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr);gap:16px}.lesson-scene,.lesson-coach{padding:20px;border:1px solid rgba(255,255,255,.08);border-radius:17px;background:rgba(0,0,0,.14)}.lesson-scene section{margin-top:14px;padding:15px;border-radius:14px;border:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.025)}.lesson-scene section h3{margin-top:0}.lesson-example{border-color:rgba(89,168,255,.24)!important}.lesson-activity{border-color:rgba(255,204,116,.22)!important}.lesson-checkpoint{border-color:rgba(104,247,196,.22)!important}.lesson-vocabulary{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:14px}.lesson-vocabulary div{padding:12px;border-radius:12px;background:rgba(89,168,255,.06);border:1px solid rgba(89,168,255,.14)}.lesson-vocabulary strong,.lesson-vocabulary span{display:block}.lesson-vocabulary span{color:var(--muted);font-size:13px;line-height:1.5;margin-top:4px}.lesson-choices{display:grid;gap:8px}.lesson-choices .btn{justify-content:flex-start;text-align:left}.lesson-tutor-thread{min-height:220px;max-height:420px;margin-top:12px}.lesson-coach form{display:grid;gap:9px}.command-hub{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr);gap:18px}.command-map{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.command-module{display:block;text-decoration:none;color:var(--text);padding:18px;border:1px solid rgba(255,255,255,.08);border-radius:16px;background:rgba(255,255,255,.025)}.command-module:hover{border-color:var(--green);background:rgba(104,247,196,.06)}.command-module small{display:block;color:var(--muted);margin-top:7px}.academy-shell{display:grid;gap:18px}.academy-tabs{display:flex;gap:8px;flex-wrap:wrap}.academy-tabs button.active{background:linear-gradient(135deg,var(--green),#2ccba5);color:#03120f;border-color:transparent}.academy-stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.academy-stat{padding:16px;border:1px solid rgba(255,255,255,.08);border-radius:15px;background:rgba(255,255,255,.025)}.academy-stat strong{display:block;font-size:30px}.academy-layout{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(310px,.55fr);gap:18px}.academy-course-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.course-tile{padding:16px;border:1px solid rgba(255,255,255,.08);border-radius:16px;background:rgba(255,255,255,.025);cursor:pointer;color:var(--text);text-align:left}.course-tile:hover{border-color:var(--green);transform:translateY(-2px)}.course-tile h3{font-size:16px}.course-meta{display:flex;gap:7px;flex-wrap:wrap}.course-meta span{font-size:11px;color:var(--muted);border:1px solid rgba(255,255,255,.08);padding:5px 8px;border-radius:999px}.academy-filter{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px}.path-list{display:grid;gap:9px}.path-item{padding:13px;border:1px solid rgba(255,255,255,.07);border-radius:13px;background:rgba(255,255,255,.02)}.tutor-thread{min-height:290px;max-height:520px;overflow:auto;display:grid;gap:10px;padding:10px;border:1px solid rgba(255,255,255,.08);border-radius:15px;background:rgba(0,0,0,.18)}.tutor-message{max-width:88%;padding:12px 14px;border-radius:14px;white-space:pre-wrap;line-height:1.55}.tutor-message.user{justify-self:end;background:rgba(89,168,255,.14)}.tutor-message.assistant{justify-self:start;background:rgba(104,247,196,.09)}.tutor-compose{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:10px}.tutor-recommendations{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08)}.tutor-recommendations small{width:100%;color:var(--muted)}.tutor-recommendations .btn{font-size:11px;padding:7px 9px}.scenario-stage{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(300px,.55fr);gap:14px}.scenario-chart{width:100%;height:460px;background:#03070d;border:1px solid rgba(255,255,255,.08);border-radius:15px}.scenario-actions{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.checkpoint{padding:13px;border-radius:13px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.025)}.checkpoint.current{border-color:var(--green);box-shadow:0 0 0 1px rgba(104,247,196,.12)}.private-strategy-notice{padding:14px;border:1px solid rgba(255,204,116,.25);background:rgba(255,204,116,.06);border-radius:14px;color:#ffe6b8}.academy-profile-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.academy-profile-grid .full{grid-column:1/-1}.voice-toggle{display:flex;align-items:center;gap:8px}.tv-status{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-top:10px}.tv-frame{width:100%;height:650px;border:1px solid var(--line);border-radius:16px;background:#07121d}.gauge-card{text-align:center;display:grid;justify-items:center;align-content:start}.gauge-card svg{width:100%;max-width:190px;height:104px;margin:8px auto -20px;overflow:visible}.gauge-card .metric{font-size:clamp(26px,4vw,44px)}.trend-line-chart{width:100%;height:260px;color:var(--green);background:linear-gradient(180deg,rgba(104,247,196,.04),rgba(0,0,0,.08));border:1px solid rgba(255,255,255,.06);border-radius:15px;margin-top:12px}.workspace-heading .actions{align-items:center}.workspace-heading [data-bulk-close]{white-space:nowrap}
+@media(max-width:1050px){.command-hub,.academy-layout,.scenario-stage,.lesson-stage-grid{grid-template-columns:1fr}.lesson-progress-nav{grid-template-columns:repeat(2,1fr)}.lesson-context-grid{grid-template-columns:repeat(2,1fr)}.academy-course-grid{grid-template-columns:repeat(2,1fr)}.academy-stat-grid{grid-template-columns:repeat(2,1fr)}.academy-filter{grid-template-columns:1fr 1fr}.command-map{grid-template-columns:repeat(2,1fr)}.topbar-account{min-width:0;flex:1}.selected-account-banner,.workspace-heading{display:block}.mini-metrics{margin-top:15px}.academy-replay-grid,.academy-video-grid{grid-template-columns:1fr}.theme-grid{grid-template-columns:repeat(4,1fr)}}@media(max-width:640px){.academy-course-grid,.academy-profile-grid,.command-map,.lesson-progress-nav,.lesson-context-grid,.lesson-vocabulary{grid-template-columns:1fr}.academy-filter{grid-template-columns:1fr}.scenario-actions{grid-template-columns:1fr 1fr}.tutor-compose{grid-template-columns:1fr}.academy-stat-grid{grid-template-columns:1fr 1fr}.workspace-topbar{display:block}.topbar-account{display:block}.topbar-account>span{display:block;margin:6px 0}.mini-metrics{grid-template-columns:1fr 1fr}.academy-hero{grid-template-columns:1fr}.academy-score{min-width:0}.chart-card canvas{height:330px}.theme-grid{grid-template-columns:repeat(3,1fr)}.pairing-code{grid-template-columns:1fr}.video-prompt{position:relative;left:auto;right:auto;bottom:auto;margin-top:10px}}
+
+`;
+const PUBLIC_JS = `
+(()=>{const c=document.getElementById('cookie');if(c&&!localStorage.getItem('wisdo_cookie'))c.style.display='flex';document.querySelectorAll('[data-cookie]').forEach(b=>b.onclick=()=>{localStorage.setItem('wisdo_cookie',b.dataset.cookie);c.style.display='none'});const io=new IntersectionObserver(es=>es.forEach(e=>e.isIntersecting&&e.target.classList.add('visible')),{threshold:.12});document.querySelectorAll('.reveal').forEach(e=>io.observe(e));document.querySelectorAll('[data-count]').forEach(el=>{const target=Number(el.dataset.count);let n=0;const step=Math.max(1,target/70);const tick=()=>{n=Math.min(target,n+step);el.textContent=target>=1000000?(n/1000000).toFixed(n<target?1:0)+'M+':Math.round(n)+(el.dataset.suffix||'');if(n<target)requestAnimationFrame(tick)};tick()});document.querySelectorAll('.card').forEach(card=>card.addEventListener('pointermove',e=>{const r=card.getBoundingClientRect();card.style.background='radial-gradient(circle at '+(e.clientX-r.left)+'px '+(e.clientY-r.top)+'px,rgba(104,247,196,.09),transparent 35%),linear-gradient(180deg,rgba(13,25,40,.82),rgba(6,13,22,.88))'}));})();
+`;
+
+function homePage(){
+ const schema=`<script type="application/ld+json">${JSON.stringify({'@context':'https://schema.org','@type':'SoftwareApplication',name:'WISDO',applicationCategory:'FinanceApplication',operatingSystem:'Web, Windows, MetaTrader',offers:{'@type':'AggregateOffer',lowPrice:'10',highPrice:'30',priceCurrency:'USD'},description:'Multi-account trading command center, copier engine, analyzer, education, and affiliate ecosystem.'})}</script>`;
+ const platforms=[...PLATFORMS,...PLATFORMS].map(p=>`<img src="/platforms/${p}.svg" alt="${esc(p)}">`).join('');
+ const body=`<main><section class="hero"><div><span class="eyebrow">Trading infrastructure for connected operators</span><h1>Every account.<br><span class="gradient">One command center.</span></h1><p class="lead">Connect trading accounts, relay positions, govern follower risk, control MT4 from mobile, study campaign character, and grow an affiliate ecosystem without stitching together five disconnected tools.</p><div class="actions"><a class="btn primary" href="/register">Build your desk</a><a class="btn ghost" href="/copier">Explore the copier</a></div></div><div class="hero-console" data-parallax><div class="console-head"><strong>WISDO Command Center</strong><span class="live">Bridge online</span></div><div class="account-row"><div><small class="muted">Active desk</small><strong>Coinexx · 5301063</strong></div><select class="select"><option>Follower · 5301063</option><option>Culture Lead · 5205295</option></select></div><div class="metric-grid"><div class="metric"><small>Balance</small><strong>$24,842</strong></div><div class="metric"><small>Equity</small><strong class="green">$25,190</strong></div><div class="metric"><small>Floating</small><strong class="green">+$348</strong></div></div><div class="route"><div><small class="muted">Culture Lead</small><strong>5205295 · XAUUSD</strong></div><div class="route-arrow"></div><div><small class="muted">Mirror Receiver</small><strong>5301063 · XAUUSD</strong></div></div><div class="card" style="margin-top:12px"><small class="muted">Account Health Governor</small><div style="display:flex;justify-content:space-between;margin-top:8px"><strong class="green">Healthy · 87/100</strong><span>Equity ratio · 1.00×</span></div></div></div></section><section class="trust"><div><strong data-count="20" data-suffix="ms">0</strong><small>target relay latency</small></div><div><strong data-count="100" data-suffix="M+">0</strong><small>trade-volume ready</small></div><div><strong data-count="99.9" data-suffix="%">0</strong><small>availability architecture</small></div><div><strong>10</strong><small>supported platforms</small></div></section><section class="section reveal"><div class="section-head"><div><span class="eyebrow">One operating system</span><h2>Connect. Copy. Control.</h2></div><p>WISDO combines account linking, relay execution, safety governance, analytics, education, community leads, mobile controls, and revenue systems.</p></div><div class="grid3"><div class="card"><div class="icon">⇄</div><h3>Culture Relay Engine</h3><p>Map a lead to one or many receivers with fixed lot, multiplier, equity ratio, symbol aliases, trading hours, and drawdown gates.</p><a href="/copier">Open copier deep dive →</a></div><div class="card"><div class="icon">⌁</div><h3>WISDO Insight Engine</h3><p>Read ROI, equity curve, win rate, drawdown, session heatmaps, symbol performance, and per-account health.</p><a href="/analyzer">Explore analytics →</a></div><div class="card"><div class="icon">✦</div><h3>Wisdo Academy</h3><p>Learn DF Sauce, campaign character, bot control, copier safety, and risk through interactive chart scenarios.</p><a href="/academy">Enter Academy →</a></div></div></section><section class="section reveal"><div class="section-head"><div><span class="eyebrow">Bridge coverage</span><h2>Built for the platforms traders actually use.</h2></div></div><div class="platform-strip"><div class="platform-track">${platforms}</div></div></section><section class="section reveal"><div class="section-head"><div><span class="eyebrow">Market context</span><h2>Know the environment before the relay fires.</h2></div><p>These widgets use provider data when configured and clearly label fallback data when no provider key is present.</p></div><div class="market-grid" id="market-widgets"><div class="card"><h3>Market Sentiment</h3><div data-sentiment></div></div><div class="card"><h3>Economic Calendar</h3><div data-calendar>Loading…</div></div><div class="card"><h3>Market News</h3><div data-news>Loading…</div></div></div></section><section class="section reveal"><div class="section-head"><div><span class="eyebrow">Proof from operators</span><h2>Fast enough to feel invisible.</h2></div></div><div class="testimonials"><div class="card testimonial"><div class="stars">★★★★★</div><h3>“Copies fire before I can blink.”</h3><p>Account switching and account-specific close controls finally make sense on my phone.</p><strong>A. Rahman · Prop trader</strong></div><div class="card testimonial"><div class="stars">★★★★★</div><h3>“The risk controls are the product.”</h3><p>I can let a follower scale by equity without giving it permission to overexpose the account.</p><strong>M. Carter · Portfolio operator</strong></div><div class="card testimonial"><div class="stars">★★★★★</div><h3>“One ecosystem instead of five tabs.”</h3><p>Discord, MT4, education, signals, and affiliate tracking finally live together.</p><strong>J. Lewis · Community lead</strong></div></div></section><section class="section reveal"><div class="card" style="padding:45px;text-align:center;background:linear-gradient(135deg,rgba(104,247,196,.12),rgba(89,168,255,.1))"><span class="eyebrow">Build the desk</span><h2>Move from scattered tools to a controlled trading ecosystem.</h2><p class="lead" style="margin:auto">Start with one account. Expand into multi-account relay, education, community copying, and affiliate revenue when the desk is ready.</p><div class="actions" style="justify-content:center"><a class="btn primary" href="/pricing">Configure pricing</a><a class="btn ghost" href="/register">Create account</a></div></div></section></main>`;
+ const scripts=`fetch('/api/market/widgets').then(r=>r.json()).then(d=>{const s=document.querySelector('[data-sentiment]');s.innerHTML=d.sentiment.map(x=>'<p><strong>'+x.symbol+'</strong> <small class="muted">'+x.source+'</small></p><div class="sentiment"><span style="width:'+x.long+'%"></span><span style="width:'+x.short+'%"></span></div><small>'+x.long+'% long · '+x.short+'% short</small>').join('');document.querySelector('[data-calendar]').innerHTML='<table><tbody>'+d.calendar.map(x=>'<tr><td><span class="impact"></span></td><td><strong>'+x.event+'</strong><br><small class="muted">'+x.time+' · '+x.currency+'</small></td><td>'+x.forecast+'</td></tr>').join('')+'</tbody></table>';document.querySelector('[data-news]').innerHTML=d.news.map(x=>'<p><strong>'+x.title+'</strong><br><small class="muted">'+x.source+' · '+x.age+'</small></p>').join('')});`;
+ return publicShell({title:'WISDO — Connect. Copy. Control.',description:'A premium multi-account trading command center, copier engine, analyzer, education platform, and affiliate ecosystem.',path:'/',body,active:'/',scripts,schema});
+}
+
+function productPage(kind){
+ const data={copier:{eyebrow:'Culture Relay Engine',title:'Copy with rules, not hope.',lead:'Control how every follower receives risk, symbols, protection, and closing instructions.',cards:[['Four risk modes','Fixed lot, multiplier, equity ratio, and balance ratio with min/max lot caps.'],['Broker-aware mapping','Map GOLD to XAUUSD, suffixes, prefixes, and custom aliases before the command enters the queue.'],['Protection gates','Equity protection, max daily loss, spread, trading hours, max positions, and route pause.'],['Close authority','Closing commands bypass opening filters so followers are never trapped by an allowed-symbol rule.']],visual:'copier'},analyzer:{eyebrow:'WISDO Insight Engine',title:'See the truth across every account.',lead:'Turn snapshots and trade history into usable decisions, not a wall of disconnected numbers.',cards:[['ROI and equity curve','Portfolio and account-level time series with period controls.'],['Drawdown intelligence','Current, peak, recovery, and account-health context.'],['Heatmaps','Symbol, session, weekday, and strategy performance.'],['Export and AI analysis','CSV export plus grounded insight using the same selected account.']],visual:'analyzer'},compare:{eyebrow:'Broker + Prop Comparison',title:'Compare rules before capital is committed.',lead:'Filter brokers and prop firms by platform, drawdown, payout split, refund terms, and minimum days.',cards:[['Normalized rules','Side-by-side fields reduce marketing-language confusion.'],['Platform filters','See only firms that support the platform attached to your desk.'],['Save shortlists','Keep a comparison list inside your profile.'],['Admin-managed data','Firm records can be updated without redeploying the website.']],visual:'compare'}}[kind];
+ const visual=data.visual==='analyzer'?`<div class="card"><h3>Portfolio ROI</h3><div style="height:220px;display:flex;align-items:end;gap:8px">${[32,47,41,58,69,62,81,77,92,108,104,123].map((v,i)=>`<i style="display:block;flex:1;height:${v}px;background:linear-gradient(var(--green),var(--blue));border-radius:6px 6px 0 0;opacity:${.45+i/24}"></i>`).join('')}</div><div class="grid3"><div class="metric"><small>ROI</small><strong class="green">+18.6%</strong></div><div class="metric"><small>Win rate</small><strong>64.2%</strong></div><div class="metric"><small>Max DD</small><strong class="red">7.8%</strong></div></div></div>`:data.visual==='compare'?`<div class="card"><table><thead><tr><th>Firm</th><th>DD</th><th>Split</th><th>Platform</th></tr></thead><tbody>${FIRMS.slice(0,3).map(f=>`<tr><td>${f.name}</td><td>${f.max_drawdown_pct||'—'}%</td><td>${f.profit_split_pct||'—'}%</td><td>${f.supported_platforms[0]}</td></tr>`).join('')}</tbody></table></div>`:`<div class="hero-console"><div class="console-head"><strong>Active Culture Lane</strong><span class="live">Relaying</span></div><div class="route"><div><small>Lead</small><strong>XAUUSD · 0.20</strong></div><div class="route-arrow"></div><div><small>Follower</small><strong>XAUUSD.a · 0.08</strong></div></div><div class="grid2" style="margin-top:12px"><div class="metric"><small>Risk mode</small><strong>Equity ratio</strong></div><div class="metric"><small>Latency</small><strong class="green">18ms</strong></div></div></div>`;
+ return publicShell({title:`WISDO ${data.eyebrow}`,description:data.lead,path:`/${kind}`,active:`/${kind}`,body:`<main><section class="page-hero"><span class="eyebrow">${data.eyebrow}</span><h1>${data.title}</h1><p class="lead">${data.lead}</p><div class="actions" style="justify-content:center"><a class="btn primary" href="/register">Start building</a><a class="btn ghost" href="/pricing">See pricing</a></div></section><section class="page-section"><div class="grid2"><div class="grid2">${data.cards.map(([h,p])=>`<div class="card"><div class="icon">✦</div><h3>${h}</h3><p>${p}</p></div>`).join('')}</div>${visual}</div></section>${kind==='compare'?compareSection():''}</main>`});
+}
+function compareSection(){ return `<section class="section"><div class="section-head"><div><span class="eyebrow">Interactive table</span><h2>Filter the field.</h2></div></div><div class="compare-controls"><select id="firm-type" class="input" style="max-width:220px"><option value="">All types</option><option value="prop">Prop firms</option><option value="broker">Brokers</option></select><select id="firm-platform" class="input" style="max-width:220px"><option value="">All platforms</option>${PLATFORMS.map(p=>`<option>${p}</option>`).join('')}</select><input id="firm-search" class="input" style="max-width:300px" placeholder="Search firm"></div><div class="card"><table id="firm-table"><thead><tr><th>Firm</th><th>Type</th><th>Max DD</th><th>Daily DD</th><th>Split</th><th>Refund</th><th>Platforms</th><th>Rating</th></tr></thead><tbody></tbody></table></div></section><script>fetch('/api/firms').then(r=>r.json()).then(d=>{const tbody=document.querySelector('#firm-table tbody'),type=document.querySelector('#firm-type'),platform=document.querySelector('#firm-platform'),search=document.querySelector('#firm-search');function draw(){const q=search.value.toLowerCase();tbody.innerHTML=d.firms.filter(f=>(!type.value||f.type===type.value)&&(!platform.value||f.supported_platforms.includes(platform.value))&&(!q||f.name.toLowerCase().includes(q))).map(f=>'<tr><td><strong>'+f.name+'</strong></td><td>'+f.type+'</td><td>'+(f.max_drawdown_pct??'—')+'</td><td>'+(f.daily_drawdown_pct??'—')+'</td><td>'+(f.profit_split_pct??'—')+'</td><td>'+f.refund_policy+'</td><td>'+f.supported_platforms.join(', ')+'</td><td>'+f.rating+'</td></tr>').join('')}[type,platform,search].forEach(x=>x.oninput=draw);draw()})</script>`; }
+
+function pricingPage(){
+ const body=`<main><section class="page-hero"><span class="eyebrow">Interactive pricing</span><h1>Configure the desk you actually need.</h1><p class="lead">Switch products, plans, account quantity, billing cycle, and add-ons. The total updates instantly and the same calculation runs on the server before checkout.</p></section><section class="page-section price-layout"><div class="card"><div class="control"><label>Product</label><div class="segments" data-group="productType"><button class="active" data-value="cfd">CFD / Forex</button><button data-value="futures">Futures</button></div></div><div class="control" id="plan-control"><label>Plan</label><div class="segments" data-group="plan"><button class="active" data-value="standard">Standard · $10/account</button><button data-value="premium">Premium · $15/account</button></div></div><div class="control"><label>Trading accounts</label><div class="stepper"><button id="minus">−</button><output id="qty">1</output><button id="plus">+</button></div></div><div class="control"><label>Billing cycle</label><div class="segments" data-group="billingCycle">${Object.entries(CYCLE_LABEL).map(([v,l],i)=>`<button class="${i===0?'active':''}" data-value="${v}">${l}</button>`).join('')}</div></div><div class="control"><label>Add-ons</label><label class="check"><span><strong>WISDO Insight Engine</strong><br><small class="muted">Portfolio analytics and exports</small></span><input type="checkbox" id="analyzer"></label><label class="check"><span><strong>Dedicated Environment</strong><br><small class="muted">Isolated relay process</small></span><input type="checkbox" id="env"></label><label class="check" id="extra-wrap" style="display:none"><span>Extra environment accounts</span><input class="input" style="max-width:90px" id="extra" type="number" min="0" max="100" value="0"></label></div></div><aside class="card price-card"><span class="eyebrow">Your configuration</span><div class="price-total" id="total">$10.00</div><p class="muted" id="cycle-copy">Billed monthly</p><ul class="price-breakdown" id="breakdown"></ul><button class="btn primary" style="width:100%" id="checkout">Continue to secure checkout</button><p class="muted" id="checkout-note">Checkout becomes live when Square credentials and subscription plan IDs are configured.</p></aside></section></main>`;
+ const scripts=`(()=>{const s={productType:'cfd',plan:'standard',accountQuantity:1,billingCycle:'monthly',addons:{analyzer:false,dedicatedEnv:false,extraEnvAccounts:0}};const q=x=>document.querySelector(x);document.querySelectorAll('[data-group]').forEach(g=>g.querySelectorAll('button').forEach(b=>b.onclick=()=>{g.querySelectorAll('button').forEach(x=>x.classList.remove('active'));b.classList.add('active');s[g.dataset.group]=b.dataset.value;q('#plan-control').style.display=s.productType==='futures'?'none':'block';refresh()}));q('#minus').onclick=()=>{s.accountQuantity=Math.max(1,s.accountQuantity-1);q('#qty').value=s.accountQuantity;refresh()};q('#plus').onclick=()=>{s.accountQuantity=Math.min(100,s.accountQuantity+1);q('#qty').value=s.accountQuantity;refresh()};q('#analyzer').onchange=e=>{s.addons.analyzer=e.target.checked;refresh()};q('#env').onchange=e=>{s.addons.dedicatedEnv=e.target.checked;q('#extra-wrap').style.display=e.target.checked?'flex':'none';refresh()};q('#extra').oninput=e=>{s.addons.extraEnvAccounts=Number(e.target.value||0);refresh()};async function refresh(){const d=await fetch('/api/pricing/compute',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(s)}).then(r=>r.json());q('#total').textContent=new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(d.total/100);q('#cycle-copy').textContent=d.cycleLabel+' · '+d.months+' billed month'+(d.months===1?'':'s');q('#breakdown').innerHTML='<li><span>Base accounts</span><strong>'+money(d.basePerMonth)+'/mo</strong></li><li><span>Add-ons</span><strong>'+money(d.addonsMonthly)+'/mo</strong></li><li><span>Effective monthly</span><strong>'+money(d.perMonth)+'</strong></li><li><span>Total due</span><strong>'+money(d.total)+'</strong></li>';function money(c){return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(c/100)}}q('#checkout').onclick=async()=>{const d=await fetch('/api/pricing/checkout',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(s)}).then(r=>r.json());if(d.url)location.href=d.url;else if(d.loginUrl)location.href=d.loginUrl;else q('#checkout-note').textContent=d.message||d.error};refresh()})();`;
+ return publicShell({title:'WISDO Pricing Configurator',description:'Configure CFD or futures copier accounts, billing cycles, analyzer, and dedicated environment add-ons.',path:'/pricing',active:'/pricing',body,scripts});
+}
+
+function academyPage(){ return publicShell({title:'WISDO Academy',description:'Interactive DF Sauce, campaign character, risk, bot-control, and copier training.',path:'/academy',active:'/academy',body:`<main><section class="page-hero"><span class="eyebrow">Hands-on trading school</span><h1>Learn markets, money, and the operating process.</h1><p class="lead">Search 6,500 structured courses, build an adaptive learning path, replay market scenarios, ask an AI tutor, practice copier decisions, and study a protected TradingView layout before touching live money.</p></section><section class="page-section"><div class="grid3">${[['DF Sauce Foundations','Launch zones, BOS, cloud pullbacks, and proof before pressure.'],['Campaign Character','Trend, range, fakeout, accumulation, distribution, and reversal days.'],['Bot Flight School','Reporter pairing, Culture Lanes, mobile controls, logs, pause, resume, and close-all.'],['Risk Simulator','Balance, equity, margin, drawdown, lot scaling, and equity protection.'],['Copier Masterclass','Master/follower mapping, symbol aliases, close authority, and route health.'],['Private TradingView Lab','Study your protected DF Sauce layout on TradingView while WISDO provides scenario coaching without exposing source code.']].map(([h,p],i)=>`<div class="card"><span class="eyebrow">Module ${i+1}</span><h3>${h}</h3><p>${p}</p><div class="actions"><a class="btn ghost" href="/app/education">Start lab</a></div></div>`).join('')}</div></section></main>`}); }
+function blogPage(){ return publicShell({title:'WISDO Resources',description:'Trading copier, account safety, product, and education resources.',path:'/blog',active:'/blog',body:`<main><section class="page-hero"><span class="eyebrow">Resources</span><h1>Build a healthier trading desk.</h1><p class="lead">Product guides, copier safety architecture, mobile command design, and interactive education.</p></section><section class="page-section"><div class="grid3">${BLOG_POSTS.map(p=>`<article class="card"><small class="muted">${p.date}</small><h3>${p.title}</h3><p>${p.excerpt}</p><a href="/blog/${p.slug}">Read article →</a></article>`).join('')}</div></section></main>`}); }
+function blogPostPage(post){ return publicShell({title:`${post.title} — WISDO`,description:post.excerpt,path:`/blog/${post.slug}`,active:'/blog',body:`<main><article class="page-hero" style="text-align:left"><span class="eyebrow">${post.date} · WISDO Resources</span><h1>${post.title}</h1><p class="lead">${post.excerpt}</p></article><article class="page-section"><div class="card" style="max-width:820px;margin:auto"><p style="font-size:18px;line-height:1.9">${post.body}</p><h2>Operational checklist</h2><p>Use account-specific identifiers, validate ownership, normalize broker symbols before queueing, separate delivery from completion, preserve closing authority, and keep execution feature flags off until two-account demo testing passes.</p></div></article></main>`}); }
+function legalPage(type){ const content={terms:['Terms of Service','Use WISDO only for lawful trading activity. You remain responsible for broker permissions, account credentials, strategy settings, tax obligations, and every trade placed through a connected account.'],privacy:['Privacy Policy','WISDO stores the minimum information needed for authentication, connected-account operation, support, billing, and safety audit logs. Broker credentials must be encrypted and are never displayed after storage.'],risk:['Risk Disclosure','Leveraged trading can result in losses greater than expected. Copying another account does not eliminate risk. Latency, slippage, symbol differences, platform outages, and incorrect settings can change results.']}[type]; return publicShell({title:`${content[0]} — WISDO`,description:content[1],path:type==='risk'?'/risk-disclosure':`/${type}`,body:`<main><section class="page-hero"><span class="eyebrow">Legal</span><h1>${content[0]}</h1><p class="lead">Effective July 10, 2026</p></section><section class="page-section"><div class="card" style="max-width:900px;margin:auto"><p>${content[1]}</p><h2>Account responsibility</h2><p>You authorize only the accounts you own or have permission to control. You must test automation on demo before enabling live execution.</p><h2>Service availability</h2><p>WISDO may pause unsafe commands, expired subscriptions, invalid routes, stale Reporters, or integrations that fail validation.</p><h2>Contact</h2><p>Use the support center for privacy, billing, security, or account-deletion requests.</p></div></section></main>`}); }
+function authPage(mode='login',message='',options={}){
+ const isRegister=mode==='register'; const forgot=mode==='forgot'; const reset=mode==='reset';
+ const returnTo=safeReturnPath(options.returnTo||'/app/dashboard','/app/dashboard');
+ const resetToken=String(options.token||'');
+ const title=isRegister?'Create your WISDO account':forgot?'Reset your password':reset?'Choose a new password':'Welcome back';
+ const action=isRegister?'/auth/email/signup':forgot?'/api/auth/password-reset/request':reset?'/api/auth/password-reset/complete':'/auth/email/login';
+ const returnField=`<input type="hidden" name="returnTo" value="${esc(returnTo)}">`;
+ const signupAttribution=`<input type="hidden" name="source" value="${esc(options.source||'website-register')}"><input type="hidden" name="medium" value="${esc(options.medium||'')}"><input type="hidden" name="campaign" value="${esc(options.campaign||'website-signup')}"><input type="hidden" name="content" value="${esc(options.content||'')}"><input type="hidden" name="term" value="${esc(options.term||'')}"><input type="hidden" name="referralCode" value="${esc(options.referralCode||'')}"><input type="hidden" name="landingPath" value="${esc(options.landingPath||'/register')}">`;
+ const fields=isRegister?`${returnField}${signupAttribution}<label>Full name<input class="input" name="name" required></label><label>Email<input class="input" type="email" name="email" required></label><label>Phone optional<input class="input" name="phone" inputmode="tel" autocomplete="tel"></label><label>Password<input class="input" type="password" name="password" minlength="8" required></label><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" name="smsConsent" value="true" style="width:auto;margin-top:4px"><span>Text me my welcome and setup link. Message and data rates may apply. Reply STOP to opt out.</span></label><label style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" name="marketingConsent" value="true" style="width:auto;margin-top:4px"><span>Email me WISDO training and product updates.</span></label>`:forgot?`<label>Email<input class="input" type="email" name="email" required></label>`:reset?`<input type="hidden" name="token" value="${esc(resetToken)}"><label>New password<input class="input" type="password" name="password" minlength="8" required></label>`:`${returnField}<label>Email<input class="input" type="email" name="email" required></label><label>Password<input class="input" type="password" name="password" required></label>`;
+ const submit=isRegister?'Create account':forgot?'Send reset link':reset?'Update password':'Login';
+ const socialReturn=encodeURIComponent(returnTo);
+ const body=`<main class="auth-wrap"><section class="auth-card"><a class="brand" href="/"><img src="/media/logo_transparent_background.png"><span>WISDO</span></a><span class="eyebrow">Secure access</span><h1>${title}</h1>${message?`<p class="green">${esc(message)}</p>`:''}<form method="post" action="${action}" id="auth-form">${fields}<button class="btn primary" type="submit">${submit}</button></form>${!forgot&&!reset?`<div class="actions"><a class="btn ghost" style="width:100%" href="/auth/discord?returnTo=${socialReturn}">Continue with Discord</a><a class="btn ghost" style="width:100%" href="/auth/google?returnTo=${socialReturn}">Continue with Google</a></div>`:''}<p class="muted">${isRegister?'Already have an account? <a href="/login">Login</a>':forgot||reset?'Return to <a href="/login">login</a>':'New here? <a href="/register">Create an account</a> · <a href="/forgot-password">Forgot password?</a>'}</p></section></main>`;
+ return publicShell({title:`${title} — WISDO`,description:'Secure WISDO account access.',path:`/${mode}`,body});
+}
+
+function presenceGreetingExperience(){
+ return `<style>
+#wisdo-presence-orb{position:fixed;right:22px;bottom:22px;width:58px;height:58px;border-radius:50%;z-index:230;display:grid;place-items:center;border:1px solid rgba(104,247,196,.55);background:radial-gradient(circle at 35% 30%,#dffff4 0 7%,#68f7c4 12%,#167d73 48%,#07151d 72%);box-shadow:0 0 0 7px rgba(104,247,196,.07),0 0 44px rgba(104,247,196,.35);color:#03120f;font-weight:1000;cursor:pointer;transition:.2s transform}.wisdo-presence-orb:hover{transform:scale(1.06)}
+#wisdo-arrival{position:fixed;inset:0;z-index:240;display:none;place-items:center;padding:22px;background:rgba(1,5,10,.76);backdrop-filter:blur(14px)}#wisdo-arrival.open{display:grid}.wisdo-arrival-card{width:min(620px,100%);position:relative;overflow:hidden;border:1px solid rgba(104,247,196,.28);border-radius:28px;padding:31px;background:radial-gradient(circle at 85% 0,rgba(89,168,255,.15),transparent 34%),linear-gradient(160deg,rgba(13,29,43,.98),rgba(5,12,20,.99));box-shadow:0 45px 140px rgba(0,0,0,.62),0 0 80px rgba(104,247,196,.09)}.wisdo-arrival-card:before{content:'';position:absolute;inset:0;pointer-events:none;background:linear-gradient(115deg,transparent 35%,rgba(104,247,196,.05),transparent 65%)}.wisdo-arrival-close{position:absolute;right:16px;top:14px;width:38px;height:38px;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:rgba(255,255,255,.04);color:#fff;font-size:21px;cursor:pointer}.wisdo-arrival-core{width:80px;height:80px;border-radius:50%;display:grid;place-items:center;margin-bottom:19px;background:radial-gradient(circle at 34% 29%,#fff 0 6%,#68f7c4 11%,#16867a 43%,#07151d 73%);box-shadow:0 0 0 10px rgba(104,247,196,.06),0 0 55px rgba(104,247,196,.28)}.wisdo-arrival-kicker{color:#68f7c4;text-transform:uppercase;letter-spacing:.18em;font-size:11px;font-weight:900}.wisdo-arrival-card h2{font-size:clamp(30px,5vw,47px);letter-spacing:-.045em;line-height:1.02;margin:11px 0}.wisdo-arrival-message{color:#a8bbca;line-height:1.7;font-size:16px}.wisdo-arrival-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:21px 0}.wisdo-arrival-meta div{padding:12px;border-radius:14px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07)}.wisdo-arrival-meta small{display:block;color:#8097aa;text-transform:uppercase;letter-spacing:.09em;font-size:9px}.wisdo-arrival-meta strong{display:block;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.wisdo-arrival-actions{display:flex;gap:10px;flex-wrap:wrap}.wisdo-arrival-actions .btn{flex:1;min-width:180px}@media(max-width:600px){#wisdo-presence-orb{right:14px;bottom:14px;width:52px;height:52px}.wisdo-arrival-card{padding:25px 20px}.wisdo-arrival-meta{grid-template-columns:1fr}.wisdo-arrival-actions .btn{min-width:100%}}
+</style><button id="wisdo-presence-orb" class="wisdo-presence-orb" type="button" aria-label="Open Wisdo greeting">W</button><div id="wisdo-arrival" role="dialog" aria-modal="true" aria-labelledby="wisdo-arrival-title"><section class="wisdo-arrival-card"><button class="wisdo-arrival-close" id="wisdo-arrival-close" type="button" aria-label="Close">×</button><div class="wisdo-arrival-core">W</div><div class="wisdo-arrival-kicker" id="wisdo-arrival-kicker">Wisdo Presence</div><h2 id="wisdo-arrival-title">Welcome back.</h2><p class="wisdo-arrival-message" id="wisdo-arrival-message">Your Culture Desk is ready.</p><div class="wisdo-arrival-meta"><div><small>Mode</small><strong id="wisdo-arrival-mode">Focus</strong></div><div><small>Account</small><strong id="wisdo-arrival-account">Desk default</strong></div><div><small>Resume</small><strong id="wisdo-arrival-resume-label">Command Center</strong></div></div><div class="wisdo-arrival-actions"><button class="btn primary" id="wisdo-arrival-continue" type="button">Enter my desk</button><a class="btn ghost" id="wisdo-arrival-resume" href="/app/dashboard">Resume last workspace</a></div></section></div><script>
+(function(){
+  var modal=document.getElementById('wisdo-arrival');
+  var orb=document.getElementById('wisdo-presence-orb');
+  var closeButton=document.getElementById('wisdo-arrival-close');
+  var continueButton=document.getElementById('wisdo-arrival-continue');
+  var resume=document.getElementById('wisdo-arrival-resume');
+  var latest=null;
+  var hiddenAt=0;
+  var sessionId='';
+  try{sessionId=sessionStorage.getItem('wisdo.presence.session')||'';if(!sessionId){sessionId=(window.crypto&&crypto.randomUUID?crypto.randomUUID():'ws-'+Date.now()+'-'+Math.random().toString(36).slice(2));sessionStorage.setItem('wisdo.presence.session',sessionId)}}catch(_){sessionId='ws-'+Date.now()}
+  function localDay(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+  function deviceType(){return /Mobi|Android/i.test(navigator.userAgent)?'mobile':'desktop'}
+  function accountId(){var el=document.getElementById('mobile-account');return el&&el.value?el.value:''}
+  function payload(eventType,status){return{eventType:eventType||'heartbeat',status:status||'online',sessionId:sessionId,localDateKey:localDay(),awayThresholdMinutes:15,currentPage:location.pathname,currentAccountId:accountId(),deviceType:deviceType(),deviceName:navigator.platform||'Browser',timezone:Intl.DateTimeFormat().resolvedOptions().timeZone||'',locale:navigator.language||''}}
+  function reasonLabel(reason){return reason==='first_visit'?'First Wisdo arrival':reason==='first_visit_today'?'First session today':reason==='returned_after_away'?'Welcome back':reason==='new_session'?'New Wisdo session':'Wisdo Presence'}
+  function prettyPath(path){return String(path||'/app/dashboard').replace(/^\/app\//,'').replace(/[-/]/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase()})}
+  function paint(arrival,presence){latest={arrival:arrival||{},presence:presence||{}};var a=latest.arrival,p=latest.presence;document.getElementById('wisdo-arrival-kicker').textContent=reasonLabel(a.reason);document.getElementById('wisdo-arrival-title').textContent=a.greeting||p.greeting||'Welcome back.';document.getElementById('wisdo-arrival-message').textContent=a.message||'Your Culture Desk is online and ready.';document.getElementById('wisdo-arrival-mode').textContent=String(a.activeMode||p.activeMode||'focus').replace(/\b\w/g,function(c){return c.toUpperCase()});document.getElementById('wisdo-arrival-account').textContent=a.currentAccountId||p.currentAccountId||'Desk default';var path=a.resumePath||p.resumePath||'/app/dashboard';resume.href=path;document.getElementById('wisdo-arrival-resume-label').textContent=prettyPath(path)}
+  function open(){if(latest)modal.classList.add('open')}
+  function close(){modal.classList.remove('open')}
+  function heartbeat(eventType,status,allowGreeting){return fetch('/api/presence/heartbeat',{method:'POST',headers:{'content-type':'application/json'},credentials:'same-origin',body:JSON.stringify(payload(eventType,status))}).then(function(r){if(!r.ok)throw new Error('presence '+r.status);return r.json()}).then(function(data){paint(data.arrival,data.presence);if(allowGreeting&&!window.WISDO_RECOGNITION_V2&&data.arrival&&data.arrival.shouldGreet)open();return data}).catch(function(){return null})}
+  orb.addEventListener('click',function(){if(latest)open();else heartbeat('orb_open','online',false).then(open)});closeButton.addEventListener('click',close);continueButton.addEventListener('click',close);modal.addEventListener('click',function(event){if(event.target===modal)close()});document.addEventListener('keydown',function(event){if(event.key==='Escape')close()});
+  document.addEventListener('visibilitychange',function(){if(document.hidden){hiddenAt=Date.now();fetch('/api/presence/status',{method:'POST',headers:{'content-type':'application/json'},credentials:'same-origin',keepalive:true,body:JSON.stringify(payload('away','away'))}).catch(function(){})}else{var awayFor=hiddenAt?Date.now()-hiddenAt:0;heartbeat(awayFor>=900000?'resume':'focus','online',awayFor>=900000)}});
+  document.addEventListener('change',function(event){if(event.target&&event.target.id==='mobile-account')heartbeat('account_changed','online',false)});
+  heartbeat('page_load','online',true);
+  setInterval(function(){if(!document.hidden)heartbeat('heartbeat','online',false)},60000);
+})();
+</script>`;
+}
+
+function workspaceShell(page,user){
+ const nav=[['command-center','Command Center'],['dashboard','Combined Dashboard'],['accounts','Accounts'],['copier-engine','Copier Engine'],['lane-audit','Lane Audit'],['lane-intelligence','Lane Intelligence'],['compound-tracker','Compound Tracker'],['trades','Trades'],['analyzer','Insight Engine'],['alerts','Alerts'],['education','Academy'],['affiliate','Affiliate'],['settings','Settings'],['settings/billing','Billing']];
+ const pageTitle=nav.find(([p])=>p===page)?.[1]||'WISDO';
+ const bootMarkup=`<div id="wisdo-boot" class="wisdo-boot" aria-live="polite" aria-label="WISDO Command Center loading"><div class="wisdo-boot-stars"></div><div class="wisdo-boot-grid"></div><section class="wisdo-boot-shell"><button class="wisdo-boot-skip" type="button" data-wisdo-boot-skip>Skip</button><div class="wisdo-boot-orb"><div class="wisdo-boot-core"><img src="/media/logo_transparent_background.png" alt=""></div></div><h1>WISDO</h1><span class="wisdo-boot-kicker">Command Center Startup</span><div id="wisdo-boot-status" class="wisdo-boot-status">Waking WISDO Core…</div><div class="wisdo-boot-track"><span id="wisdo-boot-progress"></span></div><div class="wisdo-boot-meta"><span id="wisdo-boot-stage">Core 01</span><span id="wisdo-boot-percent">4%</span></div></section></div>`;
+ return `<!doctype html><html data-theme="midnight" data-background="mesh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${pageTitle} — WISDO</title><link rel="icon" href="/media/logo_transparent_background.png"><style>${PUBLIC_CSS}</style><script>try{document.documentElement.dataset.theme=localStorage.getItem('wisdo.theme')||'midnight';document.documentElement.dataset.background=localStorage.getItem('wisdo.background')||'mesh'}catch{}</script></head><body>${bootMarkup}<video id="workspace-video-a" class="workspace-bg-video" muted loop playsinline preload="none" data-src="/media/14683743_3840_2160_30fps.mp4"></video><video id="workspace-video-b" class="workspace-bg-video" muted loop playsinline preload="none" data-src="/media/14250431_1920_1080_30fps.mp4"></video><div class="workspace-bg-overlay"></div><div class="workspace"><aside><a class="brand" href="/app/command-center" data-wisdo-dashboard-launch><img src="/media/logo_transparent_background.png"><span>WISDO</span></a><div class="member-identity"><small>Member desk</small><strong>${esc(user.username||user.name||user.email||user.id)}</strong></div>${nav.map(([p,l])=>`<a class="${p===page?'active':''}" href="/app/${p}" ${p==='dashboard'?'data-wisdo-dashboard-launch':''}>${l}</a>`).join('')}<div class="aside-spacer"></div><a href="/contact">Support</a><a href="/logout">Logout</a></aside><main><header class="workspace-topbar"><div><span class="eyebrow">Connect · Copy · Control</span><strong>${pageTitle}</strong></div><div class="topbar-account"><span id="workspace-account-status">Loading accounts…</span><select class="input mobile-page-nav" id="mobile-page-nav" aria-label="WISDO page">${nav.map(([p,l])=>`<option value="/app/${p}" ${p===page?'selected':''}>${l}</option>`).join('')}</select><select class="input mobile-account" id="mobile-account" aria-label="Trading account"></select></div></header><div id="app-root"><div class="card loading-card">Loading ${pageTitle}…</div></div></main></div><script>window.WISDO_PAGE=${JSON.stringify(page)};window.WISDO_USER=${JSON.stringify({id:user.id,username:user.username||user.name||user.email||user.id})};window.WISDO_RECOGNITION_V2=true;</script>${presenceGreetingExperience()}<script src="/js/df-sauce-academy.js" defer></script><script src="/js/wisdo-recognition.js" defer></script><script src="/js/workspace.js" defer></script><script src="/js/wisdo-assistant.js" defer></script></body></html>`;
+}
+function rangeStart(period='month'){ const d=new Date(); if(period==='day') d.setHours(0,0,0,0); else if(period==='week') d.setDate(d.getDate()-7); else if(period==='year') d.setFullYear(d.getFullYear()-1); else d.setMonth(d.getMonth()-1); return d; }
+function calculateSlaveLot(rule, masterLot, masterEquity=0, slaveEquity=0, masterBalance=0, slaveBalance=0){ const type=rule.risk_type||'multiplier'; const value=Math.max(0,num(rule.risk_value,1)); let lot=masterLot; if(type==='fixed_lot')lot=value; else if(type==='multiplier')lot=masterLot*value; else if(type==='equity_ratio')lot=masterEquity>0?masterLot*(slaveEquity/masterEquity)*value:masterLot*value; else if(type==='balance_ratio')lot=masterBalance>0?masterLot*(slaveBalance/masterBalance)*value:masterLot*value; return Math.round(clamp(lot,num(rule.min_lot,.01),num(rule.max_lot,100))*100)/100; }
+function inTradingHours(rule,when=new Date()){ if(!rule.trading_hours_start||!rule.trading_hours_end)return true; const current=when.toISOString().slice(11,16); return rule.trading_hours_start<=rule.trading_hours_end?current>=rule.trading_hours_start&&current<=rule.trading_hours_end:current>=rule.trading_hours_start||current<=rule.trading_hours_end; }
+function analyzeTrades(trades=[]){ const closed=trades.filter(t=>t.status==='closed'); const wins=closed.filter(t=>num(t.pnl)>0); const pnl=closed.reduce((s,t)=>s+num(t.pnl),0); const invested=closed.reduce((s,t)=>s+Math.abs(num(t.open_price)*num(t.lot_size)),0); let equity=0,max=0,maxDd=0; const series=[]; for(const t of [...closed].sort((a,b)=>new Date(a.closed_at||a.opened_at)-new Date(b.closed_at||b.opened_at))){equity+=num(t.pnl);max=Math.max(max,equity);const denominator=Math.max(1,Math.abs(max));maxDd=Math.max(maxDd,((max-equity)/denominator)*100);series.push({date:t.closed_at||t.opened_at,value:equity});} return {roi:invested>0?pnl/invested*100:0,winRate:closed.length?wins.length/closed.length*100:0,maxDrawdown:maxDd,tradeCount:closed.length,pnl,series}; }
+
+export function registerMajorUpgradeRoutes(app,{config,loadEcosystemState,saveEcosystemState,mt4SyncService,mt4CommandService,copyTradingService,notificationDeliveryService,logger}){
+  const queueBulkClose=async(req,res,forcedMode='')=>{
+    const accountId=String(req.body?.account_id||'');
+    const mode=String(forcedMode||req.body?.mode||'all').toLowerCase();
+    const state=ensureMajorState(await loadEcosystemState());
+    if(!ownAccount(state,req.wisdoUser.id,accountId))return res.status(404).json({ok:false,error:'Account not found.'});
+    const commandName=commandForCloseMode(mode);
+    const normalizedMode=mode==='profitable'?'profitable':mode==='losing'?'losing':'all';
+    const queuedAt=Date.now();
+    let command=null;
+    let tracker=null;
+    try{
+      // Queue execution first. Audit persistence follows so a slow database write cannot delay emergency close authority.
+      command=await mt4CommandService.queueCommandForAccount(req.wisdoUser.id,accountId,commandName,{accountId,confirmation:req.body?.confirmation,immediate:true,priority:5000,ttlMinutes:2,fanoutMode:'single_account_atomic_sweep',closeMode:normalizedMode,requestedFrom:'website_trade_control'});
+      tracker=await mutate(loadEcosystemState,saveEcosystemState,working=>{
+        const row=createCloseTracker(working,{userId:req.wisdoUser.id,accountId,mode:normalizedMode,requestSource:'website'});
+        attachCloseTrackerCommand(working,row.id,command.id);
+        row.queueLatencyMs=Date.now()-queuedAt;
+        appendMemberAlert(working,req.wisdoUser.id,{type:'system',title:`${row.label} requested`,body:'One immediate MT4 sweep command was queued before audit persistence. Reporter closes every matching order in the same sweep and confirms the result.',metadata:{accountId,trackerId:row.id,mode:row.mode,commandId:command.id,queueLatencyMs:row.queueLatencyMs}},`close-requested:${row.id}`);
+        audit(working,req.wisdoUser.id,'trade.bulk_close_requested','TradingAccount',accountId,{mode:row.mode,trackerId:row.id,command:commandName,commandId:command.id,queueLatencyMs:row.queueLatencyMs});
+        return row;
+      });
+      return res.json({ok:true,queued:true,immediate:true,atomicSweep:true,queueLatencyMs:Date.now()-queuedAt,mode:tracker.mode,command,tracker});
+    }catch(error){
+      if(command&&!tracker){
+        return res.status(202).json({ok:true,queued:true,immediate:true,atomicSweep:true,command,tracker:null,auditWarning:error.message});
+      }
+      return res.status(400).json({ok:false,error:error.message,validation:error.validation||null,tracker});
+    }
+  };
+
+  const runBrokerApiSync = async ({ limit = 25 } = {}) => {
+    const state=ensureMajorState(await loadEcosystemState());
+    const rows=Object.values(state.brokerApiConnectionsById||{})
+      .filter(row=>row.status!=='disconnected'&&row.provider==='metaapi')
+      .sort((a,b)=>new Date(a.lastSyncAt||0)-new Date(b.lastSyncAt||0))
+      .slice(0,Math.max(1,Number(limit)||25));
+    const results=[];
+    for(const row of rows){
+      try{
+        await mutate(loadEcosystemState,saveEcosystemState,working=>refreshMetaApiConnection({state:working,connectionId:row.id}));
+        results.push({id:row.id,provider:row.provider,status:'synced'});
+      }catch(error){
+        results.push({id:row.id,provider:row.provider,status:'error',error:error.message});
+        logger?.warn?.('Broker API background synchronization failed',{connectionId:row.id,provider:row.provider,error:error.message});
+      }
+    }
+    return results;
+  };
+
+  const laneActivityAt = (state,lane) => {
+    const accountIds=new Set([lane.leaderAccountId,...(lane.followerAccountIds||[])].map(String));
+    const dates=[lane.updatedAt,lane.createdAt];
+    for(const accountId of accountIds){
+      const account=state.tradingAccounts?.[accountId];
+      const telemetry=state.accountTelemetry?.[accountId];
+      dates.push(account?.updated_at,account?.last_sync_at,telemetry?.receivedAt,telemetry?.timestamp);
+    }
+    for(const row of Object.values(state.laneTimelineEventsById||{})) if(String(row.laneId)===String(lane.laneId)) dates.push(row.createdAt);
+    for(const row of Object.values(state.tradePassportsById||{})) if(String(row.laneId)===String(lane.laneId)) dates.push(row.finalizedAt,row.createdAt);
+    return Math.max(0,...dates.filter(Boolean).map(value=>new Date(value).getTime()).filter(Number.isFinite));
+  };
+
+  const runProactiveCoach = async ({ limit = 10, force = false } = {}) => {
+    const snapshot=ensureMajorState(await loadEcosystemState());
+    const minimumIntervalMs=Math.max(60_000,Number(process.env.WISDO_COACH_MIN_INTERVAL_MINUTES||15)*60_000);
+    const lanes=Object.values(snapshot.cultureLanesById||{}).filter(lane=>lane.status!=='deleted').slice(0,Math.max(1,Number(limit)||10));
+    const generated=[];
+    for(const lane of lanes){
+      const prior=listWisdoCoachMessages(snapshot,{userId:lane.ownerUserId,laneId:lane.laneId,limit:1})[0];
+      const priorAt=prior?new Date(prior.createdAt||0).getTime():0;
+      const activityAt=laneActivityAt(snapshot,lane);
+      if(!force&&priorAt&&Date.now()-priorAt<minimumIntervalMs) continue;
+      if(!force&&priorAt&&activityAt<=priorAt) continue;
+      try{
+        const result=await mutate(loadEcosystemState,saveEcosystemState,async working=>{
+          const row=await generateWisdoCoachMessage(working,{userId:lane.ownerUserId,laneId:lane.laneId,mode:'proactive',question:'Explain the latest meaningful change in this Culture Lane, what it teaches, and what the operator should verify next.'});
+          const notifications=enqueueCoachNotifications(working,row);
+          return {message:row,notificationIds:notifications.map(item=>item.id)};
+        });
+        if(result.notificationIds.length&&notificationDeliveryService?.deliverDueByIds){
+          await notificationDeliveryService.deliverDueByIds(result.notificationIds).catch(error=>logger?.warn?.('WISDO proactive delivery failed',{laneId:lane.laneId,error:error.message}));
+        }
+        generated.push(result.message.id);
+      }catch(error){
+        logger?.warn?.('WISDO proactive coach generation failed',{laneId:lane.laneId,error:error.message});
+      }
+    }
+    return generated;
+  };
+
+  if(process.env.NODE_ENV!=='test'&&parseBool(process.env.WISDO_BACKGROUND_WORKERS_ENABLED??'true')){
+    app.locals.wisdoBackgroundTimers ||= [];
+    const startLoop=(name,intervalMs,work)=>{
+      const safeInterval=Math.max(30_000,Number(intervalMs)||60_000);
+      let running=false;
+      const execute=async()=>{
+        if(running){ logger?.info?.(`${name} worker skipped because the previous cycle is still active`); return; }
+        running=true;
+        try{ await work(); }
+        catch(error){ logger?.warn?.(`${name} worker failed`,{error:error.message}); }
+        finally{ running=false; }
+      };
+      const initial=setTimeout(execute,30_000); initial.unref?.();
+      const timer=setInterval(execute,safeInterval); timer.unref?.();
+      app.locals.wisdoBackgroundTimers.push(initial,timer);
+    };
+    startLoop('WISDO broker API sync',Number(process.env.WISDO_BROKER_SYNC_INTERVAL_SECONDS||120)*1000,()=>runBrokerApiSync());
+    startLoop('WISDO proactive coach',Number(process.env.WISDO_COACH_POLL_INTERVAL_SECONDS||180)*1000,()=>runProactiveCoach());
+  }
+  mt4SyncService?.attachProductEventSink?.({
+    prepareSnapshot: (event) => synchronizeCopierRulesForAccount({
+      accountId: event?.connectionRecord?.accountId || event?.latestSnapshotRecord?.accountId,
+      mt4SyncService,
+      loadEcosystemState,
+    }),
+    ingestSnapshot: async (event) => {
+      const ledger = await ingestReporterSnapshotToProductState({ ...event, loadEcosystemState, saveEcosystemState });
+      if (!event?.lowMemoryRelayMode) {
+        await queueFollowerClosesFromLedger({ closedTrades: ledger.newlyClosedLeaderTrades || [], mt4CommandService, loadEcosystemState, saveEcosystemState, logger });
+        await queueAutomaticHarvestsForAccount({ accountId: ledger.accountId, mt4CommandService, mt4SyncService, loadEcosystemState, saveEcosystemState, logger });
+      }
+      return ledger;
+    },
+  });
+  app.get('/',(req,res)=>res.send(homePage()));
+  app.get('/features',(req,res)=>res.send(publicShell({title:'WISDO Features',description:'Explore the WISDO command center, Culture Lane copier, account intelligence, education, AI coaching, and member identity system.',path:'/features',active:'/features',body:`<main><section class="page-hero"><span class="eyebrow">One connected operating system</span><h1>Every trading tool, connected.</h1><p class="lead">WISDO combines multi-account control, Culture Lane copying, account health, performance intelligence, education, AI guidance, community access, and product entitlements in one workspace.</p><div class="actions" style="justify-content:center"><a class="btn primary" href="/register">Create your workspace</a><a class="btn ghost" href="/pricing">View pricing</a></div></section><section class="page-section"><div class="grid3">${[['Command Center','Monitor balances, equity, floating P/L, account freshness, alerts, and commands from one desk.'],['Culture Lane Copier','Create leader-to-receiver routes with lot rules, symbol mapping, protection gates, and close authority.'],['Account Intelligence','Review health, performance, drawdown, daily and weekly trends, and compound progress.'],['Wisdo AI','Use account-aware coaching, Teach Mode, explanations, and operating guidance grounded in your selected account.'],['Academy + Simulator','Learn strategies, complete missions, track progress, and practice decisions before risking capital.'],['Culture Identity','Build a persistent Culture ID, permanent Culture Number, Experience Rank, Access Rank, and product entitlements.']].map(([h,p])=>`<article class="card"><div class="icon">✦</div><h3>${h}</h3><p>${p}</p></article>`).join('')}</div></section></main>`})));
+  app.get('/about',(req,res)=>res.send(publicShell({title:'About WISDO',description:'Learn why WISDO is building a connected operating system for trading accounts, automation, education, and member growth.',path:'/about',active:'/about',body:`<main><section class="page-hero"><span class="eyebrow">The WISDO mission</span><h1>Connect the trader, the tools, and the knowledge.</h1><p class="lead">WISDO is being built as a command ecosystem—not another disconnected dashboard. The goal is to help members connect accounts, control automation, understand results, learn continuously, and grow through a persistent Culture identity.</p></section><section class="page-section"><div class="grid3"><article class="card"><h3>Connect</h3><p>Bring accounts, terminals, Discord, bots, education, and member identity into one authenticated workspace.</p></article><article class="card"><h3>Copy</h3><p>Relay trades through governed Culture Lanes with transparent rules, health checks, and execution records.</p></article><article class="card"><h3>Control</h3><p>Give members clear authority over risk, account roles, alerts, close actions, privacy, and product access.</p></article></div></section><section class="page-section"><div class="card"><span class="eyebrow">Built responsibly</span><h2>Infrastructure and education—not guaranteed returns.</h2><p class="lead">Trading involves substantial risk. WISDO is designed to improve visibility, discipline, operating control, and learning. It does not remove market risk or guarantee profit.</p><div class="actions"><a class="btn primary" href="/features">Explore features</a><a class="btn ghost" href="/contact">Contact support</a></div></div></section></main>`})));
+  app.get('/events',(req,res)=>res.redirect('/resources'));
+  app.get('/leaderboard',(req,res)=>res.redirect('/member/leaderboard'));
+  app.get('/copier',(req,res)=>res.send(productPage('copier'))); app.get('/analyzer',(req,res)=>res.send(productPage('analyzer'))); app.get('/compare',(req,res)=>res.send(productPage('compare'))); app.get('/pricing',(req,res)=>res.send(pricingPage())); app.get('/academy',(req,res)=>res.send(academyPage())); app.get('/blog',(req,res)=>res.send(blogPage())); app.get('/resources',(req,res)=>res.send(publicShell({title:'WISDO Resource Center',description:'Original trading guides, checklists, journals, calculators, AI webinars, and adaptive learning resources.',path:'/resources',active:'/resources',body:`<main><section class="page-hero"><span class="eyebrow">Resource Center</span><h1>Study guides, tools, and AI teaching in one library.</h1><p class="lead">Members receive original WISDO checklists, worksheets, journals, flash cards, calculators, on-demand AI webinars, interactive labs, bookmarks, notes, and adaptive AI teaching without redistributing copyrighted paid courses.</p><div class="actions"><a class="btn primary" href="/app/education">Open member library</a><a class="btn ghost" href="/academy">Explore Academy</a></div></section><section class="page-section"><div class="grid4">${[['Trading Academy','Beginner through professional market education.'],['WISDO University','Copier, account health, automation, DF Sauce, and HIGHTOWER operating knowledge.'],['Resource Center','Original guides, journals, checklists, cheat sheets, and calculators.'],['AI Webinar Room','On-demand narrated video lessons generated from member questions and approved strategies.']].map(([title,copy])=>`<article class="card"><h3>${title}</h3><p>${copy}</p></article>`).join('')}</div></section></main>`}))); app.get('/blog/:slug',(req,res)=>{const p=BLOG_POSTS.find(x=>x.slug===req.params.slug);if(!p)return res.status(404).send(publicShell({title:'Not found',description:'Resource not found.',path:req.path,body:'<main class="page-hero"><h1>Resource not found.</h1></main>'}));res.send(blogPostPage(p));});
+  app.get('/terms',(req,res)=>res.send(legalPage('terms'))); app.get('/privacy',(req,res)=>res.send(legalPage('privacy'))); app.get('/risk-disclosure',(req,res)=>res.send(legalPage('risk')));
+  app.get('/contact',(req,res)=>res.send(publicShell({title:'WISDO Support',description:'Contact WISDO support for account, billing, security, or relay help.',path:'/contact',body:`<main><section class="page-hero"><span class="eyebrow">Support</span><h1>Get the right help fast.</h1><p class="lead">Use Discord support for live relay operations, or email the configured support address for billing, privacy, and account requests.</p></section><section class="page-section"><div class="grid3"><div class="card"><h3>Relay support</h3><p>Include the account ID, Reporter version, command ID, and approximate event time.</p></div><div class="card"><h3>Billing support</h3><p>Include the subscription email and invoice or checkout reference.</p></div><div class="card"><h3>Security and privacy</h3><p>Request credential rotation, account export, or account deletion through the authenticated settings page.</p></div></div></section></main>`})));
+  const registrationOptions=(req)=>({returnTo:req.query.returnTo,source:req.query.utm_source||req.query.source||'website-register',medium:req.query.utm_medium||req.query.medium||'',campaign:req.query.utm_campaign||req.query.campaign||'website-signup',content:req.query.utm_content||req.query.content||'',term:req.query.utm_term||req.query.term||'',referralCode:req.query.ref||req.query.referralCode||'',landingPath:req.originalUrl||'/register'});
+  app.get('/register',(req,res)=>res.send(authPage('register','',registrationOptions(req)))); app.get('/signup',(req,res)=>res.send(authPage('register','',registrationOptions(req)))); app.get('/login',(req,res)=>res.send(authPage('login',String(req.query.message||''),{returnTo:req.query.returnTo}))); app.get('/forgot-password',(req,res)=>res.send(authPage('forgot'))); app.get('/reset-password',(req,res)=>res.send(authPage('reset','',{token:req.query.token})));
+
+
+  app.get('/robots.txt',(req,res)=>res.type('text/plain').send(`User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /app/\nDisallow: /admin/\nSitemap: ${String(process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`).replace(/\/$/,'')}/sitemap.xml\n`));
+  app.get('/llms.txt',(req,res)=>res.type('text/plain').send('WISDO is a multi-account trading command center, copier engine, analyzer, interactive academy, affiliate system, and MT4/Discord bridge. Public pages: /, /copier, /analyzer, /compare, /pricing, /academy, /resources, /blog. Trading involves risk of loss.'));
+  app.get('/sitemap.xml',(req,res)=>{const base=String(process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`).replace(/\/$/,'');const paths=['/','/features','/about','/copier','/analyzer','/compare','/pricing','/academy','/resources','/blog','/terms','/privacy','/risk-disclosure','/contact',...BLOG_POSTS.map(p=>`/blog/${p.slug}`)];res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${paths.map(p=>`<url><loc>${esc(base+p)}</loc><lastmod>2026-07-10</lastmod></url>`).join('')}</urlset>`)});
+
+  app.get('/api/market/widgets',async(req,res)=>{const providerConfigured=Boolean(process.env.FINNHUB_API_KEY||process.env.TRADING_ECONOMICS_API_KEY||process.env.FIRECRAWL_API_KEY);res.json({ok:true,mode:providerConfigured?'provider_ready_fallback':'static_fallback',sentiment:[{symbol:'EURUSD',long:58,short:42,source:providerConfigured?'cached provider':'sample'},{symbol:'BTCUSD',long:64,short:36,source:providerConfigured?'cached provider':'sample'},{symbol:'SPX500',long:53,short:47,source:providerConfigured?'cached provider':'sample'}],calendar:[{time:'08:30 ET',currency:'USD',event:'Core CPI m/m',forecast:'0.3%'},{time:'10:00 ET',currency:'USD',event:'Consumer Sentiment',forecast:'61.8'},{time:'14:00 ET',currency:'USD',event:'FOMC Member Speech',forecast:'—'}],news:[{title:'Markets balance inflation expectations and rate outlook',source:'WISDO Market Desk',age:'12m'},{title:'Gold volatility expands around U.S. session liquidity',source:'WISDO Market Desk',age:'31m'},{title:'Index futures hold above overnight value area',source:'WISDO Market Desk',age:'48m'}]})});
+  app.post('/api/pricing/compute',(req,res)=>res.json({ok:true,...computePrice(req.body||{})}));
+  app.post('/api/pricing/checkout',(req,res)=>res.redirect(307,'/api/v2/billing/checkout'));
+  app.get('/api/firms',async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());let firms=Object.values(state.firms);if(req.query.type)firms=firms.filter(f=>f.type===req.query.type);if(req.query.platform)firms=firms.filter(f=>(f.supported_platforms||[]).includes(req.query.platform));res.json({ok:true,firms})});
+
+  app.post('/api/auth/password-reset/request',async(req,res)=>{const email=String(req.body?.email||'').trim().toLowerCase();let token='';await mutate(loadEcosystemState,saveEcosystemState,state=>{const user=Object.values(state.usersById||{}).find(u=>String(u.email||'').toLowerCase()===email)||Object.values(state.profiles||{}).find(p=>String(p.email||'').toLowerCase()===email);if(user){token=crypto.randomBytes(24).toString('hex');state.passwordResetTokens[token]={token,userId:user.id||user.userId,email,expiresAt:new Date(Date.now()+3600000).toISOString(),used:false};}return true});const production=process.env.NODE_ENV==='production';res.status(200).send(wantsHtml(req)?publicShell({title:'Reset requested',description:'Password reset request accepted.',path:'/forgot-password',body:`<main class="auth-wrap"><div class="auth-card"><h1>Check your email</h1><p>If the address exists, a reset link has been created.</p>${!production&&token?`<a class="btn primary" href="/reset-password?token=${token}">Development reset link</a>`:''}</div></main>`}):JSON.stringify({ok:true,message:'If the address exists, a reset link has been created.',developmentToken:production?undefined:token}))});
+  app.post('/api/auth/password-reset/complete',async(req,res)=>{const token=String(req.body?.token||'');const password=String(req.body?.password||'');if(password.length<8)return res.status(400).json({ok:false,error:'Password must be at least 8 characters.'});const result=await mutate(loadEcosystemState,saveEcosystemState,state=>{const r=state.passwordResetTokens[token];if(!r||r.used||new Date(r.expiresAt)<new Date())return null;const hash=hashPassword(password);let updated=false;for(const [userId,user] of Object.entries(state.usersById||{})){if(String(userId)===String(r.userId)||String(user.email||'').toLowerCase()===String(r.email||'').toLowerCase()){state.usersById[userId]={...user,passwordHash:hash,updatedAt:nowIso()};updated=true;}}if(!updated&&r.userId){state.usersById[r.userId]={id:r.userId,email:r.email,passwordHash:hash,createdAt:nowIso(),updatedAt:nowIso()};updated=true;}r.used=true;r.usedAt=nowIso();audit(state,r.userId,'password.reset','User',r.userId);return {updated,userId:r.userId};});if(!result?.updated)return res.status(400).json({ok:false,error:'Reset token is invalid, expired, or no user could be updated.'});if(wantsHtml(req))return res.redirect('/login?message=Password+updated');res.json({ok:true,updated:true});});
+
+  app.get('/app', requireUser, (req, res) => res.redirect('/app/command-center'));
+  const appPages=['command-center','dashboard','accounts','copier-engine','lane-audit','lane-intelligence','compound-tracker','trades','analyzer','alerts','education','affiliate','settings','settings/billing'];
+  for(const page of appPages)app.get(`/app/${page}`,requireUser,(req,res)=>res.send(workspaceShell(page,req.wisdoUser)));
+  app.get('/app/culture-lanes',requireUser,(req,res)=>res.redirect('/app/dashboard'));
+  app.get('/app/symbol-routing',requireUser,(req,res)=>res.redirect('/app/copier-engine'));
+  app.get('/app/harvest',requireUser,(req,res)=>res.redirect('/app/dashboard'));
+  app.get('/member/command-center', requireUser, (req, res) => res.redirect('/app/command-center'));
+  app.get('/member', requireUser, (req, res) => res.redirect('/app/command-center'));
+  for(const legacyEducationPath of ['/member/education','/member/academy','/member/seminars']) app.get(legacyEducationPath,requireUser,(req,res)=>{const query=new URLSearchParams(req.query||{}).toString();res.redirect(`/app/education${query?`?${query}`:''}`)});
+  const legacyMemberAliases={
+    '/member/dashboard':'/app/dashboard','/member/trades':'/app/trades','/member/history':'/app/analyzer','/member/performance':'/app/analyzer','/member/harvest':'/app/compound-tracker','/member/risk':'/member/risk-profile','/member/copier':'/app/copier-engine','/member/routes':'/app/copier-engine','/member/copier-logs':'/app/lane-audit','/member/symbol-routing':'/app/copier-engine','/member/notifications':'/app/alerts','/member/courses':'/app/education','/member/webinars':'/app/education','/member/replays':'/app/education','/member/products':'/member/marketplace','/member/orders':'/member/purchases','/member/storefront':'/member/store','/member/teach':'/member/presence?mode=teach','/member/missions':'/member/presence?mode=mission','/member/focus':'/member/presence?mode=focus','/member/install':'/member/my-bots'
+  };
+  for(const [legacyPath,target] of Object.entries(legacyMemberAliases)) app.get(legacyPath,requireUser,(req,res)=>res.redirect(target));
+
+  app.get('/api/v2/me',requireUser,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,user:req.wisdoUser,profile:state.profiles[req.wisdoUser.id]||null,roles:state.userRoles[req.wisdoUser.id]||[]})});
+  app.patch('/api/v2/profile',requireUser,async(req,res)=>{const profile=await mutate(loadEcosystemState,saveEcosystemState,state=>{const previous=state.profiles[req.wisdoUser.id]||{};const themes=['midnight','cobalt','emerald','violet','gold','ember','light'];const backgrounds=['mesh','terminal','motion-a','motion-b','solid'];state.profiles[req.wisdoUser.id]={...previous,id:req.wisdoUser.id,email:req.body.email||previous.email||req.wisdoUser.email||'',full_name:req.body.full_name??previous.full_name,country:req.body.country??previous.country,timezone:req.body.timezone??previous.timezone??'UTC',avatar_url:req.body.avatar_url??previous.avatar_url,theme:themes.includes(req.body.theme)?req.body.theme:(previous.theme||'midnight'),background:backgrounds.includes(req.body.background)?req.body.background:(previous.background||'mesh'),updated_at:nowIso(),created_at:previous.created_at||nowIso()};audit(state,req.wisdoUser.id,'profile.updated','Profile',req.wisdoUser.id,{theme:state.profiles[req.wisdoUser.id].theme,background:state.profiles[req.wisdoUser.id].background});return state.profiles[req.wisdoUser.id]});res.json({ok:true,profile})});
+  app.delete('/api/v2/me',requireUser,async(req,res)=>{await mutate(loadEcosystemState,saveEcosystemState,state=>{const uid=String(req.wisdoUser.id);delete state.profiles[uid];delete state.userRoles[uid];for(const [k,v] of Object.entries(state.tradingAccounts))if(String(v.user_id)===uid){tombstoneAccount(state,v);delete state.tradingAccounts[k];}for(const [k,v] of Object.entries(state.copierRules))if(String(v.user_id)===uid)delete state.copierRules[k];for(const [k,v] of Object.entries(state.trades))if(String(v.user_id)===uid)delete state.trades[k];delete state.alerts[uid];audit(state,uid,'account.deleted','User',uid);return true});res.json({ok:true,deleted:true})});
+
+  app.get('/api/v2/accounts',requireUser,async(req,res)=>{const startedAt=Date.now();const result=await listAccountsWithinBudget({userId:req.wisdoUser.id,mt4SyncService,loadEcosystemState,saveEcosystemState});res.set('Cache-Control','private, no-store');res.json({ok:true,...result,responseMs:Date.now()-startedAt})});
+  app.post('/api/v2/accounts',requireUser,async(req,res)=>{
+    const platform=String(req.body.platform||'').toLowerCase();
+    if(!PLATFORMS.includes(platform))return res.status(400).json({ok:false,error:'Unsupported platform.'});
+    const accountNumber=String(req.body.account_number||'').trim();const server=String(req.body.server||'').trim();
+    if(!accountNumber)return res.status(400).json({ok:false,error:'Account number is required.'});
+    if(['mt4','mt5'].includes(platform)&&!server)return res.status(400).json({ok:false,error:'Broker server is required so the website can match the Reporter heartbeat.'});
+    const requestedDeskRole=normalizeDeskRole(req.body.desk_role||req.body.role,req.body.role==='master'?'lead':req.body.role==='slave'?'receiver':'private');
+    const requestedSharingMode=normalizeSharingMode(req.body.sharing_mode,parseBool(req.body.community_visible)?'community':'private');
+    if(requestedSharingMode!=='private'&&!['lead','dual'].includes(requestedDeskRole))return res.status(400).json({ok:false,error:'Only a Culture Lead or Dual Role account can be shared or listed in the community.'});
+    let encrypted='';if(req.body.credentials&&Object.values(req.body.credentials).some(Boolean)){try{encrypted=encryptCredential(req.body.credentials)}catch(e){return res.status(400).json({ok:false,error:`Credential vault unavailable: ${e.message}. Remove the optional login/password or configure ENCRYPTION_KEY.`})}}
+    const repository=mt4SyncService?.repository;const canonicalId=String(repository?.getMt4AccountId?.(accountNumber,server)||`${accountNumber}:${server||'server'}`).replace(/[^a-zA-Z0-9:_.-]/g,'_');
+    const outcome=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+      const uid=String(req.wisdoUser.id);const occupied=state.tradingAccounts[canonicalId];if(occupied&&String(occupied.user_id)!==uid)return {conflict:true};
+      const matching=Object.entries(state.tradingAccounts).find(([key,row])=>String(row.user_id)===uid&&String(row.account_number||'')===accountNumber&&normalizeServer(row.server)===normalizeServer(server));
+      const oldId=matching?.[0];const previous=occupied||matching?.[1]||{};
+      if(oldId&&oldId!==canonicalId){for(const rule of Object.values(state.copierRules)){if(rule.master_id===oldId)rule.master_id=canonicalId;if(rule.slave_id===oldId)rule.slave_id=canonicalId}for(const trade of Object.values(state.trades)){if(trade.account_id===oldId)trade.account_id=canonicalId}delete state.tradingAccounts[oldId]}
+      const account={...previous,id:canonicalId,user_id:uid,platform,broker:String(req.body.broker||previous.broker||'').trim(),account_number:accountNumber,server,nickname:String(req.body.nickname||previous.nickname||'').trim(),desk_role:requestedDeskRole,sharing_mode:requestedSharingMode,role:legacyRoleForDeskRole(requestedDeskRole),community_visible:requestedSharingMode==='community',community_name:String(req.body.community_name||previous.community_name||req.body.nickname||previous.nickname||'').trim(),status:previous.reporter_connected?'connected':'awaiting_reporter',balance:num(previous.balance),equity:num(previous.equity),floating_pl:num(previous.floating_pl),open_trades:num(previous.open_trades),currency:String(req.body.currency||previous.currency||'USD'),is_premium:Boolean(previous.is_premium),encrypted_credentials:encrypted||previous.encrypted_credentials||'',last_sync_at:previous.last_sync_at||null,reporter_account_id:canonicalId,reporter_owner_user_id:String(previous.reporter_owner_user_id||uid),source:previous.source||'member_form',created_at:previous.created_at||nowIso(),updated_at:nowIso()};
+      state.tradingAccounts[canonicalId]=account;persistAccountControlSettings(state,account);audit(state,uid,previous.id?'account.updated':'account.created','TradingAccount',canonicalId,{platform,broker:account.broker,connection:'reporter_pairing',deskRole:requestedDeskRole,sharingMode:requestedSharingMode});return {account:sanitizeAccount(account),created:!previous.id};
+    });
+    if(outcome.conflict)return res.status(409).json({ok:false,error:'This broker account is already owned by another WISDO user.'});
+    let pairing=null;
+    if(['mt4','mt5'].includes(platform)&&!outcome.account.reporter_connected&&mt4SyncService?.issuePairingCode){try{pairing=await mt4SyncService.issuePairingCode({discordUserId:String(req.wisdoUser.id),requestedByUserId:String(req.wisdoUser.id),accountNickname:outcome.account.nickname||`${accountNumber} ${server}`,accountRole:outcome.account.can_lead&&outcome.account.can_receive?'both':outcome.account.can_lead?'leader':'follower',copyPermission:outcome.account.can_lead?'copy_allowed':'control_allowed',forceNew:true});await mutate(loadEcosystemState,saveEcosystemState,state=>{if(state.tradingAccounts[canonicalId])state.tradingAccounts[canonicalId].pairing_code=pairing.pairingCode;return true});outcome.account.pairing_code=pairing.pairingCode}catch(error){logger?.warn?.('Account saved but pairing generation failed',{accountId:canonicalId,error:error.message})}}
+    res.status(outcome.created?201:200).json({ok:true,account:outcome.account,pairing,message:outcome.account.reporter_connected?'Account matched to a live Reporter heartbeat.':'Account saved. Paste the pairing code into the Reporter to activate live metrics and controls.'});
+  });
+
+  app.get('/api/v2/broker-api/connections',requireUser,async(req,res)=>{
+    const state=ensureMajorState(await loadEcosystemState());
+    const connections=Object.values(state.brokerApiConnectionsById||{}).filter(row=>String(row.userId)===String(req.wisdoUser.id)).map(sanitizeBrokerApiConnection).sort((a,b)=>new Date(b.updatedAt||0)-new Date(a.updatedAt||0));
+    res.json({ok:true,connections,providers:{metaapi:{configured:true},ctrader:{configured:Boolean(process.env.CTRADER_CLIENT_ID&&process.env.CTRADER_CLIENT_SECRET)},webhook:{configured:true}},databaseOnly:true});
+  });
+  app.post('/api/v2/broker-api/metaapi/connect',requireUser,async(req,res)=>{
+    try{
+      const result=await mutate(loadEcosystemState,saveEcosystemState,state=>connectMetaApiAccount({state,userId:req.wisdoUser.id,token:req.body.token,accountId:req.body.accountId,region:req.body.region||process.env.METAAPI_DEFAULT_REGION||'new-york',deskRole:normalizeDeskRole(req.body.deskRole,'private'),nickname:req.body.nickname}));
+      audit(await loadEcosystemState(),req.wisdoUser.id,'broker_api.metaapi_connected','TradingAccount',result.account.id,{providerAccountId:result.connection.providerAccountId});
+      res.status(201).json({ok:true,connection:sanitizeBrokerApiConnection(result.connection),account:sanitizeAccount(result.account),message:'MetaApi account connected directly to WISDO and stored in PostgreSQL.'});
+    }catch(error){res.status(error.status||400).json({ok:false,error:error.message});}
+  });
+  app.post('/api/v2/broker-api/connections/:id/sync',requireUser,async(req,res)=>{
+    try{
+      const state=ensureMajorState(await loadEcosystemState());const row=state.brokerApiConnectionsById[req.params.id];
+      if(!row||String(row.userId)!==String(req.wisdoUser.id))return res.status(404).json({ok:false,error:'Broker API connection not found.'});
+      if(row.provider!=='metaapi')return res.status(400).json({ok:false,error:'This connection refreshes through its provider worker.'});
+      const result=await mutate(loadEcosystemState,saveEcosystemState,working=>refreshMetaApiConnection({state:working,connectionId:req.params.id}));
+      res.json({ok:true,connection:sanitizeBrokerApiConnection(result.connection),account:sanitizeAccount(result.account)});
+    }catch(error){res.status(error.status||400).json({ok:false,error:error.message});}
+  });
+  app.post('/api/v2/broker-api/webhook/create',requireUser,async(req,res)=>{
+    const result=await mutate(loadEcosystemState,saveEcosystemState,state=>createBrokerWebhookConnection(state,{userId:req.wisdoUser.id,label:req.body.label}));
+    const base=String(config.api?.publicBaseUrl||process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`).replace(/\/$/,'');
+    res.status(201).json({ok:true,connection:sanitizeBrokerApiConnection(result.connection),secret:result.secret,snapshotUrl:`${base}/api/broker/v1/snapshot/${result.connection.id}`,message:'Copy the secret now. WISDO stores only its hash in PostgreSQL.'});
+  });
+  app.post('/api/broker/v1/snapshot/:connectionId',async(req,res)=>{
+    try{
+      const result=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+        const connection=state.brokerApiConnectionsById?.[req.params.connectionId];
+        if(!connection)return mutationResult({error:'Connection not found.'},{save:false});
+        const secret=String(req.headers['x-wisdo-broker-secret']||'');
+        if(!verifyBrokerWebhookSecret(connection,secret))return mutationResult({error:'Invalid broker API secret.'},{save:false});
+        const account=applyBrokerWebhookSnapshot(state,{connection,snapshot:req.body||{}});
+        return {account,connection};
+      });
+      if(result?.error)return res.status(result.error.includes('Invalid')?401:404).json({ok:false,error:result.error});
+      res.json({ok:true,account:sanitizeAccount(result.account),connection:sanitizeBrokerApiConnection(result.connection)});
+    }catch(error){res.status(400).json({ok:false,error:error.message});}
+  });
+  app.get('/api/v2/broker-api/ctrader/start',requireUser,async(req,res)=>{
+    const clientId=String(process.env.CTRADER_CLIENT_ID||'');const redirectUri=String(process.env.CTRADER_REDIRECT_URI||`${String(config.api?.publicBaseUrl||'').replace(/\/$/,'')}/api/v2/broker-api/ctrader/callback`);
+    if(!clientId||!process.env.CTRADER_CLIENT_SECRET||!redirectUri)return res.status(503).send('cTrader Open API credentials are not configured in Render.');
+    const oauthState=await mutate(loadEcosystemState,saveEcosystemState,state=>createCtraderOAuthState(state,{userId:req.wisdoUser.id,returnTo:'/app/accounts'}));
+    const scope=req.query.scope==='accounts'?'accounts':'trading';
+    const url=new URL('https://id.ctrader.com/my/settings/openapi/grantingaccess/');url.searchParams.set('client_id',clientId);url.searchParams.set('redirect_uri',redirectUri);url.searchParams.set('scope',scope);url.searchParams.set('product','web');url.searchParams.set('state',oauthState);
+    res.redirect(url.toString());
+  });
+  app.get('/api/v2/broker-api/ctrader/callback',async(req,res)=>{
+    const clientId=String(process.env.CTRADER_CLIENT_ID||'');const clientSecret=String(process.env.CTRADER_CLIENT_SECRET||'');const redirectUri=String(process.env.CTRADER_REDIRECT_URI||`${String(config.api?.publicBaseUrl||'').replace(/\/$/,'')}/api/v2/broker-api/ctrader/callback`);
+    try{
+      const oauthRecord=await mutate(loadEcosystemState,saveEcosystemState,state=>consumeCtraderOAuthState(state,req.query.state));
+      if(!oauthRecord)return res.redirect('/app/accounts?broker_error=invalid_or_expired_ctrader_state');
+      const token=await exchangeCtraderAuthorizationCode({code:req.query.code,clientId,clientSecret,redirectUri});
+      const accounts=await discoverCtraderAccounts({accessToken:token.accessToken,clientId,clientSecret});
+      await mutate(loadEcosystemState,saveEcosystemState,state=>applyCtraderAuthorization(state,{userId:oauthRecord.userId,tokenPayload:token,accounts}));
+      res.redirect(`${oauthRecord.returnTo||'/app/accounts'}?broker_connected=ctrader&accounts=${accounts.length}`);
+    }catch(error){logger?.warn?.('cTrader OAuth connection failed',{error:error.message});res.redirect(`/app/accounts?broker_error=${encodeURIComponent(error.message)}`);}
+  });
+  app.get('/api/v2/accounts/:id',requireUser,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());if(!ownAccount(state,req.wisdoUser.id,req.params.id))return res.status(404).json({ok:false,error:'Account not found.'});res.json({ok:true,account:sanitizeAccount(state.tradingAccounts[req.params.id])})});
+  app.patch('/api/v2/accounts/:id',requireUser,async(req,res)=>{
+    const account=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+      if(!ownAccount(state,req.wisdoUser.id,req.params.id))return null;
+      const row=state.tradingAccounts[req.params.id];
+      const allowed=['broker','server','status','currency','nickname','community_name'];for(const k of allowed)if(req.body[k]!==undefined)row[k]=String(req.body[k]??'').trim();
+      if(req.body.desk_role!==undefined||req.body.role!==undefined){const deskRole=normalizeDeskRole(req.body.desk_role||req.body.role,row.desk_role||(row.role==='master'?'lead':'receiver'));row.desk_role=deskRole;row.role=legacyRoleForDeskRole(deskRole);if(!accountCanLead(row)){row.sharing_mode='private';row.community_visible=false;}}
+      if(req.body.sharing_mode!==undefined||req.body.community_visible!==undefined){const sharingMode=normalizeSharingMode(req.body.sharing_mode,parseBool(req.body.community_visible)?'community':'private');if(sharingMode!=='private'&&!accountCanLead(row))return {validationError:'Only Culture Lead or Dual Role accounts can be shared.'};row.sharing_mode=sharingMode;row.community_visible=sharingMode==='community';}
+      row.updated_at=nowIso();persistAccountControlSettings(state,row);audit(state,req.wisdoUser.id,'account.updated','TradingAccount',req.params.id,{deskRole:row.desk_role,sharingMode:row.sharing_mode});return sanitizeAccount(row);
+    });
+    if(!account)return res.status(404).json({ok:false,error:'Account not found.'});
+    if(account.validationError)return res.status(400).json({ok:false,error:account.validationError});
+    res.json({ok:true,account});
+  });
+  app.patch('/api/v2/accounts/:id/desk-role',requireUser,async(req,res)=>{
+    const startedAt=Date.now();
+    const deskRole=normalizeDeskRole(req.body.desk_role,'private');const sharingMode=normalizeSharingMode(req.body.sharing_mode,'private');
+    if(sharingMode!=='private'&&!['lead','dual'].includes(deskRole))return res.status(400).json({ok:false,error:'Only Culture Lead or Dual Role accounts can be shared.'});
+    const account=await mutate(loadEcosystemState,saveEcosystemState,state=>{if(!ownAccount(state,req.wisdoUser.id,req.params.id))return null;const row=state.tradingAccounts[req.params.id];row.desk_role=deskRole;row.role=legacyRoleForDeskRole(deskRole);row.sharing_mode=sharingMode;row.community_visible=sharingMode==='community';row.community_name=String(req.body.community_name||row.community_name||row.nickname||row.broker||'').trim();row.updated_at=nowIso();persistAccountControlSettings(state,row);audit(state,req.wisdoUser.id,'account.desk_role_changed','TradingAccount',row.id,{deskRole,sharingMode});return sanitizeAccount(row)});
+    if(!account)return res.status(404).json({ok:false,error:'Account not found.'});
+    const uid=String(req.wisdoUser.id);const cached=accountListCacheByUser.get(uid);if(cached){const rows=(cached.result.accounts||[]).map(row=>row.id===account.id?account:row);cacheAccountList(uid,{...cached.result,accounts:rows,source:'role-hot-update'});} 
+    res.json({ok:true,account,responseMs:Date.now()-startedAt,responseMode:'hot-state-write',databaseFlush:'deferred'});
+  });
+  app.delete('/api/v2/accounts/:id',requireUser,async(req,res)=>{const removed=await mutate(loadEcosystemState,saveEcosystemState,state=>{if(!ownAccount(state,req.wisdoUser.id,req.params.id))return null;const r=state.tradingAccounts[req.params.id];tombstoneAccount(state,r);delete state.tradingAccounts[req.params.id];for(const [k,v] of Object.entries(state.copierRules))if(v.master_id===req.params.id||v.slave_id===req.params.id)delete state.copierRules[k];audit(state,req.wisdoUser.id,'account.deleted','TradingAccount',req.params.id,{tombstoned:true});return r});if(!removed)return res.status(404).json({ok:false,error:'Account not found.'});accountListCacheByUser.delete(String(req.wisdoUser.id));res.json({ok:true,removed:{...removed,encrypted_credentials:undefined}})});
+  app.delete('/api/v2/admin/accounts/:id',requireUser,requireAdmin,async(req,res)=>{const removed=await mutate(loadEcosystemState,saveEcosystemState,state=>{const r=state.tradingAccounts[req.params.id];if(!r)return null;tombstoneAccount(state,r);delete state.tradingAccounts[req.params.id];for(const [k,v] of Object.entries(state.copierRules))if(v.master_id===req.params.id||v.slave_id===req.params.id)delete state.copierRules[k];audit(state,req.wisdoUser.id,'admin.account_deleted','TradingAccount',req.params.id,{ownerUserId:r.user_id,tombstoned:true});return r});if(!removed)return res.status(404).json({ok:false,error:'Account not found.'});res.json({ok:true,removed:sanitizeAccount(removed),deletedByAdmin:true})});
+  app.post('/api/v2/accounts/:id/test',requireUser,async(req,res)=>{const result=await synchronizeReporterAccounts({userId:req.wisdoUser.id,mt4SyncService,loadEcosystemState,saveEcosystemState});const account=result.accounts.find(row=>row.id===req.params.id);if(!account)return res.status(404).json({ok:false,error:'Account not found.'});const connected=Boolean(account.reporter_connected);res.json({ok:true,connected,status:account.status,account,message:connected?`Reporter heartbeat found. Equity ${account.equity} and balance ${account.balance} are live.`:`Account identity is saved, but no fresh Reporter heartbeat matches ${account.account_number} on ${account.server}. Paste the pairing code into the Reporter and confirm WebRequest.`})});
+  app.post('/api/v2/accounts/:id/sync',requireUser,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());if(!ownAccount(state,req.wisdoUser.id,req.params.id))return res.status(404).json({ok:false,error:'Account not found.'});try{const command=await mt4CommandService.queueCommandForAccount(req.wisdoUser.id,req.params.id,'SYNC_ACCOUNT',{accountId:req.params.id,immediate:true});res.json({ok:true,queued:true,command})}catch(e){res.status(400).json({ok:false,error:e.message,validation:e.validation})}});
+  app.post('/api/v2/accounts/:id/disconnect',requireUser,async(req,res)=>{const account=await mutate(loadEcosystemState,saveEcosystemState,state=>{if(!ownAccount(state,req.wisdoUser.id,req.params.id))return null;state.tradingAccounts[req.params.id].status='disconnected';state.tradingAccounts[req.params.id].updated_at=nowIso();return state.tradingAccounts[req.params.id]});if(!account)return res.status(404).json({ok:false,error:'Account not found.'});res.json({ok:true,account:sanitizeAccount(account)})});
+
+  const copierOptionsHandler=async(req,res)=>{
+    const sync=await synchronizeReporterAccounts({userId:req.wisdoUser.id,mt4SyncService,loadEcosystemState,saveEcosystemState});
+    const state=ensureMajorState(await loadEcosystemState());
+    const uid=String(req.wisdoUser.id);
+    const shareRows=Object.values(state.accountShares||{}).filter(share=>String(share.shared_with_user_id)===uid&&share.status!=='revoked'&&['copy','control'].includes(String(share.permission||'copy')));
+    const shares=new Map(shareRows.map(share=>[share.account_id,String(share.permission||'copy')]));
+    const owned=Object.values(state.tradingAccounts).filter(account=>String(account.user_id)===uid).map(account=>({...sanitizeAccount(account),access:'owned'}));
+    const leads=Object.values(state.tradingAccounts).filter(account=>accountCanLead(account)&&(String(account.user_id)===uid||normalizeSharingMode(account.sharing_mode,account.community_visible?'community':'private')==='community'||shares.has(account.id))).map(account=>{
+      const access=String(account.user_id)===uid?'owned':shares.has(account.id)?'shared':'community';
+      const safe=sanitizeAccount(account);
+      const isShared=access==='shared'||safe.isShared;
+      const isCommunity=access==='community'||safe.isCommunity;
+      const canExecute=access==='owned'?safe.canExecute:false;
+      return {...safe,access,sharePermission:shares.get(account.id)||null,canExecute,can_execute:canExecute,isShared,is_shared:isShared,isCommunity,is_community:isCommunity,capabilities:{...safe.capabilities,canExecute,isShared,isCommunity}};
+    });
+    const receivers=owned.filter(account=>account.canReceive).map(account=>({...account,access:'owned'}));
+    const privateDesks=owned.filter(account=>account.desk_role==='private');
+    const unavailable=owned.filter(account=>!account.canLead&&!account.canReceive);
+    const diagnostics=[];
+    if(!leads.length) diagnostics.push({severity:'warning',code:'NO_LEAD',message:'No Culture Lead is available. Assign an owned account as Culture Lead or Dual Role, or request access to a shared/community lead.'});
+    if(!receivers.length) diagnostics.push({severity:'warning',code:'NO_RECEIVER',message:'No Mirror Receiver is available. Assign an owned account as Mirror Receiver or Dual Role.'});
+    for(const account of receivers.filter(account=>!account.canExecute)) diagnostics.push({severity:'info',code:'RECEIVER_NOT_LIVE',accountId:account.id,message:`${account.nickname||account.account_number} is eligible as a receiver but cannot execute live until Reporter, terminal, and AutoTrading are ready.`});
+    res.json({ok:true,source:'reporter-backed-account-registry',generatedAt:nowIso(),accounts:owned,leads,receivers,privateDesks,unavailable,diagnostics,importedReporterAccounts:sync.importedReporterAccounts||0,reporterSourceAvailable:sync.reporterSourceAvailable!==false,summary:{owned:owned.length,leads:leads.length,receivers:receivers.length,privateDesks:privateDesks.length,live:owned.filter(account=>account.reporter_connected).length,executableReceivers:receivers.filter(account=>account.canExecute).length,sharedLeads:leads.filter(account=>account.access==='shared').length,communityLeads:leads.filter(account=>account.access==='community').length}});
+  };
+  app.get(['/copier/options','/api/copier/options','/api/v2/copier/options'],requireUser,copierOptionsHandler);
+
+  app.get('/api/v2/community/leads',requireUser,async(req,res)=>{const result=await listAccountsWithinBudget({userId:req.wisdoUser.id,mt4SyncService,loadEcosystemState,saveEcosystemState});const state=ensureMajorState(await loadEcosystemState());const uid=String(req.wisdoUser.id);const shares=new Set(Object.values(state.accountShares||{}).filter(share=>String(share.shared_with_user_id)===uid&&share.status!=='revoked').map(share=>share.account_id));const leads=Object.values(state.tradingAccounts).filter(account=>accountCanLead(account)&&(String(account.user_id)===uid||normalizeSharingMode(account.sharing_mode,account.community_visible?'community':'private')==='community'||shares.has(account.id))).map(account=>({...sanitizeAccount(account),access:String(account.user_id)===uid?'owned':shares.has(account.id)?'shared':'community'}));res.json({ok:true,leads,importedReporterAccounts:result.importedReporterAccounts||0})});
+
+  app.get('/api/v2/copier-rules',requireUser,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,rules:Object.values(state.copierRules).filter(r=>String(r.user_id)===String(req.wisdoUser.id)),relaySync:[],source:'persisted-rules'});});
+  app.get('/api/v2/copier/diagnostics',requireUser,async(req,res)=>{
+    const userId=String(req.wisdoUser.id);
+    const state=ensureMajorState(await loadEcosystemState());
+    const rules=Object.values(state.copierRules).filter(rule=>String(rule.user_id)===userId);
+    let relayRoutes=await mt4SyncService?.repository?.getCopyRoutesForUser?.(userId)||[];
+    let routeById=new Map(relayRoutes.map(route=>[String(route.routeId),route]));
+    const missingRuleIds=rules.filter(rule=>!routeById.has(String(rule.id))).map(rule=>String(rule.id));
+    const relaySync=missingRuleIds.length?await synchronizeCopierRulesToRelay({userId,mt4SyncService,loadEcosystemState,ruleIds:missingRuleIds}):[];
+    if(missingRuleIds.length){
+      relayRoutes=await mt4SyncService?.repository?.getCopyRoutesForUser?.(userId)||[];
+      routeById=new Map(relayRoutes.map(route=>[String(route.routeId),route]));
+    }
+    const repairByRule=new Map(relaySync.map(item=>[String(item.ruleId),item]));
+    const rows=[];
+    for(const rule of rules){
+      const leader=state.tradingAccounts[rule.master_id]||null;
+      const receiver=state.tradingAccounts[rule.slave_id]||null;
+      const route=routeById.get(String(rule.id))||null;
+      const recentCommands=receiver?.id&&mt4CommandService?.listAccountCommands?await mt4CommandService.listAccountCommands(userId,receiver.id,{limit:12}):[];
+      const copyCommands=recentCommands.filter(command=>String(command.command||'').startsWith('COPY_'));
+      const issues=[];
+      if(!rule.is_active)issues.push('Culture Lane is paused.');
+      if(!leader)issues.push('Culture Lead account is missing from the product account registry.');
+      if(!receiver)issues.push('Mirror Receiver account is missing from the product account registry.');
+      if(receiver&&!receiver.reporter_connected)issues.push('Mirror Receiver Reporter has not synchronized.');
+      if(receiver&&receiver.terminal_connected===false)issues.push('Mirror Receiver MT4 terminal is offline.');
+      if(receiver&&receiver.expert_enabled===false)issues.push('Mirror Receiver AutoTrading/Expert execution is disabled.');
+      if(!route){
+        const repair=repairByRule.get(String(rule.id));
+        issues.push(repair?.error||'Culture Lane is saved but not registered in the live relay repository. Use Repair Live Relay.');
+      }
+      rows.push({ruleId:rule.id,status:rule.is_active?'active':'paused',leaderAccountId:rule.master_id,receiverAccountId:rule.slave_id,relayRegistered:Boolean(route),relayStatus:route?.status||'missing',executionReady:Boolean(rule.is_active&&route&&receiver?.reporter_connected&&receiver?.terminal_connected!==false&&receiver?.expert_enabled!==false),recentCopyCommands:copyCommands,issues});
+    }
+    res.json({ok:true,generatedAt:nowIso(),rules:rows,relaySync,relayDiagnostics:(state.relayDiagnostics||[]).filter(item=>String(item.userId)===userId).slice(0,100)});
+  });
+  app.post('/api/v2/copier/repair-relay',requireUser,async(req,res)=>{
+    const userId=String(req.wisdoUser.id);
+    const results=await synchronizeCopierRulesToRelay({userId,mt4SyncService,loadEcosystemState});
+    const registered=results.filter(item=>item.route).length;
+    const failed=results.filter(item=>!item.route);
+    const relayRoutes=await mt4SyncService?.repository?.getCopyRoutesForUser?.(userId)||[];
+    res.status(failed.length?207:200).json({ok:failed.length===0,registered,failedCount:failed.length,results,relayRoutes:relayRoutes.map(route=>({routeId:route.routeId,status:route.status,leaderAccountId:route.leaderAccountId,followerAccountId:route.followerAccountId}))});
+  });
+  app.get('/api/v2/leaders/:leaderId/symbol-history',requireUser,async(req,res)=>{
+    const state=ensureMajorState(await loadEcosystemState());
+    const leaderId=String(req.params.leaderId||'');
+    if(!canAccessLeader(state,req.wisdoUser.id,leaderId))return res.status(404).json({ok:false,error:'Culture Lead not found or not shared to this desk.'});
+    const symbols=leaderSymbolHistoryFromState(state,leaderId);
+    res.json({ok:true,leaderAccountId:leaderId,symbols,defaultAllowedSymbols:symbols.map(item=>item.symbol)});
+  });
+
+  app.post('/api/v2/copier-rules',requireUser,async(req,res)=>{
+    const startedAt=Date.now();
+    const requestId=id('copier-save');
+    const requestedFollowers=Array.isArray(req.body?.slave_ids)?req.body.slave_ids:Array.isArray(req.body?.followerAccountIds)?req.body.followerAccountIds:[req.body?.slave_id].filter(Boolean);
+    logger?.info?.('Multi-account Culture Lane save started',{requestId,userId:String(req.wisdoUser.id),masterId:String(req.body.master_id||''),receiverIds:requestedFollowers.map(String)});
+    try{
+      const outcome=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>{
+        const master=state.tradingAccounts[String(req.body.master_id||'')];
+        if(!master)return {error:'Select a Culture Lead. No lead account was found for that ID.'};
+        if(!canAccessLeader(state,req.wisdoUser.id,master.id))return {error:'That account is not assigned as a Culture Lead or is not shared with this desk.'};
+        const followerIds=[...new Set(requestedFollowers.map(String).filter(Boolean))];
+        if(!followerIds.length)return {error:'Select at least one Mirror Receiver account.'};
+        const followers=[];
+        for(const followerId of followerIds){
+          const follower=state.tradingAccounts[followerId];
+          if(!follower||!ownAccount(state,req.wisdoUser.id,followerId))return {error:`Receiver ${followerId} is not an owned account.`};
+          if(!accountCanReceive(follower))return {error:`${follower.nickname||follower.account_number||followerId} must be assigned Mirror Receiver or Dual Role.`};
+          if(master.id===follower.id)return {error:'Culture Lead cannot also be selected as its own receiver.'};
+          followers.push(follower);
+        }
+        const laneId=id('lane');
+        const laneName=String(req.body.lane_name||req.body.name||`${master.nickname||master.account_number||master.id} Culture Lane`).trim();
+        const cultureLane=createCultureLane(state,req.wisdoUser.id,{laneId,name:laneName,leaderAccountId:master.id,followerAccountIds:followerIds,status:req.body.is_active===undefined||parseBool(req.body.is_active)?'active':'paused',profile:'custom',riskBudget:{type:req.body.risk_type||'multiplier',value:num(req.body.risk_value,1),minLot:num(req.body.min_lot,.01),maxLot:num(req.body.max_lot,100),equityProtectionPercent:req.body.equity_protection_pct===''?null:num(req.body.equity_protection_pct,null),maxDailyLoss:req.body.max_daily_loss===''?null:num(req.body.max_daily_loss,null),maxOpenTrades:req.body.max_open_trades===''?null:num(req.body.max_open_trades,null)}});
+        const rules=followers.map(follower=>buildCopierRuleRecord(state,req.wisdoUser.id,master,follower,{...req.body,allow_only_highlighted:req.body.allow_only_highlighted??parseSymbols(req.body.allowed_symbols).length>0},{laneId:cultureLane.laneId}));
+        const allowedSymbols=parseSymbols(req.body.allowed_symbols);
+        const blockedSymbols=parseSymbols(req.body.blocked_symbols);
+        setLaneSymbolPolicy(state,cultureLane.laneId,req.wisdoUser.id,{autoMatch:req.body.auto_match_symbols!==false,allowedSymbols,blockedSymbols,aliases:normalizeMap(req.body.symbol_mapping),missingSymbolBehavior:'skip_and_notify'});
+        audit(state,req.wisdoUser.id,'culture_lane.multi_receiver_created','CultureLane',cultureLane.laneId,{ruleIds:rules.map(rule=>rule.id),leaderAccountId:master.id,followerAccountIds:followerIds,allowedSymbols});
+        appendMemberAlert(state,req.wisdoUser.id,{type:'system',title:'Multi-account Culture Lane saved',body:`${laneName} connected one leader to ${followers.length} receiver account(s).`,metadata:{laneId:cultureLane.laneId,ruleIds:rules.map(rule=>rule.id),receiverCount:followers.length}},`lane-created:${cultureLane.laneId}`);
+        return {rules,cultureLane};
+      });
+      if(outcome.error)return res.status(400).json({ok:false,error:outcome.error,requestId});
+      const relayTimeoutMs=Math.max(250,Number(process.env.WISDO_COPIER_RELAY_TIMEOUT_MS||5000));
+      const relayState=ensureMajorState(await loadEcosystemState());
+      const relayResults=await Promise.all(outcome.rules.map(async rule=>({rule,relay:await settleWithin(syncCopierRuleToRelay(mt4SyncService,rule,relayState.tradingAccounts),relayTimeoutMs)})));
+      const results=relayResults.map(({rule,relay})=>({ruleId:rule.id,status:relay.status,executionReady:relay.status==='fulfilled'&&Boolean(relay.value),relayRoute:relay.status==='fulfilled'?relay.value:null,error:relay.status==='rejected'?String(relay.error?.message||relay.error):''}));
+      return res.status(201).json({ok:true,rule:outcome.rules[0],rules:outcome.rules,cultureLane:outcome.cultureLane,receiverCount:outcome.rules.length,relayResults:results,executionReady:results.every(row=>row.executionReady),relayPending:results.some(row=>row.status==='timeout'),requestId,elapsedMs:Date.now()-startedAt});
+    }catch(error){
+      logger?.error?.('Multi-account Culture Lane save failed',{requestId,userId:String(req.wisdoUser.id),elapsedMs:Date.now()-startedAt,error:error?.message,stack:error?.stack});
+      return res.status(500).json({ok:false,error:'Culture Lane could not be saved.',detail:error?.message||'Unknown error',requestId});
+    }
+  });
+  app.patch('/api/v2/copier-rules/:id',requireUser,async(req,res)=>{
+    const rule=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>{
+      if(!ownRule(state,req.wisdoUser.id,req.params.id))return null;
+      const r=state.copierRules[req.params.id];
+      for(const k of ['risk_type','risk_value','min_lot','max_lot','equity_protection_pct','max_daily_loss','max_open_trades','max_spread_points','max_slippage_points','trading_hours_start','trading_hours_end','reverse_signals','copy_sl_tp','copy_pending_orders'])if(req.body[k]!==undefined)r[k]=req.body[k];
+      if(req.body.allowed_symbols!==undefined)r.allowed_symbols=parseSymbols(req.body.allowed_symbols);
+      if(req.body.blocked_symbols!==undefined)r.blocked_symbols=parseSymbols(req.body.blocked_symbols);
+      if(req.body.allow_only_highlighted!==undefined)r.allow_only_highlighted=parseBool(req.body.allow_only_highlighted);
+      if(req.body.symbol_mapping!==undefined)r.symbol_mapping=normalizeMap(req.body.symbol_mapping);
+      r.updated_at=nowIso();
+      const laneId=r.culture_lane_id||`lane_${r.id}`;
+      if(state.cultureLanesById[laneId]){
+        updateCultureLane(state,laneId,req.wisdoUser.id,{status:r.is_active?'active':'paused',riskBudget:{type:r.risk_type,value:r.risk_value,minLot:r.min_lot,maxLot:r.max_lot,equityProtectionPercent:r.equity_protection_pct,maxDailyLoss:r.max_daily_loss,maxOpenTrades:r.max_open_trades},reason:'copier_rule_updated'});
+        setLaneSymbolPolicy(state,laneId,req.wisdoUser.id,{autoMatch:true,allowedSymbols:r.allowed_symbols,aliases:r.symbol_mapping,missingSymbolBehavior:'skip_and_notify'});
+        r.culture_lane_id=laneId;
+      }
+      audit(state,req.wisdoUser.id,'copier_rule.updated','CopierRule',r.id,{cultureLaneId:r.culture_lane_id||null});
+      return r;
+    });
+    if(!rule)return res.status(404).json({ok:false,error:'Rule not found.'});
+    const relayState=ensureMajorState(await loadEcosystemState()); const relayRoute=await syncCopierRuleToRelay(mt4SyncService,rule,relayState.tradingAccounts);
+    res.json({ok:true,rule,relayRoute,executionReady:Boolean(relayRoute)});
+  });
+  app.post('/api/v2/copier-rules/:id/toggle',requireUser,async(req,res)=>{
+    const rule=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>{
+      if(!ownRule(state,req.wisdoUser.id,req.params.id))return null;
+      const r=state.copierRules[req.params.id];
+      r.is_active=req.body?.is_active===undefined?!r.is_active:parseBool(req.body.is_active);
+      r.updated_at=nowIso();
+      const laneId=r.culture_lane_id||`lane_${r.id}`;
+      if(state.cultureLanesById[laneId])updateCultureLane(state,laneId,req.wisdoUser.id,{status:r.is_active?'active':'paused',reason:'copier_rule_toggled'});
+      audit(state,req.wisdoUser.id,'copier_rule.toggled','CopierRule',r.id,{is_active:r.is_active,cultureLaneId:laneId});
+      return r;
+    });
+    if(!rule)return res.status(404).json({ok:false,error:'Rule not found.'});
+    const relayState=ensureMajorState(await loadEcosystemState()); const relayRoute=await syncCopierRuleToRelay(mt4SyncService,rule,relayState.tradingAccounts);
+    res.json({ok:true,rule,relayRoute,executionReady:Boolean(relayRoute)});
+  });
+  app.delete('/api/v2/copier-rules/:id',requireUser,async(req,res)=>{
+    const removed=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>{
+      if(!ownRule(state,req.wisdoUser.id,req.params.id))return null;
+      const r=state.copierRules[req.params.id];
+      delete state.copierRules[req.params.id];
+      const laneId=r.culture_lane_id||`lane_${r.id}`;
+      const remainingRules=Object.values(state.copierRules).filter(rule=>String(rule.culture_lane_id||'')===String(laneId));
+      if(!remainingRules.length&&state.cultureLanesById[laneId]&&laneAccessibleTo(state.cultureLanesById[laneId],req.wisdoUser.id)){
+        delete state.cultureLanesById[laneId];
+        delete state.symbolPoliciesByLaneId[laneId];
+        delete state.harvestPoliciesByLaneId[laneId];
+        for(const [key,row] of Object.entries(state.laneTimelineEventsById))if(row.laneId===laneId)delete state.laneTimelineEventsById[key];
+        for(const [key,row] of Object.entries(state.laneGenomesById))if(row.laneId===laneId)delete state.laneGenomesById[key];
+      }else if(remainingRules.length&&state.cultureLanesById[laneId]){
+        state.cultureLanesById[laneId].followerAccountIds=[...new Set(remainingRules.map(rule=>String(rule.slave_id)))];
+        state.cultureLanesById[laneId].accountIds=[String(state.cultureLanesById[laneId].leaderAccountId),...state.cultureLanesById[laneId].followerAccountIds];
+        state.cultureLanesById[laneId].updatedAt=nowIso();
+      }
+      audit(state,req.wisdoUser.id,'copier_rule.deleted','CopierRule',r.id,{cultureLaneId:laneId});
+      return r;
+    });
+    if(!removed)return res.status(404).json({ok:false,error:'Rule not found.'});
+    const relayRemoved=await mt4SyncService?.repository?.deleteCopyRoute?.(req.wisdoUser.id,removed.id);
+    res.json({ok:true,removed,relayRemoved});
+  });
+
+  app.get('/api/v2/trades',requireUser,async(req,res)=>{const sync=await liveLedgerSyncWithinBudget({userId:req.wisdoUser.id,mt4SyncService,loadEcosystemState,saveEcosystemState});const state=ensureMajorState(await loadEcosystemState());let trades=Object.values(state.trades).filter(t=>String(t.user_id)===String(req.wisdoUser.id));if(req.query.account_id)trades=trades.filter(t=>String(t.account_id)===String(req.query.account_id));if(req.query.status)trades=trades.filter(t=>t.status===req.query.status);trades.sort((a,b)=>new Date(b.opened_at||b.updated_at||0)-new Date(a.opened_at||a.updated_at||0));res.json({ok:true,trades:trades.slice(0,clamp(req.query.limit||500,1,2000)),sync,dataSource:trades.length?'mt4_reporter_ledger':'waiting_for_reporter_trade_data'})});
+  app.post('/api/v2/trades',requireUser,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());if(!ownAccount(state,req.wisdoUser.id,req.body.account_id))return res.status(400).json({ok:false,error:'Account not found.'});const side=req.body.side==='sell'?'sell':'buy';const symbol=normalizeSymbol(req.body.symbol);if(!symbol)return res.status(400).json({ok:false,error:'Symbol is required.'});const trade=await mutate(loadEcosystemState,saveEcosystemState,state=>{const t={id:id('trade'),user_id:String(req.wisdoUser.id),account_id:req.body.account_id,copier_rule_id:null,source_trade_id:null,external_ticket:null,symbol,side,lot_size:num(req.body.lot_size,.01),open_price:num(req.body.open_price,null),close_price:null,stop_loss:num(req.body.stop_loss||req.body.sl,null),take_profit:num(req.body.take_profit||req.body.tp,null),commission:0,swap:0,pnl:null,status:'open',opened_at:nowIso(),closed_at:null,copy_latency_ms:null};state.trades[t.id]=t;return t});try{const command=await mt4CommandService.queueCommandForAccount(req.wisdoUser.id,trade.account_id,'MARKET_ORDER',{accountId:trade.account_id,symbol:trade.symbol,side:trade.side,lots:trade.lot_size,stopLoss:trade.stop_loss,takeProfit:trade.take_profit,confirmation:req.body.confirmation});res.status(201).json({ok:true,trade,command})}catch(e){await mutate(loadEcosystemState,saveEcosystemState,state=>{state.trades[trade.id].status='error';return true});res.status(400).json({ok:false,error:e.message,validation:e.validation,trade})}});
+  app.post('/api/v2/trades/:id/close',requireUser,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());const trade=state.trades[req.params.id];if(!trade||String(trade.user_id)!==String(req.wisdoUser.id))return res.status(404).json({ok:false,error:'Trade not found.'});try{const command=await mt4CommandService.queueCommandForAccount(req.wisdoUser.id,trade.account_id,'CLOSE_BY_TICKET',{accountId:trade.account_id,ticket:trade.external_ticket||trade.id,confirmation:req.body.confirmation,immediate:true,priority:5000,ttlMinutes:2});res.json({ok:true,queued:true,immediate:true,command})}catch(e){res.status(400).json({ok:false,error:e.message,validation:e.validation})}});
+  app.post('/api/v2/trades/close-bulk',requireUser,(req,res)=>queueBulkClose(req,res));
+  app.post('/api/v2/trades/close-all',requireUser,(req,res)=>queueBulkClose(req,res,'all'));
+  app.post('/api/v2/trades/close-profitable',requireUser,(req,res)=>queueBulkClose(req,res,'profitable'));
+  app.post('/api/v2/trades/close-losing',requireUser,(req,res)=>queueBulkClose(req,res,'losing'));
+  app.get('/api/v2/trades/compound-trackers',requireUser,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,trackers:listCloseTrackers(state,req.wisdoUser.id,req.query.account_id||'',req.query.limit||20)})});
+  app.get('/api/v2/trades/compound-report',requireUser,async(req,res)=>{
+    const sync=await liveLedgerSyncWithinBudget({userId:req.wisdoUser.id,mt4SyncService,loadEcosystemState,saveEcosystemState});
+    const state=ensureMajorState(await loadEcosystemState());
+    const laneId=String(req.query.lane_id||'');
+    if(laneId){const lane=state.cultureLanesById?.[laneId];if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return res.status(404).json({ok:false,error:'Culture Lane not found.'});}
+    const report=buildCompoundTrackerReport(state,req.wisdoUser.id,{accountId:String(req.query.account_id||''),laneId,period:String(req.query.period||'30d'),trackerLimit:req.query.limit||100});
+    res.json({ok:true,report,sync});
+  });
+  app.post('/api/v2/trades/compound-goals',requireUser,async(req,res)=>{
+    const scope={accountId:String(req.body?.account_id||req.body?.accountId||''),laneId:String(req.body?.lane_id||req.body?.laneId||'')};
+    const goals=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+      if(scope.laneId){const lane=state.cultureLanesById?.[scope.laneId];if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return null;}
+      if(scope.accountId){const account=state.tradingAccounts?.[scope.accountId];if(!account||String(account.user_id||account.ownerUserId||'')!==String(req.wisdoUser.id))return null;}
+      return setCompoundTrackerGoals(state,req.wisdoUser.id,scope,req.body||{});
+    });
+    if(!goals)return res.status(404).json({ok:false,error:'Tracker scope not found.'});
+    res.json({ok:true,goals});
+  });
+  app.get('/api/v2/trades/stats',requireUser,async(req,res)=>{const sync=await liveLedgerSyncWithinBudget({userId:req.wisdoUser.id,mt4SyncService,loadEcosystemState,saveEcosystemState});const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,sync,...analyzerFromState(state,req.wisdoUser.id,{accountId:req.query.account_id||'',period:req.query.period||'month'})})});
+
+  app.get('/api/v2/analyzer/portfolio',requireUser,async(req,res)=>{const sync=await liveLedgerSyncWithinBudget({userId:req.wisdoUser.id,mt4SyncService,loadEcosystemState,saveEcosystemState});const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,period:req.query.period||'month',sync,...analyzerFromState(state,req.wisdoUser.id,{accountId:req.query.account_id||'',period:req.query.period||'month'})})});
+  app.get('/api/v2/analyzer/trends',requireUser,async(req,res)=>{const sync=await liveLedgerSyncWithinBudget({userId:req.wisdoUser.id,mt4SyncService,loadEcosystemState,saveEcosystemState});const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,sync,...buildTrendAnalytics(state,req.wisdoUser.id,req.query.account_id||'')})});
+  app.get('/api/v2/analyzer/heatmap',requireUser,async(req,res)=>{const sync=await liveLedgerSyncWithinBudget({userId:req.wisdoUser.id,mt4SyncService,loadEcosystemState,saveEcosystemState});const state=ensureMajorState(await loadEcosystemState());let rows=Object.values(state.trades).filter(t=>String(t.user_id)===String(req.wisdoUser.id)&&t.status==='closed');if(req.query.account_id)rows=rows.filter(t=>String(t.account_id)===String(req.query.account_id));const bySymbol={};for(const t of rows)bySymbol[t.symbol]=(bySymbol[t.symbol]||0)+num(t.pnl);res.json({ok:true,sync,symbols:Object.entries(bySymbol).map(([symbol,pnl])=>({symbol,pnl,trades:rows.filter(t=>t.symbol===symbol).length})).sort((a,b)=>b.pnl-a.pnl),dataSource:rows.length?'mt4_reporter_ledger':'waiting_for_closed_trades'})});
+  app.get('/api/v2/analyzer/export.csv',requireUser,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());const rows=Object.values(state.trades).filter(t=>String(t.user_id)===String(req.wisdoUser.id));const keys=['id','account_id','symbol','side','lot_size','open_price','close_price','pnl','status','opened_at','closed_at'];const csv=[keys.join(','),...rows.map(r=>keys.map(k=>JSON.stringify(r[k]??'')).join(','))].join('\n');res.type('text/csv').set('content-disposition','attachment; filename="wisdo-trades.csv"').send(csv)});
+
+  app.get('/api/v2/alerts',requireUser,async(req,res)=>{const sync=await liveLedgerSyncWithinBudget({userId:req.wisdoUser.id,mt4SyncService,loadEcosystemState,saveEcosystemState});const state=ensureMajorState(await loadEcosystemState());const uid=String(req.wisdoUser.id);const native=state.alerts[uid]||[];const legacy=(state.notification_events||[]).filter(a=>String(a.userId||a.user_id)===uid).map(a=>({id:a.id,user_id:uid,type:String(a.type||'system').toLowerCase().replace(/\s+/g,'_'),title:a.title||a.type||'WISDO alert',body:a.message||a.body||'',metadata:a.metadata||{},read_at:a.read_at||(a.read_status==='read'?a.createdAt:null),created_at:a.created_at||a.createdAt||nowIso()}));const seen=new Set();const alerts=[...native,...legacy].filter(a=>{const key=String(a.id||a.metadata?.eventKey||`${a.type}:${a.title}:${a.created_at}`);if(seen.has(key))return false;seen.add(key);return !parseBool(req.query.unread_only)||!a.read_at}).sort((a,b)=>new Date(b.created_at||0)-new Date(a.created_at||0)).slice(0,clamp(req.query.limit||250,1,1000));res.json({ok:true,alerts,sync,dataSource:alerts.length?'live_event_ledger':'waiting_for_events',health:Object.values(state.tradingAccounts).filter(a=>String(a.user_id)===uid).map(a=>({accountId:a.id,status:a.status,reporterConnected:a.reporter_connected,terminalConnected:a.terminal_connected,expertEnabled:a.expert_enabled,lastSyncAt:a.last_sync_at}))})});
+  app.patch('/api/v2/alerts/:id/read',requireUser,async(req,res)=>{const alert=await mutate(loadEcosystemState,saveEcosystemState,state=>{const a=(state.alerts[req.wisdoUser.id]||[]).find(x=>x.id===req.params.id);if(!a)return null;a.read_at=nowIso();return a});if(!alert)return res.status(404).json({ok:false,error:'Alert not found.'});res.json({ok:true,alert})});
+  app.post('/api/v2/alerts/read-all',requireUser,async(req,res)=>{await mutate(loadEcosystemState,saveEcosystemState,state=>{for(const a of state.alerts[req.wisdoUser.id]||[])a.read_at ||= nowIso();return true});res.json({ok:true})});
+  app.get('/api/v2/events',requireUser,(req,res)=>{res.set({'content-type':'text/event-stream','cache-control':'no-cache','connection':'keep-alive'});res.flushHeaders?.();const send=()=>res.write(`event: heartbeat\ndata: ${JSON.stringify({time:nowIso(),userId:req.wisdoUser.id})}\n\n`);send();const timer=setInterval(send,25000);req.on('close',()=>clearInterval(timer))});
+
+  app.get('/api/v2/affiliate',requireUser,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());const uid=String(req.wisdoUser.id);state.affiliates[uid] ||= {userId:uid,code:`WISDO-${uid.slice(-6).toUpperCase()}`,commissionPercent:num(config?.affiliate?.defaultCommissionPercent,30),available:0,pending:0,createdAt:nowIso()};const conversions=Object.values(state.affiliateConversions).filter(c=>String(c.affiliateUserId)===uid);res.json({ok:true,code:state.affiliates[uid].code,commissionPercent:state.affiliates[uid].commissionPercent,available:state.affiliates[uid].available,pending:state.affiliates[uid].pending,conversions:conversions.length})});
+
+  app.post('/api/v2/ai/trade-insight',requireUser,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());const account=state.tradingAccounts[req.body.account_id];if(!account||String(account.user_id)!==String(req.wisdoUser.id))return res.status(404).json({ok:false,error:'Account not found.'});const stats=analyzeTrades(Object.values(state.trades).filter(t=>t.account_id===account.id));res.json({ok:true,provider:process.env.OPENAI_API_KEY||process.env.GOOGLE_AI_API_KEY?'gateway_ready_rule_fallback':'rule_engine',insight:`${account.broker||account.platform} account has ${stats.tradeCount} closed trades, ${stats.winRate.toFixed(1)}% win rate, and ${stats.maxDrawdown.toFixed(1)}% measured drawdown. ${stats.maxDrawdown>10?'Reduce route pressure and review equity protection.':'Current measured drawdown is within the default warning threshold.'}`})});
+  app.post('/api/v2/ai/risk-suggestion',requireUser,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());const account=state.tradingAccounts[req.body.account_id];if(!account||String(account.user_id)!==String(req.wisdoUser.id))return res.status(404).json({ok:false,error:'Account not found.'});const health=account.equity>=account.balance?85:account.balance?Math.max(20,100-(account.balance-account.equity)/account.balance*200):50;res.json({ok:true,suggestion:{risk_type:'equity_ratio',risk_value:health>=80?1:health>=60?.75:.5,equity_protection_pct:health>=80?12:8,max_lot:Math.max(.01,Math.min(100,num(account.equity)/10000))},reason:`Account health score ${health.toFixed(0)}/100.`})});
+
+  app.post('/api/public/webhooks/broker-trade',async(req,res)=>{
+    const raw=req.rawBody||Buffer.from(JSON.stringify(req.body||{}));
+    const signature=req.headers['x-wisdo-signature']||req.headers['x-broker-signature'];
+    if(!verifyHmacSha256({rawBody:raw,signature,secretValue:process.env.BROKER_WEBHOOK_SECRET}))return res.status(401).json({ok:false,error:'Invalid webhook signature.'});
+    const event=req.body||{};
+    const masterAccountId=String(event.account_id||event.masterAccountId||'');
+    const action=String(event.action||event.event||'open').toLowerCase();
+    const isClose=action.includes('close')||action.includes('delete');
+    const incomingSymbol=normalizeSymbol(event.symbol||event.leaderSymbol||event.masterSymbol);
+    const externalTicket=String(event.ticket||event.external_ticket||'');
+    const result=await mutate(loadEcosystemState,saveEcosystemState,async state=>{
+      const master=state.tradingAccounts[masterAccountId];
+      if(!master)return {error:'Master account not found.'};
+      let masterTrade=Object.values(state.trades).find(t=>t.account_id===masterAccountId&&externalTicket&&String(t.external_ticket||'')===externalTicket);
+      const wasExisting=Boolean(masterTrade);
+      if(!masterTrade){
+        masterTrade={id:id('trade'),user_id:master.user_id,account_id:masterAccountId,copier_rule_id:null,source_trade_id:null,external_ticket:externalTicket,symbol:incomingSymbol,side:String(event.side||'buy').toLowerCase()==='sell'?'sell':'buy',lot_size:num(event.lot_size||event.lots,.01),open_price:num(event.open_price||event.price,null),close_price:null,stop_loss:num(event.stop_loss||event.sl,null),take_profit:num(event.take_profit||event.tp,null),commission:num(event.commission,0),swap:num(event.swap,0),pnl:null,status:'open',opened_at:event.opened_at||nowIso(),closed_at:null,copy_latency_ms:null};
+        state.trades[masterTrade.id]=masterTrade;
+      }else if(!isClose){
+        masterTrade.symbol=masterTrade.symbol||incomingSymbol;
+        masterTrade.side=String(event.side||masterTrade.side||'buy').toLowerCase()==='sell'?'sell':'buy';
+        masterTrade.lot_size=num(event.lot_size||event.lots,masterTrade.lot_size||.01);
+        masterTrade.open_price=num(event.open_price||event.price,masterTrade.open_price);
+        masterTrade.stop_loss=num(event.stop_loss||event.sl,masterTrade.stop_loss);
+        masterTrade.take_profit=num(event.take_profit||event.tp,masterTrade.take_profit);
+        masterTrade.status='open';
+      }
+      if(isClose){
+        masterTrade.status='closed';
+        masterTrade.close_price=num(event.close_price||event.price,masterTrade.close_price);
+        masterTrade.pnl=num(event.pnl,masterTrade.pnl||0);
+        masterTrade.commission=num(event.commission,masterTrade.commission||0);
+        masterTrade.swap=num(event.swap,masterTrade.swap||0);
+        masterTrade.closed_at=event.closed_at||nowIso();
+      }
+      const leaderSymbol=normalizeSymbol(masterTrade.symbol||incomingSymbol);
+      const routes=Object.values(state.copierRules).filter(r=>r.master_id===masterAccountId&&r.is_active);
+      const queued=[];
+      await Promise.all(routes.map(async (rule)=>{
+        const follower=state.tradingAccounts[rule.slave_id];
+        if(!follower)return;
+        const existingCopy=Object.values(state.trades).find(t=>t.copier_rule_id===rule.id&&t.source_trade_id===masterTrade.id&&t.account_id===follower.id&&t.status==='open')||Object.values(state.trades).find(t=>t.copier_rule_id===rule.id&&t.source_trade_id===masterTrade.id&&t.account_id===follower.id);
+        if(!isClose){
+          if(existingCopy&&wasExisting){queued.push({ruleId:rule.id,followerAccountId:follower.id,skipped:'duplicate_open'});return;}
+          if(rule.blocked_symbols?.includes(leaderSymbol)){queued.push({ruleId:rule.id,followerAccountId:follower.id,skipped:'symbol_blocked'});return;}
+          if(rule.allow_only_highlighted&&!rule.allowed_symbols?.includes(leaderSymbol)){queued.push({ruleId:rule.id,followerAccountId:follower.id,skipped:'symbol_not_highlighted'});return;}
+          if(!rule.allow_only_highlighted&&rule.allowed_symbols?.length&&!rule.allowed_symbols.includes(leaderSymbol)){queued.push({ruleId:rule.id,followerAccountId:follower.id,skipped:'symbol_not_allowed'});return;}
+          if(!inTradingHours(rule)){queued.push({ruleId:rule.id,followerAccountId:follower.id,skipped:'outside_trading_hours'});return;}
+          if(rule.equity_protection_pct!=null&&follower.balance>0&&((follower.balance-follower.equity)/follower.balance*100)>=num(rule.equity_protection_pct)){queued.push({ruleId:rule.id,followerAccountId:follower.id,skipped:'equity_protection'});return;}
+          const today=new Date();today.setHours(0,0,0,0);
+          const dailyPnl=Object.values(state.trades).filter(t=>t.account_id===follower.id&&t.status==='closed'&&new Date(t.closed_at||t.opened_at)>=today).reduce((sum,t)=>sum+num(t.pnl),0);
+          if(rule.max_daily_loss!=null&&dailyPnl<=-Math.abs(num(rule.max_daily_loss))){queued.push({ruleId:rule.id,followerAccountId:follower.id,skipped:'max_daily_loss'});return;}
+          const openCount=Object.values(state.trades).filter(t=>t.account_id===follower.id&&t.status==='open').length;
+          if(rule.max_open_trades!=null&&openCount>=num(rule.max_open_trades)){queued.push({ruleId:rule.id,followerAccountId:follower.id,skipped:'max_open_trades'});return;}
+          if(rule.max_spread_points!=null&&event.spread!=null&&num(event.spread)>num(rule.max_spread_points)){queued.push({ruleId:rule.id,followerAccountId:follower.id,skipped:'spread_limit'});return;}
+          const pending=String(event.order_type||event.type||'').toLowerCase().includes('limit')||String(event.order_type||event.type||'').toLowerCase().includes('stop');
+          if(pending&&!rule.copy_pending_orders){queued.push({ruleId:rule.id,followerAccountId:follower.id,skipped:'pending_orders_disabled'});return;}
+        }else if(!existingCopy){
+          queued.push({ruleId:rule.id,followerAccountId:follower.id,skipped:'no_matching_copy'});
+          return;
+        }
+        if(isClose&&existingCopy&&!existingCopy.external_ticket){
+          const recoveredTicket=await recoverCompletedFollowerTicket(mt4CommandService,{routeId:rule.id,leaderTicket:masterTrade.external_ticket||masterTrade.id,followerAccountId:follower.id});
+          if(recoveredTicket)existingCopy.external_ticket=recoveredTicket;
+        }
+        const followerSymbol=normalizeSymbol(existingCopy?.symbol||resolveFollowerSymbol(leaderSymbol,rule)||leaderSymbol);
+        const lot=existingCopy?.lot_size||calculateSlaveLot(rule,masterTrade.lot_size,num(master.equity),num(follower.equity),num(master.balance),num(follower.balance));
+        const commandName=isClose?'COPY_CLOSE_TRADE':'COPY_OPEN_TRADE';
+        const stableLeaderTicket=String(masterTrade.external_ticket||masterTrade.id);
+        const payload={accountId:follower.id,leaderAccountId:master.id,followerAccountId:follower.id,leaderSymbol,masterSymbol:leaderSymbol,followerSymbol,symbol:followerSymbol,sourceTicket:stableLeaderTicket,leaderTicket:stableLeaderTicket,masterTicket:stableLeaderTicket,copyKey:`${rule.id}:${stableLeaderTicket}`,followerTicket:existingCopy?.external_ticket||null,masterTradeId:masterTrade.id,side:rule.reverse_signals?(masterTrade.side==='buy'?'sell':'buy'):masterTrade.side,lots:lot,stopLoss:rule.copy_sl_tp?masterTrade.stop_loss:null,takeProfit:rule.copy_sl_tp?masterTrade.take_profit:null,routeId:rule.id,maxSlippagePoints:rule.max_slippage_points??null,immediate:true,priority:isClose?10000:150,confirmation:'confirmed',ttlMinutes:isClose?2:15,commandId:isClose?`copy-close-${rule.id}-${stableLeaderTicket}`:undefined,closeAuthority:isClose};
+        try{
+          const command=await mt4CommandService.queueCommandForAccount(rule.user_id,follower.id,commandName,payload);
+          queued.push({ruleId:rule.id,followerAccountId:follower.id,followerSymbol,commandId:command.id});
+          const memberAlerts=state.alerts[rule.user_id] ||= [];
+          memberAlerts.unshift({id:id('alert'),user_id:String(rule.user_id),type:isClose?'trade_closed':'trade_opened',title:isClose?'Mirrored trade close queued':'Mirrored trade open queued',body:`${leaderSymbol} → ${followerSymbol} on ${follower.nickname||follower.account_number||follower.id}`,metadata:{routeId:rule.id,leaderAccountId:master.id,followerAccountId:follower.id,masterTradeId:masterTrade.id,commandId:command.id,symbol:followerSymbol,lots:lot},read_at:null,created_at:nowIso()});
+          state.alerts[rule.user_id]=memberAlerts.slice(0,500);
+          if(existingCopy){
+            if(isClose){existingCopy.status='closing';existingCopy.close_requested_at=nowIso();existingCopy.close_command_id=command.id;}
+          }else{
+            const copied={id:id('trade'),user_id:rule.user_id,account_id:follower.id,copier_rule_id:rule.id,source_trade_id:masterTrade.id,external_ticket:null,symbol:followerSymbol,side:payload.side,lot_size:lot,open_price:masterTrade.open_price,close_price:null,stop_loss:payload.stopLoss,take_profit:payload.takeProfit,commission:0,swap:0,pnl:null,status:'open',opened_at:nowIso(),closed_at:null,copy_latency_ms:Math.max(0,Date.now()-new Date(masterTrade.opened_at).getTime())};
+            state.trades[copied.id]=copied;
+          }
+        }catch(error){queued.push({ruleId:rule.id,followerAccountId:follower.id,error:error.message});}
+      }));
+      audit(state,master.user_id,'broker_webhook.processed','Trade',masterTrade.id,{action,queued:queued.length,externalTicket});
+      return {masterTrade,queued};
+    });
+    if(result.error)return res.status(404).json({ok:false,error:result.error});
+    res.json({ok:true,...result});
+  });
+
+
+  // WISDO v6 Culture Lane Portfolio Operating System foundation.
+  app.get('/api/v2/culture-lanes',requireUser,async(req,res)=>{
+    const lanes=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>{
+      let changed=false;
+      const ownedRules=Object.values(state.copierRules).filter(item=>String(item.user_id)===String(req.wisdoUser.id));
+      const groups=new Map();
+      for(const rule of ownedRules){
+        const key=rule.culture_lane_id?`lane:${rule.culture_lane_id}`:`legacy:${rule.master_id}`;
+        if(!groups.has(key))groups.set(key,[]);
+        groups.get(key).push(rule);
+      }
+      for(const rules of groups.values()){
+        const first=rules[0];
+        const master=state.tradingAccounts[first.master_id];
+        const followers=rules.map(rule=>state.tradingAccounts[rule.slave_id]).filter(Boolean);
+        if(!master||!followers.length)continue;
+        let laneId=first.culture_lane_id||'';
+        let lane=laneId?state.cultureLanesById[laneId]:null;
+        if(!lane){
+          laneId=laneId||`lane_${first.id}`;
+          lane=createCultureLane(state,req.wisdoUser.id,{laneId,name:`${master.nickname||master.account_number||master.id} Culture Lane`,leaderAccountId:master.id,followerAccountIds:followers.map(follower=>follower.id),status:rules.some(rule=>rule.is_active)?'active':'paused',profile:'custom',riskBudget:{type:first.risk_type,value:first.risk_value,minLot:first.min_lot,maxLot:first.max_lot,equityProtectionPercent:first.equity_protection_pct,maxDailyLoss:first.max_daily_loss,maxOpenTrades:first.max_open_trades}});
+          changed=true;
+        }else{
+          const followerIds=[...new Set([...(lane.followerAccountIds||[]),...followers.map(follower=>String(follower.id))])];
+          if(JSON.stringify(followerIds)!==JSON.stringify(lane.followerAccountIds||[])){
+            lane.followerAccountIds=followerIds;
+            lane.accountIds=[...new Set([String(lane.leaderAccountId),...followerIds])];
+            lane.updatedAt=nowIso();
+            changed=true;
+          }
+        }
+        for(const rule of rules){if(rule.culture_lane_id!==laneId){rule.culture_lane_id=laneId;rule.updated_at=nowIso();changed=true;}}
+        if(!state.symbolPoliciesByLaneId[laneId]){
+          setLaneSymbolPolicy(state,laneId,req.wisdoUser.id,{autoMatch:true,allowedSymbols:first.allowed_symbols||[],blockedSymbols:first.blocked_symbols||[],aliases:first.symbol_mapping||{},missingSymbolBehavior:'skip_and_notify'});
+          changed=true;
+        }
+      }
+      const rows=Object.values(state.cultureLanesById).filter(lane=>laneAccessibleTo(lane,req.wisdoUser.id));
+      return mutationResult(rows,{save:changed});
+    });
+    res.json({ok:true,lanes,source:'culture-lane-os-v6.1.0'});
+  });
+  app.post('/api/v2/culture-lanes',requireUser,async(req,res)=>{
+    try{
+      const lane=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>{
+        const leaderId=String(req.body?.leaderAccountId||'');
+        const followerIds=Array.isArray(req.body?.followerAccountIds)?req.body.followerAccountIds:[];
+        if(!canAccessLeader(state,req.wisdoUser.id,leaderId))return mutationResult({error:'Leader account is not owned/shared to this member.'});
+        const invalid=followerIds.find(accountId=>!ownAccount(state,req.wisdoUser.id,String(accountId)));
+        if(invalid)return mutationResult({error:`Follower account ${invalid} is not owned by this member.`});
+        const created=createCultureLane(state,req.wisdoUser.id,req.body||{});
+        audit(state,req.wisdoUser.id,'culture_lane.created','CultureLane',created.laneId,{accountIds:created.accountIds});
+        return created;
+      });
+      if(lane?.error)return res.status(403).json({ok:false,error:lane.error});
+      res.status(201).json({ok:true,lane});
+    }catch(error){res.status(400).json({ok:false,error:error.message});}
+  });
+  app.patch('/api/v2/culture-lanes/:laneId',requireUser,async(req,res)=>{
+    const lane=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>updateCultureLane(state,req.params.laneId,req.wisdoUser.id,req.body||{}));
+    if(!lane)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    res.json({ok:true,lane});
+  });
+  app.put('/api/v2/culture-lanes/:laneId/copier-configuration',requireUser,async(req,res)=>{
+    try{
+      const outcome=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>{
+        const lane=state.cultureLanesById[req.params.laneId];
+        if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return {error:'Culture Lane not found.'};
+        const leaderId=String(req.body?.master_id||req.body?.leaderAccountId||lane.leaderAccountId||'');
+        const followerIds=[...new Set((Array.isArray(req.body?.slave_ids)?req.body.slave_ids:Array.isArray(req.body?.followerAccountIds)?req.body.followerAccountIds:lane.followerAccountIds||[]).map(String).filter(Boolean))];
+        const master=state.tradingAccounts[leaderId];
+        if(!master||!canAccessLeader(state,req.wisdoUser.id,leaderId))return {error:'Selected Culture Lead is unavailable.'};
+        if(!followerIds.length)return {error:'Select at least one Mirror Receiver.'};
+        const followers=[];
+        for(const followerId of followerIds){const follower=state.tradingAccounts[followerId];if(!follower||!ownAccount(state,req.wisdoUser.id,followerId)||!accountCanReceive(follower))return {error:`Receiver ${followerId} is unavailable or not assigned as a receiver.`};if(followerId===leaderId)return {error:'Culture Lead cannot receive from itself.'};followers.push(follower);}
+        const existingRules=Object.values(state.copierRules).filter(rule=>String(rule.user_id)===String(req.wisdoUser.id)&&String(rule.culture_lane_id||'')===String(lane.laneId));
+        const byFollower=new Map(existingRules.map(rule=>[String(rule.slave_id),rule]));
+        const removedRules=existingRules.filter(rule=>!followerIds.includes(String(rule.slave_id)));
+        for(const rule of removedRules)delete state.copierRules[rule.id];
+        const rules=followers.map(follower=>buildCopierRuleRecord(state,req.wisdoUser.id,master,follower,req.body||{},{laneId:lane.laneId,existing:byFollower.get(String(follower.id))||null}));
+        updateCultureLane(state,lane.laneId,req.wisdoUser.id,{name:req.body?.lane_name||req.body?.name||lane.name,leaderAccountId:leaderId,followerAccountIds:followerIds,status:rules.some(rule=>rule.is_active)?'active':'paused',riskBudget:{type:rules[0].risk_type,value:rules[0].risk_value,minLot:rules[0].min_lot,maxLot:rules[0].max_lot,equityProtectionPercent:rules[0].equity_protection_pct,maxDailyLoss:rules[0].max_daily_loss,maxOpenTrades:rules[0].max_open_trades},reason:'copier_engine_lane_configuration_updated'});
+        const policy=setLaneSymbolPolicy(state,lane.laneId,req.wisdoUser.id,{autoMatch:req.body?.auto_match_symbols!==false,allowedSymbols:parseSymbols(req.body?.allowed_symbols),blockedSymbols:parseSymbols(req.body?.blocked_symbols),aliases:normalizeMap(req.body?.symbol_mapping),missingSymbolBehavior:'skip_and_notify'});
+        for(const rule of rules){rule.allowed_symbols=[...(policy.allowedSymbols||[])];rule.blocked_symbols=[...(policy.blockedSymbols||[])];rule.allow_only_highlighted=req.body?.allow_only_highlighted===undefined?Boolean(rule.allow_only_highlighted||policy.allowedSymbols.length||policy.blockedSymbols.length):parseBool(req.body.allow_only_highlighted);rule.symbol_mapping={...(policy.aliases||{})};}
+        audit(state,req.wisdoUser.id,'culture_lane.copier_configuration_updated','CultureLane',lane.laneId,{ruleIds:rules.map(rule=>rule.id),removedRuleIds:removedRules.map(rule=>rule.id),followerAccountIds:followerIds,allowedSymbols:policy.allowedSymbols});
+        return {lane:state.cultureLanesById[lane.laneId],rules,removedRules,policy};
+      });
+      if(outcome.error)return res.status(400).json({ok:false,error:outcome.error});
+      await Promise.allSettled(outcome.removedRules.map(rule=>mt4SyncService?.repository?.deleteCopyRoute?.(req.wisdoUser.id,rule.id)));
+      const relayState=ensureMajorState(await loadEcosystemState()); const relayResults=await Promise.allSettled(outcome.rules.map(rule=>syncCopierRuleToRelay(mt4SyncService,rule,relayState.tradingAccounts)));
+      res.json({ok:true,lane:outcome.lane,rules:outcome.rules,policy:outcome.policy,relayResults:relayResults.map((result,index)=>({ruleId:outcome.rules[index].id,status:result.status,error:result.status==='rejected'?String(result.reason?.message||result.reason):null}))});
+    }catch(error){res.status(500).json({ok:false,error:'Culture Lane update failed.',detail:error.message});}
+  });
+  app.post('/api/v2/culture-lanes/:laneId/toggle',requireUser,async(req,res)=>{
+    const outcome=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>{
+      const lane=state.cultureLanesById[req.params.laneId];if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return null;
+      const active=req.body?.is_active===undefined?lane.status!=='active':parseBool(req.body.is_active);
+      lane.status=active?'active':'paused';lane.updatedAt=nowIso();
+      const rules=Object.values(state.copierRules).filter(rule=>String(rule.culture_lane_id||'')===String(lane.laneId)&&String(rule.user_id)===String(req.wisdoUser.id));
+      for(const rule of rules){rule.is_active=active;rule.updated_at=nowIso();}
+      appendLaneTimelineEvent(state,lane.laneId,active?'lane.resumed':'lane.paused',{userId:req.wisdoUser.id,ruleIds:rules.map(rule=>rule.id)});
+      return {lane,rules};
+    });
+    if(!outcome)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    const relayState=ensureMajorState(await loadEcosystemState()); await Promise.allSettled(outcome.rules.map(rule=>syncCopierRuleToRelay(mt4SyncService,rule,relayState.tradingAccounts)));
+    res.json({ok:true,lane:outcome.lane,rules:outcome.rules});
+  });
+  app.delete('/api/v2/culture-lanes/:laneId',requireUser,async(req,res)=>{
+    const outcome=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>{
+      const lane=state.cultureLanesById[req.params.laneId];if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return null;
+      const rules=Object.values(state.copierRules).filter(rule=>String(rule.culture_lane_id||'')===String(lane.laneId)&&String(rule.user_id)===String(req.wisdoUser.id));
+      for(const rule of rules)delete state.copierRules[rule.id];
+      delete state.cultureLanesById[lane.laneId];delete state.symbolPoliciesByLaneId[lane.laneId];delete state.harvestPoliciesByLaneId[lane.laneId];
+      for(const [key,row] of Object.entries(state.laneTimelineEventsById||{}))if(row.laneId===lane.laneId)delete state.laneTimelineEventsById[key];
+      for(const [key,row] of Object.entries(state.laneGenomesById||{}))if(row.laneId===lane.laneId)delete state.laneGenomesById[key];
+      return {lane,rules};
+    });
+    if(!outcome)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    await Promise.allSettled(outcome.rules.map(rule=>mt4SyncService?.repository?.deleteCopyRoute?.(req.wisdoUser.id,rule.id)));
+    res.json({ok:true,deleted:true,laneId:req.params.laneId,removedRuleIds:outcome.rules.map(rule=>rule.id)});
+  });
+
+  app.get('/api/v2/culture-lanes/:laneId/vault',requireUser,async(req,res)=>{
+    const state=ensureMajorState(await loadEcosystemState());
+    const vault=computeCultureLaneVault(state,req.params.laneId,req.wisdoUser.id);
+    if(!vault)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    res.json({ok:true,vault});
+  });
+  app.post('/api/v2/accounts/:accountId/symbol-inventory',requireUser,async(req,res)=>{
+    const inventory=await mutate(loadEcosystemState,saveEcosystemState,state=>{
+      if(!ownAccount(state,req.wisdoUser.id,req.params.accountId))return null;
+      return upsertBrokerSymbolInventory(state,req.wisdoUser.id,req.params.accountId,req.body||{});
+    });
+    if(!inventory)return res.status(404).json({ok:false,error:'Account not found.'});
+    res.json({ok:true,inventory});
+  });
+  app.put('/api/v2/culture-lanes/:laneId/symbol-policy',requireUser,async(req,res)=>{
+    const outcome=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>{
+      const policy=setLaneSymbolPolicy(state,req.params.laneId,req.wisdoUser.id,req.body||{});
+      if(!policy)return null;
+      const lane=state.cultureLanesById[req.params.laneId];
+      const updatedRules=[];
+      for(const rule of Object.values(state.copierRules)){
+        const belongsToLane=String(rule.culture_lane_id||'')===String(req.params.laneId)||
+          (String(rule.master_id)===String(lane.leaderAccountId)&&(lane.followerAccountIds||[]).includes(String(rule.slave_id)));
+        if(!belongsToLane||String(rule.user_id)!==String(req.wisdoUser.id))continue;
+        rule.culture_lane_id=req.params.laneId;
+        rule.allowed_symbols=[...(policy.allowedSymbols||[])];
+        rule.blocked_symbols=[...(policy.blockedSymbols||[])];
+        rule.allow_only_highlighted=true;
+        rule.symbol_mapping={...(policy.aliases||{})};
+        rule.updated_at=nowIso();
+        updatedRules.push({...rule});
+      }
+      audit(state,req.wisdoUser.id,'lane_symbol_policy.applied_to_relay','CultureLane',req.params.laneId,{ruleIds:updatedRules.map(rule=>rule.id),allowedSymbols:policy.allowedSymbols,blockedSymbols:policy.blockedSymbols});
+      return {policy,updatedRules};
+    });
+    if(!outcome)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    const relayState=ensureMajorState(await loadEcosystemState()); const relayResults=await Promise.allSettled(outcome.updatedRules.map(rule=>syncCopierRuleToRelay(mt4SyncService,rule,relayState.tradingAccounts)));
+    res.json({ok:true,policy:outcome.policy,updatedRules:outcome.updatedRules.map(rule=>rule.id),relayResults:relayResults.map((result,index)=>({ruleId:outcome.updatedRules[index]?.id,status:result.status,error:result.status==='rejected'?String(result.reason?.message||result.reason):null}))});
+  });
+  app.get('/api/v2/culture-lanes/:laneId/symbol-resolution',requireUser,async(req,res)=>{
+    const state=ensureMajorState(await loadEcosystemState());
+    const lane=state.cultureLanesById[req.params.laneId];
+    if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    const result=resolveLaneSymbol(state,lane.laneId,String(req.query.accountId||''),String(req.query.symbol||''));
+    res.json({ok:true,result});
+  });
+  app.get('/api/v2/culture-lanes/:laneId/overview',requireUser,async(req,res)=>{
+    const state=ensureMajorState(await loadEcosystemState());
+    const lane=state.cultureLanesById[req.params.laneId];
+    if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    const vault=computeCultureLaneVault(state,lane.laneId,req.wisdoUser.id);
+    const symbolPolicy=state.symbolPoliciesByLaneId[lane.laneId]||{laneId:lane.laneId,autoMatch:true,aliases:{},allowedSymbols:[],blockedSymbols:[],missingSymbolBehavior:'skip_and_notify'};
+    const leaderTrades=Object.values(state.trades).filter(trade=>String(trade.account_id)===String(lane.leaderAccountId)&&trade.symbol);
+    const leaderSymbolStats={};
+    for(const trade of leaderTrades){const symbol=normalizeSymbol(trade.symbol);if(!symbol)continue;const row=leaderSymbolStats[symbol]||{symbol,count:0,lastTradedAt:null};row.count++;const stamp=trade.opened_at||trade.updated_at||trade.closed_at||null;if(stamp&&(!row.lastTradedAt||new Date(stamp)>new Date(row.lastTradedAt)))row.lastTradedAt=stamp;leaderSymbolStats[symbol]=row;}
+    const leaderSymbols=Object.values(leaderSymbolStats).sort((a,b)=>b.count-a.count||new Date(b.lastTradedAt||0)-new Date(a.lastTradedAt||0));
+    const followerInventories=(lane.followerAccountIds||[]).map(accountId=>({accountId,account:state.tradingAccounts[accountId]||null,inventory:state.brokerSymbolInventoriesByAccountId[accountId]||null,resolutions:leaderSymbols.map(item=>resolveLaneSymbol(state,lane.laneId,accountId,item.symbol))}));
+    const genomes=Object.values(state.laneGenomesById).filter(item=>item.laneId===lane.laneId).sort((a,b)=>b.sequence-a.sequence);
+    const timeline=Object.values(state.laneTimelineEventsById).filter(item=>item.laneId===lane.laneId).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,250);
+    const passports=Object.values(state.tradePassportsById).filter(item=>item.laneId===lane.laneId).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,100);
+    const dnaSnapshots=Object.values(state.laneDnaSnapshotsById).filter(item=>item.laneId===lane.laneId).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,25);
+    const intelligenceReports=Object.values(state.cultureIntelligenceReportsById).filter(item=>item.laneId===lane.laneId).sort((a,b)=>new Date(b.generatedAt)-new Date(a.generatedAt)).slice(0,25);
+    const harvestCycles=Object.values(state.harvestCyclesById).filter(item=>item.laneId===lane.laneId).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,50);
+    res.json({ok:true,lane,vault,symbolPolicy,leaderSymbols,followerInventories,harvestPolicy:state.harvestPoliciesByLaneId[lane.laneId]||null,harvestCycles,genomes,timeline,passports,dnaSnapshots,intelligenceReports});
+  });
+  app.post('/api/v2/culture-lanes/:laneId/close-all',requireUser,async(req,res)=>{
+    const state=ensureMajorState(await loadEcosystemState());
+    const lane=state.cultureLanesById[req.params.laneId];
+    if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    if(req.body?.confirmation!=='confirmed')return res.status(409).json({ok:false,error:'confirmation_required',requiredConfirmation:'confirmed'});
+    const requestedAccountIds=Array.isArray(req.body?.accountIds)?req.body.accountIds.map(String):null;
+    const executionLane=requestedAccountIds?{...lane,accountIds:[...new Set(requestedAccountIds.filter(accountId=>(lane.accountIds||[]).map(String).includes(accountId)))]}:lane;
+    const fanout=await queueLaneSweep({mt4CommandService,lane:executionLane,userId:req.wisdoUser.id,reason:'culture_lane_close_all',force:true});
+    await mutateCultureLane(loadEcosystemState,saveEcosystemState,working=>{appendLaneTimelineEvent(working,lane.laneId,'lane.close_all_parallel_queued',{accountIds:fanout.accountIds,commandIds:fanout.commands.map(item=>item.commandId),failures:fanout.failures,fanoutMs:fanout.fanoutMs});return true;});
+    res.status(fanout.failures.length?207:202).json({ok:fanout.failures.length===0,parallel:true,...fanout});
+  });
+  app.post('/api/v2/culture-lanes/:laneId/close-leader',requireUser,async(req,res)=>{
+    const state=ensureMajorState(await loadEcosystemState());
+    const lane=state.cultureLanesById[req.params.laneId];
+    if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    if(req.body?.confirmation!=='confirmed')return res.status(409).json({ok:false,error:'confirmation_required',requiredConfirmation:'confirmed'});
+    const leaderAccountId=String(lane.leaderAccountId||'');
+    if(!leaderAccountId)return res.status(409).json({ok:false,error:'leader_account_missing'});
+    const queuedAt=Date.now();
+    const command=await mt4CommandService.queueCommandForAccount(req.wisdoUser.id,leaderAccountId,'CLOSE_ALL_TRADES',{
+      accountId:leaderAccountId,
+      confirmation:'confirmed',
+      immediate:true,
+      priority:10000,
+      ttlMinutes:2,
+      commandId:`culture_lane_leader_close-${lane.laneId}-${leaderAccountId}`,
+      fanoutMode:'leader_only_atomic_sweep',
+      requestedFrom:'culture_lane_leader_close',
+      laneId:lane.laneId,
+      force:true,
+    });
+    await mutateCultureLane(loadEcosystemState,saveEcosystemState,working=>{appendLaneTimelineEvent(working,lane.laneId,'lane.leader_close_queued',{leaderAccountId,commandId:command.id,queueLatencyMs:Date.now()-queuedAt});return true;});
+    res.status(202).json({ok:true,leaderOnly:true,leaderAccountId,commandId:command.id,queueLatencyMs:Date.now()-queuedAt,command});
+  });
+  app.put('/api/v2/culture-lanes/:laneId/harvest-policy',requireUser,async(req,res)=>{
+    const policy=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>setHarvestPolicy(state,req.params.laneId,req.wisdoUser.id,req.body||{}));
+    if(!policy)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    res.json({ok:true,policy});
+  });
+  app.post('/api/v2/culture-lanes/:laneId/harvest/evaluate',requireUser,async(req,res)=>{
+    const state=ensureMajorState(await loadEcosystemState());
+    const lane=state.cultureLanesById[req.params.laneId];
+    const evaluation=evaluateLaneHarvest(state,req.params.laneId,req.wisdoUser.id);
+    if(!lane||!evaluation)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    if(!evaluation.triggered||req.body?.execute!==true)return res.json({ok:true,evaluation,executed:false,message:evaluation.triggered?'Goal reached. Press Harvest Lane Now to execute immediately.':'Goal has not been reached.'});
+    if(req.body?.confirmation!=='confirmed')return res.status(409).json({ok:false,error:'confirmation_required',evaluation,requiredConfirmation:'confirmed'});
+    if(evaluation.vault.disconnectedAccountIds.length)return res.status(409).json({ok:false,error:'receiver_health_degraded',evaluation,message:'Reconnect every lane account before automatic Harvest execution.'});
+    const reservation=await mutateCultureLane(loadEcosystemState,saveEcosystemState,working=>{const refreshed=evaluateLaneHarvest(working,req.params.laneId,req.wisdoUser.id)||evaluation;const created=createHarvestCycle(working,req.params.laneId,req.wisdoUser.id,refreshed,[]);created.status='queueing';created.manual=false;created.updatedAt=nowIso();return created;});
+    const fanout=await queueLaneSweep({mt4CommandService,lane,userId:req.wisdoUser.id,reason:'harvest_goal_reached',cycleId:reservation.cycleId});
+    const cycle=await mutateCultureLane(loadEcosystemState,saveEcosystemState,working=>{const created=working.harvestCyclesById[reservation.cycleId];created.commandIds=fanout.commands.map(item=>item.commandId);created.failures=fanout.failures;created.parallelFanout=true;created.fanoutMs=fanout.fanoutMs;created.status=fanout.failures.length?'partially_queued':'commands_queued';created.updatedAt=nowIso();appendLaneTimelineEvent(working,lane.laneId,'harvest.goal_close_queued',{cycleId:created.cycleId,commandIds:created.commandIds,failures:created.failures,fanoutMs:created.fanoutMs});return created;});
+    res.status(fanout.failures.length?207:202).json({ok:fanout.failures.length===0,evaluation,cycle,commandIds:cycle.commandIds,failures:fanout.failures,fanoutMs:fanout.fanoutMs});
+  });
+  app.post('/api/v2/culture-lanes/:laneId/harvest/execute',requireUser,async(req,res)=>{
+    const state=ensureMajorState(await loadEcosystemState());
+    const lane=state.cultureLanesById[req.params.laneId];
+    if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    if(req.body?.confirmation!=='confirmed')return res.status(409).json({ok:false,error:'confirmation_required',requiredConfirmation:'confirmed'});
+    const vault=computeCultureLaneVault(state,lane.laneId,req.wisdoUser.id);
+    const evaluation=evaluateLaneHarvest(state,lane.laneId,req.wisdoUser.id)||{triggered:false,current:vault?.combinedProfit||0,target:0,vault,policy:state.harvestPoliciesByLaneId[lane.laneId]||{goalType:'manual',goalValue:0}};
+    const reservation=await mutateCultureLane(loadEcosystemState,saveEcosystemState,working=>{const current=evaluateLaneHarvest(working,lane.laneId,req.wisdoUser.id)||evaluation;const created=createHarvestCycle(working,lane.laneId,req.wisdoUser.id,current,[]);created.status='queueing';created.manual=true;created.forceExecuted=true;created.updatedAt=nowIso();return created;});
+    const fanout=await queueLaneSweep({mt4CommandService,lane,userId:req.wisdoUser.id,reason:'manual_harvest_now',cycleId:reservation.cycleId,force:true});
+    const cycle=await mutateCultureLane(loadEcosystemState,saveEcosystemState,working=>{const created=working.harvestCyclesById[reservation.cycleId];created.commandIds=fanout.commands.map(item=>item.commandId);created.failures=fanout.failures;created.parallelFanout=true;created.fanoutMs=fanout.fanoutMs;created.status=fanout.failures.length?'partially_queued':'commands_queued';created.updatedAt=nowIso();appendLaneTimelineEvent(working,lane.laneId,'harvest.manual_close_queued',{cycleId:created.cycleId,commandIds:created.commandIds,failures:created.failures,fanoutMs:created.fanoutMs});return created;});
+    res.status(fanout.failures.length?207:202).json({ok:fanout.failures.length===0,evaluation,cycle,commandIds:cycle.commandIds,failures:fanout.failures,fanoutMs:fanout.fanoutMs,manual:true});
+  });
+  app.post('/api/v2/culture-lanes/:laneId/genomes',requireUser,async(req,res)=>{
+    const genome=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>createLaneGenome(state,req.params.laneId,req.wisdoUser.id,req.body||{}));
+    if(!genome)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    res.status(201).json({ok:true,genome});
+  });
+  app.get('/api/v2/culture-lanes/:laneId/genomes',requireUser,async(req,res)=>{
+    const state=ensureMajorState(await loadEcosystemState()); const lane=state.cultureLanesById[req.params.laneId];
+    if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    const genomes=Object.values(state.laneGenomesById).filter(item=>item.laneId===lane.laneId).sort((a,b)=>b.sequence-a.sequence);
+    res.json({ok:true,genomes});
+  });
+  app.post('/api/v2/culture-lanes/:laneId/passports',requireUser,async(req,res)=>{
+    const passport=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>createTradePassport(state,req.params.laneId,req.wisdoUser.id,req.body||{}));
+    if(!passport)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    res.status(201).json({ok:true,passport});
+  });
+  app.post('/api/v2/trade-passports/:passportId/finalize',requireUser,async(req,res)=>{
+    const passport=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>finalizeTradePassport(state,req.params.passportId,req.wisdoUser.id,req.body?.result||req.body||{}));
+    if(!passport)return res.status(404).json({ok:false,error:'Trade Passport not found, not authorized, or already finalized.'});
+    res.json({ok:true,passport});
+  });
+  app.get('/api/v2/culture-lanes/:laneId/timeline',requireUser,async(req,res)=>{
+    const state=ensureMajorState(await loadEcosystemState()); const lane=state.cultureLanesById[req.params.laneId];
+    if(!lane||!laneAccessibleTo(lane,req.wisdoUser.id))return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    const events=Object.values(state.laneTimelineEventsById).filter(item=>item.laneId===lane.laneId).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,Math.min(500,Math.max(1,num(req.query.limit,100))));
+    res.json({ok:true,events});
+  });
+
+  app.get('/api/v2/wisdo/coach',requireUser,async(req,res)=>{
+    const laneId=String(req.query.lane_id||'');
+    if(!laneId)return res.status(400).json({ok:false,error:'lane_id is required.'});
+    try{
+      const state=ensureMajorState(await loadEcosystemState());
+      const messages=listWisdoCoachMessages(state,{userId:req.wisdoUser.id,laneId,limit:req.query.limit||50});
+      const latest=messages[0];const stale=!latest||Date.now()-new Date(latest.createdAt||0).getTime()>Number(process.env.WISDO_COACH_MIN_INTERVAL_MINUTES||15)*60_000;
+      let generationDeferred=false;
+      if(stale&&req.query.refresh!=='false'){
+        const key=`${String(req.wisdoUser.id)}:${laneId}`;
+        if(!coachGenerationFlightByLane.has(key)){
+          const flight=(async()=>{
+            const generated=await mutate(loadEcosystemState,saveEcosystemState,async working=>{const message=await generateWisdoCoachMessage(working,{userId:req.wisdoUser.id,laneId,mode:latest?'snapshot':'welcome'});const notifications=enqueueCoachNotifications(working,message);return {message,notificationIds:notifications.map(row=>row.id)};});
+            if(generated.notificationIds.length&&notificationDeliveryService?.deliverByIds) await notificationDeliveryService.deliverByIds(generated.notificationIds).catch(error=>logger?.warn?.('WISDO coach delivery failed',{error:error.message}));
+            return generated;
+          })().catch(error=>logger?.warn?.('WISDO coach background generation failed',{laneId,error:error.message})).finally(()=>coachGenerationFlightByLane.delete(key));
+          boundFlightMap(coachGenerationFlightByLane,process.env.WISDO_COACH_FLIGHT_MAX||150);
+          coachGenerationFlightByLane.set(key,flight);
+        }
+        generationDeferred=true;
+      }
+      res.json({ok:true,messages,preferences:state.wisdoCoachPreferencesByUserId?.[req.wisdoUser.id]||{enabled:true,inApp:true,email:false,sms:false,discordDm:false,minimumSeverity:'warning'},aiConfigured:Boolean(process.env.OPENAI_API_KEY),databaseOnly:true,generationDeferred});
+    }catch(error){res.status(400).json({ok:false,error:error.message});}
+  });
+  app.post('/api/v2/wisdo/coach/chat',requireUser,async(req,res)=>{
+    try{
+      const message=await mutate(loadEcosystemState,saveEcosystemState,async state=>generateWisdoCoachMessage(state,{userId:req.wisdoUser.id,laneId:req.body.laneId,mode:req.body.mode==='academy'?'academy':'chat',question:req.body.question}));
+      res.json({ok:true,message});
+    }catch(error){res.status(400).json({ok:false,error:error.message});}
+  });
+  app.put('/api/v2/wisdo/coach/preferences',requireUser,async(req,res)=>{
+    const preferences=await mutate(loadEcosystemState,saveEcosystemState,state=>setWisdoCoachPreferences(state,req.wisdoUser.id,req.body||{}));
+    res.json({ok:true,preferences});
+  });
+  app.post('/api/v2/culture-lanes/:laneId/dna',requireUser,async(req,res)=>{
+    const dna=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>calculateLaneDna(state,req.params.laneId,req.wisdoUser.id));
+    if(!dna)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    res.json({ok:true,dna});
+  });
+  app.post('/api/v2/culture-lanes/:laneId/intelligence',requireUser,async(req,res)=>{
+    const report=await mutateCultureLane(loadEcosystemState,saveEcosystemState,state=>buildCultureIntelligenceReport(state,req.params.laneId,req.wisdoUser.id));
+    if(!report)return res.status(404).json({ok:false,error:'Culture Lane not found.'});
+    res.json({ok:true,report});
+  });
+
+  const cronGuard=(req,res,next)=>{const expected=String(process.env.CRON_SECRET||'');const supplied=String(req.headers.authorization||'').replace(/^Bearer\s+/i,'');if(!expected||supplied!==expected)return res.status(401).json({ok:false,error:'Invalid cron token.'});next()};
+  app.post('/api/public/cron/sync-accounts',cronGuard,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());const accounts=Object.values(state.tradingAccounts).filter(a=>a.status!=='disconnected');let queued=0;for(const a of accounts){try{await mt4CommandService.queueCommandForAccount(a.user_id,a.id,'SYNC_ACCOUNT',{accountId:a.id,immediate:false,ttlMinutes:2});queued++}catch{}}res.json({ok:true,queued,accounts:accounts.length})});
+  app.post('/api/public/cron/sync-broker-apis',cronGuard,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());const allRows=Object.values(state.brokerApiConnectionsById||{}).filter(row=>row.status!=='disconnected');const results=await runBrokerApiSync({limit:Number(req.body?.limit||100)});for(const row of allRows.filter(item=>item.provider!=='metaapi'))results.push({id:row.id,provider:row.provider,status:'provider_push_or_oauth'});res.json({ok:true,total:allRows.length,synced:results.filter(row=>row.status==='synced').length,results})});
+  app.post('/api/public/cron/refresh-market',cronGuard,async(req,res)=>{await mutate(loadEcosystemState,saveEcosystemState,state=>{state.marketCache={refreshedAt:nowIso(),providerConfigured:Boolean(process.env.FINNHUB_API_KEY||process.env.TRADING_ECONOMICS_API_KEY||process.env.FIRECRAWL_API_KEY)};return true});res.json({ok:true,refreshedAt:nowIso()})});
+
+  app.post('/api/public/cron/wisdo-coach',cronGuard,async(req,res)=>{const generated=await runProactiveCoach({limit:Number(req.body?.limit||100),force:parseBool(req.body?.force)});res.json({ok:true,generated:generated.length,messageIds:generated})});
+  app.get('/api/public/health',async(req,res)=>{const security=sessionSecurityStatus();res.json({ok:true,service:'WISDO Major Product Pass',version:'7.0.8',time:nowIso(),persistence:'postgres',security,integrations:{discord:Boolean(process.env.DISCORD_TOKEN&&process.env.CLIENT_ID),square:Boolean(process.env.SQUARE_ACCESS_TOKEN&&process.env.SQUARE_LOCATION_ID),resend:Boolean(process.env.RESEND_API_KEY&&process.env.RESEND_FROM_EMAIL),sms:Boolean(process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN&&process.env.TWILIO_FROM_NUMBER),market:Boolean(process.env.FINNHUB_API_KEY||process.env.TRADING_ECONOMICS_API_KEY||process.env.FIRECRAWL_API_KEY),ai:Boolean(process.env.OPENAI_API_KEY||process.env.GOOGLE_AI_API_KEY),postgres:Boolean(process.env.DATABASE_URL)},features:{premiumPublicSite:true,pricingConfigurator:true,operationalApi:true,signedBrokerWebhook:true,accountSpecificCommands:true,academy:true,affiliate:true,unifiedCopierOptions:true,protectedPrivateStrategies:true,aiWebinarRoom:true,adminStrategyStudio:true,browserNarration:true,chartTeacher:true,tradingViewLessons:true,realHistoricalExamples:true,fakeChartFallbackDisabled:true,squareCheckout:true,renderMemoryRepair:true,growthFunnel:true,signupEmailSms:true,personalLearningRoom:true,educationDripSequence:true,portableLeadAi:true,videoEngagementTracking:true,persistentAccountRoles:true,persistenceBackupRecovery:true,immediateBulkClose:true,closeProfitableOnly:true,closeLosingOnly:true,compoundCloseTracker:true,dailyWeeklyTrendGauges:true,closeEmailDiscordNotifications:true,cultureLaneVault:true,smartSymbolRouting:true,harvestMode:true,laneGenomes:true,laneTimeline:true,tradePassports:true,laneDna:true,cultureIntelligence:true,redisStreamsRelay:true,commandDeadLetterRecovery:true,parallelLaneClose:true,visibleCultureLanePages:true,clickableLeaderSymbolMatrix:true,multiReceiverCultureLaneBuilder:true,combinedLaneDashboard:true,dashboardHarvestAuthority:true,leaderCloseSnapshotFailsafe:true,relaySelfRepair:true,postgresRedeployPersistence:true,dashboardLeaderClose:true,comprehensiveCompoundTracker:true,compoundScopeGoals:true,compoundAttributionTables:true,databaseOnlyPersistence:true,sharedPostgresPool:true,databaseReadCache:true,fastReporterHeartbeat:true,nonBlockingAiIngest:true,singleFlightWorkers:true,resilientReporterBackoff:true,metaApiAccountConnection:true,cTraderOAuthAccountDiscovery:true,brokerWebhookApi:true,aiAcademyCoach:true,proactiveLaneCoach:true,coachEmailSmsDmPreferences:true}})});
+  app.get('/api/runtime-audit',async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,version:'7.0.8',source:'wisdo-culture-lane-os-v7.0.8.zip',checks:{rootRoute:true,publicProductPages:true,loginReturnTo:true,signedSessions:sessionSecurityStatus().signedSessions,credentialEncryptionReady:sessionSecurityStatus().credentialEncryptionConfigured,copierRules:Object.keys(state.copierRules).length,accounts:Object.keys(state.tradingAccounts).length,trades:Object.keys(state.trades).length,closeSignalsBypassEntryFilters:true,followerSymbolGuaranteed:true,persistentStorageConfigured:Boolean(process.env.DATABASE_URL),executionAutomatchEnabled:parseBool(process.env.WISDO_SYMBOL_AUTOMATCH_EXECUTION_ENABLED),unifiedCopierOptions:true,privateStrategySourcePublic:false,aiWebinarRoom:true,adminStrategyStudio:true,browserNarration:true,chartTeacher:true,tradingViewLessons:true,realHistoricalExamples:true,fakeChartFallbackDisabled:true,squareCheckout:true,renderMemoryRepair:true,growthFunnel:true,signupEmailSms:true,personalLearningRoom:true,educationDripSequence:true,portableLeadAi:true,videoEngagementTracking:true,persistentAccountRoles:true,persistenceBackupRecovery:true,immediateBulkClose:true,closeProfitableOnly:true,closeLosingOnly:true,compoundCloseTracker:true,dailyWeeklyTrendGauges:true,closeEmailDiscordNotifications:true,cultureLaneVault:true,smartSymbolRouting:true,harvestMode:true,laneGenomes:true,laneTimeline:true,tradePassports:true,laneDna:true,cultureIntelligence:true,redisStreamsRelay:true,commandDeadLetterRecovery:true,parallelLaneClose:true,visibleCultureLanePages:true,clickableLeaderSymbolMatrix:true,multiReceiverCultureLaneBuilder:true,combinedLaneDashboard:true,dashboardHarvestAuthority:true,leaderCloseSnapshotFailsafe:true,relaySelfRepair:true,postgresRedeployPersistence:true,dashboardLeaderClose:true,comprehensiveCompoundTracker:true,compoundScopeGoals:true,compoundAttributionTables:true,databaseOnlyPersistence:true,sharedPostgresPool:true,databaseReadCache:true,fastReporterHeartbeat:true,nonBlockingAiIngest:true,singleFlightWorkers:true,resilientReporterBackoff:true,metaApiAccountConnection:true,cTraderOAuthAccountDiscovery:true,brokerWebhookApi:true,aiAcademyCoach:true,proactiveLaneCoach:true,coachEmailSmsDmPreferences:true}})});
+
+  app.get('/api/v2/admin/stats',requireUser,requireAdmin,async(req,res)=>{const state=ensureMajorState(await loadEcosystemState());res.json({ok:true,users:Object.keys(state.profiles).length,accounts:Object.keys(state.tradingAccounts).length,rules:Object.keys(state.copierRules).length,trades:Object.keys(state.trades).length,subscriptions:Object.keys(state.subscriptions).length,alerts:Object.values(state.alerts).flat().length})});
+  app.post('/api/v2/admin/firms',requireUser,requireAdmin,async(req,res)=>{const firm=await mutate(loadEcosystemState,saveEcosystemState,state=>{const firm={id:req.body.id||id('firm'),name:String(req.body.name||'').trim(),type:req.body.type==='broker'?'broker':'prop',logo_url:req.body.logo_url||'',max_drawdown_pct:num(req.body.max_drawdown_pct,null),daily_drawdown_pct:num(req.body.daily_drawdown_pct,null),profit_split_pct:num(req.body.profit_split_pct,null),refund_policy:req.body.refund_policy||'',min_trading_days:num(req.body.min_trading_days,0),supported_platforms:(req.body.supported_platforms||[]).filter(x=>PLATFORMS.includes(x)),rating:num(req.body.rating,0),updated_at:nowIso()};state.firms[firm.id]=firm;audit(state,req.wisdoUser.id,'firm.upserted','Firm',firm.id);return firm});res.json({ok:true,firm})});
+
+  if(!cultureLaneRelayBootstrapStarted&&mt4SyncService){
+    cultureLaneRelayBootstrapStarted=true;
+    const restoreCultureLaneRelays=async(attempt=1)=>{
+      try{
+        const state=ensureMajorState(await loadEcosystemState());
+        const activeLaneRules=Object.values(state.copierRules||{}).filter(rule=>String(rule.culture_lane_id||'').trim()&&rule.is_active!==false);
+        const userIds=[...new Set(activeLaneRules.map(rule=>String(rule.user_id||'')).filter(Boolean))];
+        const results=[];
+        for(const userId of userIds){
+          const ruleIds=activeLaneRules.filter(rule=>String(rule.user_id)===userId).map(rule=>String(rule.id));
+          results.push(...await synchronizeCopierRulesToRelay({userId,mt4SyncService,loadEcosystemState,ruleIds}));
+        }
+        const failed=results.filter(item=>item.status!=='registered');
+        logger?.info?.('Culture Lane relay restoration completed',{attempt,activeLaneRules:activeLaneRules.length,registered:results.length-failed.length,failed:failed.length});
+        if(failed.length&&attempt<5){
+          const timer=setTimeout(()=>restoreCultureLaneRelays(attempt+1),Math.min(30000,2000*(2**attempt)));
+          timer.unref?.();
+        }
+      }catch(error){
+        logger?.warn?.('Culture Lane relay restoration delayed',{attempt,message:error.message});
+        if(attempt<5){const timer=setTimeout(()=>restoreCultureLaneRelays(attempt+1),Math.min(30000,2000*(2**attempt)));timer.unref?.();}
+      }
+    };
+    const timer=setTimeout(()=>restoreCultureLaneRelays(1),1000);
+    timer.unref?.();
+  }
+
+  logger?.info?.('WISDO major upgrade routes registered', { source: 'wisdo-culture-lane-os-v7.0.8.zip', version: '7.0.8', durableCultureLanes: true });
+}

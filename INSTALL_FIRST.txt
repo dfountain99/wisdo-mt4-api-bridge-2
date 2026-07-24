@@ -1,0 +1,22 @@
+DEPLOY IN THIS ORDER
+
+1) RENDER
+   Replace your current repo with the contents of render\ and push.
+   Set WISDO_DEVICE_ENROLLMENT_CODE to a long private random value.
+   Set WISDO_DEVICE_OWNER_USER_ID to your Discord user ID.
+   Ensure DATABASE_URL exists.
+   Pre-deploy command: npm run migrate:postgres
+
+2) WINDOWS LAPTOP
+   Open desktop-agent\ and edit .env.example into .env.
+   Run install-wisdo-desktop-agent.cmd.
+   Run: .venv\Scripts\python.exe enroll.py
+
+3) RASPBERRY PI
+   Copy pi-edge\ to the Pi.
+   Run: sudo ./install.sh
+   Edit /opt/wisdo-edge/.env.
+   Run: /opt/wisdo-edge/.venv/bin/python /opt/wisdo-edge/enroll.py
+
+4) VERIFY
+   https://wisdo-mt4-api-bridge.onrender.com/health/command-bus

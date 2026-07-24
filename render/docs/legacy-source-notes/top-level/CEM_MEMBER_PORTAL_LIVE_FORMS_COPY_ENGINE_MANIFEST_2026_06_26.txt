@@ -1,0 +1,55 @@
+CEM MEMBER PORTAL LIVE FORMS + ADVANCED COPY ENGINE
+Build date: 2026-06-26
+
+This build converts the advanced member portal staging flows into live saved workflows.
+
+LIVE ACCOUNT LINKING
+- /member/copy-pro broker-link form now creates a live pending reporter account immediately.
+- Pending broker-linked accounts appear in desk account cards and copier dropdowns before Reporter sync.
+- MT4 Reporter sync upgrades the pending account to connected when the same account/server pairing syncs.
+- Broker password fields are rejected. The portal accepts login/account number, broker, server, demo/live, role, and setup notes only.
+- Broker-link requests can be cancelled through DELETE /api/me/broker-link-requests/:requestId.
+
+LIVE TRADE LINK + COPY INVEST
+- /api/trade-link/start now stores a real tradeLink record, pairing code, and pending reporter account.
+- /api/copy-links now stores follower trade link records and copyLink records.
+- Missing repository functions were added: saveTradeLink, getTradeLinksForUser, revokeTradeLink, saveCopyLink, getAllCopyLinks.
+- Trade-link and copy-link forms reject broker passwords.
+
+COPIER ENGINE DROPDOWNS
+- Add Culture Lane dropdown now includes owned accounts, approved shared reporters, and visible community active reporters.
+- Selecting a community reporter from Add Culture Lane now creates a live access request first.
+- After owner approval, the reporter becomes an approved shared Culture Lead for route creation.
+
+LIVE PRICE / PAYMENT BEHAVIOR
+- Bot checkout no longer grants dev/manual licenses when Stripe is missing.
+- Bot orders save as manual_invoice_pending until Stripe checkout or admin payment confirmation.
+- VPS checkout no longer creates active paid access when Stripe is missing.
+- Paid link checkout saves manual_invoice_pending instead of active_manual when Stripe is missing.
+- Stripe webhook route now calls PaymentService when configured and returns 503 if webhook secrets are missing.
+- Admin live confirmation routes added:
+  POST /api/admin/orders/:orderId/mark-paid
+  POST /api/admin/link-access/:linkAccessId/mark-paid
+  POST /api/admin/subscriptions/:subscriptionId/activate
+
+LIVE ACCOUNT DISCONNECT
+- /api/me/accounts/:accountId/disconnect now removes the member account record when owned by the user.
+- DELETE /api/me/accounts/:accountId also disconnects the owned account.
+
+FILES PATCHED
+- server/apiServer.js
+- src/server/apiServer.js
+- server/server/apiServer.js
+- server/src/server/apiServer.js
+- storage/operatorDeskRepository.js
+- src/storage/operatorDeskRepository.js
+- server/storage/operatorDeskRepository.js
+- server/src/storage/operatorDeskRepository.js
+- server/deadshotSite.js
+- src/server/deadshotSite.js
+- server/server/deadshotSite.js
+- commands/wisdoPhaseTwo.js and duplicate command copies
+
+VALIDATION
+- Ran node --check across all JavaScript files in the package.
+- No JavaScript syntax errors were found.
