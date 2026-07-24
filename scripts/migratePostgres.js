@@ -113,5 +113,77 @@ try {
     create index if not exists wisdo_trade_signals_status_idx on wisdo_trade_signals(status, updated_at desc);
     create unique index if not exists wisdo_trade_signals_ticket_idx on wisdo_trade_signals(leader_account_id, source_ticket) where source_ticket is not null and source_ticket <> '';
   `);
-  console.log('WISDO PostgreSQL v7.0.8 database-first trading migration complete.');
+  
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS wisdo_devices (
+      device_id TEXT PRIMARY KEY,
+      owner_user_id TEXT NOT NULL,
+      device_type TEXT NOT NULL CHECK (device_type IN ('pi-edge','desktop-agent')),
+      device_name TEXT NOT NULL,
+      token_hash TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      capabilities JSONB NOT NULL DEFAULT '{}'::jsonb,
+      last_seen_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_devices_owner_type ON wisdo_devices(owner_user_id, device_type, status);
+
+    CREATE TABLE IF NOT EXISTS wisdo_bots (
+      bot_id TEXT PRIMARY KEY,
+      owner_user_id TEXT NOT NULL,
+      desktop_device_id TEXT NOT NULL REFERENCES wisdo_devices(device_id) ON DELETE CASCADE,
+      bot_name TEXT NOT NULL,
+      aliases JSONB NOT NULL DEFAULT '[]'::jsonb,
+      account_id TEXT,
+      terminal_name TEXT,
+      status TEXT NOT NULL DEFAULT 'online',
+      capabilities JSONB NOT NULL DEFAULT '{}'::jsonb,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      last_seen_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_bots_owner_status ON wisdo_bots(owner_user_id, status, last_seen_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_wisdo_bots_desktop ON wisdo_bots(desktop_device_id, status);
+
+    CREATE TABLE IF NOT EXISTS wisdo_commands (
+      command_id UUID PRIMARY KEY,
+      owner_user_id TEXT NOT NULL,
+      issued_by_device_id TEXT REFERENCES wisdo_devices(device_id),
+      source TEXT NOT NULL,
+      intent TEXT NOT NULL,
+      target_type TEXT NOT NULL,
+      target_id TEXT,
+      desktop_device_id TEXT REFERENCES wisdo_devices(device_id),
+      account_id TEXT,
+      parameters JSONB NOT NULL DEFAULT '{}'::jsonb,
+      spoken_text TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      priority INTEGER NOT NULL DEFAULT 50,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      leased_by_device_id TEXT REFERENCES wisdo_devices(device_id),
+      lease_expires_at TIMESTAMPTZ,
+      result JSONB NOT NULL DEFAULT '{}'::jsonb,
+      result_message TEXT,
+      expires_at TIMESTAMPTZ NOT NULL,
+      completed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_commands_agent_queue ON wisdo_commands(desktop_device_id, status, priority DESC, created_at);
+    CREATE INDEX IF NOT EXISTS idx_wisdo_commands_owner_created ON wisdo_commands(owner_user_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS wisdo_command_audit (
+      id BIGSERIAL PRIMARY KEY,
+      command_id UUID NOT NULL REFERENCES wisdo_commands(command_id) ON DELETE CASCADE,
+      event_type TEXT NOT NULL,
+      actor_id TEXT,
+      detail JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_command_audit_command ON wisdo_command_audit(command_id, created_at);
+  `);
+console.log('WISDO PostgreSQL v7.0.8 database-first trading migration complete.');
 } finally { await pool.end(); }
