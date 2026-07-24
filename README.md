@@ -1,12 +1,26 @@
-# WISDO Unified Ecosystem v1.0
+# Wisdo Core Alpha
 
-One command path across Render, Raspberry Pi, Windows, member portal, bots, and Reporters.
+Local Raspberry Pi runtime for the Wisdo hardware ecosystem. It provides a lightweight local API, personalized recognition, account-growth milestone tracking, presence events, text-to-speech hooks, cloud bridge commands, local SQLite durability, and systemd startup.
 
-## Components
-- `render/`: existing WISDO v7.0.8 upgraded with PostgreSQL command bus.
-- `pi-edge/`: voice/wake gateway that sends authorized commands and speaks results.
-- `desktop-agent/`: Windows agent that discovers terminals, registers bots, leases commands, and acknowledges execution.
-- `shared/`: versioned command contract.
+## Quick start
 
-## Safety
-Trading commands require an enrolled device and target resolution. The desktop agent currently writes commands into a durable local Reporter inbox. Reporter-specific execution adapters should consume that inbox and enforce their existing safety rules.
+```bash
+cp .env.example .env
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+python -m wisdo_core
+```
+
+Open `http://127.0.0.1:8787/health`.
+
+## Raspberry Pi install
+
+```bash
+chmod +x scripts/*.sh
+./scripts/first_boot.sh
+sudo ./scripts/install_pi.sh
+sudo systemctl status wisdo-core
+```
+
+See `docs/HARDWARE_SETUP.md`, `docs/ARCHITECTURE.md`, and `docs/SECURITY.md`.

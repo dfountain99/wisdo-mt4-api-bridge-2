@@ -1,0 +1,5 @@
+{
+  "device_id": "wisdo-core-alpha-001",
+  "room": "office",
+  "capabilities": ["presence", "speech", "trading-briefing", "cloud-command"]
+}

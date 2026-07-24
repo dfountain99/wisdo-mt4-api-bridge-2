@@ -1,0 +1,23 @@
+[Unit]
+Description=Wisdo Core Alpha
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/wisdo-core
+EnvironmentFile=-/opt/wisdo-core/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/wisdo-core/.venv/bin/python -m wisdo_core
+Restart=always
+RestartSec=5
+User=pi
+Group=pi
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/wisdo-core
+
+[Install]
+WantedBy=multi-user.target
