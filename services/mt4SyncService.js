@@ -1217,6 +1217,9 @@ export class Mt4SyncService {
 
     const connectedPairingRecord = {
       ...pairingRecord,
+      // Recovered/legacy pairing rows may not carry the key inside their JSON record.
+      // The authenticated Reporter snapshot is authoritative for the key used to look up this row.
+      pairingCode: String(pairingRecord.pairingCode || snapshot.pairingCode || '').trim(),
       status: 'connected',
       connectedAt: pairingRecord.connectedAt || receivedAt,
       accountNumber: String(snapshot.accountNumber),

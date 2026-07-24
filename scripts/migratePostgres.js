@@ -115,7 +115,7 @@ try {
   `);
   
 
-  await client.query(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS wisdo_devices (
       device_id TEXT PRIMARY KEY,
       owner_user_id TEXT NOT NULL,
@@ -185,5 +185,5 @@ try {
     );
     CREATE INDEX IF NOT EXISTS idx_wisdo_command_audit_command ON wisdo_command_audit(command_id, created_at);
   `);
-console.log('WISDO PostgreSQL v7.0.8 database-first trading migration complete.');
+console.log('WISDO PostgreSQL v8.0.1 command-bus and MT4 pairing migration complete.');
 } finally { await pool.end(); }

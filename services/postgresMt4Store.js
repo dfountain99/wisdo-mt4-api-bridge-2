@@ -167,6 +167,18 @@ export class PostgresMt4Store {
     try {
       await client.query('begin');
       const pairing = obj(pairingRecord);
+      const pairingCode = String(
+        pairing.pairingCode
+        || connectionRecord?.pairingCode
+        || latestSnapshotRecord?.snapshot?.pairingCode
+        || '',
+      ).trim();
+      if (!pairingCode) {
+        const error = new Error('MT4 snapshot persistence requires a non-empty pairing code.');
+        error.code = 'WISDO_PAIRING_CODE_REQUIRED';
+        throw error;
+      }
+      pairing.pairingCode = pairingCode;
       await client.query(`
         insert into wisdo_mt4_pairings(pairing_code, discord_user_id, channel_id, status, account_id, account_number, broker_server, record, created_at, expires_at, connected_at, expired_at, updated_at)
         values($1,$2,$3,$4,$5,$6,$7,$8::jsonb,coalesce($9::timestamptz,now()),$10::timestamptz,$11::timestamptz,$12::timestamptz,now())
@@ -175,7 +187,7 @@ export class PostgresMt4Store {
           account_id=excluded.account_id, account_number=excluded.account_number, broker_server=excluded.broker_server,
           record=excluded.record, expires_at=excluded.expires_at, connected_at=excluded.connected_at,
           expired_at=excluded.expired_at, updated_at=now()
-      `, [pairing.pairingCode, pairing.discordUserId, pairing.channelId || null, pairing.status || 'connected', pairing.accountId || connectionRecord.accountId, pairing.accountNumber || connectionRecord.accountNumber, pairing.brokerServer || connectionRecord.brokerServer || '', JSON.stringify(pairing), pairing.createdAt || null, pairing.expiresAt || null, pairing.connectedAt || null, pairing.expiredAt || null]);
+      `, [pairingCode, pairing.discordUserId, pairing.channelId || null, pairing.status || 'connected', pairing.accountId || connectionRecord.accountId, pairing.accountNumber || connectionRecord.accountNumber, pairing.brokerServer || connectionRecord.brokerServer || '', JSON.stringify(pairing), pairing.createdAt || null, pairing.expiresAt || null, pairing.connectedAt || null, pairing.expiredAt || null]);
 
       await client.query(`
         insert into wisdo_mt4_accounts(account_id, discord_user_id, account_number, broker_server, status, connection, settings, latest_snapshot, connected_at, last_sync_at, updated_at)
