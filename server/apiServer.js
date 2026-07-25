@@ -11,6 +11,7 @@ import { registerExtendedProductRoutes } from './extendedProductRoutes.js';
 import { registerPresenceIdentityRoutes } from './presenceIdentityRoutes.js';
 import { registerLivingOperatingSystemRoutes } from './livingOperatingSystemRoutes.js';
 import { registerCommandBusRoutes } from './commandBusRoutes.js';
+import { registerAdaptiveFabricRoutes } from './adaptiveFabricRoutes.js';
 import { encodeSignedSession, decodeSignedSession } from './security.js';
 import {
   createWisdoPhase1Repository,
@@ -4482,7 +4483,8 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   });
 
 
-  registerCommandBusRoutes(app, { config, logger, mt4CommandService });
+  const commandBusService = registerCommandBusRoutes(app, { config, logger, mt4CommandService });
+  registerAdaptiveFabricRoutes(app, { commandBusService, pool: commandBusService.pool, logger });
   registerLivingOperatingSystemRoutes(app, {
     loadEcosystemState,
     saveEcosystemState,

@@ -185,5 +185,93 @@ try {
     );
     CREATE INDEX IF NOT EXISTS idx_wisdo_command_audit_command ON wisdo_command_audit(command_id, created_at);
   `);
-console.log('WISDO PostgreSQL v8.0.1 command-bus and MT4 pairing migration complete.');
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wisdo_capabilities (
+      capability_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, provider_type TEXT NOT NULL, provider_id TEXT NOT NULL,
+      capability_key TEXT NOT NULL, kind TEXT NOT NULL, risk_level TEXT NOT NULL DEFAULT 'low', requires_confirmation BOOLEAN NOT NULL DEFAULT FALSE,
+      parameters JSONB NOT NULL DEFAULT '{}'::jsonb, metadata JSONB NOT NULL DEFAULT '{}'::jsonb, status TEXT NOT NULL DEFAULT 'active',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(owner_user_id,provider_type,provider_id,capability_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_capabilities_owner ON wisdo_capabilities(owner_user_id,status,capability_key);
+
+    CREATE TABLE IF NOT EXISTS wisdo_runtime_instances (
+      instance_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, bot_family TEXT NOT NULL, device_id TEXT, terminal_id TEXT, account_id TEXT,
+      broker TEXT, symbol TEXT NOT NULL, timeframe TEXT, magic_number BIGINT, chart_id TEXT, culture_lane_id TEXT, campaign_id TEXT,
+      capabilities JSONB NOT NULL DEFAULT '[]'::jsonb, status TEXT NOT NULL DEFAULT 'online', last_seen_at TIMESTAMPTZ,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_instances_scope ON wisdo_runtime_instances(owner_user_id,bot_family,account_id,symbol,status);
+
+    CREATE TABLE IF NOT EXISTS wisdo_behaviors (
+      behavior_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, name TEXT NOT NULL, purpose TEXT, scope_level TEXT NOT NULL,
+      scope JSONB NOT NULL DEFAULT '{}'::jsonb, definition JSONB NOT NULL, status TEXT NOT NULL DEFAULT 'draft', current_version INTEGER NOT NULL DEFAULT 1,
+      source_type TEXT NOT NULL DEFAULT 'voice', source_text TEXT, risk_level TEXT NOT NULL DEFAULT 'low', approval_required BOOLEAN NOT NULL DEFAULT FALSE,
+      approved_by TEXT, approved_at TIMESTAMPTZ, expires_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_behaviors_scope ON wisdo_behaviors(owner_user_id,status,scope_level);
+
+    CREATE TABLE IF NOT EXISTS wisdo_behavior_versions (
+      id BIGSERIAL PRIMARY KEY, behavior_id TEXT NOT NULL REFERENCES wisdo_behaviors(behavior_id) ON DELETE CASCADE, version INTEGER NOT NULL,
+      definition JSONB NOT NULL, change_summary TEXT, created_by TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(behavior_id,version)
+    );
+
+    CREATE TABLE IF NOT EXISTS wisdo_behavior_deployments (
+      deployment_id TEXT PRIMARY KEY, behavior_id TEXT NOT NULL REFERENCES wisdo_behaviors(behavior_id), behavior_version INTEGER NOT NULL,
+      owner_user_id TEXT NOT NULL, target_instances JSONB NOT NULL DEFAULT '[]'::jsonb, mode TEXT NOT NULL DEFAULT 'shadow', state TEXT NOT NULL DEFAULT 'pending',
+      effective_at TIMESTAMPTZ, expires_at TIMESTAMPTZ, result JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS wisdo_promises (
+      promise_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, name TEXT NOT NULL, condition_definition JSONB NOT NULL,
+      action_definition JSONB NOT NULL, cancel_definition JSONB NOT NULL DEFAULT '{}'::jsonb, state TEXT NOT NULL DEFAULT 'armed',
+      expires_at TIMESTAMPTZ, fulfilled_at TIMESTAMPTZ, canceled_at TIMESTAMPTZ, metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_promises_state ON wisdo_promises(owner_user_id,state,expires_at);
+
+    CREATE TABLE IF NOT EXISTS wisdo_experiences (
+      experience_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, name TEXT NOT NULL, definition JSONB NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active', current_version INTEGER NOT NULL DEFAULT 1, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS wisdo_voice_genomes (
+      voice_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, name TEXT NOT NULL, source_type TEXT NOT NULL,
+      identity JSONB NOT NULL DEFAULT '{}'::jsonb, vocal_character JSONB NOT NULL DEFAULT '{}'::jsonb, delivery JSONB NOT NULL DEFAULT '{}'::jsonb,
+      consent JSONB NOT NULL DEFAULT '{}'::jsonb, assignments JSONB NOT NULL DEFAULT '[]'::jsonb, status TEXT NOT NULL DEFAULT 'active',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS wisdo_conversation_context (
+      context_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, session_id TEXT NOT NULL, references JSONB NOT NULL DEFAULT '{}'::jsonb,
+      current_mission JSONB NOT NULL DEFAULT '{}'::jsonb, pending_clarification JSONB NOT NULL DEFAULT '{}'::jsonb,
+      expires_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(owner_user_id,session_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS wisdo_trade_history (
+      trade_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, account_id TEXT, bot_family TEXT, instance_id TEXT, symbol TEXT NOT NULL,
+      timeframe TEXT, profit DOUBLE PRECISION NOT NULL DEFAULT 0, opened_at TIMESTAMPTZ, closed_at TIMESTAMPTZ NOT NULL,
+      passport JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_trade_history_analysis ON wisdo_trade_history(owner_user_id,closed_at DESC,symbol,account_id,bot_family);
+
+    CREATE TABLE IF NOT EXISTS wisdo_simulations (
+      simulation_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, behavior_id TEXT, input_definition JSONB NOT NULL,
+      result JSONB NOT NULL DEFAULT '{}'::jsonb, status TEXT NOT NULL DEFAULT 'queued', started_at TIMESTAMPTZ, completed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS wisdo_life_graph_nodes (
+      node_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, node_type TEXT NOT NULL, name TEXT NOT NULL, data JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS wisdo_life_graph_edges (
+      edge_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, from_node_id TEXT NOT NULL REFERENCES wisdo_life_graph_nodes(node_id) ON DELETE CASCADE,
+      to_node_id TEXT NOT NULL REFERENCES wisdo_life_graph_nodes(node_id) ON DELETE CASCADE, relation_type TEXT NOT NULL,
+      data JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+console.log('WISDO PostgreSQL v2.0 adaptive intelligence fabric migration complete.');
 } finally { await pool.end(); }
