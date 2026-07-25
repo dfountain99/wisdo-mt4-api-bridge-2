@@ -13,6 +13,7 @@ import { registerLivingOperatingSystemRoutes } from './livingOperatingSystemRout
 import { registerCommandBusRoutes } from './commandBusRoutes.js';
 import { registerAdaptiveFabricRoutes } from './adaptiveFabricRoutes.js';
 import { registerAtlasRoutes } from './atlasRoutes.js';
+import { registerVoiceRoutes } from './voiceRoutes.js';
 import { encodeSignedSession, decodeSignedSession } from './security.js';
 import {
   createWisdoPhase1Repository,
@@ -4487,6 +4488,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   const commandBusService = registerCommandBusRoutes(app, { config, logger, mt4CommandService });
   registerAdaptiveFabricRoutes(app, { commandBusService, pool: commandBusService.pool, logger });
   registerAtlasRoutes(app, { commandBusService, pool: commandBusService.pool, logger });
+  registerVoiceRoutes(app, { commandBusService, logger });
   registerLivingOperatingSystemRoutes(app, {
     loadEcosystemState,
     saveEcosystemState,
