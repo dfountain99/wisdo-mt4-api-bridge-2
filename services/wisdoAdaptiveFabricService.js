@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 const FINANCIAL_ACTIONS = new Set(['close_all','close_profitable','close_losing','modify_stop','set_profit_target','change_risk','trail_stop']);
 const IMMUTABLE_BLOCKS = new Set(['disable_authentication','disable_audit','bypass_risk_governor','expose_broker_password','remove_emergency_stop']);
 const scopeRank = { platform:0, user:10, lane:20, account:30, bot_family:40, symbol:50, timeframe:60, instance:70, temporary:80 };
+const CURRENCY_CODES = new Set(['USD','EUR','GBP','JPY','CHF','AUD','NZD','CAD','SGD','HKD','NOK','SEK','DKK','PLN','TRY','ZAR','MXN','CNH','CNY','RUB','BRL']);
 
 function id(prefix) { return `${prefix}_${crypto.randomUUID()}`; }
 function clean(v='') { return String(v ?? '').trim(); }
@@ -34,7 +35,16 @@ export class WisdoAdaptiveFabricService {
     else if(/pause/.test(t)) intent='pause_entries'; else if(/resume/.test(t)) intent='resume_entries';
     const money=t.match(/\$\s*([\d,]+(?:\.\d+)?)/); if(money) params.money=Number(money[1].replaceAll(',',''));
     const pct=t.match(/(\d+(?:\.\d+)?)\s*%/); if(pct && params.start_profit_percent==null) params.percent=Number(pct[1]);
-    const symbol=(raw.match(/\b[A-Z]{6}\b/)||[])[0] || context.last_symbol || null;
+    const availableSymbols=Array.isArray(context.available_symbols)?context.available_symbols:[];
+    const availableMatch=availableSymbols.find(candidate=>raw.toLowerCase().includes(String(candidate).toLowerCase()));
+    const tokens=raw.match(/\b[A-Z0-9][A-Z0-9._-]{2,23}\b/gi)||[];
+    const explicitMarket=tokens.find(token=>{
+      const upper=token.toUpperCase();
+      const base=upper.match(/^([A-Z]{6})/)?.[1];
+      const forex=base&&CURRENCY_CODES.has(base.slice(0,3))&&CURRENCY_CODES.has(base.slice(3,6));
+      return forex||/^(XAUUSD|XAGUSD|GOLD|SILVER|US30|DJ30|NAS100|NASDAQ|USTEC|SPXUSD|SPX500|SP500|BTCUSD|ETHUSD|USOIL|UKOIL|WTI|BRENT)/.test(upper)||(/[A-Z]/.test(upper)&&/\d/.test(upper));
+    });
+    const symbol=clean(availableMatch||explicitMarket||context.last_symbol||context.canonical_symbol||'').toUpperCase()||null;
     return { raw, intent, parameters:params, references:{symbol, bot_family:context.bot_family||null, account_id:context.account_id||null, instance_id:context.instance_id||null}, confidence:symbol||!/(that one|it only|that pair)/i.test(raw)?0.91:0.58 };
   }
 

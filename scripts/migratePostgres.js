@@ -244,7 +244,7 @@ try {
     );
 
     CREATE TABLE IF NOT EXISTS wisdo_conversation_context (
-      context_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, session_id TEXT NOT NULL, references JSONB NOT NULL DEFAULT '{}'::jsonb,
+      context_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, session_id TEXT NOT NULL, reference_state JSONB NOT NULL DEFAULT '{}'::jsonb,
       current_mission JSONB NOT NULL DEFAULT '{}'::jsonb, pending_clarification JSONB NOT NULL DEFAULT '{}'::jsonb,
       expires_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(owner_user_id,session_id)
     );
@@ -260,6 +260,56 @@ try {
       simulation_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, behavior_id TEXT, input_definition JSONB NOT NULL,
       result JSONB NOT NULL DEFAULT '{}'::jsonb, status TEXT NOT NULL DEFAULT 'queued', started_at TIMESTAMPTZ, completed_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS wisdo_broker_symbols (
+      owner_user_id TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      broker TEXT NOT NULL,
+      broker_symbol TEXT NOT NULL,
+      canonical_symbol TEXT NOT NULL,
+      asset_class TEXT NOT NULL DEFAULT 'unknown',
+      base_asset TEXT,
+      quote_asset TEXT,
+      trade_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      visible BOOLEAN NOT NULL DEFAULT TRUE,
+      market_open BOOLEAN,
+      min_lot DOUBLE PRECISION,
+      max_lot DOUBLE PRECISION,
+      lot_step DOUBLE PRECISION,
+      digits INTEGER,
+      point_size DOUBLE PRECISION,
+      stop_level DOUBLE PRECISION,
+      spread DOUBLE PRECISION,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY(owner_user_id, account_id, broker_symbol)
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_broker_symbols_canonical ON wisdo_broker_symbols(owner_user_id, canonical_symbol, account_id);
+    CREATE INDEX IF NOT EXISTS idx_wisdo_broker_symbols_compatibility ON wisdo_broker_symbols(owner_user_id, account_id, trade_enabled, visible, asset_class);
+
+    CREATE TABLE IF NOT EXISTS wisdo_symbol_aliases (
+      owner_user_id TEXT NOT NULL,
+      alias TEXT NOT NULL,
+      canonical_symbol TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'user',
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY(owner_user_id, alias)
+    );
+
+    CREATE TABLE IF NOT EXISTS wisdo_symbol_groups (
+      group_id TEXT PRIMARY KEY,
+      owner_user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      selector JSONB NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(owner_user_id, name)
     );
 
     CREATE TABLE IF NOT EXISTS wisdo_life_graph_nodes (
