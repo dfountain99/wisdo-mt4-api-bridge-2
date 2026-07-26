@@ -329,6 +329,48 @@ try {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+
+
+    CREATE TABLE IF NOT EXISTS wisdo_components (
+      component_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, device_id TEXT,
+      component_type TEXT NOT NULL, name TEXT NOT NULL, aliases JSONB NOT NULL DEFAULT '[]'::jsonb,
+      capabilities JSONB NOT NULL DEFAULT '{}'::jsonb, state JSONB NOT NULL DEFAULT '{}'::jsonb,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb, status TEXT NOT NULL DEFAULT 'online',
+      last_seen_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_components_owner_type ON wisdo_components(owner_user_id,component_type,status,last_seen_at DESC);
+
+    CREATE TABLE IF NOT EXISTS wisdo_control_executions (
+      execution_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, issued_by_device_id TEXT,
+      component_id TEXT NOT NULL REFERENCES wisdo_components(component_id) ON DELETE CASCADE,
+      action TEXT NOT NULL, parameters JSONB NOT NULL DEFAULT '{}'::jsonb, risk_level INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL DEFAULT 'queued', result JSONB, error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      leased_at TIMESTAMPTZ, completed_at TIMESTAMPTZ, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_control_queue ON wisdo_control_executions(component_id,status,created_at);
+
+    CREATE TABLE IF NOT EXISTS wisdo_browser_events (
+      event_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, issued_by_device_id TEXT,
+      target_session_id TEXT, action TEXT NOT NULL, payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      status TEXT NOT NULL DEFAULT 'pending', expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), delivered_at TIMESTAMPTZ, acknowledged_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_browser_events_pending ON wisdo_browser_events(owner_user_id,status,expires_at,created_at);
+
+    CREATE TABLE IF NOT EXISTS wisdo_missions (
+      mission_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, name TEXT NOT NULL, purpose TEXT,
+      status TEXT NOT NULL DEFAULT 'active', priority INTEGER NOT NULL DEFAULT 50,
+      state JSONB NOT NULL DEFAULT '{}'::jsonb, success_criteria JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), completed_at TIMESTAMPTZ
+    );
+
+    CREATE TABLE IF NOT EXISTS wisdo_event_ledger (
+      event_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, source_type TEXT NOT NULL, source_id TEXT,
+      event_type TEXT NOT NULL, severity TEXT NOT NULL DEFAULT 'info', payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      correlation_id TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_event_ledger_owner_time ON wisdo_event_ledger(owner_user_id,created_at DESC);
+
     CREATE TABLE IF NOT EXISTS wisdo_life_graph_nodes (
       node_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, node_type TEXT NOT NULL, name TEXT NOT NULL, data JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -340,5 +382,5 @@ try {
     );
   `);
 
-console.log('WISDO PostgreSQL v2.3 conversational voice creator migration complete.');
+console.log('WISDO PostgreSQL v3.0 master kernel migration complete.');
 } finally { await pool.end(); }
