@@ -151,7 +151,12 @@ export class WisdoVoiceService {
     if (!response.ok) {
       const details = await response.text();
       const error = new Error(`Voice provider failed (${response.status}): ${details.slice(0, 500)}`);
-      error.status = response.status;
+      error.statusCode = 502;
+      error.code = response.status === 401 || response.status === 403
+        ? 'voice_provider_auth_failed'
+        : 'voice_provider_failed';
+      error.providerStatus = response.status;
+      error.provider = 'openai';
       throw error;
     }
 
@@ -191,6 +196,70 @@ export function registerVoiceRoutes(app, { commandBusService, voiceCreatorServic
       default_profile: service.defaultProfile,
       profiles: service.profiles().map(({ id, display_name, description }) => ({ id, display_name, description })),
     });
+  });
+
+
+  app.post('/api/voice/v1/diagnostics', auth, async (req, res, next) => {
+    try {
+      const requestedProfile = clean(req.body?.profile || service.defaultProfile).toLowerCase();
+      let activeProfile = null;
+      if (voiceCreatorService) {
+        activeProfile = await voiceCreatorService.active(
+          req.wisdoDevice,
+          clean(req.body?.scope_type || 'user_default'),
+          clean(req.body?.scope_id || ''),
+        );
+      }
+
+      const diagnostics = {
+        ok: true,
+        service: 'wisdo-voice-diagnostics',
+        version: '2.3.1',
+        device: {
+          authenticated: true,
+          device_id: req.wisdoDevice.device_id,
+          device_type: req.wisdoDevice.device_type,
+          status: req.wisdoDevice.status,
+        },
+        database: { reachable: true },
+        voice: {
+          provider: 'openai',
+          configured: Boolean(service.apiKey),
+          model: service.model,
+          requested_profile: requestedProfile,
+          active_profile: activeProfile?.voice_id || activeProfile?.profile_id || null,
+          default_profile: service.defaultProfile,
+        },
+        provider_probe: { attempted: false, ok: null },
+      };
+
+      if (req.body?.provider_probe === true) {
+        diagnostics.provider_probe.attempted = true;
+        try {
+          const result = await service.synthesize({
+            text: clean(req.body?.probe_text || 'Wisdo voice diagnostics online.'),
+            profile: requestedProfile,
+            speed: 1,
+          });
+          diagnostics.provider_probe.ok = true;
+          diagnostics.provider_probe.provider = result.provider;
+          diagnostics.provider_probe.content_type = result.contentType;
+          diagnostics.provider_probe.audio_bytes = result.audio.length;
+        } catch (error) {
+          diagnostics.ok = false;
+          diagnostics.provider_probe.ok = false;
+          diagnostics.provider_probe.code = error.code || 'voice_provider_failed';
+          diagnostics.provider_probe.provider_status = error.providerStatus || null;
+          diagnostics.provider_probe.message = error.code === 'voice_provider_auth_failed'
+            ? 'The Pi is authenticated, but the neural voice provider rejected the Render API credential.'
+            : error.message;
+        }
+      }
+
+      res.status(diagnostics.ok ? 200 : 502).json(diagnostics);
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.get('/api/voice/v1/profiles', auth, (_req, res) => {
