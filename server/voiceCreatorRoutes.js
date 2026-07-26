@@ -1,0 +1,13 @@
+function clean(v=''){return String(v??'').trim();}
+function bearer(req){const v=clean(req.headers.authorization);return v.toLowerCase().startsWith('bearer ')?v.slice(7).trim():'';}
+export function registerVoiceCreatorRoutes(app,{commandBusService,voiceCreatorService,voiceService,logger=console}={}){
+ async function auth(req,res,next){try{const d=await commandBusService.authenticateDevice(req.headers['x-wisdo-device-id'],bearer(req));if(!d)return res.status(401).json({ok:false,error:'Invalid device credentials.'});req.wisdoDevice=d;next();}catch(e){next(e)}}
+ app.get('/health/voice-creator',(_q,res)=>res.json({ok:true,service:'wisdo-conversational-voice-creator',version:'2.3.0',workflow:['describe','design','preview','refine','activate','sync']}));
+ app.get('/api/voice/v2/profiles',auth,async(req,res,next)=>{try{res.json({ok:true,profiles:await voiceCreatorService.list(req.wisdoDevice.owner_user_id)});}catch(e){next(e)}});
+ app.post('/api/voice/v2/design',auth,async(req,res,next)=>{try{res.json({ok:true,...await voiceCreatorService.design(req.wisdoDevice,req.body||{})});}catch(e){next(e)}});
+ app.post('/api/voice/v2/conversation',auth,async(req,res,next)=>{try{res.json({ok:true,...await voiceCreatorService.conversation(req.wisdoDevice,req.body||{})});}catch(e){next(e)}});
+ app.post('/api/voice/v2/profiles/:voiceId/refine',auth,async(req,res,next)=>{try{res.json({ok:true,profile:await voiceCreatorService.refine(req.wisdoDevice,req.params.voiceId,req.body?.instruction||req.body?.text)});}catch(e){next(e)}});
+ app.post('/api/voice/v2/profiles/:voiceId/activate',auth,async(req,res,next)=>{try{res.json(await voiceCreatorService.activate(req.wisdoDevice,req.params.voiceId,req.body?.scope));}catch(e){next(e)}});
+ app.get('/api/voice/v2/active',auth,async(req,res,next)=>{try{res.json({ok:true,active:await voiceCreatorService.active(req.wisdoDevice,clean(req.query.scope_type)||'user_default',clean(req.query.scope_id))});}catch(e){next(e)}});
+ app.post('/api/voice/v2/profiles/:voiceId/preview',auth,async(req,res,next)=>{try{const row=await voiceCreatorService.get(req.wisdoDevice.owner_user_id,req.params.voiceId);if(!row)return res.status(404).json({ok:false,error:'Voice profile not found.'});const p=voiceCreatorService.rowToProfile(row);const result=await voiceService.synthesize({text:req.body?.text||'Good evening. Your Wisdo voice profile is ready.',voice:p.provider_voice,speed:req.body?.speed??p.speed,instructions:p.instructions,profile:p.profile_id});res.setHeader('Content-Type',result.contentType);res.setHeader('X-Wisdo-Voice-Profile',p.profile_id);res.setHeader('X-Wisdo-Voice-Provider',result.provider);res.setHeader('Cache-Control','no-store');res.status(200).send(result.audio);}catch(e){next(e)}});
+}

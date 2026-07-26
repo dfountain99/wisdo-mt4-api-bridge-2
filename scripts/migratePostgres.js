@@ -312,6 +312,23 @@ try {
       UNIQUE(owner_user_id, name)
     );
 
+    CREATE TABLE IF NOT EXISTS wisdo_voice_versions (
+      id BIGSERIAL PRIMARY KEY, voice_id TEXT NOT NULL REFERENCES wisdo_voice_genomes(voice_id) ON DELETE CASCADE, version INTEGER NOT NULL,
+      definition JSONB NOT NULL, change_summary TEXT, created_by TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(voice_id,version)
+    );
+
+    CREATE TABLE IF NOT EXISTS wisdo_voice_assignments (
+      assignment_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, voice_id TEXT NOT NULL REFERENCES wisdo_voice_genomes(voice_id) ON DELETE CASCADE,
+      scope_type TEXT NOT NULL DEFAULT 'user_default', scope_id TEXT NOT NULL, priority INTEGER NOT NULL DEFAULT 100, status TEXT NOT NULL DEFAULT 'active',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_voice_assignments_active ON wisdo_voice_assignments(owner_user_id,scope_type,scope_id,status,priority DESC);
+
+    CREATE TABLE IF NOT EXISTS wisdo_voice_events (
+      event_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, voice_id TEXT, event_type TEXT NOT NULL, payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS wisdo_life_graph_nodes (
       node_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, node_type TEXT NOT NULL, name TEXT NOT NULL, data JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -323,5 +340,5 @@ try {
     );
   `);
 
-console.log('WISDO PostgreSQL v2.0 adaptive intelligence fabric migration complete.');
+console.log('WISDO PostgreSQL v2.3 conversational voice creator migration complete.');
 } finally { await pool.end(); }

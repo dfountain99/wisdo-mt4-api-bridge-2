@@ -15,6 +15,40 @@ const DEFAULT_PROFILES = Object.freeze({
       'Pronounce financial figures and trading symbols precisely.',
     ].join(' '),
   },
+  british_sovereign: {
+    id: 'british_sovereign',
+    display_name: 'Wisdo British Sovereign',
+    description: 'Deep, mature Black British mentor presence with measured authority.',
+    provider: 'openai',
+    voice: 'cedar',
+    speed: 0.78,
+    accent: 'british',
+    instructions: [
+      'Speak with an original mature Black British male mentor identity.',
+      'Use a deep baritone presence, calm authority, warmth, patience, and deliberate pacing.',
+      'Use a natural contemporary British accent that is clear and dignified, not exaggerated or theatrical.',
+      'Sound like a seasoned community elder and strategic teacher who chooses words carefully.',
+      'Use meaningful pauses between important thoughts and keep emotional delivery grounded.',
+      'Never imitate, claim to be, or closely reproduce any real public figure.',
+      'Pronounce financial figures, broker symbols, account numbers, and trading terminology precisely.',
+    ].join(' '),
+  },
+  british_shepherd: {
+    id: 'british_shepherd',
+    display_name: 'Wisdo British Shepherd',
+    description: 'Warm, reflective British mentor voice with gentle confidence.',
+    provider: 'openai',
+    voice: 'ballad',
+    speed: 0.84,
+    accent: 'british',
+    instructions: [
+      'Speak with an original mature Black British male mentor identity.',
+      'Use a warm, reflective, reassuring tone with gentle confidence and patient pauses.',
+      'Use a natural British accent without caricature or imitation of a real person.',
+      'Keep the delivery spiritually grounded, conversational, and clear.',
+      'Pronounce financial figures and trading symbols precisely.',
+    ].join(' '),
+  },
   shepherd: {
     id: 'shepherd',
     display_name: 'Wisdo Shepherd',
@@ -131,7 +165,7 @@ export class WisdoVoiceService {
   }
 }
 
-export function registerVoiceRoutes(app, { commandBusService, logger } = {}) {
+export function registerVoiceRoutes(app, { commandBusService, voiceCreatorService = null, logger } = {}) {
   const service = new WisdoVoiceService({ logger });
 
   async function auth(req, res, next) {
@@ -152,7 +186,7 @@ export function registerVoiceRoutes(app, { commandBusService, logger } = {}) {
     res.json({
       ok: true,
       service: 'wisdo-voice-engine',
-      version: '2.1.0',
+      version: '2.2.0',
       natural_provider_configured: Boolean(service.apiKey),
       default_profile: service.defaultProfile,
       profiles: service.profiles().map(({ id, display_name, description }) => ({ id, display_name, description })),
@@ -165,7 +199,13 @@ export function registerVoiceRoutes(app, { commandBusService, logger } = {}) {
 
   app.post('/api/voice/v1/speech', auth, async (req, res, next) => {
     try {
-      const result = await service.synthesize(req.body || {});
+      const input = { ...(req.body || {}) };
+      if (voiceCreatorService && input.profile && !DEFAULT_PROFILES[String(input.profile).toLowerCase()]) {
+        const row = await voiceCreatorService.get(req.wisdoDevice.owner_user_id, input.profile);
+        const custom = voiceCreatorService.rowToProfile(row);
+        if (custom) { input.voice = custom.provider_voice; input.speed = input.speed ?? custom.speed; input.instructions = custom.instructions; }
+      }
+      const result = await service.synthesize(input);
       res.setHeader('Content-Type', result.contentType);
       res.setHeader('Content-Length', String(result.audio.length));
       res.setHeader('X-Wisdo-Voice-Profile', result.profile.id);
