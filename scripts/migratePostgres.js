@@ -371,6 +371,35 @@ try {
     );
     CREATE INDEX IF NOT EXISTS idx_wisdo_event_ledger_owner_time ON wisdo_event_ledger(owner_user_id,created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS wisdo_intent_requests (
+      request_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, issued_by_device_id TEXT, correlation_id TEXT NOT NULL,
+      utterance TEXT NOT NULL, parsed_intent JSONB NOT NULL DEFAULT '{}'::jsonb, context JSONB NOT NULL DEFAULT '{}'::jsonb,
+      risk_level INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'received', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_intents_owner_time ON wisdo_intent_requests(owner_user_id,created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_wisdo_intents_correlation ON wisdo_intent_requests(owner_user_id,correlation_id);
+
+    CREATE TABLE IF NOT EXISTS wisdo_action_plans (
+      plan_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, request_id TEXT REFERENCES wisdo_intent_requests(request_id) ON DELETE CASCADE,
+      correlation_id TEXT NOT NULL, plan_definition JSONB NOT NULL DEFAULT '{}'::jsonb, safety_checks JSONB NOT NULL DEFAULT '{}'::jsonb,
+      status TEXT NOT NULL DEFAULT 'draft', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_action_plans_correlation ON wisdo_action_plans(owner_user_id,correlation_id,status);
+
+    CREATE TABLE IF NOT EXISTS wisdo_kernel_memory (
+      memory_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, memory_type TEXT NOT NULL, content TEXT NOT NULL,
+      importance INTEGER NOT NULL DEFAULT 50, confidence INTEGER NOT NULL DEFAULT 80, source TEXT NOT NULL DEFAULT 'user',
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_kernel_memory_owner ON wisdo_kernel_memory(owner_user_id,importance DESC,updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS wisdo_live_workspaces (
+      workspace_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, name TEXT NOT NULL, mode TEXT NOT NULL DEFAULT 'adaptive',
+      layout JSONB NOT NULL DEFAULT '{}'::jsonb, filters JSONB NOT NULL DEFAULT '{}'::jsonb, active_context JSONB NOT NULL DEFAULT '{}'::jsonb,
+      status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_live_workspaces_owner ON wisdo_live_workspaces(owner_user_id,status,updated_at DESC);
+
     CREATE TABLE IF NOT EXISTS wisdo_life_graph_nodes (
       node_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, node_type TEXT NOT NULL, name TEXT NOT NULL, data JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -382,5 +411,5 @@ try {
     );
   `);
 
-console.log('WISDO PostgreSQL v3.0 master kernel migration complete.');
+console.log('WISDO PostgreSQL v3.1 Phase 2–8 production migration complete.');
 } finally { await pool.end(); }
