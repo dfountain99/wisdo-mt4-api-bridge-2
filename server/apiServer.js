@@ -4454,6 +4454,38 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   app.use('/platforms', express.static(path.join(__dirname, '..', 'public', 'platforms')));
   app.use('/js', express.static(path.join(__dirname, '..', 'public', 'js')));
   app.use('/downloads', express.static(path.join(__dirname, '..', 'public', 'downloads')));
+  app.use(
+  "/app/intelligence",
+  express.static(
+    path.join(__dirname, "..", "public", "app", "intelligence")
+  )
+);
+
+app.get("/app/intelligence", (req, res) => {
+  res.sendFile(
+    path.join(
+      __dirname,
+      "..",
+      "public",
+      "app",
+      "intelligence",
+      "index.html"
+    )
+  );
+});
+
+app.get("/app/intelligence/", (req, res) => {
+  res.sendFile(
+    path.join(
+      __dirname,
+      "..",
+      "public",
+      "app",
+      "intelligence",
+      "index.html"
+    )
+  );
+});
   app.get('/service-worker.js', (_req, res) => {
     res.setHeader('Service-Worker-Allowed', '/');
     res.setHeader('Cache-Control', 'no-cache');
