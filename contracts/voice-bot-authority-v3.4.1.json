@@ -1,0 +1,36 @@
+{
+  "contract": "wisdo-voice-bot-authority",
+  "version": "3.4.1",
+  "components": {
+    "pi_edge": {
+      "entrypoint": "wisdo_edge.py",
+      "required_markers": ["/api/kernel/v1/voice-control"]
+    },
+    "desktop_agent": {
+      "entrypoint": "agent.py",
+      "required_markers": [
+        "trail_stop",
+        "move_break_even",
+        "set_profit_target",
+        "apply_behavior",
+        "undo_behavior"
+      ]
+    },
+    "render": {
+      "route": "server/voiceBotAuthorityRoutes.js",
+      "migration": "scripts/migratePostgres.js",
+      "required_markers": [
+        "/health/voice-bot-authority",
+        "wisdo_voice_control_sessions"
+      ]
+    },
+    "mt4_bridge": {
+      "entrypoint": "Wisdo_MT4_Command_Bridge.mq4",
+      "required_markers": [
+        "ApplyRuntimeRules",
+        "set_profit_target",
+        "undo_behavior"
+      ]
+    }
+  }
+}

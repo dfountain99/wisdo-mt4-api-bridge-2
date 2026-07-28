@@ -421,5 +421,30 @@ try {
     );
   `);
 
-console.log('WISDO PostgreSQL v3.3 Edge Room Intelligence migration complete.');
+
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wisdo_voice_control_sessions (
+      session_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, device_id TEXT NOT NULL,
+      utterance TEXT NOT NULL, analysis JSONB NOT NULL DEFAULT '{}'::jsonb, target_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+      status TEXT NOT NULL DEFAULT 'awaiting_confirmation', expires_at TIMESTAMPTZ NOT NULL,
+      confirmed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_voice_control_sessions_pending
+      ON wisdo_voice_control_sessions(owner_user_id,status,expires_at);
+
+    CREATE TABLE IF NOT EXISTS wisdo_voice_control_context (
+      owner_user_id TEXT PRIMARY KEY, context JSONB NOT NULL DEFAULT '{}'::jsonb, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS wisdo_voice_behaviors (
+      behavior_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, created_by_device_id TEXT, name TEXT NOT NULL,
+      definition JSONB NOT NULL DEFAULT '{}'::jsonb, status TEXT NOT NULL DEFAULT 'draft', version INTEGER NOT NULL DEFAULT 1,
+      deployment JSONB NOT NULL DEFAULT '{}'::jsonb, expires_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_voice_behaviors_owner
+      ON wisdo_voice_behaviors(owner_user_id,status,created_at DESC);
+  `);
+console.log('WISDO PostgreSQL v3.4 Voice Bot Authority migration complete.');
 } finally { await pool.end(); }

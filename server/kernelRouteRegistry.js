@@ -8,6 +8,7 @@ import { registerPhaseTwoEightRoutes } from './phaseTwoEightRoutes.js';
 import { registerStaticWorkspaceRoutes } from './staticWorkspaceRoutes.js';
 import { WisdoVoiceCreatorService } from '../services/wisdoVoiceCreatorService.js';
 import { registerRoomStateRoutes } from './roomStateRoutes.js';
+import { registerVoiceBotAuthorityRoutes } from './voiceBotAuthorityRoutes.js';
 
 /**
  * Registers the modern Wisdo Kernel services as one cohesive boundary.
@@ -70,6 +71,12 @@ export function registerWisdoKernelRoutes(app, {
     logger,
   });
 
+  const voiceBotAuthorityService = registerVoiceBotAuthorityRoutes(app, {
+    commandBusService,
+    pool: commandBusService.pool,
+    logger,
+  });
+
   const workspaces = registerStaticWorkspaceRoutes(app, {
     publicRoot,
     logger,
@@ -83,7 +90,7 @@ export function registerWisdoKernelRoutes(app, {
       res.status(ok ? 200 : 503).json({
         ok,
         service: 'wisdo-master-kernel',
-        version: '3.3.0',
+        version: '3.4.0',
         command_bus: commandBus,
         workspaces: {
           registered: workspaces.registered.map(({ slug, route }) => ({ slug, route })),
@@ -100,6 +107,7 @@ export function registerWisdoKernelRoutes(app, {
     voiceCreatorService,
     voiceService,
     roomStateService,
+    voiceBotAuthorityService,
     workspaces,
   };
 }
