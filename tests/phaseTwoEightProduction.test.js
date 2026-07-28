@@ -3,7 +3,8 @@ const service=readFileSync(new URL('../services/wisdoPhaseTwoEightService.js',im
 const routes=readFileSync(new URL('../server/phaseTwoEightRoutes.js',import.meta.url),'utf8');
 const migration=readFileSync(new URL('../scripts/migratePostgres.js',import.meta.url),'utf8');
 const api=readFileSync(new URL('../server/apiServer.js',import.meta.url),'utf8');
-test('Phase 2–8 routes are authenticated and registered',()=>{assert.match(routes,/authenticateDevice/);assert.match(api,/registerPhaseTwoEightRoutes/);assert.match(routes,/\/api\/kernel\/v1\/intents/);});
+const kernel=readFileSync(new URL('../server/kernelRouteRegistry.js',import.meta.url),'utf8');
+test('Phase 2–8 routes are authenticated and registered',()=>{assert.match(routes,/authenticateDevice/);assert.match(api,/registerWisdoKernelRoutes/);assert.match(kernel,/registerPhaseTwoEightRoutes/);assert.match(routes,/\/api\/kernel\/v1\/intents/);});
 test('Digital Twin reads production component, bot and account tables',()=>{for(const t of ['wisdo_devices','wisdo_bots','wisdo_components','wisdo_mt4_accounts','wisdo_control_executions'])assert.match(service,new RegExp(t));});
 test('Intent engine enforces capability matching and approval for financial risk',()=>{assert.match(service,/supported=components\.filter/);assert.match(service,/requiresApproval=parsed\.risk_level>=3/);assert.match(service,/wisdo_control_executions/);});
 test('Memory, plans, workspace and explanations are durable PostgreSQL models',()=>{for(const t of ['wisdo_intent_requests','wisdo_action_plans','wisdo_kernel_memory','wisdo_live_workspaces'])assert.match(migration,new RegExp(t));assert.match(routes,/explanations/);});

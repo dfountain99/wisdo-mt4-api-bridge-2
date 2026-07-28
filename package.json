@@ -1,7 +1,7 @@
 {
   "name": "culture-coin-operator-desks-bot",
-  "version": "2.0.1",
-  "description": "WISDO OS v1.0 unified command bus: Render authority, Pi voice edge, Windows desktop agent, bot registry, PostgreSQL audit.",
+  "version": "3.2.0",
+  "description": "WISDO Master Kernel v3.2 modular production routes, live Phase 2-8 intelligence, universal control, voice, Atlas, and served member workspaces.",
   "type": "module",
   "private": true,
   "scripts": {

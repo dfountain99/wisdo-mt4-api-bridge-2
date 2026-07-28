@@ -6,29 +6,6 @@ import { Mt4SyncService } from '../services/mt4SyncService.js';
 import { TradeSignalService } from '../services/tradeSignalService.js';
 import { ingestReporterSnapshotToProductState } from '../server/majorUpgradeRoutes.js';
 
-async function waitForCondition(
-  predicate,
-  {
-    timeoutMs = 2000,
-    intervalMs = 10,
-    message = "Condition was not reached before timeout.",
-  } = {},
-) {
-  const startedAt = Date.now();
-
-  while (Date.now() - startedAt < timeoutMs) {
-    if (predicate()) {
-      return;
-    }
-
-    await new Promise((resolve) => {
-      setTimeout(resolve, intervalMs);
-    });
-  }
-
-  assert.fail(message);
-}
-
 function trade(ticket, overrides = {}) {
   return {
     ticket: String(ticket),

@@ -393,6 +393,16 @@ try {
     );
     CREATE INDEX IF NOT EXISTS idx_wisdo_kernel_memory_owner ON wisdo_kernel_memory(owner_user_id,importance DESC,updated_at DESC);
 
+    CREATE TABLE IF NOT EXISTS wisdo_room_states (
+      room_id TEXT NOT NULL, owner_user_id TEXT NOT NULL, source_device_id TEXT,
+      occupied BOOLEAN NOT NULL DEFAULT FALSE, face_count INTEGER NOT NULL DEFAULT 0,
+      ambient_sound JSONB NOT NULL DEFAULT '{}'::jsonb, lighting JSONB NOT NULL DEFAULT '{}'::jsonb,
+      active_devices JSONB NOT NULL DEFAULT '{}'::jsonb, state JSONB NOT NULL DEFAULT '{}'::jsonb,
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY(owner_user_id,room_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_room_states_live ON wisdo_room_states(owner_user_id,last_seen_at DESC,occupied);
+
     CREATE TABLE IF NOT EXISTS wisdo_live_workspaces (
       workspace_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, name TEXT NOT NULL, mode TEXT NOT NULL DEFAULT 'adaptive',
       layout JSONB NOT NULL DEFAULT '{}'::jsonb, filters JSONB NOT NULL DEFAULT '{}'::jsonb, active_context JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -411,5 +421,5 @@ try {
     );
   `);
 
-console.log('WISDO PostgreSQL v3.1 Phase 2–8 production migration complete.');
+console.log('WISDO PostgreSQL v3.3 Edge Room Intelligence migration complete.');
 } finally { await pool.end(); }

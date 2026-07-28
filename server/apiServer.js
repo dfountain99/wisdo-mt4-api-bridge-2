@@ -10,14 +10,7 @@ import { registerMajorUpgradeRoutes } from './majorUpgradeRoutes.js';
 import { registerExtendedProductRoutes } from './extendedProductRoutes.js';
 import { registerPresenceIdentityRoutes } from './presenceIdentityRoutes.js';
 import { registerLivingOperatingSystemRoutes } from './livingOperatingSystemRoutes.js';
-import { registerCommandBusRoutes } from './commandBusRoutes.js';
-import { registerAdaptiveFabricRoutes } from './adaptiveFabricRoutes.js';
-import { registerAtlasRoutes } from './atlasRoutes.js';
-import { registerVoiceRoutes } from './voiceRoutes.js';
-import { registerVoiceCreatorRoutes } from './voiceCreatorRoutes.js';
-import { registerUniversalControlRoutes } from './universalControlRoutes.js';
-import { registerPhaseTwoEightRoutes } from './phaseTwoEightRoutes.js';
-import { WisdoVoiceCreatorService } from '../services/wisdoVoiceCreatorService.js';
+import { registerWisdoKernelRoutes } from './kernelRouteRegistry.js';
 import { encodeSignedSession, decodeSignedSession } from './security.js';
 import {
   createWisdoPhase1Repository,
@@ -4454,38 +4447,6 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   app.use('/platforms', express.static(path.join(__dirname, '..', 'public', 'platforms')));
   app.use('/js', express.static(path.join(__dirname, '..', 'public', 'js')));
   app.use('/downloads', express.static(path.join(__dirname, '..', 'public', 'downloads')));
-  app.use(
-  "/app/intelligence",
-  express.static(
-    path.join(__dirname, "..", "public", "app", "intelligence")
-  )
-);
-
-app.get("/app/intelligence", (req, res) => {
-  res.sendFile(
-    path.join(
-      __dirname,
-      "..",
-      "public",
-      "app",
-      "intelligence",
-      "index.html"
-    )
-  );
-});
-
-app.get("/app/intelligence/", (req, res) => {
-  res.sendFile(
-    path.join(
-      __dirname,
-      "..",
-      "public",
-      "app",
-      "intelligence",
-      "index.html"
-    )
-  );
-});
   app.get('/service-worker.js', (_req, res) => {
     res.setHeader('Service-Worker-Allowed', '/');
     res.setHeader('Cache-Control', 'no-cache');
@@ -4521,14 +4482,16 @@ app.get("/app/intelligence/", (req, res) => {
   });
 
 
-  const commandBusService = registerCommandBusRoutes(app, { config, logger, mt4CommandService });
-  registerAdaptiveFabricRoutes(app, { commandBusService, pool: commandBusService.pool, logger });
-  registerAtlasRoutes(app, { commandBusService, pool: commandBusService.pool, logger });
-  const voiceCreatorService = new WisdoVoiceCreatorService({ pool: commandBusService.pool, logger });
-  const voiceService = registerVoiceRoutes(app, { commandBusService, voiceCreatorService, logger });
-  registerVoiceCreatorRoutes(app, { commandBusService, voiceCreatorService, voiceService, logger });
-  registerUniversalControlRoutes(app, { commandBusService, pool: commandBusService.pool, logger });
-  registerPhaseTwoEightRoutes(app, { commandBusService, pool: commandBusService.pool, logger });
+  const {
+    commandBusService,
+    voiceCreatorService,
+    voiceService,
+  } = registerWisdoKernelRoutes(app, {
+    config,
+    logger,
+    mt4CommandService,
+    publicRoot: path.join(__dirname, '..', 'public'),
+  });
   registerLivingOperatingSystemRoutes(app, {
     loadEcosystemState,
     saveEcosystemState,
