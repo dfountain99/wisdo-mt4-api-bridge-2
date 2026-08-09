@@ -9,6 +9,7 @@ import { registerStaticWorkspaceRoutes } from './staticWorkspaceRoutes.js';
 import { WisdoVoiceCreatorService } from '../services/wisdoVoiceCreatorService.js';
 import { registerRoomStateRoutes } from './roomStateRoutes.js';
 import { registerVoiceBotAuthorityRoutes } from './voiceBotAuthorityRoutes.js';
+import { registerConversationalVoiceRoutes } from './conversationalVoiceRoutes.js';
 
 /**
  * Registers the modern Wisdo Kernel services as one cohesive boundary.
@@ -19,6 +20,9 @@ export function registerWisdoKernelRoutes(app, {
   config,
   logger,
   mt4CommandService,
+  mt4SyncService,
+  copyTradingService,
+  commandRegistryAudit,
   publicRoot,
 } = {}) {
   const commandBusService = registerCommandBusRoutes(app, {
@@ -50,10 +54,21 @@ export function registerWisdoKernelRoutes(app, {
     logger,
   });
 
+  const conversationalVoice = registerConversationalVoiceRoutes(app, {
+    commandBusService,
+    voiceService,
+    mt4CommandService,
+    mt4SyncService,
+    copyTradingService,
+    commandRegistryAudit,
+    logger,
+  });
+
   registerVoiceCreatorRoutes(app, {
     commandBusService,
     voiceCreatorService,
     voiceService,
+    conversationalVoice,
     logger,
   });
 
@@ -106,6 +121,7 @@ export function registerWisdoKernelRoutes(app, {
     commandBusService,
     voiceCreatorService,
     voiceService,
+    conversationalVoice,
     roomStateService,
     voiceBotAuthorityService,
     workspaces,

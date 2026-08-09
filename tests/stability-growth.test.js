@@ -86,6 +86,7 @@ test('growth funnel tracks attribution, deduplicates leads, and calculates the 1
     loadEcosystemState: async () => structuredClone(state),
     saveEcosystemState: async (next) => { state = structuredClone(next); },
     logger: logger(),
+    clock: () => new Date('2026-07-14T12:00:00Z'),
   });
   await service.recordVisit({ source: 'discord', medium: 'community', campaign: 'launch' });
   const first = await service.recordLead({ name: 'Member', email: 'member@example.com', source: 'discord', campaign: 'launch', smsConsent: true });

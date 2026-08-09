@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import pg from 'pg';
+import { WisdoSafetyService } from './wisdoSafetyService.js';
 
 const { Pool } = pg;
 
@@ -39,6 +40,7 @@ export class WisdoCommandBusService {
     });
     this.commandLeaseSeconds = Math.max(5, Number(process.env.WISDO_COMMAND_LEASE_SECONDS || 30));
     this.maxAttempts = Math.max(1, Number(process.env.WISDO_COMMAND_MAX_ATTEMPTS || 5));
+    this.safetyService = new WisdoSafetyService();
   }
 
   async authenticateDevice(deviceId, token, expectedType = null) {
@@ -119,13 +121,13 @@ export class WisdoCommandBusService {
     }
     if (type === 'bot') {
       const result = await this.pool.query(
-        `SELECT bot_id, desktop_device_id, bot_name, account_id, capabilities
+        `SELECT bot_id, desktop_device_id, bot_name, account_id, capabilities, metadata
            FROM wisdo_bots
           WHERE owner_user_id=$1 AND status='online'
             AND ($2='' OR bot_id=$2 OR lower(bot_name)=lower($2) OR aliases ? lower($2))
           ORDER BY last_seen_at DESC LIMIT 1`, [ownerUserId, raw]);
       const bot = result.rows[0];
-      return bot ? { type, id: bot.bot_id, desktopDeviceId: bot.desktop_device_id, accountId: bot.account_id, botName: bot.bot_name, capabilities: bot.capabilities } : null;
+      return bot ? { type, id: bot.bot_id, desktopDeviceId: bot.desktop_device_id, accountId: bot.account_id, botName: bot.bot_name, capabilities: bot.capabilities, metadata:bot.metadata } : null;
     }
     return { type, id: raw || null, desktopDeviceId: null };
   }
@@ -135,6 +137,8 @@ export class WisdoCommandBusService {
     if (!intent) { const error = new Error('intent is required.'); error.statusCode = 400; throw error; }
     const target = await this.resolveTarget(device.owner_user_id, json(input.target, { type: 'bot' }));
     if (!target) { const error = new Error('No online target matched that bot or device.'); error.statusCode = 404; throw error; }
+    const source=clean(input.source||'voice',40); const readOnly=/status|inspect|explain|query/i.test(intent);
+    if((device.device_type==='pi-edge'||/voice|coach/i.test(source))&&!readOnly){try{this.safetyService.assertVoiceExecutionMode([{...json(target.metadata),accountId:target.accountId}]);}catch(error){await this.pool.query(`INSERT INTO wisdo_conversation_audit(owner_user_id,actor_type,event_type,correlation_id,detail) VALUES($1,'safety','voice.execution_blocked',$2,$3::jsonb)`,[device.owner_user_id,target.accountId||target.id,JSON.stringify({code:error.code||'execution_blocked',intent,targetId:target.id,source})]).catch(()=>undefined);throw error;}}
     const commandId = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + Math.max(10, Number(input.expiresInSeconds || 120)) * 1000);
     const result = await this.pool.query(
@@ -142,7 +146,7 @@ export class WisdoCommandBusService {
         (command_id, owner_user_id, issued_by_device_id, source, intent, target_type, target_id, desktop_device_id, account_id, parameters, spoken_text, status, priority, attempts, expires_at, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,'pending',$12,0,$13,NOW(),NOW())
        RETURNING *`,
-      [commandId, device.owner_user_id, device.device_id, clean(input.source || 'voice', 40), intent, target.type, target.id, target.desktopDeviceId, target.accountId || null, JSON.stringify(json(input.parameters)), clean(input.spokenText, 1000) || null, Math.max(0, Math.min(100, Number(input.priority || 50))), expiresAt],
+      [commandId, device.owner_user_id, device.device_id, source, intent, target.type, target.id, target.desktopDeviceId, target.accountId || null, JSON.stringify(json(input.parameters)), clean(input.spokenText, 1000) || null, Math.max(0, Math.min(100, Number(input.priority || 50))), expiresAt],
     );
     await this.audit(commandId, 'issued', device.device_id, { target });
     return result.rows[0];

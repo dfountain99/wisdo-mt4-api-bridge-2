@@ -34,6 +34,7 @@ import { SignalCopyService } from './services/signalCopyService.js';
 import { DiscordSignalGridService } from './services/discordSignalGridService.js';
 import { WisdoMemoryService } from './services/wisdoMemoryService.js';
 import { startApiServer } from './server/apiServer.js';
+import { extractWisdoWakeCommand as extractConfiguredWakeCommand, extractSpokenNumber } from './services/wisdoIntentService.js';
 
 // Production source of truth: Render runs `npm start`, which runs this root
 // entrypoint. Keep runtime imports on root config/commands/services plus
@@ -356,6 +357,28 @@ client.on(Events.MessageCreate, async (message) => {
 
     if (!raw) return;
 
+    const conversationalVoice = apiServer?.wisdo?.conversationalVoice?.conversationService;
+    if (conversationalVoice) {
+      const conversational = await conversationalVoice.answer({
+        userId: message.author.id,
+        discordUserId: message.author.id,
+        channel: 'discord',
+        text: raw,
+      });
+      const useConversational = conversational.responded && (
+        conversational.intent?.intent !== 'GENERAL_CONVERSATION' ||
+        !extractWisdoWakeCommand(raw)
+      );
+      if (useConversational) {
+        await replyWithWisdoTextAndSpeech({
+          message,
+          wisdoSpeechService,
+          response: { content: conversational.text, speechText: conversational.text },
+        });
+        return;
+      }
+    }
+
     const wakeResult = extractWisdoWakeCommand(raw);
 
     if (!wakeResult) return;
@@ -385,8 +408,7 @@ client.on(Events.MessageCreate, async (message) => {
             '`Hey Wisdom, set equity floor to 25 dollars.`',
             '`Hey Coach, emergency stop.`',
           ].join('\n'),
-          speechText:
-            'WISDO is listening. You can talk naturally after the wake phrase. Try saying, Hey Coach, how does my account look, or Hey Coach, pause my MT4.',
+          speechText: "I'm listening. What can I help you with?",
         },
       });
       return;
@@ -421,7 +443,7 @@ client.on(Events.MessageCreate, async (message) => {
     });
 
     await message.reply({
-      content: 'WISDO heard you, but something broke while processing the request. Check the bot logs.',
+      content: 'I heard your request, but something went wrong while processing it. I have not changed your trading setup.',
     }).catch(() => null);
   }
 });
@@ -489,49 +511,8 @@ process.on('uncaughtException', (error) => {
 });
 
 function extractWisdoWakeCommand(raw) {
-  const text = String(raw || '').trim();
-
-  if (!text) return null;
-
-  const wakeWords = [
-    'hey wisdom',
-    'hey wisdo',
-    'hey coach',
-    'hey operator',
-    'hey trading assistant',
-    'trading assistant',
-    'operator',
-    'coach',
-    'wisdom',
-    'wisdo',
-    'yo wisdom',
-    'yo wisdo',
-    'wizzo',
-    'wiz do',
-    'wizdo',
-    'wise doe',
-    'wise do',
-  ];
-
-  for (const wakeWord of wakeWords) {
-    const escaped = escapeRegExp(wakeWord);
-    const pattern = new RegExp(`^${escaped}(\\b|[\\s,.:;!?-]+)`, 'i');
-    const match = text.match(pattern);
-
-    if (!match) continue;
-
-    const ask = text
-      .slice(match[0].length)
-      .replace(/^[\s,.:;!?-]+/, '')
-      .trim();
-
-    return {
-      wakeWord,
-      ask,
-    };
-  }
-
-  return null;
+  const result = extractConfiguredWakeCommand(raw);
+  return result.matched ? { wakeWord: result.wakePhrase, ask: result.command } : null;
 }
 
 function normalizeVoiceInput(text) {
@@ -1413,8 +1394,7 @@ function extractScenarioFromVoice(ask) {
   return scenario;
 }
 function extractNumberFromVoice(ask) {
-  const match = String(ask || '').match(/(\d+(\.\d+)?)/);
-  return match ? Number(match[1]) : null;
+  return extractSpokenNumber(ask);
 }
 
 function extractBotNameFromVoice(ask, intent) {

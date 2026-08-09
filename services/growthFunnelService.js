@@ -132,11 +132,14 @@ export function verifyLeadAccessToken(token = '') {
 }
 
 export class GrowthFunnelService {
-  constructor({ loadEcosystemState, saveEcosystemState, logger }) {
+  constructor({ loadEcosystemState, saveEcosystemState, logger, clock = () => new Date() }) {
     this.loadEcosystemState = loadEcosystemState;
     this.saveEcosystemState = saveEcosystemState;
     this.logger = logger;
+    this.clock = clock;
   }
+
+  nowIso() { return this.clock().toISOString(); }
 
   async mutate(updater) {
     const state = ensureFunnelState(await this.loadEcosystemState());
@@ -195,7 +198,7 @@ export class GrowthFunnelService {
         term: clean(input.term || input.utmTerm || '', 160),
         referralCode: clean(input.referralCode || input.ref || '', 120),
         userAgent: clean(input.userAgent || '', 300),
-        createdAt: nowIso(),
+        createdAt: this.nowIso(),
       };
       state.funnelVisitsById[id] = visit;
       state.funnelEvents.unshift({ id: makeId('funnel_event'), type: 'visit', visitId: id, campaign: visit.campaign, source: visit.source, createdAt: visit.createdAt });
@@ -216,7 +219,7 @@ export class GrowthFunnelService {
         String(lead.campaign) === campaign && ((email && lead.email === email) || (phoneDigits && lead.phoneDigits === phoneDigits))
       );
       const id = existing?.id || makeId('lead');
-      const createdAt = existing?.createdAt || nowIso();
+      const createdAt = existing?.createdAt || this.nowIso();
       const lead = {
         ...(existing || {}),
         id,
@@ -238,7 +241,7 @@ export class GrowthFunnelService {
         marketingConsent: input.marketingConsent == null ? Boolean(existing?.marketingConsent) : Boolean(input.marketingConsent),
         signupUserId: clean(input.signupUserId || existing?.signupUserId || '', 160),
         createdAt,
-        updatedAt: nowIso(),
+        updatedAt: this.nowIso(),
         duplicateSubmissions: Number(existing?.duplicateSubmissions || 0) + (existing ? 1 : 0),
         engagementCount: Number(existing?.engagementCount || 0),
       };
@@ -250,7 +253,7 @@ export class GrowthFunnelService {
         if (index >= 0) state.leads[index] = { ...state.leads[index], ...lead };
       }
       state.leads = state.leads.slice(-5000);
-      state.funnelEvents.unshift({ id: makeId('funnel_event'), type: existing ? 'lead_repeat' : 'lead_created', leadId: id, campaign: lead.campaign, source: lead.source, createdAt: nowIso() });
+      state.funnelEvents.unshift({ id: makeId('funnel_event'), type: existing ? 'lead_repeat' : 'lead_created', leadId: id, campaign: lead.campaign, source: lead.source, createdAt: this.nowIso() });
       state.funnelEvents = state.funnelEvents.slice(0, 5000);
       return { lead, created: !existing };
     });
@@ -271,7 +274,7 @@ export class GrowthFunnelService {
         campaign: lead.campaign,
         source: lead.source,
         metadata: metadata && typeof metadata === 'object' ? JSON.parse(JSON.stringify(metadata)) : {},
-        createdAt: nowIso(),
+        createdAt: this.nowIso(),
       };
       state.funnelEvents.unshift(event);
       state.funnelEvents = state.funnelEvents.slice(0, 5000);
@@ -292,7 +295,7 @@ export class GrowthFunnelService {
       const lead = state.funnelLeadsById[payload.leadId];
       if (!lead) throw new Error('Lead not found.');
       lead.marketingConsent = false;
-      lead.unsubscribedAt = nowIso();
+      lead.unsubscribedAt = this.nowIso();
       lead.updatedAt = lead.unsubscribedAt;
       state.funnelEvents.unshift({ id: makeId('funnel_event'), type: 'email_unsubscribe', leadId: lead.id, campaign: lead.campaign, source: lead.source, createdAt: lead.unsubscribedAt });
       state.funnelEvents = state.funnelEvents.slice(0, 5000);
@@ -312,8 +315,8 @@ export class GrowthFunnelService {
       if (!lead) return null;
       lead.signupUserId = String(userId || '');
       lead.stage = 'signed_up';
-      lead.signedUpAt = nowIso();
-      lead.updatedAt = nowIso();
+      lead.signedUpAt = this.nowIso();
+      lead.updatedAt = this.nowIso();
       state.funnelEvents.unshift({ id: makeId('funnel_event'), type: 'signup', leadId: lead.id, userId: lead.signupUserId, campaign: lead.campaign, source: lead.source, createdAt: lead.signedUpAt });
       state.funnelEvents = state.funnelEvents.slice(0, 5000);
       return lead;

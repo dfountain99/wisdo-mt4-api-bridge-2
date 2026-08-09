@@ -4486,11 +4486,35 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     commandBusService,
     voiceCreatorService,
     voiceService,
+    conversationalVoice,
   } = registerWisdoKernelRoutes(app, {
     config,
     logger,
     mt4CommandService,
+    mt4SyncService,
+    copyTradingService,
+    commandRegistryAudit,
     publicRoot: path.join(__dirname, '..', 'public'),
+  });
+  app.get('/member/coach-operations', async (req, res, next) => {
+    try {
+      const sessionUser = getCurrentUser(req);
+      if (!sessionUser?.id) return res.redirect('/auth/discord?returnTo=/member/coach-operations');
+      const userId = String(sessionUser.id);
+      const [plans, confirmations, devices, receipts, rules, audit, utterances, speech, lessons] = await Promise.all([
+        commandBusService.pool.query(`SELECT plan_id,name,status,account_ids,symbols,risk,targets,updated_at FROM wisdo_daily_plans WHERE owner_user_id=$1 ORDER BY updated_at DESC LIMIT 10`, [userId]),
+        commandBusService.pool.query(`SELECT confirmation_id,action_type,safety_level,status,expires_at FROM wisdo_pending_confirmations WHERE owner_user_id=$1 ORDER BY created_at DESC LIMIT 10`, [userId]),
+        commandBusService.pool.query(`SELECT device_id,room_id,muted,listening,led_state,current_delivery_id,last_heartbeat_at FROM wisdo_voice_devices WHERE owner_user_id=$1 ORDER BY updated_at DESC`, [userId]),
+        commandBusService.pool.query(`SELECT command_id,account_id,lifecycle_status,result,failure_reason,received_at FROM wisdo_command_receipts WHERE owner_user_id=$1 ORDER BY received_at DESC LIMIT 30`, [userId]),
+        commandBusService.pool.query(`SELECT rule_type,status,supported,parameters,updated_at FROM wisdo_plan_rules WHERE owner_user_id=$1 ORDER BY updated_at DESC LIMIT 30`, [userId]),
+        commandBusService.pool.query(`SELECT event_type,detail,created_at FROM wisdo_conversation_audit WHERE owner_user_id=$1 ORDER BY created_at DESC LIMIT 30`, [userId]),
+        commandBusService.pool.query(`SELECT utterance_id,device_id,status,duration_ms,transcript,error_code,created_at FROM wisdo_voice_utterances WHERE owner_user_id=$1 ORDER BY created_at DESC LIMIT 30`, [userId]),
+        commandBusService.pool.query(`SELECT delivery_id,device_id,status,priority,attempts,error_code,created_at,played_at FROM wisdo_speech_deliveries WHERE owner_user_id=$1 ORDER BY created_at DESC LIMIT 30`, [userId]),
+        commandBusService.pool.query(`SELECT current_course,current_lesson,completed_lessons,quiz_results,next_recommended_lesson,updated_at FROM wisdo_education_progress WHERE owner_user_id=$1 ORDER BY updated_at DESC LIMIT 20`, [userId]),
+      ]);
+      const table = (title, rows) => `<section class="card full"><h3>${esc(title)}</h3><pre style="white-space:pre-wrap;max-height:360px;overflow:auto">${esc(JSON.stringify(rows, null, 2))}</pre></section>`;
+      res.send(htmlShell('Coach Operations', `${sectionHero('Coach Operations', 'Daily Plans, conditional rules, confirmations, connected voice devices, verified command receipts, failures, and audit history for your account only.')}<div class="grid2">${table('Current Daily Plans', plans.rows)}${table('Active Rules', rules.rows)}${table('Pending Confirmations', confirmations.rows)}${table('Voice Devices and LED State', devices.rows)}${table('Recent Voice Utterances', utterances.rows)}${table('Speech Delivery and Playback', speech.rows)}${table('Command Lifecycle and Execution Results', receipts.rows)}${table('Education Progress', lessons.rows)}${table('Audit History', audit.rows)}</div>`, 'home'));
+    } catch (error) { next(error); }
   });
   registerLivingOperatingSystemRoutes(app, {
     loadEcosystemState,
@@ -6240,6 +6264,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
         } else {
           await mt4CommandService.markCommandDelivered(commandOwnerId, command.id, accountId);
         }
+        await conversationalVoice?.executionService?.receipt({ commandId: command.id, userId: commandOwnerId, accountId, planId: command.payload?.planId || null, status: 'DELIVERED', result: { receiverId } }).catch((error) => logger.warn('Command delivery receipt persistence failed.', { commandId: command.id, message: error.message }));
         return sendMt4PollJson(res, { ...flattenCommandRecord(command), deliveryUserId: commandOwnerId });
       }
       let copyCommand = null;
@@ -6279,6 +6304,11 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
           command = await copyTradingService.markCopyCommandCompleted(candidateUserId, req.body?.commandId, req.body?.result || {}, accountId);
           if (command) { commandOwnerId = candidateUserId; break; }
         }
+      }
+      if (command) {
+        const success = req.body?.result?.success !== false;
+        await conversationalVoice?.executionService?.receipt({ commandId: command.id, userId: commandOwnerId || pairing.discordUserId, accountId, planId: command.payload?.planId || null, status: success ? 'COMPLETED' : 'FAILED', result: req.body?.result || {}, failureReason: success ? null : (req.body?.result?.message || 'MT4 command failed') }).catch((error) => logger.warn('Command completion receipt persistence failed.', { commandId: command.id, message: error.message }));
+        await conversationalVoice?.audioService?.queueCommandCompletion({ownerUserId:commandOwnerId||pairing.discordUserId,deviceId:command.payload?.deviceId,commandId:command.id,success,message:req.body?.result?.message||''}).catch((error)=>logger.warn('Verified command speech delivery failed.',{commandId:command.id,message:error.message}));
       }
       await reconcileCopiedTradeCompletion(loadEcosystemState, saveEcosystemState, command, req.body?.result || {});
       try {
@@ -7013,6 +7043,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   app.get('/member/:page', (req, res) => res.status(404).send(htmlShell('Not Found', `${sectionHero('Page not found', `The module <strong>${esc(req.params.page)}</strong> is not registered yet.`)}<section class="card full"><a class="btn primary" href="/member">Return Home</a></section>`, 'home')));
 
   const server = app.listen(config.api.port, () => logger.info('API/member portal listening', { port: config.api.port }));
+  server.wisdo = { conversationalVoice: conversationalVoice || null };
   server.on('close', () => {
     for (const timer of app.locals.wisdoBackgroundTimers || []) clearTimeout(timer);
     commandNotificationDeliveryService.stopRetryLoop?.();

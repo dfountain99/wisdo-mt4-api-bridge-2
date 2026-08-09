@@ -206,6 +206,7 @@ export class Mt4SyncService {
     this.repository = repository;
     this.copyTradingService = copyTradingService;
     this.wisdoMemoryService = wisdoMemoryService;
+    this.wisdoPlanMonitorService = null;
     this.requestTimestamps = new Map();
     this.lastRateLimitSweepAt = 0;
     this.productEventSink = null;
@@ -226,6 +227,8 @@ export class Mt4SyncService {
   attachCopyTradingService(service) {
     this.copyTradingService = service;
   }
+
+  attachWisdoPlanMonitorService(service) { this.wisdoPlanMonitorService = service || null; }
 
   attachProductEventSink(sink) {
     this.productEventSink = sink || null;
@@ -321,6 +324,9 @@ export class Mt4SyncService {
           await this.productEventSink.ingestSnapshot({ ...event, lowMemoryRelayMode: lowMemoryRelayMode() }).catch((error) => {
             logger.warn('WISDO product ledger update failed after MT4 sync.', { accountId, message: error.message });
           });
+        }
+        if (this.wisdoPlanMonitorService?.ingestSnapshot) {
+          await this.wisdoPlanMonitorService.ingestSnapshot(event).catch((error) => logger.warn('WISDO Daily Plan monitor failed after MT4 sync.', { accountId, message: error.message }));
         }
       }
     } finally {
