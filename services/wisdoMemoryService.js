@@ -153,8 +153,7 @@ export class WisdoMemoryService {
       if (connection?.accountId) return connection;
     }
 
-    const firstAccountId = user?.accounts?.find((id) => data.accounts[id]);
-    return firstAccountId ? data.accounts[firstAccountId] : null;
+    return null;
   }
 
   async rememberCommand({ discordUserId, accountId = null, command = '', payload = {}, status = 'queued', commandId = null }) {

@@ -34,6 +34,9 @@ import { SignalCopyService } from './services/signalCopyService.js';
 import { DiscordSignalGridService } from './services/discordSignalGridService.js';
 import { WisdoMemoryService } from './services/wisdoMemoryService.js';
 import { startApiServer } from './server/apiServer.js';
+import { extractWisdoWakeCommand as extractConfiguredWakeCommand, extractSpokenNumber } from './services/wisdoIntentService.js';
+import { createRuntimeLifecycle } from './services/runtimeLifecycle.js';
+import { AccountSelectionService } from './services/accountSelectionService.js';
 
 // Production source of truth: Render runs `npm start`, which runs this root
 // entrypoint. Keep runtime imports on root config/commands/services plus
@@ -158,6 +161,7 @@ const deskDashboardService = new DeskDashboardService({
   chartRenderService,
   logger,
 });
+const accountSelectionService = new AccountSelectionService({ repository: mt4SyncService.repository, memoryService: wisdoMemoryService });
 
 const registry = createCommandRegistry({
   service,
@@ -173,6 +177,7 @@ const registry = createCommandRegistry({
   botStoreService,
   botRegistryService,
   wisdoMemoryService,
+  accountSelectionService,
   logger,
 });
 
@@ -193,10 +198,14 @@ const apiServer = await startApiServer({
   signalCopyService,
   discordSignalGridService,
   operatorDeskService: service,
+  accountSelectionService,
   commandRegistryAudit: registry.audit,
   client,
   logger,
 });
+
+const runtimeTimers = new Set();
+const runtimeLifecycle = createRuntimeLifecycle({ server: apiServer, client, logger, timers: runtimeTimers });
 
 let commandRegistrationPromise = null;
 
@@ -245,11 +254,13 @@ client.once(Events.ClientReady, async (readyClient) => {
     });
   }
 
-  setInterval(() => {
+  const signalBoardTimer = setInterval(() => {
     tradeSignalService.refreshSignalBoard?.().catch((error) => {
       logger.warn('Active Signal Board scheduled refresh failed.', { message: error.message });
     });
-  }, 30000).unref?.();
+  }, 30000);
+  signalBoardTimer.unref?.();
+  runtimeTimers.add(signalBoardTimer);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -330,7 +341,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       content:
         error?.expose === true
           ? error.message
-          : 'Something went wrong while handling that request. Please try again or check the bot logs.',
+          : `Something went wrong while handling that request. Reference: ${interaction.id || 'unavailable'}.`,
       ephemeral: true,
     };
 
@@ -355,6 +366,28 @@ client.on(Events.MessageCreate, async (message) => {
     const raw = message.content?.trim();
 
     if (!raw) return;
+
+    const conversationalVoice = apiServer?.wisdo?.conversationalVoice?.conversationService;
+    if (conversationalVoice) {
+      const conversational = await conversationalVoice.answer({
+        userId: message.author.id,
+        discordUserId: message.author.id,
+        channel: 'discord',
+        text: raw,
+      });
+      const useConversational = conversational.responded && (
+        conversational.intent?.intent !== 'GENERAL_CONVERSATION' ||
+        !extractWisdoWakeCommand(raw)
+      );
+      if (useConversational) {
+        await replyWithWisdoTextAndSpeech({
+          message,
+          wisdoSpeechService,
+          response: { content: conversational.text, speechText: conversational.text },
+        });
+        return;
+      }
+    }
 
     const wakeResult = extractWisdoWakeCommand(raw);
 
@@ -385,8 +418,7 @@ client.on(Events.MessageCreate, async (message) => {
             '`Hey Wisdom, set equity floor to 25 dollars.`',
             '`Hey Coach, emergency stop.`',
           ].join('\n'),
-          speechText:
-            'WISDO is listening. You can talk naturally after the wake phrase. Try saying, Hey Coach, how does my account look, or Hey Coach, pause my MT4.',
+          speechText: "I'm listening. What can I help you with?",
         },
       });
       return;
@@ -421,7 +453,7 @@ client.on(Events.MessageCreate, async (message) => {
     });
 
     await message.reply({
-      content: 'WISDO heard you, but something broke while processing the request. Check the bot logs.',
+      content: 'I heard your request, but something went wrong while processing it. I have not changed your trading setup.',
     }).catch(() => null);
   }
 });
@@ -481,57 +513,20 @@ client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
 
 process.on('unhandledRejection', (reason) => {
   const error = reason instanceof Error ? reason : new Error(String(reason));
-  logDiscordTransportFailure('Unhandled promise rejection', error);
+  if (isTransientDiscordTransportError(error)) {
+    logDiscordTransportFailure('Unhandled transient promise rejection', error);
+    return;
+  }
+  void runtimeLifecycle.fatal(error, 'Unhandled promise rejection');
 });
 
 process.on('uncaughtException', (error) => {
-  logDiscordTransportFailure('Uncaught exception', error);
+  void runtimeLifecycle.fatal(error, 'Uncaught exception');
 });
 
 function extractWisdoWakeCommand(raw) {
-  const text = String(raw || '').trim();
-
-  if (!text) return null;
-
-  const wakeWords = [
-    'hey wisdom',
-    'hey wisdo',
-    'hey coach',
-    'hey operator',
-    'hey trading assistant',
-    'trading assistant',
-    'operator',
-    'coach',
-    'wisdom',
-    'wisdo',
-    'yo wisdom',
-    'yo wisdo',
-    'wizzo',
-    'wiz do',
-    'wizdo',
-    'wise doe',
-    'wise do',
-  ];
-
-  for (const wakeWord of wakeWords) {
-    const escaped = escapeRegExp(wakeWord);
-    const pattern = new RegExp(`^${escaped}(\\b|[\\s,.:;!?-]+)`, 'i');
-    const match = text.match(pattern);
-
-    if (!match) continue;
-
-    const ask = text
-      .slice(match[0].length)
-      .replace(/^[\s,.:;!?-]+/, '')
-      .trim();
-
-    return {
-      wakeWord,
-      ask,
-    };
-  }
-
-  return null;
+  const result = extractConfiguredWakeCommand(raw);
+  return result.matched ? { wakeWord: result.wakePhrase, ask: result.command } : null;
 }
 
 function normalizeVoiceInput(text) {
@@ -1413,8 +1408,7 @@ function extractScenarioFromVoice(ask) {
   return scenario;
 }
 function extractNumberFromVoice(ask) {
-  const match = String(ask || '').match(/(\d+(\.\d+)?)/);
-  return match ? Number(match[1]) : null;
+  return extractSpokenNumber(ask);
 }
 
 function extractBotNameFromVoice(ask, intent) {
@@ -2889,25 +2883,12 @@ if (intent === 'mt4_scenario_control') {
   };
 }
 
-async function shutdown(signal) {
-  logger.info('Shutdown requested', { signal });
-
-  await Promise.allSettled([
-    new Promise((resolve) => {
-      apiServer.close(() => resolve());
-    }),
-    client.destroy(),
-  ]);
-
-  process.exit(0);
-}
-
 process.on('SIGINT', () => {
-  shutdown('SIGINT').catch(() => process.exit(1));
+  runtimeLifecycle.shutdown('SIGINT').catch(() => process.exit(1));
 });
 
 process.on('SIGTERM', () => {
-  shutdown('SIGTERM').catch(() => process.exit(1));
+  runtimeLifecycle.shutdown('SIGTERM').catch(() => process.exit(1));
 });
 
 try {

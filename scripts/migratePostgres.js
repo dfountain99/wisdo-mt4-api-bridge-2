@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import pg from 'pg';
+import { readFile } from 'node:fs/promises';
 
 if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required.');
 const ssl = ['1','true','yes','on'].includes(String(process.env.WISDO_DB_SSL || process.env.DB_SSL || 'true').toLowerCase());
@@ -446,5 +447,7 @@ try {
     CREATE INDEX IF NOT EXISTS idx_wisdo_voice_behaviors_owner
       ON wisdo_voice_behaviors(owner_user_id,status,created_at DESC);
   `);
+  await pool.query(await readFile(new URL('../migrations/2026-08-09-conversational-trading-os.sql', import.meta.url), 'utf8'));
+  await pool.query(await readFile(new URL('../migrations/2026-08-09-major-stability-ecosystem.sql', import.meta.url), 'utf8'));
 console.log('WISDO PostgreSQL v3.4 Voice Bot Authority migration complete.');
 } finally { await pool.end(); }

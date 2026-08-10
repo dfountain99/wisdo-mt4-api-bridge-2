@@ -4,7 +4,7 @@
   "components": {
     "pi_edge": {
       "entrypoint": "wisdo_edge.py",
-      "required_markers": ["/api/kernel/v1/voice-control"]
+      "required_markers": ["/api/voice/v1/utterances", "/api/voice/v1/deliveries/next", "recognize_sphinx"]
     },
     "desktop_agent": {
       "entrypoint": "agent.py",

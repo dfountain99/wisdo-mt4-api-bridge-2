@@ -7,6 +7,8 @@ function bearer(req) {
 
 export function registerCommandBusRoutes(app, dependencies = {}) {
   const service = new WisdoCommandBusService(dependencies);
+  const enrollmentAttempts=new Map();
+  function allowEnrollment(req){const now=Date.now(),windowMs=10*60*1000,key=String(req.ip||req.socket?.remoteAddress||'unknown');for(const [entry,value] of enrollmentAttempts){if(value.resetAt<=now)enrollmentAttempts.delete(entry);}if(enrollmentAttempts.size>256&&!enrollmentAttempts.has(key))enrollmentAttempts.delete(enrollmentAttempts.keys().next().value);const value=enrollmentAttempts.get(key)||{count:0,resetAt:now+windowMs};value.count+=1;enrollmentAttempts.set(key,value);return value.count<=5;}
   async function auth(req, res, next) {
     try {
       const device = await service.authenticateDevice(req.headers['x-wisdo-device-id'], bearer(req));
@@ -16,7 +18,7 @@ export function registerCommandBusRoutes(app, dependencies = {}) {
   }
 
   app.post('/api/device/v1/enroll', async (req, res, next) => {
-    try { res.status(201).json({ ok: true, device: await service.enrollDevice(req.body || {}) }); }
+    try { if(!allowEnrollment(req))return res.status(429).json({ok:false,error:'Device enrollment rate limit exceeded.'});res.status(201).json({ ok: true, device: await service.enrollDevice(req.body || {}) }); }
     catch (error) { next(error); }
   });
   app.get('/api/device/v1/health', auth, async (req, res, next) => {

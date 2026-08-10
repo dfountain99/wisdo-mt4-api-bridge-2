@@ -206,6 +206,7 @@ export class Mt4SyncService {
     this.repository = repository;
     this.copyTradingService = copyTradingService;
     this.wisdoMemoryService = wisdoMemoryService;
+    this.wisdoPlanMonitorService = null;
     this.requestTimestamps = new Map();
     this.lastRateLimitSweepAt = 0;
     this.productEventSink = null;
@@ -214,6 +215,7 @@ export class Mt4SyncService {
     this.pairingRecordCache = new Map();
     this.pairingRecoveryByCode = new Map();
     this.postSnapshotQueueByAccount = new Map();
+    this.tradeSignalWorkByAccount = new Map();
     this.postSnapshotWorkerRunning = false;
     this.postSnapshotQueueLimit = Math.max(10, Math.min(250, Number(process.env.WISDO_POST_SNAPSHOT_QUEUE_MAX || 75)));
     this.pairingCacheTtlMs = Math.max(30_000, Number(process.env.WISDO_PAIRING_CACHE_TTL_MS || 300_000));
@@ -226,6 +228,8 @@ export class Mt4SyncService {
   attachCopyTradingService(service) {
     this.copyTradingService = service;
   }
+
+  attachWisdoPlanMonitorService(service) { this.wisdoPlanMonitorService = service || null; }
 
   attachProductEventSink(sink) {
     this.productEventSink = sink || null;
@@ -322,6 +326,9 @@ export class Mt4SyncService {
             logger.warn('WISDO product ledger update failed after MT4 sync.', { accountId, message: error.message });
           });
         }
+        if (this.wisdoPlanMonitorService?.ingestSnapshot) {
+          await this.wisdoPlanMonitorService.ingestSnapshot(event).catch((error) => logger.warn('WISDO Daily Plan monitor failed after MT4 sync.', { accountId, message: error.message }));
+        }
       }
     } finally {
       this.postSnapshotWorkerRunning = false;
@@ -330,6 +337,26 @@ export class Mt4SyncService {
         setImmediate(() => this.drainPostSnapshotWork());
       }
     }
+  }
+
+  enqueueTradeSignalWork({ connectionRecord, latestSnapshotRecord }) {
+    const accountId = String(connectionRecord?.accountId || '');
+    if (!accountId) return;
+    const prior = this.tradeSignalWorkByAccount.get(accountId) || Promise.resolve();
+    const work = prior
+      .catch(() => undefined)
+      .then(async () => {
+        const context = await this.repository.getMt4SnapshotContext?.(accountId, connectionRecord.discordUserId);
+        const summary = await this.processTradeSignals({ connectionRecord, latestSnapshotRecord, priorTracking: context?.tracking || null });
+        if (summary.tracking) await this.repository.saveMt4SignalTracking?.(accountId, summary.tracking);
+        logger.info('Post-ack MT4 signal derivation completed.', { accountId, opened: summary.opened, closed: summary.closed, skipped: summary.skipped, reason: summary.reason });
+        return summary;
+      })
+      .catch((error) => logger.warn('Post-ack MT4 signal derivation failed.', { accountId, message: error.message }));
+    this.tradeSignalWorkByAccount.set(accountId, work);
+    work.finally(() => {
+      if (this.tradeSignalWorkByAccount.get(accountId) === work) this.tradeSignalWorkByAccount.delete(accountId);
+    });
   }
 
   getPublicBaseUrl() {
@@ -1188,12 +1215,7 @@ export class Mt4SyncService {
       receivedAt,
     };
 
-    const priorTracking = snapshotContext.tracking || null;
-    const signalSummary = await this.processTradeSignals({
-      connectionRecord,
-      latestSnapshotRecord,
-      priorTracking,
-    });
+    const signalSummary = { opened: 0, closed: 0, skipped: true, reason: 'queued-for-post-ack-processing', tracking: snapshotContext.tracking || null };
 
     const historyRecord = {
       discordUserId: latestSnapshotRecord.discordUserId,
@@ -1211,8 +1233,6 @@ export class Mt4SyncService {
     const historyIntervalMs = Math.max(5000, Number(process.env.WISDO_MT4_HISTORY_INTERVAL_MS || 15000));
     const lastHistoryAt = Number(this.lastHistoryAtByAccount.get(accountId) || 0);
     const shouldAppendHistory = nextStatus === 'connected'
-      || signalSummary.opened > 0
-      || signalSummary.closed > 0
       || Date.now() - lastHistoryAt >= historyIntervalMs;
 
     const connectedPairingRecord = {
@@ -1260,7 +1280,6 @@ export class Mt4SyncService {
         state.latestSnapshotsByAccountId[accountId] = latestSnapshotRecord;
         state.accountSettingsByAccountId[accountId] = nextAccountSettings;
         if (signalSummary.tracking) state.signalTrackingByAccountId[accountId] = signalSummary.tracking;
-        state.activeAccountByUserId[pairingRecord.discordUserId] ||= accountId;
         if (shouldAppendHistory) state.snapshotHistory = appendBoundedHistory(state.snapshotHistory, historyRecord);
         return state;
       });
@@ -1291,6 +1310,7 @@ export class Mt4SyncService {
     }
 
     this.enqueuePostSnapshotWork({ connectionRecord, latestSnapshotRecord, signalSummary });
+    this.enqueueTradeSignalWork({ connectionRecord, latestSnapshotRecord });
 
     logger.info('MT4 snapshot received', {
       discordUserId: pairingRecord.discordUserId,

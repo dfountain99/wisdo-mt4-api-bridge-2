@@ -12,7 +12,7 @@ def discover():
     name=(p.info.get('name') or '').lower()
     if name in ('terminal.exe','terminal64.exe'):
       terminal=Path(p.info.get('exe') or '').parent.name or name
-      bots.append({'botId':f'{DEVICE_ID}:{p.info["pid"]}','botName':terminal,'aliases':[terminal.lower(),'mt4','trading bot'],'terminalName':terminal,'capabilities':{'bot_status':True,'protect_profit':True,'close_profitable':True,'close_losing':True,'close_all':True,'pause_entries':True,'resume_entries':True},'metadata':{'pid':p.info['pid'],'exe':p.info.get('exe')}})
+      bots.append({'botId':f'{DEVICE_ID}:{p.info["pid"]}','botName':terminal,'aliases':[terminal.lower(),'mt4','trading bot'],'terminalName':terminal,'capabilities':{'bot_status':True,'protect_profit':True,'close_profitable':True,'close_losing':True,'close_all':True,'pause_entries':True,'resume_entries':True,'trail_stop':True,'move_break_even':True,'set_profit_target':True,'apply_behavior':True,'undo_behavior':True},'metadata':{'pid':p.info['pid'],'exe':p.info.get('exe')}})
   return bots
 
 def register_bots():
@@ -22,7 +22,7 @@ def register_bots():
 def execute(cmd):
   intent=cmd['intent']; target=cmd.get('target_id'); params=cmd.get('parameters') or {}
   # Safe adapter boundary: local bot/reporters can replace this with named-pipe, file queue, or localhost API execution.
-  allowed={'bot_status','protect_profit','close_profitable','close_losing','close_all','pause_entries','resume_entries'}
+  allowed={'bot_status','protect_profit','close_profitable','close_losing','close_all','pause_entries','resume_entries','trail_stop','move_break_even','set_profit_target','apply_behavior','undo_behavior'}
   if intent not in allowed: return 'rejected',{},f'Intent {intent} is not supported by this desktop agent.'
   result={'intent':intent,'target':target,'parameters':params,'host':socket.gethostname(),'executedAt':time.time()}
   # Current integration writes a durable local command inbox consumed by the Reporter upgrade.

@@ -74,6 +74,45 @@ function money(value) {
   return `$${Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function parseDollarsToCents(value) {
+  const raw = String(value ?? '').trim().replace(/[$,]/g, '');
+  if (!/^\d+(?:\.\d{1,2})?$/.test(raw)) return null;
+  const [wholeRaw, fractionRaw = ''] = raw.split('.');
+  const whole = Number(wholeRaw);
+  if (!Number.isSafeInteger(whole)) return null;
+  const cents = whole * 100 + Number((fractionRaw + '00').slice(0, 2));
+  return Number.isSafeInteger(cents) ? cents : null;
+}
+
+function payoutAmountCents(payout = {}) {
+  for (const value of [payout.amountCents, payout.requestedAmountCents]) {
+    const cents = Number(value);
+    if (Number.isSafeInteger(cents) && cents >= 0) return cents;
+  }
+  return parseDollarsToCents(payout.amount) ?? 0;
+}
+
+function payoutAmountUsd(payout = {}) {
+  return payoutAmountCents(payout) / 100;
+}
+
+function availableCommissionCents(state, userId) {
+  return Object.values(state.commissionLedgerById || {})
+    .filter((row) => String(row.referrerUserId) === String(userId) && row.status === 'available')
+    .reduce((sum, row) => {
+      const direct = Number(row.amountCents ?? row.commissionAmountCents);
+      if (Number.isSafeInteger(direct) && direct >= 0) return sum + direct;
+      return sum + (parseDollarsToCents(row.commissionAmount) ?? 0);
+    }, 0);
+}
+
+function requestedPayoutCents(body = {}) {
+  const direct = Number(body.amountCents);
+  if (Number.isSafeInteger(direct) && direct > 0) return direct;
+  const legacy = parseDollarsToCents(body.amount);
+  return legacy && legacy > 0 ? legacy : null;
+}
+
 function pct(value) {
   const n = Number(value || 0);
   return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
@@ -322,12 +361,14 @@ function ensureWisdoStateCollections(state = {}) {
     'funnelCampaignsById',
     'funnelVisitsById',
     'funnelLeadsById',
+    'reviewsById',
   ];
   for (const key of objectBuckets) state[key] ||= {};
   state.referralVisits ||= [];
   state.conversions ||= [];
   state.funnelEvents ||= [];
   state.leads ||= [];
+  state.telegramReviewEvents ||= [];
   return state;
 }
 
@@ -452,7 +493,7 @@ function ensureWisdoEducationSeeds(state = {}) {
         quizId,
         botSlug,
         title,
-        status: 'placeholder',
+        status: 'published',
         seedNote: note,
         seedData: true,
         createdAt: now,
@@ -573,7 +614,7 @@ function ensureWisdoAcademySeeds(state = {}) {
           { id: `${quizId}_q3`, type: 'safest_action', prompt: 'Choose the safest action after a warning appears.', options: ['Pause and review risk settings', 'Double risk to recover', 'Copy without checking account size'], answer: 'Pause and review risk settings' },
         ],
         status: 'published',
-        seedNote: 'Educational starter quiz placeholder - admin can replace/edit later.',
+        seedNote: 'Published educational starter quiz; administrators may version the content.',
         seedData: true,
         createdAt: now,
       };
@@ -844,10 +885,10 @@ function defaultWisdoDesk(userId, accounts = [], state = {}) {
   const normalizedAccounts = accounts.map(normalizeAccountForDesk).filter((a) => a.accountId);
   const existing = state.wisdoDesksByUserId?.[String(userId)] || {};
   const preference = state.deskPreferencesByUserId?.[String(userId)] || {};
-  const selectedAccountId = preference.selectedAccountId || existing.selectedAccountId || normalizedAccounts[0]?.accountId || '';
+  const selectedAccountId = preference.selectedAccountId || existing.selectedAccountId || '';
   return {
-    deskId: existing.deskId || `desk_${String(userId || 'website-buyer')}`,
-    userId: String(userId || 'website-buyer'),
+    deskId: existing.deskId || `desk_${String(userId || '')}`,
+    userId: String(userId || ''),
     name: existing.name || 'Wisdo Desk',
     tagline: 'Connect. Copy. Control.',
     selectedAccountId,
@@ -867,7 +908,7 @@ function defaultWisdoDesk(userId, accounts = [], state = {}) {
 
 function persistDeskPreference(state, userId, patch = {}) {
   state.deskPreferencesByUserId ||= {};
-  const key = String(userId || 'website-buyer');
+  const key = String(userId || '');
   state.deskPreferencesByUserId[key] = {
     ...(state.deskPreferencesByUserId[key] || {}),
     ...patch,
@@ -877,7 +918,7 @@ function persistDeskPreference(state, userId, patch = {}) {
 }
 
 function upsertNotification(state, userId, notification = {}) {
-  const key = String(userId || 'website-buyer');
+  const key = String(userId || '');
   state.notificationsByUserId ||= {};
   state.notificationsByUserId[key] ||= [];
   const item = {
@@ -1002,18 +1043,20 @@ function discordAvatarUrl(user = {}) {
 
 function getIdentity(req) {
   const user = getCurrentUser(req) || {};
-  const id = String(user.id || req.user?.id || req.session?.user?.id || req.session?.discordUser?.id || req.query.userId || req.query.discordUserId || req.body?.userId || 'website-buyer').trim();
-  const displayName = discordDisplayName(user.id ? user : { id, username: req.query.username || 'CultureCoin Member' });
+  const devId = process.env.NODE_ENV !== 'production' ? String(process.env.WISDO_DEV_USER_ID || '').trim() : '';
+  const id = String(user.id || req.user?.id || req.session?.user?.id || req.session?.discordUser?.id || devId).trim();
+  const displayName = discordDisplayName(user.id ? user : { id, username: id ? 'Development Member' : 'Guest' });
   return {
     userId: id,
     discordId: id,
-    username: user.username || req.query.username || displayName,
+    username: user.username || displayName,
     globalName: user.global_name || user.globalName || '',
     displayName,
     avatarUrl: discordAvatarUrl(user),
     role: 'member',
     membershipTier: 'Culture Member',
-    loggedIn: Boolean(user.id),
+    loggedIn: Boolean(user.id || devId),
+    authSource: user.id ? 'discord_oauth' : devId ? 'development_override' : 'none',
   };
 }
 
@@ -1031,7 +1074,8 @@ function normalizeBotKey(value = '') {
 
 async function grantBotLicense({ userId, bot, orderId = null, source = 'manual' }) {
   const state = await loadEcosystemState();
-  const key = String(userId || 'website-buyer');
+  const key = String(userId || '');
+  if (!key) throw new Error('A verified user ID is required to grant a bot license.');
   state.licensesByUserId ||= {};
   state.licensesByUserId[key] ||= [];
   const slug = normalizeBotKey(bot.name || bot.slug);
@@ -2758,7 +2802,7 @@ function botsPage(config) {
   return `${sectionHero('Bot Arena Marketplace', 'Every Expert Advisor found in your uploaded folders is listed as its own product card with a skill-based price, checkout action, WISDO compatibility, and Copier Engine connection path.', '<a class="btn primary" href="#all-bots">Shop All Bots</a><a class="btn" href="/member/copy-pro">View Copier Engine</a>')}
   <section class="card bot-banner full"><div class="row" style="justify-content:space-between;align-items:center"><div><img class="logo-hero" src="/media/white_logo_transparent_background.png" alt="CEM Culture"><h3>Recommended Today</h3><div class="title" style="font-size:34px">${esc(recommended.name)}</div><p>${esc(recommended.description)}</p><div>${recommended.tags.map((x) => `<span class="tag">${esc(x)}</span>`).join('')}</div></div><div><div class="metric green">${money(botPrice(recommended, config))}</div><p class="muted">Top bot recommendation. This is the flagship product card, not a generic EA-pack download.</p><button class="btn primary buy-bot" data-bot="${esc(recommended.name)}" data-price="${botPrice(recommended, config)}" data-slug="${slugify(recommended.name)}">Buy DF SAUCE FINAL AI</button><a class="btn" href="/member/bots/${slugify(recommended.name)}">View Details</a><div id="checkout-${slugify(recommended.name)}" class="checkout-result" style="display:none;white-space:pre-wrap;background:#06111d;border:1px solid rgba(255,255,255,.1);padding:12px;border-radius:12px;margin-top:12px"></div></div></div></section>
   <div class="grid3" style="margin-top:16px"><section class="card"><h3>Bots Listed</h3><div class="metric">${EA_CATALOG.length}</div><p>Each uploaded EA is now displayed as a marketplace product.</p></section><section class="card"><h3>Paid Products</h3><div class="metric">${paidBots.length}</div><p>Products can create Square checkout or manual quotes.</p></section><section class="card"><h3>Top Price</h3><div class="metric green">${money(botPrice(recommended, config))}</div><p>DF SAUCE FINAL AI flagship price.</p></section><section class="card full"><h3>Bot Categories</h3>${categoryTags}</section><section class="card full"><h3>What Buyer Gets</h3><span class="tag">EA delivery after purchase</span><span class="tag">Install guide</span><span class="tag">WISDO link-account flow</span><span class="tag">Copier Engine visibility</span><span class="tag">Support desk record</span><span class="tag">Risk disclaimer</span></section></div>
-  <div id="all-bots" class="grid3" style="margin-top:16px">${cards}</div><script>document.querySelectorAll('.buy-bot').forEach(btn=>btn.addEventListener('click',async()=>{const slug=btn.dataset.slug;const out=document.getElementById('checkout-'+slug);out.style.display='block';out.textContent='Creating checkout...';const res=await fetch('/api/bot-checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({botName:btn.dataset.bot,priceUsd:Number(btn.dataset.price||0)})});const json=await res.json();if(json.checkoutUrl){out.innerHTML='Checkout ready: <a class="btn primary" href="'+json.checkoutUrl+'">Open Square Checkout</a>'; } else if(json.ok){out.textContent='Manual quote created for '+json.botName+' at $'+json.priceUsd+'. Add SQUARE_ACCESS_TOKEN on Render to turn this into live checkout.';} else {out.textContent='Checkout error: '+(json.error||'Unknown error');}}));</script>`;
+  <div id="all-bots" class="grid3" style="margin-top:16px">${cards}</div><script>document.querySelectorAll('.buy-bot').forEach(btn=>btn.addEventListener('click',async()=>{const slug=btn.dataset.slug;const out=document.getElementById('checkout-'+slug);out.style.display='block';out.textContent='Creating checkout...';const res=await fetch('/api/bot-checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({botName:btn.dataset.bot,priceUsd:Number(btn.dataset.price||0)})});const json=await res.json();if(json.checkoutUrl){out.innerHTML='Checkout ready: <a class="btn primary" href="'+json.checkoutUrl+'">Open Square Checkout</a>'; } else if(json.ok){out.textContent='Checkout record created for '+json.botName+' at $'+json.priceUsd+'. Access remains locked until verified payment.';} else {out.textContent='Checkout error: '+(json.error||'Unknown error');}}));</script>`;
 }
 function devicesPage() {
   return `${sectionHero('Device Forge', 'The hardware roadmap for MT4 tablets and handheld WISDO devices. Start with tablets, then move into dedicated voice devices once the software is stable.')}
@@ -3138,7 +3182,7 @@ function botDetailPage(slug, config) {
   return `${sectionHero(bot.name, bot.description || 'CultureCoin approved trading bot.', '<a class="btn primary" href="/member/install/'+slugify(bot.name)+'">Setup Free</a><a class="btn" href="#checkout">Checkout</a><a class="btn" href="/member/link-account?selectedBot='+encodeURIComponent(bot.name)+'">Link MT4</a><a class="btn" href="/member/copy-pro?bot='+encodeURIComponent(bot.name)+'">Copy Live Account Running This Bot</a>')}
   <div class="grid2"><section class="card"><h3>Strategy</h3><p>${esc(bot.strategy || 'EA strategy details, setup guide, and risk notes.')}</p><span class="tag">${esc(bot.bestMarket || 'XAUUSD')}</span><span class="tag">${esc(bot.platform || 'MT4')}</span><span class="tag">WISDO Compatible</span><span class="tag">${esc(bot.category)}</span><span class="tag">${esc(bot.tier || bot.status)}</span></section><section class="card"><h3>Marketplace Price</h3><div class="metric">${price > 0 ? money(price) : 'Free Utility'}</div><p>${price > 0 ? 'Checkout creates a bot purchase quote and opens Square hosted checkout when Square is configured.' : 'Utility is part of the connection/support stack.'}</p><p class="muted">Delivery file after purchase: ${esc(bot.file || '')}</p></section></div>
   <section class="card full"><h3>Bot Details</h3><p>${esc(bot.risk)}</p>${(bot.tags || []).map((x)=>`<span class="tag">${esc(x)}</span>`).join('')}<div style="margin-top:12px"><span class="tag">Overview</span><span class="tag">Strategy Explanation</span><span class="tag">Performance Chart</span><span class="tag">Risk Notes</span><span class="tag">Setup Instructions</span><span class="tag">Compatible Commands</span><span class="tag">User Reviews</span><span class="tag">Download After Purchase</span></div></section>
-  <section id="checkout" class="card full"><h3>Checkout Options</h3><p class="muted">Choose how to access this bot. Payment plans and rentals use CultureCoin VPS until ownership is complete.</p><div class="grid3"><section class="card ok"><h3>Pay in Full</h3><div class="metric">${money(price)}</div><p>Lifetime access. Download unlocks immediately after payment clears.</p><button class="btn primary finance-checkout" data-plan="paid_in_full" data-bot="${esc(bot.name)}" data-price="${price}" data-slug="${slugify(bot.name)}">Pay in Full</button></section><section class="card"><h3>Pay Monthly Until Owned</h3><div class="metric">${money(Math.ceil(price/6))}/mo</div><p>6-month plan. VPS required until paid in full. Download unlocks after final payment.</p><button class="btn primary finance-checkout" data-plan="payment_plan" data-bot="${esc(bot.name)}" data-price="${price}" data-slug="${slugify(bot.name)}">Start Payment Plan</button></section><section class="card"><h3>Rent Monthly</h3><div class="metric">${money(bot.recommended ? 497 : Math.max(97, Math.round(price*.16)))}/mo</div><p>VPS-only access. Download remains locked while renting.</p><button class="btn primary finance-checkout" data-plan="rental" data-bot="${esc(bot.name)}" data-price="${price}" data-slug="${slugify(bot.name)}">Rent Monthly</button></section><section class="card bot-banner full"><h3>VPS Bundle</h3><div class="metric">${money(bot.recommended ? 597 : Math.max(147, Math.round(price*.2)))}/mo</div><p>Bot access + Operator VPS + monitoring support. Best for monthly users and copy trading.</p><button class="btn primary finance-checkout" data-plan="vps_bundle" data-bot="${esc(bot.name)}" data-price="${price}" data-slug="${slugify(bot.name)}">Bundle with VPS</button></section></div><pre id="checkout-${slugify(bot.name)}" style="display:none;white-space:pre-wrap;background:#06111d;border:1px solid rgba(255,255,255,.1);padding:12px;border-radius:12px"></pre></section>${riskDisclosureBlock()}<script>document.querySelectorAll('.finance-checkout').forEach(btn=>btn.addEventListener('click',async()=>{const slug=btn.dataset.slug;const out=document.getElementById('checkout-'+slug);out.style.display='block';out.textContent='Creating '+btn.dataset.plan+' checkout...';const res=await fetch('/api/bots/'+slug+'/checkout-plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({botName:btn.dataset.bot,planType:btn.dataset.plan,priceUsd:Number(btn.dataset.price||0)})});const json=await res.json();out.textContent=json.ok?('Plan created: '+json.planType+' for '+json.productName+'\nStatus: '+json.status+(json.checkoutUrl?'\nOpen: '+json.checkoutUrl:'\nManual/dev mode record created.')):('Checkout error: '+(json.error||'Unknown error'));}));</script>`;
+  <section id="checkout" class="card full"><h3>Checkout Options</h3><p class="muted">Choose how to access this bot. Payment plans and rentals use CultureCoin VPS until ownership is complete.</p><div class="grid3"><section class="card ok"><h3>Pay in Full</h3><div class="metric">${money(price)}</div><p>Lifetime access. Download unlocks immediately after payment clears.</p><button class="btn primary finance-checkout" data-plan="paid_in_full" data-bot="${esc(bot.name)}" data-price="${price}" data-slug="${slugify(bot.name)}">Pay in Full</button></section><section class="card"><h3>Pay Monthly Until Owned</h3><div class="metric">${money(Math.ceil(price/6))}/mo</div><p>6-month plan. VPS required until paid in full. Download unlocks after final payment.</p><button class="btn primary finance-checkout" data-plan="payment_plan" data-bot="${esc(bot.name)}" data-price="${price}" data-slug="${slugify(bot.name)}">Start Payment Plan</button></section><section class="card"><h3>Rent Monthly</h3><div class="metric">${money(bot.recommended ? 497 : Math.max(97, Math.round(price*.16)))}/mo</div><p>VPS-only access. Download remains locked while renting.</p><button class="btn primary finance-checkout" data-plan="rental" data-bot="${esc(bot.name)}" data-price="${price}" data-slug="${slugify(bot.name)}">Rent Monthly</button></section><section class="card bot-banner full"><h3>VPS Bundle</h3><div class="metric">${money(bot.recommended ? 597 : Math.max(147, Math.round(price*.2)))}/mo</div><p>Bot access + Operator VPS + monitoring support. Best for monthly users and copy trading.</p><button class="btn primary finance-checkout" data-plan="vps_bundle" data-bot="${esc(bot.name)}" data-price="${price}" data-slug="${slugify(bot.name)}">Bundle with VPS</button></section></div><pre id="checkout-${slugify(bot.name)}" style="display:none;white-space:pre-wrap;background:#06111d;border:1px solid rgba(255,255,255,.1);padding:12px;border-radius:12px"></pre></section>${riskDisclosureBlock()}<script>document.querySelectorAll('.finance-checkout').forEach(btn=>btn.addEventListener('click',async()=>{const slug=btn.dataset.slug;const out=document.getElementById('checkout-'+slug);out.style.display='block';out.textContent='Creating '+btn.dataset.plan+' checkout...';const res=await fetch('/api/bots/'+slug+'/checkout-plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({botName:btn.dataset.bot,planType:btn.dataset.plan,priceUsd:Number(btn.dataset.price||0)})});const json=await res.json();if(json.ok&&json.checkoutUrl){out.textContent='Secure Square checkout ready for '+json.productName+'\nStatus: '+json.status+'\nOpening checkout...';location.href=json.checkoutUrl;}else{out.textContent='Checkout unavailable: '+(json.error||'No checkout URL was created. No paid access was granted.');}}));</script>`;
 }
 function traderProfilePage() {
   return `${sectionHero('Trader Profile', 'TikTok/Instagram-style trader profile with rank, verified badge, main EA, copiers, growth, harvested profit, max drawdown, and WISDO safety score.')}
@@ -3148,7 +3192,7 @@ function traderProfilePage() {
 
 
 function memberProfilePage(userId, state, mt4State = {}) {
-  const user = state.usersById?.[userId] || { userId, username: userId === 'website-buyer' ? 'Website Member' : `Member ${String(userId).slice(-4)}`, role: 'member', membershipTier: 'Culture Member' };
+  const user = state.usersById?.[userId] || { userId, username: `Member ${String(userId).slice(-4)}`, role: 'member', membershipTier: 'Culture Member' };
   const licenses = state.licensesByUserId?.[userId] || [];
   const orders = Object.values(state.ordersById || {}).filter((order) => String(order.userId) === String(userId));
   const connections = Object.values(mt4State.connections || {}).filter((c) => String(c.discordUserId) === String(userId));
@@ -3207,7 +3251,7 @@ function financeWidgetCards(userId, state) {
   const payouts = Object.values(state.payoutsById).filter((x)=>String(x.userId)===String(userId));
   const commissions = Object.values(state.commissionLedgerById).filter((x)=>String(x.referrerUserId)===String(userId));
   const available = commissions.filter((x)=>x.status==='available').reduce((sum,x)=>sum+Number(x.commissionAmount||0),0);
-  return `<div class="grid3"><section class="card"><h3>Active Subscriptions</h3><div class="metric">${subscriptions.length}</div><p>Bot rentals, signal rooms, copy access, memberships, and VPS.</p></section><section class="card"><h3>Payment Plans</h3><div class="metric">${plans.length}</div><p>Monthly-until-owned bot plans. VPS required until paid in full.</p></section><section class="card"><h3>VPS Assignments</h3><div class="metric">${vps.length}</div><p>Hosted MT4 environments for rentals, plans, and copy trading.</p></section><section class="card"><h3>Available Commission</h3><div class="metric green">${money(available)}</div><p>Approved and available for payout request.</p></section><section class="card"><h3>Payout Requests</h3><div class="metric">${payouts.length}</div><p>Requested, approved, paid, rejected, or held payout records.</p></section><section class="card"><h3>Finance Engine</h3><span class="tag green">Square Ready</span><span class="tag gold">Manual fallback</span><span class="tag">VPS access rules</span></section></div>`;
+  return `<div class="grid3"><section class="card"><h3>Active Subscriptions</h3><div class="metric">${subscriptions.length}</div><p>Bot rentals, signal rooms, copy access, memberships, and VPS.</p></section><section class="card"><h3>Payment Plans</h3><div class="metric">${plans.length}</div><p>Monthly-until-owned bot plans. VPS required until paid in full.</p></section><section class="card"><h3>VPS Assignments</h3><div class="metric">${vps.length}</div><p>Hosted MT4 environments for rentals, plans, and copy trading.</p></section><section class="card"><h3>Available Commission</h3><div class="metric green">${money(available)}</div><p>Approved and available for payout request.</p></section><section class="card"><h3>Payout Requests</h3><div class="metric">${payouts.length}</div><p>Requested, approved, paid, rejected, or held payout records.</p></section><section class="card"><h3>Finance Engine</h3><span class="tag green">Square Ready</span><span class="tag gold">Checkout disabled if unconfigured</span><span class="tag">Signed webhook required</span></section></div>`;
 }
 
 function subscriptionsPage(userId, state) {
@@ -3240,13 +3284,13 @@ function payoutRequestPage(userId, state) {
   const commissions = Object.values(state.commissionLedgerById).filter((x)=>String(x.referrerUserId)===String(userId));
   const pending = commissions.filter((x)=>x.status==='pending').reduce((sum,x)=>sum+Number(x.commissionAmount||0),0);
   const available = commissions.filter((x)=>x.status==='available').reduce((sum,x)=>sum+Number(x.commissionAmount||0),0);
-  const paid = payouts.filter((x)=>x.status==='paid').reduce((sum,x)=>sum+Number(x.amount||0),0);
-  const rows = payouts.map((p)=>`<tr><td>${esc(p.payoutId)}</td><td>${money(p.amount)}</td><td>${esc(p.method)}</td><td>${esc(p.status)}</td><td>${esc(p.requestedAt)}</td></tr>`).join('');
-  return `${sectionHero('Payouts', 'Request payouts for available commissions. Payment-plan commissions are earned monthly as payments clear.', '<a class="btn" href="/member/how-commissions-work">How commissions work</a>')}<div class="grid3"><section class="card"><h3>Pending</h3><div class="metric gold">${money(pending)}</div></section><section class="card"><h3>Available</h3><div class="metric green">${money(available)}</div></section><section class="card"><h3>Paid</h3><div class="metric">${money(paid)}</div></section></div><section class="card full"><h3>Request Payout</h3><form id="payoutForm" class="grid3"><input name="amount" type="number" step="0.01" placeholder="Amount" required><select name="method"><option>CashApp</option><option>PayPal</option><option>Bank transfer</option><option>Zelle</option><option>Manual</option></select><input name="destination" placeholder="Handle/email/account note" required><button class="btn primary">Request Payout</button></form><pre id="payoutOut" class="checkout-result"></pre></section><section class="card full"><h3>Payout Requests</h3><table><tr><th>ID</th><th>Amount</th><th>Method</th><th>Status</th><th>Requested</th></tr>${rows || '<tr><td colspan="5">No payout requests yet.</td></tr>'}</table></section><script>document.getElementById('payoutForm')?.addEventListener('submit',async(e)=>{e.preventDefault();const data=Object.fromEntries(new FormData(e.target).entries());const out=document.getElementById('payoutOut');out.style.display='block';out.textContent='Submitting payout request...';const res=await fetch('/api/me/payouts/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const json=await res.json();out.textContent=json.ok?'Payout requested: '+json.payout.payoutId:'Error: '+(json.error||'unknown');});</script>`;
+  const paid = payouts.filter((x)=>x.status==='paid').reduce((sum,x)=>sum+payoutAmountUsd(x),0);
+  const rows = payouts.map((p)=>`<tr><td>${esc(p.payoutId)}</td><td>${money(payoutAmountUsd(p))}</td><td>${esc(p.method || p.payoutMethod || 'manual')}</td><td>${esc(p.status)}</td><td>${esc(p.requestedAt)}</td></tr>`).join('');
+  return `${sectionHero('Payouts', 'Request payouts for available commissions. Payment-plan commissions are earned monthly as payments clear.', '<a class="btn" href="/member/how-commissions-work">How commissions work</a>')}<div class="grid3"><section class="card"><h3>Pending</h3><div class="metric gold">${money(pending)}</div></section><section class="card"><h3>Available</h3><div class="metric green">${money(available)}</div></section><section class="card"><h3>Paid</h3><div class="metric">${money(paid)}</div></section></div><section class="card full"><h3>Request Payout</h3><form id="payoutForm" class="grid3"><input name="amount" type="number" step="0.01" placeholder="Amount" required><select name="method"><option>CashApp</option><option>PayPal</option><option>Bank transfer</option><option>Zelle</option><option>Manual</option></select><input name="destination" placeholder="Handle/email/account note" required><button class="btn primary">Request Payout</button></form><pre id="payoutOut" class="checkout-result"></pre></section><section class="card full"><h3>Payout Requests</h3><table><tr><th>ID</th><th>Amount</th><th>Method</th><th>Status</th><th>Requested</th></tr>${rows || '<tr><td colspan="5">No payout requests yet.</td></tr>'}</table></section><script>document.getElementById('payoutForm')?.addEventListener('submit',async(e)=>{e.preventDefault();const data=Object.fromEntries(new FormData(e.target).entries());const amountCents=Math.round(Number(data.amount||0)*100);delete data.amount;data.amountCents=amountCents;const out=document.getElementById('payoutOut');out.style.display='block';out.textContent='Submitting payout request...';const res=await fetch('/api/me/payouts/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const json=await res.json();out.textContent=json.ok?'Payout requested: '+json.payout.payoutId:'Error: '+(json.error||'unknown');});</script>`;
 }
 
 function purchaseResultPage(success = true) {
-  return `${sectionHero(success ? 'Purchase Success' : 'Purchase Cancelled', success ? 'Your checkout was completed or recorded. WISDO will unlock the correct access after payment confirmation.' : 'Checkout was cancelled. You can return to the marketplace anytime.', '<a class="btn primary" href="/member/my-bots">My Bots</a><a class="btn" href="/member/subscriptions">Subscriptions</a><a class="btn" href="/member/bots">Bot Store</a>')}<section class="card full"><h3>${success ? 'Next Steps' : 'No problem'}</h3><p>${success ? 'Check My Bots, Subscriptions, Payment Plans, or VPS Forge. If the Square webhook is configured, paid orders can unlock automatically.' : 'No payment was completed. Your account was not charged by this page.'}</p></section>`;
+  return `${sectionHero(success ? 'Purchase Success' : 'Purchase Cancelled', success ? 'Your checkout returned successfully. WISDO unlocks access only after a verified payment confirmation.' : 'Checkout was cancelled. You can return to the marketplace anytime.', '<a class="btn primary" href="/member/my-bots">My Bots</a><a class="btn" href="/member/subscriptions">Subscriptions</a><a class="btn" href="/member/bots">Bot Store</a>')}<section class="card full"><h3>${success ? 'Next Steps' : 'No problem'}</h3><p>${success ? 'Check My Bots, Subscriptions, Payment Plans, or VPS Forge. Access remains locked until the signed Square webhook or an authorized admin confirms payment.' : 'No payment was completed. Your account was not charged by this page.'}</p></section>`;
 }
 
 function adminFinancePage(state) {
@@ -3256,7 +3300,7 @@ function adminFinancePage(state) {
   const plans = Object.values(state.paymentPlansById || {});
   const payouts = Object.values(state.payoutsById || {});
   const revenue = orders.reduce((sum,o)=>sum+Number(o.amountUsd||o.grossAmount||0),0);
-  return `${sectionHero('Admin Finance', 'Revenue, subscriptions, payment plans, payouts, refunds, chargebacks, and manual finance controls.', '<a class="btn" href="/admin/vps">Admin VPS</a><a class="btn" href="/admin/commerce">Commerce</a>')}<div class="grid3"><section class="card"><h3>Recorded Revenue</h3><div class="metric green">${money(revenue)}</div></section><section class="card"><h3>Active Subscriptions</h3><div class="metric">${subs.filter((s)=>s.status==='active').length}</div></section><section class="card"><h3>Past Due</h3><div class="metric red">${subs.filter((s)=>s.status==='past_due').length}</div></section><section class="card"><h3>Payment Plans</h3><div class="metric">${plans.length}</div></section><section class="card"><h3>Payout Requests</h3><div class="metric gold">${payouts.filter((p)=>p.status==='requested').length}</div></section><section class="card"><h3>VPS Users</h3><div class="metric">${Object.keys(state.vpsAssignmentsById||{}).length}</div></section></div><section class="card full"><h3>Payout Queue</h3><table><tr><th>Payout</th><th>User</th><th>Amount</th><th>Method</th><th>Status</th><th>Actions</th></tr>${payouts.map((p)=>`<tr><td>${esc(p.payoutId)}</td><td>${esc(p.userId)}</td><td>${money(p.amount)}</td><td>${esc(p.method)}</td><td>${esc(p.status)}</td><td><button class="btn approve-payout" data-id="${esc(p.payoutId)}">Approve</button><button class="btn mark-paid" data-id="${esc(p.payoutId)}">Mark Paid</button></td></tr>`).join('') || '<tr><td colspan="6">No payout requests.</td></tr>'}</table></section><script>document.querySelectorAll('.approve-payout,.mark-paid').forEach(btn=>btn.addEventListener('click',async()=>{const path=btn.classList.contains('approve-payout')?'approve':'mark-paid';const res=await fetch('/api/admin/payouts/'+btn.dataset.id+'/'+path,{method:'POST'});alert((await res.json()).ok?'Updated':'Failed');location.reload();}));</script>`;
+  return `${sectionHero('Admin Finance', 'Revenue, subscriptions, payment plans, payouts, refunds, chargebacks, and manual finance controls.', '<a class="btn" href="/admin/vps">Admin VPS</a><a class="btn" href="/admin/commerce">Commerce</a>')}<div class="grid3"><section class="card"><h3>Recorded Revenue</h3><div class="metric green">${money(revenue)}</div></section><section class="card"><h3>Active Subscriptions</h3><div class="metric">${subs.filter((s)=>s.status==='active').length}</div></section><section class="card"><h3>Past Due</h3><div class="metric red">${subs.filter((s)=>s.status==='past_due').length}</div></section><section class="card"><h3>Payment Plans</h3><div class="metric">${plans.length}</div></section><section class="card"><h3>Payout Requests</h3><div class="metric gold">${payouts.filter((p)=>p.status==='requested').length}</div></section><section class="card"><h3>VPS Users</h3><div class="metric">${Object.keys(state.vpsAssignmentsById||{}).length}</div></section></div><section class="card full"><h3>Payout Queue</h3><table><tr><th>Payout</th><th>User</th><th>Amount</th><th>Method</th><th>Status</th><th>Actions</th></tr>${payouts.map((p)=>`<tr><td>${esc(p.payoutId)}</td><td>${esc(p.userId)}</td><td>${money(payoutAmountUsd(p))}</td><td>${esc(p.method || p.payoutMethod || 'manual')}</td><td>${esc(p.status)}</td><td><button class="btn approve-payout" data-id="${esc(p.payoutId)}">Approve</button><button class="btn mark-paid" data-id="${esc(p.payoutId)}">Mark Paid</button></td></tr>`).join('') || '<tr><td colspan="6">No payout requests.</td></tr>'}</table></section><script>document.querySelectorAll('.approve-payout,.mark-paid').forEach(btn=>btn.addEventListener('click',async()=>{const path=btn.classList.contains('approve-payout')?'approve':'mark-paid';const res=await fetch('/api/admin/payouts/'+btn.dataset.id+'/'+path,{method:'POST'});alert((await res.json()).ok?'Updated':'Failed');location.reload();}));</script>`;
 }
 
 function adminVpsPage(state) {
@@ -3296,7 +3340,7 @@ async function ensureReferralProfile(userId, username = '') {
   const state = await loadEcosystemState();
   state.referralCodesByUserId ||= {};
   state.usersById ||= {};
-  const key = String(userId || 'website-buyer');
+  const key = String(userId || '');
   if (!state.referralCodesByUserId[key]) {
     const user = state.usersById[key] || {};
     state.referralCodesByUserId[key] = {
@@ -3324,12 +3368,25 @@ function commissionRateForProduct(productType = 'bot') {
 }
 
 async function createCommissionFromOrder(order, referralCode = '') {
+  const paymentStatus = String(order?.paymentStatus || order?.status || '').toLowerCase();
+  if (!['paid', 'completed', 'succeeded'].includes(paymentStatus) && !order?.paidAt) return null;
   const state = await loadEcosystemState();
   const owner = findReferralOwner(state, referralCode || order.referralCode);
   if (!owner || String(owner.userId) === String(order.userId)) return null;
-  const amount = Number(order.amountUsd || order.grossAmount || 0);
-  if (!amount) return null;
+  state.commissionLedgerById ||= {};
+  const existing = Object.values(state.commissionLedgerById).find((entry) =>
+    String(entry.orderId || '') === String(order.orderId || '') &&
+    String(entry.referrerUserId || '') === String(owner.userId || '')
+  );
+  if (existing) return existing;
+  const amountCents = Number.isSafeInteger(order.amountCents)
+    ? order.amountCents
+    : Math.round(Number(order.amountUsd || order.grossAmount || 0) * 100);
+  if (!Number.isSafeInteger(amountCents) || amountCents <= 0) return null;
+  const amount = amountCents / 100;
   const rate = commissionRateForProduct(order.productType);
+  const commissionAmountCents = Math.round(amountCents * rate);
+  const platformAmountCents = amountCents - commissionAmountCents;
   const commission = {
     commissionId: makeId('comm'),
     orderId: order.orderId,
@@ -3338,17 +3395,21 @@ async function createCommissionFromOrder(order, referralCode = '') {
     productType: order.productType,
     productId: order.productId,
     grossAmount: amount,
+    grossAmountCents: amountCents,
     commissionRatePercent: rate * 100,
-    commissionAmount: Number((amount * rate).toFixed(2)),
-    platformAmount: Number((amount * (1 - rate)).toFixed(2)),
+    commissionAmount: commissionAmountCents / 100,
+    commissionAmountCents,
+    platformAmount: platformAmountCents / 100,
+    platformAmountCents,
     status: 'pending',
     holdUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     createdAt: new Date().toISOString(),
   };
-  state.commissionLedgerById ||= {};
   state.commissionLedgerById[commission.commissionId] = commission;
   state.conversions ||= [];
-  state.conversions.push({ conversionId: makeId('conv'), referralCode: owner.code, referrerUserId: owner.userId, convertedUserId: order.userId, convertedOrderId: order.orderId, conversionStatus: 'purchased', createdAt: new Date().toISOString() });
+  if (!state.conversions.some((conversion) => String(conversion.convertedOrderId || '') === String(order.orderId || '') && String(conversion.referrerUserId || '') === String(owner.userId || ''))) {
+    state.conversions.push({ conversionId: makeId('conv'), referralCode: owner.code, referrerUserId: owner.userId, convertedUserId: order.userId, convertedOrderId: order.orderId, conversionStatus: 'purchased', createdAt: new Date().toISOString() });
+  }
   await saveEcosystemState(state);
   return commission;
 }
@@ -3410,7 +3471,7 @@ function enhancedWalletPage(userId, state) {
   return `${sectionHero('Commission Wallet', 'Trades prove value. Square collects payment. WISDO tracks commission. Admin approves payout.', '<button class="btn primary" onclick="requestPayout()">Request Payout</button><a class="btn" href="/member/referrals?userId='+encodeURIComponent(userId)+'">Referral Links</a>')}
   <div class="grid"><section class="card"><h3>Lifetime Earned</h3><div class="metric green">${money(stats.totals.lifetime)}</div></section><section class="card"><h3>Pending</h3><div class="metric gold">${money(stats.totals.pending)}</div></section><section class="card"><h3>Available</h3><div class="metric blue">${money(stats.totals.available)}</div></section><section class="card"><h3>Paid</h3><div class="metric">${money(stats.totals.paid)}</div></section></div>
   <section class="card full" style="margin-top:16px"><h3>Commission Ledger</h3><table><thead><tr><th>Type</th><th>Product</th><th>Gross</th><th>Rate</th><th>Commission</th><th>Status</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No commission records yet.</td></tr>'}</tbody></table></section>
-  <script>async function requestPayout(){const amount=prompt('Amount to request payout for?');if(!amount)return;const res=await fetch('/api/payouts/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:'${esc(userId)}',amount:Number(amount),payoutMethod:'manual'})});alert(JSON.stringify(await res.json(),null,2));}</script>`;
+  <script>async function requestPayout(){const amount=prompt('Amount to request payout for?');if(!amount)return;const res=await fetch('/api/payouts/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amountCents:Math.round(Number(amount)*100),payoutMethod:'manual'})});alert(JSON.stringify(await res.json(),null,2));}</script>`;
 }
 
 function adminCommercePage(state) {
@@ -3567,7 +3628,7 @@ function copyHubProPage(userId = '', accounts = [], routes = [], shares = [], di
 
 
 function getMyMt4Rows(mt4 = {}, userId = '') {
-  const uid = String(userId || 'website-buyer');
+  const uid = String(userId || '');
   return Object.values(mt4.connections || {})
     .filter((c) => String(c.discordUserId || c.userId || '') === uid)
     .map((c) => ({ ...c, latest: mt4.latestSnapshots?.[uid] || null }));
@@ -3592,7 +3653,7 @@ function operatorAutomationHomePage(userId, mt4 = {}, state = {}) {
   const licenses = state.licensesByUserId?.[String(userId)] || [];
   const videos = state.videosByUserId?.[String(userId)] || [];
   const checks = [
-    { label: 'Discord login/profile', ok: !!userId && userId !== 'website-buyer' },
+    { label: 'Discord login/profile', ok: Boolean(userId) },
     { label: 'MT4 account connected', ok: accounts.length > 0 },
     { label: 'Setup unlocked', ok: true },
     { label: 'Risk profile created', ok: !!state.riskProfilesByUserId?.[String(userId)] },
@@ -3610,7 +3671,7 @@ function onboardingWizardPage(userId, mt4 = {}, state = {}) {
   const accounts = getMyMt4Rows(mt4, userId);
   const licenses = state.licensesByUserId?.[String(userId)] || [];
   const steps = [
-    ['01', 'Verify Discord Login', !!userId && userId !== 'website-buyer', '/login'],
+    ['01', 'Verify Discord Login', Boolean(userId), '/login'],
     ['02', 'Choose Free Setup Path', true, '/member/setup'],
     ['03', 'Connect MT4 Account', accounts.length > 0, '/member/link-account'],
     ['04', 'Install Free Reporter / Bridge', true, '/member/mt4-webrequest-guide'],
@@ -3777,7 +3838,7 @@ function wisdoEducationPage(state = {}, userId = '', botSlug = '') {
     <div class="field"><label>Search/filter</label><input id="educationSearch" name="q" placeholder="Search modules, lessons, risk, Signal Grid"></div>
     <div class="field"><label>Track</label><select id="educationTrack" name="track"><option value="">All tracks</option><option>PIP DRILL section</option><option>FLOW section</option><option>Signal Grid education</option><option>Copy trading safety education</option><option>Bot-specific education</option></select></div>
   </form></section>
-  <div class="grid3"><section class="card"><h3>Progress</h3><div class="metric">${progressCount}</div><p>Lesson progress placeholders are ready for completion events.</p></section><section class="card"><h3>Required Education</h3><p>High-risk bots can require education before activation or copy approval.</p></section><section class="card"><h3>Core Tracks</h3><span class="tag">PIP DRILL</span><span class="tag">FLOW</span><span class="tag">Signal Grid</span><span class="tag">Copy Safety</span></section></div>
+  <div class="grid3"><section class="card"><h3>Progress</h3><div class="metric">${progressCount}</div><p>Completed lesson events are persisted to your profile.</p></section><section class="card"><h3>Required Education</h3><p>High-risk bots can require education before activation or copy approval.</p></section><section class="card"><h3>Core Tracks</h3><span class="tag">PIP DRILL</span><span class="tag">FLOW</span><span class="tag">Signal Grid</span><span class="tag">Copy Safety</span></section></div>
   <section id="educationAccess" class="card full" style="margin-top:16px"></section>
   <section id="educationStatus" class="card full" style="margin-top:16px;display:none"></section>
   <section id="educationOverview" class="full" style="margin-top:16px"></section>
@@ -3800,11 +3861,11 @@ function wisdoEducationPage(state = {}, userId = '', botSlug = '') {
   function showEducationStatus(kind,msg){statusEl.style.display='block';statusEl.className='card full '+(kind==='error'?'warn':kind==='ok'?'ok':'');statusEl.innerHTML='<h3>'+escHtml(kind==='loading'?'Loading education...':kind==='error'?'Education Error':'Education Loaded')+'</h3><p>'+escHtml(msg)+'</p>';}
   function normalizeModules(payload){const raw=payload?.modules;if(Array.isArray(raw))return raw;if(raw&&typeof raw==='object')return Object.values(raw).flat();return [];}
   function lessonTitle(id,payload){const lesson=payload?.lessons?.[id];return lesson?.title||id;}
-  function lessonSummary(id,payload){return payload?.lessons?.[id]?.summary||'Lesson placeholder ready for admin content.';}
+  function lessonSummary(id,payload){return payload?.lessons?.[id]?.summary||'Lesson content has not been published.';}
   function accessCard(access={}){const gates=access.gates||{};const stale=access.stale?'<section class="card warn full" style="margin-top:12px"><h3>Discord role sync is using cached/local access.</h3><p>Refresh roles to verify current membership.</p></section>':'';accessEl.innerHTML='<div class="row" style="justify-content:space-between;align-items:center"><div><h3>Access Status</h3><p>Access level: <strong>'+escHtml(access.accessLevel||'none')+'</strong></p><p><span class="tag '+(gates.admin?'green':'')+'">Admin access: '+(gates.admin?'unlocked':'locked')+'</span><span class="tag '+(gates.copier?'green':'')+'">Copier access: '+(gates.copier?'unlocked':'locked')+'</span><span class="tag '+(gates.copyRequest?'green':'')+'">Copy request access: '+(gates.copyRequest?'unlocked':'locked')+'</span></p></div><div><span class="tag">'+escHtml(access.source||'unknown')+'</span><span class="tag">'+escHtml(access.lastSyncedAt||'not synced')+'</span></div></div>'+stale;}
   function overviewCard(botSlug){overviewEl.innerHTML='<div class="grid3"><section class="card"><h3>DF Sauce Final AI education path</h3><p>How the bot reads the market, which conditions it likes, what settings change, and where Signal Grid fits before copy activation.</p></section><section class="card"><h3>PIP DRILL section</h3><p>Practice simulator reads, risk math, and decision timeline review before trading live.</p></section><section class="card"><h3>FLOW section</h3><p>Learn trend, pullback, consolidation, news, and spread behavior as a repeatable operator routine.</p></section></div>';}
-  function moduleCard(module,payload){const lessons=(module.lessons||[]).map((id)=>'<li><strong>'+escHtml(lessonTitle(id,payload))+'</strong><p class="muted">'+escHtml(lessonSummary(id,payload))+'</p></li>').join('');const lock=module.locked?'<span class="tag gold">Locked</span>':'<span class="tag green">Unlocked</span>';return '<section class="card"><div class="row" style="justify-content:space-between"><span class="tag">'+escHtml(module.track||module.type||'Track')+'</span>'+lock+'</div><h3>'+escHtml(module.title)+'</h3><p class="muted">'+escHtml(module.seedNote||'Educational starter content - admin can replace/edit later.')+'</p><ul>'+lessons+'</ul><div class="row"><button class="btn" type="button">Quiz/progress placeholder</button><a class="btn" href="/member/simulator?bot='+encodeURIComponent(module.botSlug||educationBot.value)+'">Open simulator</a></div></section>';}
-  function renderEducation(){if(!educationPayload)return;const payload=educationPayload;const access=payload.access||{};accessCard(access);overviewCard(payload.botSlug);const q=educationSearch.value.trim().toLowerCase();const track=educationTrack.value;let modules=normalizeModules(payload);modules=modules.filter((m)=>{const hay=[m.title,m.track,m.type,(m.lessons||[]).map((id)=>lessonTitle(id,payload)).join(' ')].join(' ').toLowerCase();return (!q||hay.includes(q))&&(!track||m.track===track);});modulesEl.innerHTML=modules.length?'<div class="grid2">'+modules.map((m)=>moduleCard(m,payload)).join('')+'</div>':'';const quizzes=Object.values(payload.quizzes||{}).filter((quiz)=>!payload.botSlug||quiz.botSlug===payload.botSlug);quizzesEl.innerHTML='<h3>Quiz/progress placeholders</h3><div class="grid3">'+(quizzes.length?quizzes.map((quiz)=>'<section class="card"><h3>'+escHtml(quiz.title)+'</h3><p>'+escHtml(quiz.status||'placeholder')+'</p><p class="muted">'+escHtml(quiz.seedNote||'Ready for quiz questions.')+'</p></section>').join(''):'<section class="card"><h3>No quizzes yet</h3><p>Quiz placeholders will appear when admin content is added.</p></section>')+'</div>';const empty=!normalizeModules(payload).length;emptyEl.style.display=empty?'block':'none';if(empty){emptyEl.innerHTML='<h3>No education modules found for this bot yet.</h3><p>Select another bot or use the simulator while an admin adds this path.</p><div class="row"><a class="btn primary" href="/member/simulator?bot='+encodeURIComponent(payload.botSlug||educationBot.value)+'">Open simulator</a><a class="btn" href="/member/education">Back to education dashboard</a>'+(access.gates?.admin?'<a class="btn" href="/admin/wisdo">Create starter education</a>':'')+'</div>';}showEducationStatus('ok','Education rendered inside the Wisdo member portal.');}
+  function moduleCard(module,payload){const lessons=(module.lessons||[]).map((id)=>'<li><strong>'+escHtml(lessonTitle(id,payload))+'</strong><p class="muted">'+escHtml(lessonSummary(id,payload))+'</p></li>').join('');const lock=module.locked?'<span class="tag gold">Locked</span>':'<span class="tag green">Unlocked</span>';return '<section class="card"><div class="row" style="justify-content:space-between"><span class="tag">'+escHtml(module.track||module.type||'Track')+'</span>'+lock+'</div><h3>'+escHtml(module.title)+'</h3><p class="muted">'+escHtml(module.seedNote||'Educational starter content.')+'</p><ul>'+lessons+'</ul><div class="row"><button class="btn" type="button" disabled>Quiz not published</button><a class="btn" href="/member/simulator?bot='+encodeURIComponent(module.botSlug||educationBot.value)+'">Open simulator</a></div></section>';}
+  function renderEducation(){if(!educationPayload)return;const payload=educationPayload;const access=payload.access||{};accessCard(access);overviewCard(payload.botSlug);const q=educationSearch.value.trim().toLowerCase();const track=educationTrack.value;let modules=normalizeModules(payload);modules=modules.filter((m)=>{const hay=[m.title,m.track,m.type,(m.lessons||[]).map((id)=>lessonTitle(id,payload)).join(' ')].join(' ').toLowerCase();return (!q||hay.includes(q))&&(!track||m.track===track);});modulesEl.innerHTML=modules.length?'<div class="grid2">'+modules.map((m)=>moduleCard(m,payload)).join('')+'</div>':'';const quizzes=Object.values(payload.quizzes||{}).filter((quiz)=>!payload.botSlug||quiz.botSlug===payload.botSlug);quizzesEl.innerHTML='<h3>Quiz catalog</h3><div class="grid3">'+(quizzes.length?quizzes.map((quiz)=>'<section class="card"><h3>'+escHtml(quiz.title)+'</h3><p>'+escHtml(quiz.status||'unpublished')+'</p><p class="muted">'+escHtml(quiz.seedNote||'Quiz metadata is available.')+'</p></section>').join(''):'<section class="card"><h3>No quizzes published</h3><p>An administrator has not published quiz content for this track.</p></section>')+'</div>';const empty=!normalizeModules(payload).length;emptyEl.style.display=empty?'block':'none';if(empty){emptyEl.innerHTML='<h3>No education modules found for this bot yet.</h3><p>Select another bot or use the simulator while an admin adds this path.</p><div class="row"><a class="btn primary" href="/member/simulator?bot='+encodeURIComponent(payload.botSlug||educationBot.value)+'">Open simulator</a><a class="btn" href="/member/education">Back to education dashboard</a>'+(access.gates?.admin?'<a class="btn" href="/admin/wisdo">Create starter education</a>':'')+'</div>';}showEducationStatus('ok','Education rendered inside the Wisdo member portal.');}
   async function loadEducation(){const bot=educationBot.value;const url=new URL(window.location.href);url.searchParams.set('bot',bot);history.replaceState(null,'',url.pathname+'?'+url.searchParams.toString());showEducationStatus('loading','Loading bot education modules...');try{const res=await fetch('/api/wisdo/education?bot='+encodeURIComponent(bot),{headers:{'Accept':'application/json'}});const json=await res.json();if(!res.ok||!json.ok)throw new Error(json.error||'Education API failed.');educationPayload=json;renderEducation();}catch(error){showEducationStatus('error',error.message||'Unable to load education.');}}
   async function refreshRoles(){try{showEducationStatus('loading','Refreshing Discord roles...');const res=await fetch('/api/wisdo/me/roles/refresh',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({})});const json=await res.json().catch(()=>({ok:false,error:'Discord role refresh returned invalid JSON.'}));if(json.access){educationPayload={...(educationPayload||{}),access:json.access};renderEducation();}if(!res.ok||!json.ok)throw new Error(json.error||'Discord API unavailable.');showEducationStatus('ok','Role refresh completed.');}catch(error){showEducationStatus('error',(error.message||'Role refresh failed.')+' Keeping current access on screen.');if(educationPayload)renderEducation();}}
   educationBot.addEventListener('change',loadEducation);
@@ -4154,7 +4215,7 @@ function createPaidLinkAccess({ buyerUserId, productId, status = 'pending_paymen
   const linkAccessId = `linkacc_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
   return {
     linkAccessId,
-    buyerUserId: String(buyerUserId || 'website-buyer'),
+    buyerUserId: String(buyerUserId || ''),
     targetUserId: product.targetUserId,
     targetType: product.targetType,
     productId: product.productId,
@@ -4169,7 +4230,7 @@ function createPaidLinkAccess({ buyerUserId, productId, status = 'pending_paymen
   };
 }
 
-export async function startApiServer({ config, mt4SyncService, mt4CommandService, copyTradingService, tradeSignalService, deskDashboardService, rankService, announcementService, paymentService, logger, client = null, operatorDeskService = null, commandRegistryAudit = null, signalGridService: providedSignalGridService = null, signalCopyService: providedSignalCopyService = null, discordSignalGridService: providedDiscordSignalGridService = null }) {
+export async function startApiServer({ config, mt4SyncService, mt4CommandService, copyTradingService, tradeSignalService, deskDashboardService, rankService, announcementService, paymentService, logger, client = null, operatorDeskService = null, accountSelectionService = null, commandRegistryAudit = null, signalGridService: providedSignalGridService = null, signalCopyService: providedSignalCopyService = null, discordSignalGridService: providedDiscordSignalGridService = null }) {
   ecosystemStateCache = null;
   ecosystemStateLoadPromise = null;
   wisdoPhase1Repository = createWisdoPhase1Repository(config);
@@ -4231,6 +4292,36 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     return true;
   }
   const affiliateService = new AffiliateService({ config, repository: wisdoPhase1Repository });
+  if (paymentService?.setCompletedPaymentHandler) {
+    paymentService.setCompletedPaymentHandler(async ({ payment, quoteId, storeOrder }) => {
+      const state = financeState(await loadEcosystemState());
+      const order = Object.values(state.ordersById || {}).find((entry) => String(entry.quoteId || '') === String(quoteId || ''));
+      if (!order) return null;
+      const expectedCents = Number.isSafeInteger(order.amountCents)
+        ? order.amountCents
+        : Math.round(Number(order.amountUsd || order.grossAmount || 0) * 100);
+      const receivedCents = Number(payment?.amount_money?.amount || 0);
+      if (expectedCents > 0 && receivedCents !== expectedCents) {
+        order.paymentStatus = 'payment_mismatch';
+        order.status = 'payment_mismatch';
+        order.paymentMismatch = { expectedCents, receivedCents, providerPaymentId: String(payment?.id || '') };
+        order.updatedAt = new Date().toISOString();
+        await saveEcosystemState(state);
+        logger?.error?.('Verified Square payment amount did not match ecosystem order.', { orderId: order.orderId, quoteId, expectedCents, receivedCents });
+        return order;
+      }
+      order.paymentStatus = 'paid';
+      order.status = 'paid';
+      order.paidAt ||= new Date().toISOString();
+      order.updatedAt = new Date().toISOString();
+      order.providerPaymentId = String(payment?.id || order.providerPaymentId || '');
+      order.providerOrderId = String(payment?.order_id || order.providerOrderId || '');
+      order.accessGranted = Boolean(storeOrder?.status === 'paid' || order.accessGranted);
+      await saveEcosystemState(state);
+      if (order.referralCode) await createCommissionFromOrder(order, order.referralCode);
+      return order;
+    });
+  }
   const roleSyncService = new DiscordRoleSyncService({ config, client, repository: wisdoPhase1Repository, logger });
   const signalGridService = providedSignalGridService || new SignalGridService({ config, repository: wisdoPhase1Repository, logger });
   const signalCopyService = providedSignalCopyService || new SignalCopyService({ repository: wisdoPhase1Repository, signalGridService, mt4SyncService, mt4CommandService, roleSyncService, logger });
@@ -4486,11 +4577,35 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     commandBusService,
     voiceCreatorService,
     voiceService,
+    conversationalVoice,
   } = registerWisdoKernelRoutes(app, {
     config,
     logger,
     mt4CommandService,
+    mt4SyncService,
+    copyTradingService,
+    commandRegistryAudit,
     publicRoot: path.join(__dirname, '..', 'public'),
+  });
+  app.get('/member/coach-operations', async (req, res, next) => {
+    try {
+      const sessionUser = getCurrentUser(req);
+      if (!sessionUser?.id) return res.redirect('/auth/discord?returnTo=/member/coach-operations');
+      const userId = String(sessionUser.id);
+      const [plans, confirmations, devices, receipts, rules, audit, utterances, speech, lessons] = await Promise.all([
+        commandBusService.pool.query(`SELECT plan_id,name,status,account_ids,symbols,risk,targets,updated_at FROM wisdo_daily_plans WHERE owner_user_id=$1 ORDER BY updated_at DESC LIMIT 10`, [userId]),
+        commandBusService.pool.query(`SELECT confirmation_id,action_type,safety_level,status,expires_at FROM wisdo_pending_confirmations WHERE owner_user_id=$1 ORDER BY created_at DESC LIMIT 10`, [userId]),
+        commandBusService.pool.query(`SELECT device_id,room_id,muted,listening,led_state,current_delivery_id,last_heartbeat_at FROM wisdo_voice_devices WHERE owner_user_id=$1 ORDER BY updated_at DESC`, [userId]),
+        commandBusService.pool.query(`SELECT command_id,account_id,lifecycle_status,result,failure_reason,received_at FROM wisdo_command_receipts WHERE owner_user_id=$1 ORDER BY received_at DESC LIMIT 30`, [userId]),
+        commandBusService.pool.query(`SELECT rule_type,status,supported,parameters,updated_at FROM wisdo_plan_rules WHERE owner_user_id=$1 ORDER BY updated_at DESC LIMIT 30`, [userId]),
+        commandBusService.pool.query(`SELECT event_type,detail,created_at FROM wisdo_conversation_audit WHERE owner_user_id=$1 ORDER BY created_at DESC LIMIT 30`, [userId]),
+        commandBusService.pool.query(`SELECT utterance_id,device_id,status,duration_ms,transcript,error_code,created_at FROM wisdo_voice_utterances WHERE owner_user_id=$1 ORDER BY created_at DESC LIMIT 30`, [userId]),
+        commandBusService.pool.query(`SELECT delivery_id,device_id,status,priority,attempts,error_code,created_at,played_at FROM wisdo_speech_deliveries WHERE owner_user_id=$1 ORDER BY created_at DESC LIMIT 30`, [userId]),
+        commandBusService.pool.query(`SELECT current_course,current_lesson,completed_lessons,quiz_results,next_recommended_lesson,updated_at FROM wisdo_education_progress WHERE owner_user_id=$1 ORDER BY updated_at DESC LIMIT 20`, [userId]),
+      ]);
+      const table = (title, rows) => `<section class="card full"><h3>${esc(title)}</h3><pre style="white-space:pre-wrap;max-height:360px;overflow:auto">${esc(JSON.stringify(rows, null, 2))}</pre></section>`;
+      res.send(htmlShell('Coach Operations', `${sectionHero('Coach Operations', 'Daily Plans, conditional rules, confirmations, connected voice devices, verified command receipts, failures, and audit history for your account only.')}<div class="grid2">${table('Current Daily Plans', plans.rows)}${table('Active Rules', rules.rows)}${table('Pending Confirmations', confirmations.rows)}${table('Voice Devices and LED State', devices.rows)}${table('Recent Voice Utterances', utterances.rows)}${table('Speech Delivery and Playback', speech.rows)}${table('Command Lifecycle and Execution Results', receipts.rows)}${table('Education Progress', lessons.rows)}${table('Audit History', audit.rows)}</div>`, 'home'));
+    } catch (error) { next(error); }
   });
   registerLivingOperatingSystemRoutes(app, {
     loadEcosystemState,
@@ -4554,7 +4669,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     setCookie(res, 'oauth_state', state, { maxAge: 600 });
     setCookie(res, 'login_return_to', returnTo, { maxAge: 600 });
     const clientId = process.env.CLIENT_ID || config?.discord?.clientId || config?.clientId || '';
-    const params = new URLSearchParams({ client_id: clientId, redirect_uri: health.expectedRedirectUri, response_type: 'code', scope: 'identify', state });
+    const params = new URLSearchParams({ client_id: clientId, redirect_uri: health.expectedRedirectUri, response_type: 'code', scope: 'identify email', state });
     res.redirect(`https://discord.com/api/oauth2/authorize?${params.toString()}`);
   }
 
@@ -4582,7 +4697,36 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
       const userRes = await fetch('https://discord.com/api/users/@me', { headers: { Authorization: `Bearer ${tokenJson.access_token}` } });
       const discordUser = await userRes.json().catch(() => ({}));
       if (!userRes.ok || !discordUser.id) return res.redirect('/login?error=discord_user_fetch_failed');
-      setCookie(res, 'cc_user', encodeSession(discordUser), { maxAge: 60 * 60 * 24 * 30 });
+      const authStateStore = await loadEcosystemState();
+      authStateStore.usersById ||= {};
+      authStateStore.profiles ||= {};
+      const currentSession = getCurrentUser(req);
+      const userId = String(currentSession?.id || discordUser.id);
+      const existing = authStateStore.usersById[userId] || currentSession || {};
+      const sessionUser = {
+        ...existing,
+        id: userId,
+        discordUserId: String(discordUser.id),
+        username: discordUser.global_name || discordUser.username || existing.username || 'Discord Operator',
+        global_name: discordUser.global_name || existing.global_name || null,
+        email: discordUser.email || existing.email || '',
+        avatar: discordUser.avatar || existing.avatar || null,
+        provider: 'discord',
+        createdAt: existing.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      authStateStore.usersById[sessionUser.id] = sessionUser;
+      authStateStore.profiles[sessionUser.id] = {
+        ...(authStateStore.profiles[sessionUser.id] || {}),
+        id: sessionUser.id,
+        name: sessionUser.username,
+        email: sessionUser.email,
+        discordUserId: sessionUser.discordUserId,
+        provider: 'discord',
+        updatedAt: new Date().toISOString(),
+      };
+      await saveEcosystemState(authStateStore);
+      setCookie(res, 'cc_user', encodeSession(sessionUser), { maxAge: 60 * 60 * 24 * 30 });
       clearCookie(res, 'oauth_state');
       clearCookie(res, 'login_return_to');
       res.redirect(safeReturnPath(cookies.login_return_to, '/member/command-center'));
@@ -4596,12 +4740,30 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   app.get('/auth/success', authSuccess);
   app.get('/auth/discord', startDiscordLogin);
   app.get('/auth/discord/callback', finishDiscordLogin);
+  app.use((req, res, next) => {
+    const privateApiPrefixes=['/api/me','/api/admin','/api/member','/api/wisdo','/api/licenses','/api/payouts','/api/referrals','/api/commissions','/api/profile','/api/trade-link','/api/accounts','/api/copy-hub','/api/copy-links','/api/copy-status','/api/bot-checkout','/api/vps','/api/reviews'];
+    const publicApiPaths = new Set(['/api/wisdo/models','/api/reviews/telegram-webhook']);
+    const privatePath = req.path === '/app' || req.path.startsWith('/app/') || req.path === '/member' || req.path.startsWith('/member/') || req.path === '/admin' || req.path.startsWith('/admin/') || req.path === '/api/link-access/checkout' || (req.method === 'POST' && /^\/api\/bots\/[^/]+\/checkout-plan$/.test(req.path)) || ((req.method !== 'GET') && req.path.startsWith('/api/feed')) || (!publicApiPaths.has(req.path) && privateApiPrefixes.some((prefix)=>req.path===prefix||req.path.startsWith(`${prefix}/`)));
+    if (!privatePath) return next();
+    const identity = getIdentity(req);
+    if (identity.loggedIn) {
+      if (!req.path.startsWith('/api/admin')) {
+        const supplied=String(req.body?.userId||req.body?.discordUserId||req.query?.userId||req.query?.discordUserId||'').trim();
+        const pathOwner=req.path.match(/^\/api\/(?:licenses|accounts|trade-link|copy-status)\/([^/]+)/)?.[1]||req.path.match(/^\/api\/member\/([^/]+)\/profile$/)?.[1]||'';
+        const claimed=supplied||decodeURIComponent(pathOwner);
+        if(claimed&&claimed!==identity.userId)return res.status(403).json({ok:false,code:'tenant_access_denied',error:'A member cannot access another user’s private records.'});
+      }
+      return next();
+    }
+    if (req.path.startsWith('/api/')) return res.status(401).json({ ok:false, code:'authentication_required', error:'Sign in with Discord before accessing member data.' });
+    const returnTo = safeReturnPath(req.originalUrl || req.path, '/app/dashboard');
+    return res.redirect(`/login?returnTo=${encodeURIComponent(returnTo)}`);
+  });
   // Public '/' is owned by registerDeadshotCommandCenterRoutes / tcLandingPage. Legacy publicHomePage route disabled.
 
   app.get('/member', async (req, res) => {
     const { identity, access } = await getRequestAccess(req);
-    const hasExplicitMemberIdentity = Boolean(req.query?.userId || req.query?.discordUserId);
-    if (identity.loggedIn || hasExplicitMemberIdentity) return res.redirect('/member/command-center');
+    if (identity.loggedIn) return res.redirect('/member/command-center');
     res.send(htmlShell('Wisdo Member Portal', memberPortalPreviewPage(req, access), 'home', { adminAccess: canAccessAdmin(access) }));
   });
 
@@ -4710,6 +4872,44 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
       database: getDatabaseRuntimeHealth(),
       cloudOnly: true,
       filePersistence: false,
+    });
+  });
+  app.get('/ready', (_req, res) => {
+    const database = getDatabaseRuntimeHealth();
+    const databaseRequired = process.env.NODE_ENV === 'production' || Boolean(config.persistence?.databaseUrl);
+    const databaseReady = !databaseRequired || !['degraded','unavailable'].includes(String(database.status || '').toLowerCase());
+    const ready = databaseReady && Boolean(mt4SyncService) && Boolean(mt4CommandService);
+    res.status(ready ? 200 : 503).json({
+      ok: ready,
+      application: 'ready',
+      database: databaseReady ? 'ready' : 'degraded',
+      discord: client?.isReady?.() ? 'ready' : 'starting',
+      reporterBridge: mt4SyncService ? 'ready' : 'unavailable',
+      commandQueue: mt4CommandService ? 'ready' : 'unavailable',
+      voiceExecutionMode: process.env.WISDO_VOICE_EXECUTION_MODE || 'DISABLED',
+    });
+  });
+  app.get('/admin/system-health', async (req, res) => {
+    const reviewer = await getRequestAccess(req);
+    if (!canAccessAdmin(reviewer.access)) {
+      await auditDenied(reviewer.identity.userId, 'admin_system_health.denied', 'Route', req.path, { required: 'OWNER or WISDO', access: reviewer.access });
+      return res.status(403).json({ ok: false, error: 'OWNER or WISDO Discord role is required.' });
+    }
+    const state = await mt4SyncService.repository.loadMt4State().catch(() => ({}));
+    const snapshots = Object.values(state.latestSnapshotsByAccountId || state.latestSnapshots || {});
+    const now = Date.now();
+    const connected = snapshots.filter((row) => now - Date.parse(row?.receivedAt || 0) <= 5 * 60_000).length;
+    res.json({
+      ok: true,
+      application: { status:'ready', uptimeSeconds:Math.round(process.uptime()), requestCount:performanceRuntime.totalRequests, slowRequests:performanceRuntime.slowRequests, eventLoopLagMs:performanceRuntime.eventLoopLagMs },
+      database: getDatabaseRuntimeHealth(),
+      discord: { status:client?.isReady?.()?'ready':'starting', guildCount:client?.guilds?.cache?.size || 0 },
+      reporterFleet: { status:snapshots.length && !connected?'degraded':'ready', total:snapshots.length, connected },
+      commandQueue: { status:mt4CommandService?'ready':'unavailable' },
+      copier: { status:copyTradingService?'ready':'unavailable' },
+      voice: { status:conversationalVoice?'ready':'unavailable', executionMode:process.env.WISDO_VOICE_EXECUTION_MODE || 'DISABLED' },
+      payments: { status:paymentService?.isConfigured?.()?'configured':'unavailable' },
+      backgroundWorkers: { status:'ready', postSnapshotQueued:mt4SyncService.postSnapshotQueueByAccount?.size || 0 },
     });
   });
   app.get('/health/mt4', async (req, res) => {
@@ -4971,7 +5171,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   });
 
   app.post('/api/me/risk-profile', async (req, res) => {
-    const userId = String(req.body?.userId || currentUserId(req));
+    const userId = currentUserId(req);
     const profile = {
       userId,
       ...normalizeRiskBody(req.body || {}),
@@ -5890,22 +6090,95 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     res.json({ ok: true, command });
   });
   app.post('/api/wisdo/harvest', async (req, res) => {
-    const command = await mt4CommandService.queueCommand(String(req.body?.userId || ''), 'HARVEST_PROFIT', req.body || {});
+    const command = await mt4CommandService.queueCommand(currentUserId(req), 'HARVEST_PROFIT', { ...(req.body || {}), userId: currentUserId(req) });
     res.json({ ok: true, command });
   });
-  app.post('/api/reviews/upload', (req, res) => res.json({ ok: true, review: { reviewId: makeId('review'), status: 'uploaded', ...(req.body || {}) } }));
-  app.post('/api/reviews/telegram-webhook', (req, res) => res.json({ ok: true, received: true }));
-  app.get('/api/reviews', (req, res) => res.json({ ok: true, reviews: [] }));
-  app.patch('/api/reviews/:id', (req, res) => res.json({ ok: true, reviewId: req.params.id, patch: req.body || {} }));
-  app.post('/api/reviews/:id/timestamp-note', (req, res) => res.json({ ok: true, reviewId: req.params.id, note: req.body || {} }));
-  app.post('/api/reviews/:id/send-response', (req, res) => res.json({ ok: true, reviewId: req.params.id, status: 'sent' }));
+  app.post('/api/reviews/upload', async (req, res) => {
+    const state = ensureWisdoStateCollections(await loadEcosystemState());
+    const userId = currentUserId(req);
+    const now = new Date().toISOString();
+    const review = {
+      reviewId: makeId('review'),
+      userId,
+      title: String(req.body?.title || req.body?.subject || 'Trading review').slice(0, 160),
+      mediaUrl: String(req.body?.mediaUrl || req.body?.url || '').slice(0, 1200),
+      notes: String(req.body?.notes || req.body?.description || '').slice(0, 5000),
+      status: 'uploaded',
+      assignedTo: null,
+      timestampNotes: [],
+      response: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    state.reviewsById[review.reviewId] = review;
+    await saveEcosystemState.durable(state);
+    res.status(201).json({ ok: true, review });
+  });
+
+  app.post('/api/reviews/telegram-webhook', async (req, res) => {
+    const secret = String(process.env.TELEGRAM_REVIEW_WEBHOOK_SECRET || '').trim();
+    if (!secret) return res.status(503).json({ ok:false, code:'telegram_review_webhook_unconfigured', error:'Telegram review ingestion is disabled until a webhook secret is configured.' });
+    const supplied = String(req.get('x-telegram-bot-api-secret-token') || '');
+    if (!supplied || supplied.length !== secret.length || !crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(secret))) return res.status(401).json({ ok:false, code:'invalid_webhook_secret', error:'Invalid Telegram webhook secret.' });
+    const state = ensureWisdoStateCollections(await loadEcosystemState());
+    const event = { eventId: makeId('telegram_review'), receivedAt:new Date().toISOString(), updateId:req.body?.update_id ?? null, payload:req.body || {} };
+    state.telegramReviewEvents.push(event);
+    state.telegramReviewEvents = state.telegramReviewEvents.slice(-500);
+    await saveEcosystemState.durable(state);
+    res.json({ ok:true, received:true, eventId:event.eventId });
+  });
+
+  app.get('/api/reviews', async (req, res) => {
+    const state = ensureWisdoStateCollections(await loadEcosystemState());
+    const userId = currentUserId(req);
+    const reviews = Object.values(state.reviewsById).filter((row)=>String(row.userId)===String(userId)).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
+    res.json({ ok:true, reviews });
+  });
+
+  app.patch('/api/reviews/:id', async (req, res) => {
+    const state = ensureWisdoStateCollections(await loadEcosystemState());
+    const review = state.reviewsById?.[req.params.id];
+    if (!review) return res.status(404).json({ok:false,error:'Review not found.'});
+    if (String(review.userId)!==String(currentUserId(req))) return res.status(403).json({ok:false,error:'You cannot edit another member’s review.'});
+    if (req.body?.title !== undefined) review.title=String(req.body.title||'Trading review').slice(0,160);
+    if (req.body?.notes !== undefined) review.notes=String(req.body.notes||'').slice(0,5000);
+    if (req.body?.mediaUrl !== undefined) review.mediaUrl=String(req.body.mediaUrl||'').slice(0,1200);
+    review.updatedAt=new Date().toISOString();
+    await saveEcosystemState.durable(state);
+    res.json({ok:true,review});
+  });
+
+  app.post('/api/reviews/:id/timestamp-note', async (req, res) => {
+    const state = ensureWisdoStateCollections(await loadEcosystemState());
+    const review = state.reviewsById?.[req.params.id];
+    if (!review) return res.status(404).json({ok:false,error:'Review not found.'});
+    if (String(review.userId)!==String(currentUserId(req))) return res.status(403).json({ok:false,error:'You cannot edit another member’s review.'});
+    const note={noteId:makeId('review_note'),timestamp:String(req.body?.timestamp||'').slice(0,32),text:String(req.body?.text||req.body?.note||'').slice(0,2000),createdAt:new Date().toISOString()};
+    review.timestampNotes ||= []; review.timestampNotes.push(note); review.updatedAt=note.createdAt;
+    await saveEcosystemState.durable(state);
+    res.status(201).json({ok:true,reviewId:review.reviewId,note});
+  });
+
+  app.post('/api/reviews/:id/send-response', async (req, res) => {
+    const reviewer = await getRequestAccess(req);
+    if (!canAccessAdmin(reviewer.access)) return res.status(403).json({ok:false,error:'OWNER or WISDO role is required to respond to reviews.'});
+    const state = ensureWisdoStateCollections(await loadEcosystemState());
+    const review = state.reviewsById?.[req.params.id];
+    if (!review) return res.status(404).json({ok:false,error:'Review not found.'});
+    review.response={text:String(req.body?.text||req.body?.response||'').slice(0,8000),respondedBy:reviewer.identity.userId,respondedAt:new Date().toISOString()};
+    review.status='responded'; review.updatedAt=review.response.respondedAt;
+    await saveEcosystemState.durable(state);
+    res.json({ok:true,reviewId:review.reviewId,status:'recorded',response:review.response});
+  });
+
   app.get('/api/admin/dashboard', (req, res) => res.json({ ok: true, modules: ['users','accounts','copy approvals','bot store','orders','reviews','desks','signals','commands','risk alerts'] }));
-  app.get('/api/admin/users', (req, res) => res.json({ ok: true, users: [] }));
-  app.get('/api/admin/accounts', async (req, res) => res.json({ ok: true, mt4: await mt4SyncService.repository.loadMt4State() }));
-  app.get('/api/admin/reviews', (req, res) => res.json({ ok: true, reviews: [] }));
-  app.patch('/api/admin/reviews/:id/assign', (req, res) => res.json({ ok: true, reviewId: req.params.id, assigned: req.body || {} }));
-  app.patch('/api/admin/copy-hub/:accountId/approve', (req, res) => res.json({ ok: true, accountId: req.params.accountId, approved: true }));
-  app.patch('/api/admin/copy-hub/:accountId/remove', (req, res) => res.json({ ok: true, accountId: req.params.accountId, removed: true }));
+  app.get('/api/admin/users', async (_req, res) => { const state=await loadEcosystemState(); res.json({ok:true,users:Object.values(state.usersById||{})}); });
+  app.get('/api/admin/accounts', async (_req, res) => res.json({ ok: true, mt4: await mt4SyncService.repository.loadMt4State() }));
+  app.get('/api/admin/reviews', async (_req, res) => { const state=ensureWisdoStateCollections(await loadEcosystemState()); res.json({ok:true,reviews:Object.values(state.reviewsById).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)))}); });
+  app.patch('/api/admin/reviews/:id/assign', async (req, res) => { const state=ensureWisdoStateCollections(await loadEcosystemState()); const review=state.reviewsById?.[req.params.id]; if(!review)return res.status(404).json({ok:false,error:'Review not found.'}); review.assignedTo=String(req.body?.assignedTo||req.body?.userId||'').trim()||null; review.status=review.assignedTo?'assigned':review.status; review.updatedAt=new Date().toISOString(); await saveEcosystemState.durable(state); res.json({ok:true,review}); });
+  app.patch('/api/admin/copy-hub/:accountId/approve', async (req, res) => { const mt4=await mt4SyncService.repository.loadMt4State(); const account=mt4.connectionsByAccountId?.[req.params.accountId]||Object.values(mt4.connections||{}).find((row)=>String(row.accountId)===String(req.params.accountId)); if(!account)return res.status(404).json({ok:false,error:'MT4 account not found.'}); const updated=await mt4SyncService.repository.updateMt4AccountSettings?.(account.discordUserId,req.params.accountId,{visibility:'copy_allowed',copyPermission:'copy_allowed',accountRole:account.accountRole==='follower'?'both':'leader'}); if(!updated)return res.status(409).json({ok:false,error:'Account could not be approved for Copy Hub.'}); res.json({ok:true,account:updated}); });
+  app.patch('/api/admin/copy-hub/:accountId/remove', async (req, res) => { const mt4=await mt4SyncService.repository.loadMt4State(); const account=mt4.connectionsByAccountId?.[req.params.accountId]||Object.values(mt4.connections||{}).find((row)=>String(row.accountId)===String(req.params.accountId)); if(!account)return res.status(404).json({ok:false,error:'MT4 account not found.'}); const updated=await mt4SyncService.repository.updateMt4AccountSettings?.(account.discordUserId,req.params.accountId,{visibility:'private',copyPermission:'private',accountRole:account.accountRole==='both'?'follower':'private'}); if(!updated)return res.status(409).json({ok:false,error:'Account could not be removed from Copy Hub.'}); res.json({ok:true,account:updated}); });
+
 
 
   app.get('/api/member/summary', async (req, res) => {
@@ -5918,14 +6191,26 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   app.get('/api/me/accounts', async (req, res) => {
     const userId = currentUserId(req);
     const mt4 = await mt4SyncService.repository.getMt4State();
-    const accounts = mt4SyncService.repository.getAccessibleMt4Accounts
+    const accounts = accountSelectionService
+      ? await accountSelectionService.list(userId)
+      : mt4SyncService.repository.getAccessibleMt4Accounts
       ? await mt4SyncService.repository.getAccessibleMt4Accounts(userId)
       : mt4SyncService.repository.getMt4Accounts
         ? await mt4SyncService.repository.getMt4Accounts(userId)
         : getMyConnectedAccounts(mt4, userId);
     const pendingPairings = getMyPendingPairings(mt4, userId);
-    const primary = accounts.find((a) => a.isPrimary) || accounts[0] || null;
+    const primary = accounts.find((a) => a.isPrimary) || null;
     res.json({ ok: true, user: { discordId: userId, username: currentUserName(req) }, primaryAccountId: primary?.accountId || null, accounts, pendingPairings });
+  });
+
+  app.get('/api/me/accounts/active', async (req, res) => {
+    try {
+      if (!accountSelectionService) return res.status(503).json({ ok: false, error: 'Account selection service is unavailable.' });
+      const account = await accountSelectionService.active(currentUserId(req));
+      return res.json({ ok: true, account });
+    } catch (error) {
+      return res.status(error.statusCode || 400).json({ ok: false, code: error.code || 'account_selection_failed', error: error.message, details: error.details || {} });
+    }
   });
 
   app.get('/api/me/pairing-codes', async (req, res) => {
@@ -5958,11 +6243,15 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
 
   app.post('/api/me/accounts/:accountId/set-primary', async (req, res) => {
     const userId = currentUserId(req);
-    const selected = mt4SyncService.repository.setPrimaryMt4Account
-      ? await mt4SyncService.repository.setPrimaryMt4Account(userId, req.params.accountId)
-      : null;
-    if (!selected) return res.status(404).json({ ok: false, error: 'Account not found for this user.' });
-    res.json({ ok: true, userId, primaryAccountId: req.params.accountId, account: selected });
+    try {
+      const selected = accountSelectionService
+        ? await accountSelectionService.select(userId, req.params.accountId)
+        : await mt4SyncService.repository.setPrimaryMt4Account?.(userId, req.params.accountId);
+      if (!selected) return res.status(404).json({ ok: false, error: 'Account not found for this user.' });
+      return res.json({ ok: true, userId, primaryAccountId: selected.accountId || req.params.accountId, account: selected });
+    } catch (error) {
+      return res.status(error.statusCode || 400).json({ ok: false, code: error.code || 'account_selection_failed', error: error.message, details: error.details || {} });
+    }
   });
 
   app.post('/api/me/accounts/:accountId/reconnect', async (req, res) => {
@@ -6240,6 +6529,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
         } else {
           await mt4CommandService.markCommandDelivered(commandOwnerId, command.id, accountId);
         }
+        await conversationalVoice?.executionService?.receipt({ commandId: command.id, userId: commandOwnerId, accountId, planId: command.payload?.planId || null, status: 'DELIVERED', result: { receiverId } }).catch((error) => logger.warn('Command delivery receipt persistence failed.', { commandId: command.id, message: error.message }));
         return sendMt4PollJson(res, { ...flattenCommandRecord(command), deliveryUserId: commandOwnerId });
       }
       let copyCommand = null;
@@ -6279,6 +6569,11 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
           command = await copyTradingService.markCopyCommandCompleted(candidateUserId, req.body?.commandId, req.body?.result || {}, accountId);
           if (command) { commandOwnerId = candidateUserId; break; }
         }
+      }
+      if (command) {
+        const success = req.body?.result?.success !== false;
+        await conversationalVoice?.executionService?.receipt({ commandId: command.id, userId: commandOwnerId || pairing.discordUserId, accountId, planId: command.payload?.planId || null, status: success ? 'COMPLETED' : 'FAILED', result: req.body?.result || {}, failureReason: success ? null : (req.body?.result?.message || 'MT4 command failed') }).catch((error) => logger.warn('Command completion receipt persistence failed.', { commandId: command.id, message: error.message }));
+        await conversationalVoice?.audioService?.queueCommandCompletion({ownerUserId:commandOwnerId||pairing.discordUserId,deviceId:command.payload?.deviceId,commandId:command.id,success,message:req.body?.result?.message||''}).catch((error)=>logger.warn('Verified command speech delivery failed.',{commandId:command.id,message:error.message}));
       }
       await reconcileCopiedTradeCompletion(loadEcosystemState, saveEcosystemState, command, req.body?.result || {});
       try {
@@ -6407,7 +6702,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   });
 
   app.post('/api/referrals/link', async (req, res) => {
-    const userId = String(req.body?.userId || 'website-buyer');
+    const userId = currentUserId(req);
     const profile = await ensureReferralProfile(userId, req.body?.username || '');
     const type = String(req.body?.type || 'general');
     const targetId = String(req.body?.targetId || '');
@@ -6456,12 +6751,16 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   });
 
   app.post('/api/payouts/request', async (req, res) => {
-    const state = await loadEcosystemState();
-    const payout = { payoutId: makeId('payout'), userId: String(req.body?.userId || 'website-buyer'), requestedAmount: Number(req.body?.amount || 0), payoutMethod: req.body?.payoutMethod || 'manual', status: 'requested', requestedAt: new Date().toISOString() };
-    state.payoutsById ||= {};
+    const state = financeState(await loadEcosystemState());
+    const userId = currentUserId(req);
+    const amountCents = requestedPayoutCents(req.body);
+    if (!amountCents) return res.status(400).json({ ok:false, error:'amountCents must be a positive integer number of cents.' });
+    const availableCents = availableCommissionCents(state, userId);
+    if (amountCents > availableCents) return res.status(409).json({ ok:false, code:'insufficient_available_commission', error:'Requested payout exceeds available commission.', availableCents });
+    const payout = { payoutId: makeId('payout'), userId, amountCents, method: String(req.body?.method || req.body?.payoutMethod || 'manual'), destination: String(req.body?.destination || ''), status: 'requested', requestedAt: new Date().toISOString(), adminNote: '' };
     state.payoutsById[payout.payoutId] = payout;
     await saveEcosystemState(state);
-    res.json({ ok: true, payout });
+    res.json({ ok: true, payout, availableCents });
   });
 
   app.post('/api/admin/payouts/:payoutId/approve', async (req, res) => {
@@ -6498,7 +6797,9 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   app.post('/api/admin/licenses/grant', async (req, res) => {
     const bot = EA_CATALOG.find((b)=>slugify(b.name) === slugify(req.body?.botSlug || req.body?.botName || ''));
     if (!bot) return res.status(404).json({ ok: false, error: 'Bot not found' });
-    const license = await grantBotLicense({ userId: String(req.body?.userId || 'website-buyer'), bot, source: 'admin_grant' });
+    const targetUserId = String(req.body?.userId || '').trim();
+    if (!targetUserId) return res.status(400).json({ ok: false, error: 'userId is required.' });
+    const license = await grantBotLicense({ userId: targetUserId, bot, source: 'admin_grant' });
     res.json({ ok: true, license });
   });
 
@@ -6508,10 +6809,11 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
       const botName = String(req.body?.botName || '').trim();
       const bot = EA_CATALOG.find((item) => item.name.toLowerCase() === botName.toLowerCase()) || EA_CATALOG.find((item) => slugify(item.name) === slugify(botName));
       if (!bot) return res.status(404).json({ ok: false, error: 'Bot not found' });
-      const priceUsd = Number(req.body?.priceUsd || botPrice(bot, config));
+      if (!paymentService?.isConfigured() || !paymentService?.hasWebhookConfig?.()) return res.status(503).json({ok:false,code:'payment_provider_unavailable',error:'Checkout is unavailable until Square checkout and its signed webhook are configured.'});
+      const priceUsd = Number(botPrice(bot, config));
       const quote = {
         quoteId: makeId('quote'),
-        discordUserId: String(req.body?.userId || 'website-buyer'),
+        discordUserId: currentUserId(req),
         botIds: [slugify(bot.name)],
         botNames: [bot.name],
         finalPriceUsd: priceUsd,
@@ -6519,7 +6821,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
         source: 'website-bot-arena',
       };
       if (mt4SyncService.repository.saveQuote) await mt4SyncService.repository.saveQuote(quote);
-      const state = await loadEcosystemState();
+      const session = await paymentService.createCheckoutSession({ quote, member: { user: { id: quote.discordUserId } }, guildId: config.guildId || '' });
       const order = {
         orderId: makeId('order'),
         userId: quote.discordUserId,
@@ -6527,31 +6829,29 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
         productId: slugify(bot.name),
         productName: bot.name,
         amountUsd: priceUsd,
-        status: paymentService?.isConfigured() ? 'checkout_created' : 'manual_invoice_pending',
+        amountCents: Math.round(priceUsd*100),
+        paymentProvider: 'square',
+        paymentStatus: 'checkout_created',
+        status: 'checkout_created',
         accessGranted: false,
         referralCode: String(req.body?.referralCode || req.query?.ref || ''),
         quoteId: quote.quoteId,
+        checkoutSessionId: session.id || null,
+        providerOrderId: session.orderId || null,
+        checkoutUrl: session.url,
         createdAt: new Date().toISOString(),
       };
+      const state = financeState(await loadEcosystemState());
       state.ordersById ||= {};
       state.ordersById[order.orderId] = order;
       await saveEcosystemState(state);
-      const commission = order.referralCode ? await createCommissionFromOrder(order, order.referralCode) : null;
-      let license = null;
-      if (paymentService?.isConfigured()) {
-        const session = await paymentService.createCheckoutSession({ quote, member: { user: { id: quote.discordUserId } }, guildId: config.guildId || '' });
-        order.checkoutUrl = session.url;
-        const next = await loadEcosystemState();
-        next.ordersById[order.orderId] = order;
-        await saveEcosystemState(next);
-        return res.json({ ok: true, botName: bot.name, priceUsd, quote, order, commission, checkoutUrl: session.url });
-      }
-      return res.json({ ok: true, botName: bot.name, priceUsd, quote, order, commission, license, checkoutUrl: null, checkoutMode: 'manual_invoice_pending', message: 'Live price and order saved. Square is not configured, so no license is granted until admin marks payment received or Square checkout is connected.' });
+      return res.json({ ok: true, botName: bot.name, priceUsd, quote, order, commission: null, checkoutUrl: session.url, message:'Square checkout created. Access and commission remain locked until the signed webhook confirms payment.' });
     } catch (error) {
       logger.error('Website bot checkout failed', { message: error.message, stack: error.stack });
-      return res.status(500).json({ ok: false, error: error.message });
+      return res.status(error.expose ? 400 : 500).json({ ok: false, error: error.message });
     }
   });
+
 
   app.get('/api/me/subscriptions', async (req, res) => {
     const userId = currentUserId(req);
@@ -6574,11 +6874,14 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   app.post('/api/me/payouts/request', async (req, res) => {
     const userId = currentUserId(req);
     const state = financeState(await loadEcosystemState());
-    const payout = { payoutId: makeId('payout'), userId, amount: Number(req.body?.amount || 0), method: String(req.body?.method || 'manual'), destination: String(req.body?.destination || ''), status: 'requested', requestedAt: new Date().toISOString(), adminNote: '' };
-    if (payout.amount <= 0) return res.status(400).json({ ok: false, error: 'Amount must be greater than zero' });
+    const amountCents = requestedPayoutCents(req.body);
+    if (!amountCents) return res.status(400).json({ ok: false, error: 'amountCents must be a positive integer number of cents.' });
+    const availableCents = availableCommissionCents(state, userId);
+    if (amountCents > availableCents) return res.status(409).json({ ok:false, code:'insufficient_available_commission', error:'Requested payout exceeds available commission.', availableCents });
+    const payout = { payoutId: makeId('payout'), userId, amountCents, method: String(req.body?.method || req.body?.payoutMethod || 'manual'), destination: String(req.body?.destination || ''), status: 'requested', requestedAt: new Date().toISOString(), adminNote: '' };
     state.payoutsById[payout.payoutId] = payout;
     await saveEcosystemState(state);
-    res.json({ ok: true, payout });
+    res.json({ ok: true, payout, availableCents });
   });
 
   app.get('/api/me/vps', async (req, res) => {
@@ -6588,49 +6891,91 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   });
 
   app.post('/api/vps/checkout', async (req, res) => {
-    const userId = currentUserId(req);
-    const plan = VPS_PRODUCTS.find((v)=>v.slug === String(req.body?.planSlug || '')) || VPS_PRODUCTS[1];
-    const state = financeState(await loadEcosystemState());
-    const subscription = { subscriptionId: makeId('sub'), userId, productType: 'vps', productId: plan.slug, productName: plan.planName, squareSubscriptionId: null, status: paymentService?.isConfigured() ? 'checkout_created' : 'manual_invoice_pending', amountMonthly: plan.monthlyPrice, currentPeriodStart: new Date().toISOString(), currentPeriodEnd: '', cancelAtPeriodEnd: false, createdAt: new Date().toISOString() };
-    const vps = { vpsId: makeId('vps'), userId, planName: plan.planName, monthlyPrice: plan.monthlyPrice, status: 'setup_requested', assignedBotSlug: String(req.body?.assignedBotSlug || ''), assignedAccountId: String(req.body?.assignedAccountId || ''), squareSubscriptionId: null, lastHeartbeatAt: null, setupStatus: 'requested', createdAt: new Date().toISOString() };
-    state.subscriptionsById[subscription.subscriptionId] = subscription;
-    state.vpsAssignmentsById[vps.vpsId] = vps;
-    await saveEcosystemState(state);
-    res.json({ ok: true, subscription, vps, checkoutUrl: null, message: paymentService?.isConfigured() ? 'VPS live checkout record created.' : 'Live VPS order saved as manual invoice pending. No active paid access is granted until payment is confirmed.' });
+    if (!paymentService?.isConfigured() || !paymentService?.hasWebhookConfig?.()) {
+      return res.status(503).json({ ok:false, code:'payment_provider_unavailable', error:'VPS checkout is unavailable until Square checkout and its signed webhook are configured.' });
+    }
+    return res.status(501).json({
+      ok:false,
+      code:'recurring_vps_checkout_not_enabled',
+      error:'Recurring VPS billing is not enabled yet. No VPS assignment or paid access was created.',
+    });
   });
 
   app.post('/api/bots/:slug/checkout-plan', async (req, res) => {
     const userId = currentUserId(req);
+    if (!paymentService?.isConfigured() || !paymentService?.hasWebhookConfig?.()) {
+      return res.status(503).json({ ok:false, code:'payment_provider_unavailable', error:'Bot checkout is unavailable until Square checkout and its signed webhook are configured.' });
+    }
     const slug = String(req.params.slug || '').trim();
     const bot = EA_CATALOG.find((item)=>slugify(item.name)===slug) || EA_CATALOG.find((item)=>slugify(item.name)==='df-sauce-final-ai') || EA_CATALOG[0];
     const fullPrice = Number(req.body?.priceUsd || botPrice(bot, config));
     const planType = String(req.body?.planType || 'paid_in_full');
-    const state = financeState(await loadEcosystemState());
-    const now = new Date().toISOString();
-    const order = { orderId: makeId('order'), userId, productType: 'bot', productId: slugify(bot.name), productName: bot.name, grossAmount: fullPrice, amountUsd: fullPrice, currency: 'usd', paymentProvider: paymentService?.isConfigured() ? 'square' : 'manual', paymentStatus: 'pending', status: 'pending', checkoutSessionId: null, referralCode: String(req.body?.referralCode || ''), referrerUserId: '', licenseGranted: false, planType, createdAt: now, paidAt: null };
-    state.ordersById ||= {}; state.ordersById[order.orderId] = order;
-    let subscription = null; let paymentPlan = null; let vps = null; let license = null;
-    if (planType === 'paid_in_full') {
-      order.paymentStatus = paymentService?.isConfigured() ? 'checkout_created' : 'manual_invoice_pending';
-      order.status = order.paymentStatus;
-      if (!paymentService?.isConfigured()) {
-        order.licenseGranted = false;
-      }
-    } else if (planType === 'payment_plan') {
-      const monthly = Math.ceil(fullPrice / 6);
-      paymentPlan = { planId: makeId('plan'), userId, productType: 'bot', productId: slugify(bot.name), productName: bot.name, totalPrice: fullPrice, amountPaid: 0, balanceRemaining: fullPrice, monthlyAmount: monthly, paymentsMade: 0, paymentsRemaining: 6, squareSubscriptionId: null, status: paymentService?.isConfigured() ? 'checkout_created' : 'manual_invoice_pending', vpsRequired: true, downloadUnlocked: false, paidInFullAt: null, createdAt: now, nextDueAt: '' };
-      state.paymentPlansById[paymentPlan.planId] = paymentPlan;
-      vps = { vpsId: makeId('vps'), userId, planName: 'Operator VPS', monthlyPrice: 97, status: 'active', assignedBotSlug: slugify(bot.name), assignedAccountId: '', squareSubscriptionId: null, lastHeartbeatAt: null, setupStatus: 'payment_plan_required', createdAt: now };
-      state.vpsAssignmentsById[vps.vpsId] = vps;
-    } else {
-      const monthly = planType === 'vps_bundle' ? (bot.recommended ? 597 : Math.max(147, Math.round(fullPrice*.2))) : (bot.recommended ? 497 : Math.max(97, Math.round(fullPrice*.16)));
-      subscription = { subscriptionId: makeId('sub'), userId, productType: planType === 'vps_bundle' ? 'bot_vps_bundle' : 'bot_rental', productId: slugify(bot.name), productName: bot.name, squareSubscriptionId: null, status: paymentService?.isConfigured() ? 'checkout_created' : 'manual_invoice_pending', amountMonthly: monthly, currentPeriodStart: now, currentPeriodEnd: '', cancelAtPeriodEnd: false, createdAt: now };
-      state.subscriptionsById[subscription.subscriptionId] = subscription;
-      vps = { vpsId: makeId('vps'), userId, planName: planType === 'vps_bundle' ? 'Operator VPS Bundle' : 'Rental VPS', monthlyPrice: planType === 'vps_bundle' ? 97 : 0, status: 'active', assignedBotSlug: slugify(bot.name), assignedAccountId: '', squareSubscriptionId: null, lastHeartbeatAt: null, setupStatus: 'bot_access_vps_only', createdAt: now };
-      state.vpsAssignmentsById[vps.vpsId] = vps;
+    if (planType !== 'paid_in_full') {
+      return res.status(501).json({
+        ok:false,
+        code:'recurring_bot_checkout_not_enabled',
+        planType,
+        error:'Payment-plan, rental, and VPS-bundle billing are disabled until recurring Square webhook activation is fully wired. No subscription, VPS assignment, or bot access was created.',
+      });
     }
+    if (!Number.isFinite(fullPrice) || fullPrice <= 0) return res.status(400).json({ ok:false, error:'A valid positive bot price is required.' });
+    const quote = {
+      quoteId: makeId('quote'),
+      discordUserId: userId,
+      botIds: [slugify(bot.name)],
+      botNames: [bot.name],
+      finalPriceUsd: fullPrice,
+      createdAt: new Date().toISOString(),
+      source: 'website-bot-finance-paid-in-full',
+    };
+    if (mt4SyncService.repository.saveQuote) await mt4SyncService.repository.saveQuote(quote);
+    const order = {
+      orderId: makeId('order'),
+      userId,
+      productType: 'bot',
+      productId: slugify(bot.name),
+      productName: bot.name,
+      grossAmount: fullPrice,
+      amountUsd: fullPrice,
+      amountCents: Math.round(fullPrice * 100),
+      currency: 'usd',
+      paymentProvider: 'square',
+      paymentStatus: 'checkout_created',
+      status: 'checkout_created',
+      checkoutSessionId: null,
+      referralCode: String(req.body?.referralCode || req.query?.ref || ''),
+      referrerUserId: '',
+      licenseGranted: false,
+      planType,
+      quoteId: quote.quoteId,
+      createdAt: new Date().toISOString(),
+      paidAt: null,
+    };
+    const state = financeState(await loadEcosystemState());
+    state.ordersById ||= {};
+    state.ordersById[order.orderId] = order;
     await saveEcosystemState(state);
-    res.json({ ok: true, planType, productName: bot.name, status: order.status, order, subscription, paymentPlan, vps, license, checkoutUrl: null, message: paymentService?.isConfigured() ? 'Live finance record created; connect checkout session for payment collection.' : 'Live finance record saved as manual invoice pending. No bot download/license unlock occurs until payment is confirmed.' });
+    try {
+      const session = await paymentService.createCheckoutSession({ quote, member: { user: { id: userId } }, guildId: config.guildId || '' });
+      order.checkoutSessionId = session.id || null;
+      order.providerOrderId = session.orderId || null;
+      order.checkoutUrl = session.url;
+      order.updatedAt = new Date().toISOString();
+      const next = financeState(await loadEcosystemState());
+      next.ordersById ||= {};
+      next.ordersById[order.orderId] = order;
+      await saveEcosystemState(next);
+      return res.json({ ok:true, planType, productName:bot.name, status:order.status, order, subscription:null, paymentPlan:null, vps:null, license:null, checkoutUrl:session.url, message:'Square checkout created. Access remains locked until the signed payment webhook confirms completion.' });
+    } catch (error) {
+      order.paymentStatus = 'checkout_failed';
+      order.status = 'checkout_failed';
+      order.updatedAt = new Date().toISOString();
+      const failed = financeState(await loadEcosystemState());
+      failed.ordersById ||= {};
+      failed.ordersById[order.orderId] = order;
+      await saveEcosystemState(failed);
+      return res.status(error.expose ? 400 : 502).json({ ok:false, code:'checkout_creation_failed', error:error.message, orderId:order.orderId });
+    }
   });
 
 
@@ -6652,7 +6997,8 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
       }
     }
     await saveEcosystemState(state);
-    res.json({ ok: true, order, license });
+    const commission = order.referralCode ? await createCommissionFromOrder(order, order.referralCode) : null;
+    res.json({ ok: true, order, license, commission });
   });
 
   app.post('/api/admin/link-access/:linkAccessId/mark-paid', async (req, res) => {
@@ -6917,35 +7263,32 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   app.get('/api/me/linked-access', async (req, res) => { const state = await loadEcosystemState(); const identity = getIdentity(req); const ids = state.paidLinkAccessByUserId?.[identity.userId] || []; res.json({ ok: true, linkedAccess: ids.map((id) => state.paidLinkAccessById?.[id]).filter(Boolean) }); });
   app.post('/api/link-access/checkout', async (req, res) => {
     try {
+      if (!paymentService?.isConfigured()) return res.status(503).json({ ok: false, code: 'payment_provider_unavailable', error: 'Checkout is unavailable until the payment provider and signed webhook are configured.' });
       const state = await loadEcosystemState();
       const identity = getIdentity(req);
-      const buyerUserId = String(req.body?.buyerUserId || identity.userId || 'website-buyer');
-      const access = createPaidLinkAccess({ buyerUserId, productId: String(req.body?.productId || ''), status: paymentService?.isConfigured() ? 'pending_payment' : 'manual_invoice_pending', source: paymentService?.isConfigured() ? 'square_pending' : 'manual_invoice' });
+      const buyerUserId = identity.userId;
+      const access = createPaidLinkAccess({ buyerUserId, productId: String(req.body?.productId || ''), status: 'pending_payment', source: 'square_pending' });
       state.paidLinkAccessById ||= {};
       state.paidLinkAccessByUserId ||= {};
       state.paidLinkAccessById[access.linkAccessId] = access;
       state.paidLinkAccessByUserId[buyerUserId] ||= [];
       state.paidLinkAccessByUserId[buyerUserId] = [access.linkAccessId, ...state.paidLinkAccessByUserId[buyerUserId].filter((id) => id !== access.linkAccessId)];
       await saveEcosystemState(state);
-      if (paymentService?.isConfigured()) {
-        const checkout = await paymentService.createOneTimeCheckout({
+      const checkout = await paymentService.createOneTimeCheckout({
           name: access.productName,
           amountCents: Math.round(Number(access.price || 0) * 100),
           type: 'link_access',
           payload: { a: access.linkAccessId, u: buyerUserId },
           buyerEmail: identity.email || undefined,
           redirectPath: `/member/linked-access?created=${encodeURIComponent(access.linkAccessId)}`,
-        });
-        access.squarePaymentLinkId = checkout.id;
-        access.squareOrderId = checkout.orderId;
-        const nextState = await loadEcosystemState();
-        if (nextState.paidLinkAccessById?.[access.linkAccessId]) nextState.paidLinkAccessById[access.linkAccessId] = access;
-        await saveEcosystemState(nextState);
-        if (String(req.headers.accept || '').includes('text/html')) return res.redirect(checkout.url);
-        return res.json({ ok: true, provider: 'square', access, checkoutReady: true, checkoutUrl: checkout.url });
-      }
-      if (String(req.headers.accept || '').includes('text/html')) return res.redirect(`/member/linked-access?created=${encodeURIComponent(access.linkAccessId)}`);
-      res.json({ ok: true, provider: 'manual', access, checkoutReady: false, message: 'Live price/access record saved as manual invoice pending. Access remains locked until payment is confirmed.' });
+      });
+      access.squarePaymentLinkId = checkout.id;
+      access.squareOrderId = checkout.orderId;
+      const nextState = await loadEcosystemState();
+      if (nextState.paidLinkAccessById?.[access.linkAccessId]) nextState.paidLinkAccessById[access.linkAccessId] = access;
+      await saveEcosystemState(nextState);
+      if (String(req.headers.accept || '').includes('text/html')) return res.redirect(checkout.url);
+      return res.json({ ok: true, provider: 'square', access, checkoutReady: true, checkoutUrl: checkout.url });
     } catch (error) {
       logger.error('Paid link Square checkout failed', { message: error.message });
       res.status(error.expose ? 400 : 500).json({ ok: false, error: error.message });
@@ -7013,12 +7356,28 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   app.get('/member/:page', (req, res) => res.status(404).send(htmlShell('Not Found', `${sectionHero('Page not found', `The module <strong>${esc(req.params.page)}</strong> is not registered yet.`)}<section class="card full"><a class="btn primary" href="/member">Return Home</a></section>`, 'home')));
 
   const server = app.listen(config.api.port, () => logger.info('API/member portal listening', { port: config.api.port }));
-  server.on('close', () => {
+  let resourceClosePromise = null;
+  const closeResources = () => {
+    if (resourceClosePromise) return resourceClosePromise;
     for (const timer of app.locals.wisdoBackgroundTimers || []) clearTimeout(timer);
     commandNotificationDeliveryService.stopRetryLoop?.();
-    redisCommandBridge.close().catch(() => undefined);
-    mt4SyncService?.repository?.close?.().catch?.(() => undefined);
-    wisdoPhase1Repository?.adapter?.close?.().catch?.(() => undefined);
-  });
+    const resources = [
+      ['redis command bridge', () => redisCommandBridge.close()],
+      ['MT4 repository', () => mt4SyncService?.repository?.close?.()],
+      ['Phase 1 repository', () => wisdoPhase1Repository?.adapter?.close?.()],
+    ];
+    resourceClosePromise = Promise.allSettled(resources.map(([, close]) => Promise.resolve().then(close))).then((results) => {
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') logger.error('API resource shutdown failed', {
+          resource: resources[index][0],
+          message: result.reason?.message || String(result.reason),
+        });
+      });
+      return results;
+    });
+    return resourceClosePromise;
+  };
+  server.wisdo = { conversationalVoice: conversationalVoice || null, closeResources };
+  server.on('close', () => { void closeResources(); });
   return server;
 }

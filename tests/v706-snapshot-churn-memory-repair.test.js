@@ -104,9 +104,11 @@ test('slow deferred work keeps its worker slot until the real task settles', asy
     events.push('first-end');
   });
   service.enqueueBackgroundTask('second', async () => { events.push('second-start'); });
-  await new Promise((resolve) => setTimeout(resolve, 35));
+  const startedBy = Date.now() + 1000;
+  while (!events.includes('first-start') && Date.now() < startedBy) await new Promise((resolve) => setTimeout(resolve, 5));
   assert.deepEqual(events, ['first-start']);
-  await new Promise((resolve) => setTimeout(resolve, 90));
+  const completedBy = Date.now() + 1000;
+  while (events.length < 3 && Date.now() < completedBy) await new Promise((resolve) => setTimeout(resolve, 5));
   assert.deepEqual(events, ['first-start', 'first-end', 'second-start']);
 });
 
