@@ -12,7 +12,6 @@ import { buildWisdoBotRegistryCommands } from './wisdoBotRegistry.js';
 import { buildWisdoCommandCenterCommands } from './wisdoCommandCenter.js';
 import { buildSignalGridCommands } from './signalGrid.js';
 import { buildWisdoPhaseTwoCommands } from './wisdoPhaseTwo.js';
-import { buildOperationsCommands } from './operations.js';
 import { validateCommandRegistry, wrapCommandWithInteractionGuard } from '../utils/discordInteractionGuard.js';
 
 // Canonical Discord slash-command registry. Production root index.js and
@@ -34,7 +33,6 @@ export function createCommandRegistry(context) {
     buildWisdoCommandCenterCommands(context),
     buildSignalGridCommands(context),
     buildWisdoPhaseTwoCommands(context),
-    buildOperationsCommands(context),
   ];
 
   const commands = [];

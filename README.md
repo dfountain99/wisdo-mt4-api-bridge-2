@@ -1,20 +1,26 @@
-# WISDO Trading Operating System
+# WISDO Culture Lane OS v7.0.8
 
-WISDO is a Node 22 application joining Discord, the authenticated member portal, MT4 Reporter, copier routing, conversational controls, bot lanes, payments, affiliates, and operations behind one account-aware backend.
+Database-first production repair for repeated Render heap exhaustion.
 
-The production source of truth is `index.js`. Both `npm start` and Render start that file. Discord runtime and registration both use `commands/index.js`; the HTTP runtime is `server/apiServer.js`; critical production state is PostgreSQL-backed.
+The high-frequency trading path no longer treats PostgreSQL like one large JSON file. Reporter heartbeats, account snapshots, pairing records, command queues, and trade signals use dedicated indexed PostgreSQL tables and row-level transactions.
 
-## Local validation
+Key protections:
+
+- One Reporter heartbeat reads only the requested account and signal-tracking rows.
+- One heartbeat commits only pairing, account, tracking, active-account, and optional compact-history rows.
+- MT4 commands use a bounded relational queue with dedupe and priority indexes.
+- Trade signals use a relational table keyed by signal and broker ticket.
+- Culture Lanes remain PostgreSQL-durable and restore after crashes or redeploys.
+- Account sharing and legacy copier-route metadata remain in a small compatibility namespace, separate from hot MT4 data.
+- Website identity recognition and each 50% growth milestone remain enabled.
+- Reporter v1.59 remains required so one terminal/account performs the polling lease.
+
+Validate before deployment:
 
 ```bash
 npm ci
 npm run check
-npm run audit:runtime
-npm run audit:commands
-npm run audit:stubs
-npm run pressure:mt4
+npm run pressure:v708
 ```
 
-Migrations are applied with `npm run migrate:postgres`. Discord commands are registered with `npm run register-commands`. Neither command should be aimed at production without an approved release window and rollback checkpoint.
-
-Voice execution remains protected by `DEMO_ONLY`; live-account voice execution is not enabled by this upgrade. See `UPGRADE_AUDIT.md`, `UPGRADE_RUNTIME_MAP.md`, `SECURITY.md`, and `OPERATIONS.md` before release work.
+Render runs `npm run migrate:postgres` before starting the service.

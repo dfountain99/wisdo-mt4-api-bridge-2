@@ -207,6 +207,11 @@ export class PostgresMt4Store {
         `, [connectionRecord.accountId, JSON.stringify(tracking)]);
       }
 
+      await client.query(`
+        insert into wisdo_mt4_active_accounts(discord_user_id, account_id, updated_at)
+        values($1,$2,now()) on conflict(discord_user_id) do nothing
+      `, [connectionRecord.discordUserId, connectionRecord.accountId]);
+
       if (appendHistory && historyRecord) {
         await client.query('insert into wisdo_mt4_snapshot_history(account_id, discord_user_id, received_at, record) values($1,$2,$3::timestamptz,$4::jsonb)', [connectionRecord.accountId, connectionRecord.discordUserId, historyRecord.receivedAt || receivedAt, JSON.stringify(historyRecord)]);
         await client.query(`delete from wisdo_mt4_snapshot_history where account_id=$1 and id not in (select id from wisdo_mt4_snapshot_history where account_id=$1 order by received_at desc,id desc limit $2)`, [connectionRecord.accountId, this.historyPerAccount]);
@@ -218,17 +223,6 @@ export class PostgresMt4Store {
       await client.query('rollback').catch(() => undefined);
       throw error;
     } finally { client.release(); }
-  }
-
-  async saveSignalTracking(accountId, tracking) {
-    await this.initialize();
-    const pool = await this.pool();
-    await pool.query(`
-      insert into wisdo_mt4_signal_tracking(account_id, tracking, updated_at)
-      values($1,$2::jsonb,now())
-      on conflict(account_id) do update set tracking=excluded.tracking, updated_at=now()
-    `, [String(accountId), JSON.stringify(obj(tracking))]);
-    return tracking;
   }
 
   hydrateAccount(row, activeAccountId = null) {
@@ -293,12 +287,13 @@ export class PostgresMt4Store {
     ]);
     const activeId = active.rows[0]?.account_id || null;
     const rows = accounts.rows.map((row) => this.hydrateAccount(row, activeId));
+    if (rows.length && !rows.some((row) => row.isPrimary)) rows[0].isPrimary = true;
     return rows;
   }
 
   async getConnection(discordUserId, accountId = null) {
     const rows = await this.getAccounts(discordUserId);
-    return accountId ? rows.find((row) => row.accountId === accountId) || null : rows.find((row) => row.isPrimary) || null;
+    return accountId ? rows.find((row) => row.accountId === accountId) || null : rows.find((row) => row.isPrimary) || rows[0] || null;
   }
 
   async getLatestSnapshot(discordUserId, accountId = null) {

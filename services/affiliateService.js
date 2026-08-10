@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { commissionCents } from './moneyService.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -13,7 +12,6 @@ function moneyNumber(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
-function dollarsToCents(value, fallback = 0) { const parsed=Number(value);return Number.isFinite(parsed)?Math.round(parsed*100):Math.round(Number(fallback||0)*100); }
 
 function addDays(days) {
   const date = new Date();
@@ -39,16 +37,10 @@ export class AffiliateService {
   settings(state = {}) {
     const saved = state.affiliateSettings || {};
     const cfg = this.config.affiliate || {};
-    const activationFeeAmount=moneyNumber(saved.activationFeeAmount, moneyNumber(cfg.activationFeeAmount, 125));
-    const minimumPayoutAmount=moneyNumber(saved.minimumPayoutAmount, moneyNumber(cfg.minimumPayoutAmount, 25));
-    const defaultCommissionPercent=moneyNumber(saved.defaultCommissionPercent, moneyNumber(cfg.defaultCommissionPercent, 30));
     return {
-      activationFeeAmount,
-      activationFeeCents: Number.isSafeInteger(saved.activationFeeCents)?saved.activationFeeCents:dollarsToCents(activationFeeAmount),
-      defaultCommissionPercent,
-      defaultCommissionBasisPoints: Number.isSafeInteger(saved.defaultCommissionBasisPoints)?saved.defaultCommissionBasisPoints:Math.round(defaultCommissionPercent*100),
-      minimumPayoutAmount,
-      minimumPayoutCents: Number.isSafeInteger(saved.minimumPayoutCents)?saved.minimumPayoutCents:dollarsToCents(minimumPayoutAmount),
+      activationFeeAmount: moneyNumber(saved.activationFeeAmount, moneyNumber(cfg.activationFeeAmount, 125)),
+      defaultCommissionPercent: moneyNumber(saved.defaultCommissionPercent, moneyNumber(cfg.defaultCommissionPercent, 30)),
+      minimumPayoutAmount: moneyNumber(saved.minimumPayoutAmount, moneyNumber(cfg.minimumPayoutAmount, 25)),
       holdDays: moneyNumber(saved.holdDays, moneyNumber(cfg.holdDays, 7)),
       autoApprove: saved.autoApprove !== undefined ? Boolean(saved.autoApprove) : Boolean(cfg.autoApprove),
       allowSelfReferral: saved.allowSelfReferral !== undefined ? Boolean(saved.allowSelfReferral) : Boolean(cfg.allowSelfReferral),
@@ -202,7 +194,6 @@ export class AffiliateService {
         campaignId: String(referredUserPayload.campaignId || ''),
         status: 'invited',
         activationFeeAmount: moneyNumber(referredUserPayload.activationFeeAmount, this.campaignActivationFee(state, referredUserPayload.campaignId)),
-        activationFeeCents: dollarsToCents(referredUserPayload.activationFeeAmount, this.campaignActivationFee(state, referredUserPayload.campaignId)),
         currency: String(referredUserPayload.currency || 'usd').toLowerCase(),
         paymentRef: '',
         source: String(referredUserPayload.source || 'affiliate_api'),
@@ -253,7 +244,6 @@ export class AffiliateService {
         throw new Error('Cannot record activation payment for inactive referral.');
       }
       referral.activationFeeAmount = moneyNumber(amount, moneyNumber(referral.activationFeeAmount, this.settings(state).activationFeeAmount));
-      referral.activationFeeCents = dollarsToCents(amount, referral.activationFeeAmount);
       referral.currency = String(currency || referral.currency || 'usd').toLowerCase();
       referral.paymentRef = String(paymentRef || '');
       referral.status = 'paid';
@@ -280,11 +270,8 @@ export class AffiliateService {
     if (existing) return existing;
     const settings = this.settings(state);
     const percent = this.commissionPercent(state, affiliate, referral);
-    const grossAmountCents = Number.isSafeInteger(referral.activationFeeCents) ? referral.activationFeeCents : dollarsToCents(referral.activationFeeAmount, settings.activationFeeAmount);
-    const commissionBasisPoints = Math.round(percent * 100);
-    const commissionAmountCents = commissionCents(grossAmountCents, commissionBasisPoints);
-    const gross = grossAmountCents / 100;
-    const commissionAmount = commissionAmountCents / 100;
+    const gross = moneyNumber(referral.activationFeeAmount, settings.activationFeeAmount);
+    const commissionAmount = Number((gross * (percent / 100)).toFixed(2));
     const commissionId = makeId('affcomm');
     const commission = {
       id: commissionId,
@@ -295,11 +282,8 @@ export class AffiliateService {
       sourceType: 'activation_fee',
       sourceId: referral.paymentRef || referralId,
       grossAmount: gross,
-      grossAmountCents,
       commissionPercent: percent,
-      commissionBasisPoints,
       commissionAmount,
-      commissionAmountCents,
       currency: referral.currency || 'usd',
       status: settings.autoApprove ? 'approved' : 'pending',
       holdUntil: addDays(settings.holdDays),
@@ -375,16 +359,14 @@ export class AffiliateService {
       if (!commissions.length) throw new Error('No valid commissions selected for payout.');
       const invalid = commissions.find((commission) => !['approved', 'payable'].includes(commission.status));
       if (invalid) throw new Error('Only approved or payable commissions can be included in a payout.');
-      const amountCents = commissions.reduce((sum,item)=>sum+(Number.isSafeInteger(item.commissionAmountCents)?item.commissionAmountCents:dollarsToCents(item.commissionAmount)),0);
-      const amount = amountCents/100;
-      if (amountCents < settings.minimumPayoutCents) throw new Error(`Minimum payout threshold is ${settings.minimumPayoutAmount}.`);
+      const amount = Number(commissions.reduce((sum, item) => sum + moneyNumber(item.commissionAmount), 0).toFixed(2));
+      if (amount < settings.minimumPayoutAmount) throw new Error(`Minimum payout threshold is ${settings.minimumPayoutAmount}.`);
       const payoutId = makeId('affpay');
       payout = {
         id: payoutId,
         payoutId,
         affiliateId,
         amount,
-        amountCents,
         currency: commissions[0]?.currency || 'usd',
         status: 'pending',
         payoutMethod: affiliate.payoutMethod || 'manual',
@@ -417,7 +399,6 @@ export class AffiliateService {
         description: String(payload.description || ''),
         status: String(payload.status || 'active'),
         activationFeeAmount: moneyNumber(payload.activationFeeAmount, this.settings(state).activationFeeAmount),
-        activationFeeCents: dollarsToCents(payload.activationFeeAmount, this.settings(state).activationFeeAmount),
         commissionPercent: moneyNumber(payload.commissionPercent, this.settings(state).defaultCommissionPercent),
         startsAt: payload.startsAt || null,
         endsAt: payload.endsAt || null,
@@ -495,8 +476,8 @@ export class AffiliateService {
     const referrals = Object.values(state.affiliateReferralsById || {}).filter((item) => item.affiliateId === affiliate.affiliateId);
     const commissions = Object.values(state.affiliateCommissionsById || {}).filter((item) => item.affiliateId === affiliate.affiliateId);
     const payouts = Object.values(state.affiliatePayoutsById || {}).filter((item) => item.affiliateId === affiliate.affiliateId);
-    const totalActivationFeeCents = referrals.reduce((sum,item)=>sum+(Number.isSafeInteger(item.activationFeeCents)?item.activationFeeCents:dollarsToCents(item.activationFeeAmount)),0);
-    const byStatusCents = (status) => commissions.filter((item)=>item.status===status).reduce((sum,item)=>sum+(Number.isSafeInteger(item.commissionAmountCents)?item.commissionAmountCents:dollarsToCents(item.commissionAmount)),0);
+    const totalActivationFees = referrals.reduce((sum, item) => sum + moneyNumber(item.activationFeeAmount), 0);
+    const byStatus = (status) => commissions.filter((item) => item.status === status).reduce((sum, item) => sum + moneyNumber(item.commissionAmount), 0);
     return {
       affiliate: this.publicAffiliate(affiliate),
       referralLink: `/join/${affiliate.referralCode}`,
@@ -506,14 +487,10 @@ export class AffiliateService {
       stats: {
         peopleSignedUp: referrals.filter((item) => ['signed_up', 'activated', 'paid'].includes(item.status)).length,
         peopleActivated: referrals.filter((item) => ['activated', 'paid'].includes(item.status)).length,
-        pendingCommissionCents: byStatusCents('pending'),
-        approvedCommissionCents: byStatusCents('approved') + byStatusCents('payable'),
-        paidCommissionCents: byStatusCents('paid'),
-        totalActivationFeeCents,
-        pendingCommission: byStatusCents('pending')/100,
-        approvedCommission: (byStatusCents('approved')+byStatusCents('payable'))/100,
-        paidCommission: byStatusCents('paid')/100,
-        totalActivationFees: totalActivationFeeCents/100,
+        pendingCommission: byStatus('pending'),
+        approvedCommission: byStatus('approved') + byStatus('payable'),
+        paidCommission: byStatus('paid'),
+        totalActivationFees,
         conversionRate: referrals.length ? Number(((referrals.filter((item) => ['activated', 'paid'].includes(item.status)).length / referrals.length) * 100).toFixed(2)) : 0,
       },
     };

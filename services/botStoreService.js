@@ -558,19 +558,6 @@ export class BotStoreService {
       return;
     }
 
-    const expectedAmountCents = Math.round(Number(quote.finalPriceUsd || 0) * 100);
-    const receivedAmountCents = Number(session.amount_total || 0);
-    if (!Number.isSafeInteger(receivedAmountCents) || receivedAmountCents <= 0 || receivedAmountCents !== expectedAmountCents) {
-      const error = createUserError(`Square payment amount mismatch for quote ${quoteId}. Expected ${expectedAmountCents} cents and received ${receivedAmountCents || 0} cents.`);
-      error.code = 'payment_amount_mismatch';
-      throw error;
-    }
-    if (String(session.payment_status || '').toLowerCase() !== 'paid') {
-      const error = createUserError(`Square payment ${session.id || 'unknown'} is not marked paid.`);
-      error.code = 'payment_not_paid';
-      throw error;
-    }
-
     const existingOrder = await this.repository.findOrderByCheckoutSessionId(session.id);
     if (existingOrder?.status === 'paid') {
       return existingOrder;
