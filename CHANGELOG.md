@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-08-10 - v7.1.0 Live Desk
+
+- Added real browser-native WebRTC screen broadcasting inside the authenticated WISDO member portal.
+- Added Private My Devices, Private Room, Selected Members, Members Only, Public, and Unlisted visibility policies.
+- Added mobile/desktop viewer experience with fullscreen, Picture-in-Picture, return-live, mute, WebRTC quality telemetry, account overlays, and session chat.
+- Added owner viewer controls, remove/block, Panic Stop, logout termination, bounded viewer/signaling/chat state, and Live Desk audit metadata.
+- Added STUN defaults and optional short-lived TURN credentials without exposing the TURN shared secret to browsers.
+- Added sanitized live account telemetry without exposing broker credentials or bypassing WISDO account authorization.
+- Added production configuration examples and a bounded peer-to-peer capacity model; high-scale broadcasting remains reserved for a future SFU/media tier.
+- Kept voice execution in `DEMO_ONLY` and Square in sandbox.
+- Added dedicated Live Desk privacy/signaling/networking regression coverage.
+
 ## 2026-08-09 - Major stability and ecosystem upgrade (unreleased)
 
 - Established and audited one root production entrypoint, API server, and 100-command registry.

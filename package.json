@@ -1,7 +1,7 @@
 {
   "name": "culture-coin-operator-desks-bot",
-  "version": "7.0.9",
-  "description": "WISDO Culture Lane OS v7.0.9 launch-hardened trading command ecosystem.",
+  "version": "7.1.0",
+  "description": "WISDO Culture Lane OS v7.1.0 with secure Live Desk screen broadcasting and launch-hardened trading controls.",
   "type": "module",
   "private": true,
   "scripts": {
