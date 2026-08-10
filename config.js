@@ -92,7 +92,7 @@ export const config = {
   },
   affiliate: {
     activationFeeAmount: num(first('WISDO_ACTIVATION_FEE_AMOUNT'), 125),
-    defaultCommissionPercent: num(first('WISDO_AFFILIATE_DEFAULT_PERCENT'), 30),
+    defaultCommissionPercent: num(first('WISDO_AFFILIATE_DEFAULT_PERCENT'), 50),
     minimumPayoutAmount: num(first('WISDO_AFFILIATE_MIN_PAYOUT'), 25),
     holdDays: num(first('WISDO_AFFILIATE_HOLD_DAYS'), 7),
     autoApprove: bool(first('WISDO_AFFILIATE_AUTO_APPROVE'), false),

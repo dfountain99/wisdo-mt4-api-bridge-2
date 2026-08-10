@@ -90,44 +90,100 @@ def heartbeat(listening=False):
 def microphone_audio(cancel_event=None, max_seconds_override=None, timeout_override=None):
     import speech_recognition as sr
     import pyaudio
-    recognizer = sr.Recognizer()
-    index = os.getenv('WISDO_MIC_DEVICE_INDEX', '').strip()
-    rate, width, chunk = 16000, 2, 1024
-    max_seconds = max_seconds_override or float(os.getenv('WISDO_RECORD_MAX_SECONDS', '20'))
-    timeout_seconds = timeout_override or float(os.getenv('WISDO_LISTEN_TIMEOUT_SECONDS', '8'))
-    silence_seconds = float(os.getenv('WISDO_VAD_PAUSE_SECONDS', '0.8'))
-    threshold = int(os.getenv('WISDO_VAD_ENERGY_THRESHOLD', '300'))
-    frames, speech_started, silent_chunks = [], False, 0
-    engine = pyaudio.PyAudio()
-    stream = engine.open(format=pyaudio.paInt16, channels=1, rate=rate, input=True,
-                         input_device_index=int(index) if index else None,
-                         frames_per_buffer=chunk)
-    started = time.monotonic()
-    try:
-        while time.monotonic() - started < max_seconds:
-            if cancel_event and cancel_event.is_set():
-                raise InterruptedError('Recording cancelled.')
-            if muted():
-                raise InterruptedError('Recording cancelled by physical mute.')
-            data = stream.read(chunk, exception_on_overflow=False)
-            frames.append(data)
-            samples = struct.unpack(f'<{len(data)//2}h', data)
-            rms = int((sum(sample * sample for sample in samples) / max(1, len(samples))) ** 0.5)
-            if rms >= threshold:
-                speech_started, silent_chunks = True, 0
-            elif speech_started:
-                silent_chunks += 1
-                if silent_chunks * chunk / rate >= silence_seconds:
-                    break
-            elif time.monotonic() - started >= timeout_seconds:
-                raise TimeoutError('No speech was detected before the listening timeout.')
-    finally:
-        stream.stop_stream(); stream.close(); engine.terminate()
-    audio = sr.AudioData(b''.join(frames), rate, width)
-    wav = audio.get_wav_data(convert_rate=rate, convert_width=width)
-    duration_ms = round(len(audio.frame_data) * 1000 / (rate * width))
-    return recognizer, audio, wav, duration_ms
 
+    recognizer = sr.Recognizer()
+    index_text = os.getenv('WISDO_MIC_DEVICE_INDEX', '').strip()
+    engine = pyaudio.PyAudio()
+    device_index = int(index_text) if index_text else None
+    try:
+        device = engine.get_device_info_by_index(device_index) if device_index is not None else engine.get_default_input_device_info()
+        if device_index is None:
+            device_index = int(device.get('index'))
+        native_rate = max(8000, int(float(device.get('defaultSampleRate') or 16000)))
+        max_channels = max(1, int(device.get('maxInputChannels') or 1))
+        rate = int(os.getenv('WISDO_MIC_SAMPLE_RATE') or native_rate)
+        channels = int(os.getenv('WISDO_MIC_CHANNELS') or min(2, max_channels))
+        channels = max(1, min(channels, max_channels))
+        channel_select = max(0, min(channels - 1, int(os.getenv('WISDO_MIC_CHANNEL_SELECT', '0'))))
+        requested_format = os.getenv('WISDO_MIC_SAMPLE_FORMAT', 'AUTO').strip().upper()
+        stt_rate = int(os.getenv('WISDO_STT_SAMPLE_RATE', '16000'))
+        s32_shift = max(0, min(24, int(os.getenv('WISDO_MIC_S32_SHIFT', '12'))))
+        chunk = max(256, int(os.getenv('WISDO_MIC_CHUNK', '1024')))
+
+        candidates = []
+        if requested_format in ('AUTO', ''):
+            candidates = [(pyaudio.paInt16, 2, 'h'), (pyaudio.paInt32, 4, 'i')]
+        elif requested_format in ('S32_LE', 'INT32', 'PAINT32'):
+            candidates = [(pyaudio.paInt32, 4, 'i')]
+        else:
+            candidates = [(pyaudio.paInt16, 2, 'h')]
+
+        stream = None
+        source_width = None
+        unpack_code = None
+        open_errors = []
+        for pa_format, width, code in candidates:
+            try:
+                stream = engine.open(
+                    format=pa_format,
+                    channels=channels,
+                    rate=rate,
+                    input=True,
+                    input_device_index=device_index,
+                    frames_per_buffer=chunk,
+                )
+                source_width, unpack_code = width, code
+                break
+            except OSError as exc:
+                open_errors.append(str(exc))
+
+        if stream is None:
+            raise OSError(
+                f'Unable to open microphone index {device_index} at {rate} Hz / {channels} channel(s). '
+                f'Tried {requested_format or "AUTO"}: {"; ".join(open_errors)[:400]}'
+            )
+
+        max_seconds = max_seconds_override or float(os.getenv('WISDO_RECORD_MAX_SECONDS', '20'))
+        timeout_seconds = timeout_override or float(os.getenv('WISDO_LISTEN_TIMEOUT_SECONDS', '8'))
+        silence_seconds = float(os.getenv('WISDO_VAD_PAUSE_SECONDS', '0.8'))
+        threshold = int(os.getenv('WISDO_VAD_ENERGY_THRESHOLD', '300'))
+        frames, speech_started, silent_chunks = [], False, 0
+        started = time.monotonic()
+        try:
+            while time.monotonic() - started < max_seconds:
+                if cancel_event and cancel_event.is_set():
+                    raise InterruptedError('Recording cancelled.')
+                if muted():
+                    raise InterruptedError('Recording cancelled by physical mute.')
+                data = stream.read(chunk, exception_on_overflow=False)
+                raw_samples = struct.unpack(f'<{len(data)//source_width}{unpack_code}', data)
+                selected = raw_samples[channel_select::channels]
+                if source_width == 4:
+                    samples = [max(-32768, min(32767, int(value) >> s32_shift)) for value in selected]
+                else:
+                    samples = list(selected)
+                if not samples:
+                    continue
+                mono16 = struct.pack(f'<{len(samples)}h', *samples)
+                frames.append(mono16)
+                rms = int((sum(sample * sample for sample in samples) / max(1, len(samples))) ** 0.5)
+                if rms >= threshold:
+                    speech_started, silent_chunks = True, 0
+                elif speech_started:
+                    silent_chunks += 1
+                    if silent_chunks * chunk / rate >= silence_seconds:
+                        break
+                elif time.monotonic() - started >= timeout_seconds:
+                    raise TimeoutError('No speech was detected before the listening timeout.')
+        finally:
+            stream.stop_stream(); stream.close()
+
+        audio = sr.AudioData(b''.join(frames), rate, 2)
+        wav = audio.get_wav_data(convert_rate=stt_rate, convert_width=2)
+        duration_ms = round(len(audio.frame_data) * 1000 / (rate * 2))
+        return recognizer, audio, wav, duration_ms
+    finally:
+        engine.terminate()
 
 def local_wake_detect(recognizer, audio):
     try:

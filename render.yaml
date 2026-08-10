@@ -3,7 +3,7 @@ services:
     name: culture-coin-operator-desks-bot
     runtime: node
     plan: starter
-    autoDeploy: true
+    autoDeploy: false
     buildCommand: npm ci --omit=dev --no-audit --no-fund
     preDeployCommand: npm run migrate:postgres
     startCommand: npm start
@@ -159,6 +159,8 @@ services:
         value: "false"
       - key: WISDO_ENABLED
         value: "true"
+      - key: WISDO_VOICE_EXECUTION_MODE
+        value: DEMO_ONLY
       - key: WISDO_TONE
         value: old_head_wizard
       - key: WISDO_AUTO_ANALYZE_CLOCK_IN
@@ -211,6 +213,8 @@ services:
         value: usd
       - key: BOT_QUOTE_TTL_HOURS
         value: "24"
+      - key: WISDO_AFFILIATE_DEFAULT_PERCENT
+        value: "50"
       - key: SQUARE_ENVIRONMENT
         value: sandbox
       - key: SQUARE_ACCESS_TOKEN

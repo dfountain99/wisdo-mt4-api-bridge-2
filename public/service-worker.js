@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wisdo-static-v7.0.8-database-first';
+const CACHE_NAME = 'wisdo-static-v7.0.9-launch-hardening';
 const STATIC_ASSETS = [
   '/js/workspace.js',
   '/js/wisdo-recognition.js',

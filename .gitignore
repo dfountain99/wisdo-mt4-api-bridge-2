@@ -9,3 +9,10 @@ dist/
 build/
 *.egg-info/
 logs/
+node_modules/
+.env.*
+!.env.example
+!**/.env.example
+*.pem
+*.key
+*.p12

@@ -12,6 +12,8 @@ function intEnv(name, fallback, min, max) {
 }
 function obj(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function arr(value) { return Array.isArray(value) ? value : []; }
+function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+function isRetryableTransactionError(error) { return ['40P01', '40001'].includes(String(error?.code || '')); }
 function buildAccountId(accountNumber, brokerServer = '') {
   return `${String(accountNumber || '').trim()}:${String(brokerServer || '').trim() || 'server'}`.replace(/[^a-zA-Z0-9:_.-]/g, '_');
 }
@@ -23,6 +25,8 @@ export class PostgresMt4Store {
     this.ready = null;
     this.historyPerAccount = intEnv('WISDO_MT4_HISTORY_ACCOUNT_LIMIT', 40, 5, 500);
     this.historyGlobal = intEnv('WISDO_MT4_HISTORY_GLOBAL_LIMIT', 200, 20, 5000);
+    this.deadlockRetries = intEnv('WISDO_MT4_DB_DEADLOCK_RETRIES', 3, 0, 8);
+    this.deadlockRetryBaseMs = intEnv('WISDO_MT4_DB_DEADLOCK_RETRY_MS', 75, 10, 2000);
   }
 
   get enabled() { return Boolean(this.databaseUrl); }
@@ -159,65 +163,108 @@ export class PostgresMt4Store {
     };
   }
 
+  async pruneGlobalHistory(pool) {
+    if (!pool || this.historyGlobal <= 0) return false;
+    const client = await pool.connect();
+    let locked = false;
+    try {
+      const lock = await client.query("select pg_try_advisory_lock(hashtext('wisdo_mt4_snapshot_history_global_prune')) as locked");
+      locked = Boolean(lock.rows?.[0]?.locked);
+      if (!locked) return false;
+      await client.query(`
+        delete from wisdo_mt4_snapshot_history
+        where id in (
+          select id from wisdo_mt4_snapshot_history
+          order by received_at desc, id desc
+          offset $1
+        )
+      `, [this.historyGlobal]);
+      return true;
+    } finally {
+      if (locked) {
+        await client.query("select pg_advisory_unlock(hashtext('wisdo_mt4_snapshot_history_global_prune'))").catch(() => undefined);
+      }
+      client.release();
+    }
+  }
+
   async persistSnapshot({ pairingRecord, connectionRecord, latestSnapshotRecord, settings, tracking, historyRecord = null, appendHistory = false }) {
     await this.initialize();
     const pool = await this.pool();
-    const client = await pool.connect();
     const receivedAt = latestSnapshotRecord?.receivedAt || new Date().toISOString();
-    try {
-      await client.query('begin');
-      const pairing = obj(pairingRecord);
-      const pairingCode = String(
-        pairing.pairingCode
-        || connectionRecord?.pairingCode
-        || latestSnapshotRecord?.snapshot?.pairingCode
-        || '',
-      ).trim();
-      if (!pairingCode) {
-        const error = new Error('MT4 snapshot persistence requires a non-empty pairing code.');
-        error.code = 'WISDO_PAIRING_CODE_REQUIRED';
-        throw error;
-      }
-      pairing.pairingCode = pairingCode;
-      await client.query(`
-        insert into wisdo_mt4_pairings(pairing_code, discord_user_id, channel_id, status, account_id, account_number, broker_server, record, created_at, expires_at, connected_at, expired_at, updated_at)
-        values($1,$2,$3,$4,$5,$6,$7,$8::jsonb,coalesce($9::timestamptz,now()),$10::timestamptz,$11::timestamptz,$12::timestamptz,now())
-        on conflict(pairing_code) do update set
-          discord_user_id=excluded.discord_user_id, channel_id=excluded.channel_id, status=excluded.status,
-          account_id=excluded.account_id, account_number=excluded.account_number, broker_server=excluded.broker_server,
-          record=excluded.record, expires_at=excluded.expires_at, connected_at=excluded.connected_at,
-          expired_at=excluded.expired_at, updated_at=now()
-      `, [pairingCode, pairing.discordUserId, pairing.channelId || null, pairing.status || 'connected', pairing.accountId || connectionRecord.accountId, pairing.accountNumber || connectionRecord.accountNumber, pairing.brokerServer || connectionRecord.brokerServer || '', JSON.stringify(pairing), pairing.createdAt || null, pairing.expiresAt || null, pairing.connectedAt || null, pairing.expiredAt || null]);
+    const accountId = String(connectionRecord?.accountId || '').trim();
+    let lastError = null;
 
-      await client.query(`
-        insert into wisdo_mt4_accounts(account_id, discord_user_id, account_number, broker_server, status, connection, settings, latest_snapshot, connected_at, last_sync_at, updated_at)
-        values($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9::timestamptz,$10::timestamptz,now())
-        on conflict(account_id) do update set
-          discord_user_id=excluded.discord_user_id, account_number=excluded.account_number, broker_server=excluded.broker_server,
-          status=excluded.status, connection=excluded.connection, settings=excluded.settings,
-          latest_snapshot=excluded.latest_snapshot, connected_at=coalesce(wisdo_mt4_accounts.connected_at, excluded.connected_at),
-          last_sync_at=excluded.last_sync_at, updated_at=now()
-      `, [connectionRecord.accountId, connectionRecord.discordUserId, String(connectionRecord.accountNumber), connectionRecord.brokerServer || '', connectionRecord.status || 'connected', JSON.stringify(connectionRecord), JSON.stringify(obj(settings)), JSON.stringify(latestSnapshotRecord), connectionRecord.connectedAt || receivedAt, connectionRecord.lastSyncAt || receivedAt]);
+    for (let attempt = 0; attempt <= this.deadlockRetries; attempt += 1) {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        // Serialize only snapshots for the same account. Different Reporters can
+        // still persist in parallel without competing over a global transaction.
+        await client.query('select pg_advisory_xact_lock(hashtext($1))', [`wisdo_mt4_snapshot:${accountId}`]);
 
-      if (tracking) {
+        const pairing = obj(pairingRecord);
+        const pairingCode = String(
+          pairing.pairingCode
+          || connectionRecord?.pairingCode
+          || latestSnapshotRecord?.snapshot?.pairingCode
+          || '',
+        ).trim();
+        if (!pairingCode) {
+          const error = new Error('MT4 snapshot persistence requires a non-empty pairing code.');
+          error.code = 'WISDO_PAIRING_CODE_REQUIRED';
+          throw error;
+        }
+        pairing.pairingCode = pairingCode;
         await client.query(`
-          insert into wisdo_mt4_signal_tracking(account_id, tracking, updated_at)
-          values($1,$2::jsonb,now())
-          on conflict(account_id) do update set tracking=excluded.tracking, updated_at=now()
-        `, [connectionRecord.accountId, JSON.stringify(tracking)]);
-      }
+          insert into wisdo_mt4_pairings(pairing_code, discord_user_id, channel_id, status, account_id, account_number, broker_server, record, created_at, expires_at, connected_at, expired_at, updated_at)
+          values($1,$2,$3,$4,$5,$6,$7,$8::jsonb,coalesce($9::timestamptz,now()),$10::timestamptz,$11::timestamptz,$12::timestamptz,now())
+          on conflict(pairing_code) do update set
+            discord_user_id=excluded.discord_user_id, channel_id=excluded.channel_id, status=excluded.status,
+            account_id=excluded.account_id, account_number=excluded.account_number, broker_server=excluded.broker_server,
+            record=excluded.record, expires_at=excluded.expires_at, connected_at=excluded.connected_at,
+            expired_at=excluded.expired_at, updated_at=now()
+        `, [pairingCode, pairing.discordUserId, pairing.channelId || null, pairing.status || 'connected', pairing.accountId || connectionRecord.accountId, pairing.accountNumber || connectionRecord.accountNumber, pairing.brokerServer || connectionRecord.brokerServer || '', JSON.stringify(pairing), pairing.createdAt || null, pairing.expiresAt || null, pairing.connectedAt || null, pairing.expiredAt || null]);
 
-      if (appendHistory && historyRecord) {
-        await client.query('insert into wisdo_mt4_snapshot_history(account_id, discord_user_id, received_at, record) values($1,$2,$3::timestamptz,$4::jsonb)', [connectionRecord.accountId, connectionRecord.discordUserId, historyRecord.receivedAt || receivedAt, JSON.stringify(historyRecord)]);
-        await client.query(`delete from wisdo_mt4_snapshot_history where account_id=$1 and id not in (select id from wisdo_mt4_snapshot_history where account_id=$1 order by received_at desc,id desc limit $2)`, [connectionRecord.accountId, this.historyPerAccount]);
-        await client.query(`delete from wisdo_mt4_snapshot_history where id in (select id from wisdo_mt4_snapshot_history order by received_at desc,id desc offset $1)`, [this.historyGlobal]);
+        await client.query(`
+          insert into wisdo_mt4_accounts(account_id, discord_user_id, account_number, broker_server, status, connection, settings, latest_snapshot, connected_at, last_sync_at, updated_at)
+          values($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9::timestamptz,$10::timestamptz,now())
+          on conflict(account_id) do update set
+            discord_user_id=excluded.discord_user_id, account_number=excluded.account_number, broker_server=excluded.broker_server,
+            status=excluded.status, connection=excluded.connection, settings=excluded.settings,
+            latest_snapshot=excluded.latest_snapshot, connected_at=coalesce(wisdo_mt4_accounts.connected_at, excluded.connected_at),
+            last_sync_at=excluded.last_sync_at, updated_at=now()
+        `, [connectionRecord.accountId, connectionRecord.discordUserId, String(connectionRecord.accountNumber), connectionRecord.brokerServer || '', connectionRecord.status || 'connected', JSON.stringify(connectionRecord), JSON.stringify(obj(settings)), JSON.stringify(latestSnapshotRecord), connectionRecord.connectedAt || receivedAt, connectionRecord.lastSyncAt || receivedAt]);
+
+        if (tracking) {
+          await client.query(`
+            insert into wisdo_mt4_signal_tracking(account_id, tracking, updated_at)
+            values($1,$2::jsonb,now())
+            on conflict(account_id) do update set tracking=excluded.tracking, updated_at=now()
+          `, [connectionRecord.accountId, JSON.stringify(tracking)]);
+        }
+
+        if (appendHistory && historyRecord) {
+          await client.query('insert into wisdo_mt4_snapshot_history(account_id, discord_user_id, received_at, record) values($1,$2,$3::timestamptz,$4::jsonb)', [connectionRecord.accountId, connectionRecord.discordUserId, historyRecord.receivedAt || receivedAt, JSON.stringify(historyRecord)]);
+          await client.query(`delete from wisdo_mt4_snapshot_history where account_id=$1 and id not in (select id from wisdo_mt4_snapshot_history where account_id=$1 order by received_at desc,id desc limit $2)`, [connectionRecord.accountId, this.historyPerAccount]);
+        }
+
+        await client.query('commit');
+        client.release();
+        // Global pruning is intentionally outside the authoritative snapshot
+        // transaction and protected by a non-blocking advisory lock.
+        if (appendHistory && historyRecord) await this.pruneGlobalHistory(pool).catch(() => false);
+        return latestSnapshotRecord;
+      } catch (error) {
+        lastError = error;
+        await client.query('rollback').catch(() => undefined);
+        client.release();
+        if (!isRetryableTransactionError(error) || attempt >= this.deadlockRetries) throw error;
+        const jitter = Math.floor(Math.random() * this.deadlockRetryBaseMs);
+        await sleep(this.deadlockRetryBaseMs * (attempt + 1) + jitter);
       }
-      await client.query('commit');
-      return latestSnapshotRecord;
-    } catch (error) {
-      await client.query('rollback').catch(() => undefined);
-      throw error;
-    } finally { client.release(); }
+    }
+    throw lastError;
   }
 
   async saveSignalTracking(accountId, tracking) {

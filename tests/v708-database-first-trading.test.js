@@ -67,3 +67,50 @@ test('migration and runtime define relational trading tables', () => {
   assert.match(syncSource, /getMt4SnapshotContext/);
   assert.match(syncSource, /persistMt4Snapshot/);
 });
+
+test('PostgreSQL snapshot persistence retries deadlocks and keeps global prune outside snapshot transaction', async () => {
+  let connectCount = 0;
+  let deadlockInjected = false;
+  const transactionSql = [];
+  const pruneSql = [];
+  const pool = {
+    async connect() {
+      connectCount += 1;
+      const isPruneClient = connectCount >= 3;
+      return {
+        async query(sql, params) {
+          const text = String(sql);
+          (isPruneClient ? pruneSql : transactionSql).push(text);
+          if (!isPruneClient && !deadlockInjected && /insert into wisdo_mt4_accounts/i.test(text)) {
+            deadlockInjected = true;
+            const error = new Error('deadlock detected');
+            error.code = '40P01';
+            throw error;
+          }
+          if (isPruneClient && /pg_try_advisory_lock/i.test(text)) return { rows: [{ locked: true }] };
+          return { rows: [] };
+        },
+        release() {},
+      };
+    },
+  };
+  const store = new PostgresMt4Store({ databaseUrl: 'postgres://test', ssl: false });
+  store.ready = Promise.resolve(true);
+  store.deadlockRetryBaseMs = 1;
+  store.pool = async () => pool;
+  const now = new Date().toISOString();
+  await store.persistSnapshot({
+    pairingRecord: { pairingCode: 'CEM-DEADLOCK1', discordUserId: 'owner', status: 'connected' },
+    connectionRecord: { accountId: '1:Demo', discordUserId: 'owner', accountNumber: '1', brokerServer: 'Demo' },
+    latestSnapshotRecord: { accountId: '1:Demo', discordUserId: 'owner', receivedAt: now, snapshot: { balance: 100, equity: 101 } },
+    settings: {}, tracking: { openKeys: [] },
+    appendHistory: true,
+    historyRecord: { accountId: '1:Demo', discordUserId: 'owner', receivedAt: now, snapshot: { balance: 100 } },
+  });
+  assert.equal(deadlockInjected, true);
+  assert.equal(transactionSql.filter((sql) => /^begin$/i.test(sql.trim())).length, 2);
+  assert.match(transactionSql.join('\n'), /pg_advisory_xact_lock/);
+  assert.doesNotMatch(transactionSql.join('\n'), /offset \$1/);
+  assert.match(pruneSql.join('\n'), /pg_try_advisory_lock/);
+  assert.match(pruneSql.join('\n'), /offset \$1/);
+});

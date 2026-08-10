@@ -1,7 +1,7 @@
 {
   "name": "culture-coin-operator-desks-bot",
-  "version": "3.4.0",
-  "description": "WISDO Master Kernel v3.2 modular production routes, live Phase 2-8 intelligence, universal control, voice, Atlas, and served member workspaces.",
+  "version": "7.0.9",
+  "description": "WISDO Culture Lane OS v7.0.9 launch-hardened trading command ecosystem.",
   "type": "module",
   "private": true,
   "scripts": {
@@ -27,7 +27,8 @@
     "audit:commands": "node scripts/auditCommands.js",
     "audit:stubs": "node scripts/auditStubs.js",
     "test:command-bus": "node --test tests/commandBusContract.test.js",
-    "test:adaptive": "node --test tests/adaptiveFabricContract.test.js"
+    "test:adaptive": "node --test tests/adaptiveFabricContract.test.js",
+    "audit:secrets": "node scripts/auditSecrets.js"
   },
   "engines": {
     "node": "22.x"
