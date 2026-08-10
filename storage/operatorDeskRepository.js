@@ -140,6 +140,7 @@ function commerceState() {
     orders: {},
     licenses: {},
     welcomes: {},
+    paymentEvents: {},
   };
 }
 
@@ -240,6 +241,7 @@ function normalizeCommerceState(state) {
     orders: state?.orders || {},
     licenses: state?.licenses || {},
     welcomes: state?.welcomes || {},
+    paymentEvents: state?.paymentEvents || {},
   };
 }
 
@@ -402,11 +404,20 @@ export class OperatorDeskRepository {
       state.latestSnapshotsByAccountId[connectionRecord.accountId] = latestSnapshotRecord;
       state.accountSettingsByAccountId[connectionRecord.accountId] = settings || {};
       if (tracking) state.signalTrackingByAccountId[connectionRecord.accountId] = tracking;
-      state.activeAccountByUserId[connectionRecord.discordUserId] ||= connectionRecord.accountId;
       if (appendHistory && historyRecord) state.snapshotHistory = trimSnapshotHistory([historyRecord, ...(state.snapshotHistory || [])]);
       return state;
     });
     return latestSnapshotRecord;
+  }
+
+  async saveMt4SignalTracking(accountId, tracking) {
+    if (this.mt4Database?.enabled) return this.mt4Database.saveSignalTracking(accountId, tracking);
+    await this.updateMt4State((state) => {
+      state.signalTrackingByAccountId ||= {};
+      state.signalTrackingByAccountId[String(accountId)] = tracking;
+      return state;
+    });
+    return tracking;
   }
 
   async updateMt4State(updater) {
@@ -469,10 +480,6 @@ export class OperatorDeskRepository {
       .map((connection) => this.hydrateMt4Account(state, connection, userId, { shared: false }))
       .sort((a, b) => new Date(b.lastSyncAt || b.connectedAt || 0) - new Date(a.lastSyncAt || a.connectedAt || 0));
 
-    if (accounts.length > 0 && !accounts.some((account) => account.isPrimary)) {
-      accounts[0].isPrimary = true;
-    }
-
     return accounts;
   }
 
@@ -526,7 +533,6 @@ export class OperatorDeskRepository {
     const all = [...owned, ...shared]
       .sort((a, b) => new Date(b.lastSyncAt || b.connectedAt || 0) - new Date(a.lastSyncAt || a.connectedAt || 0));
 
-    if (all.length > 0 && !all.some((account) => account.isPrimary)) all[0].isPrimary = true;
     return all;
   }
 
@@ -941,8 +947,7 @@ export class OperatorDeskRepository {
     if (activeId && state.connectionsByAccountId?.[activeId]) {
       return state.connectionsByAccountId[activeId];
     }
-    const accounts = await this.getMt4Accounts(userId);
-    return accounts[0] || state.connections[userId] || null;
+    return state.connections[userId] || null;
   }
 
   async getMt4ConnectionByAccountId(discordUserId, accountId) {
@@ -1233,6 +1238,70 @@ export class OperatorDeskRepository {
   async updateCommerceState(updater) {
     const next = await this.commerceStore.update((state) => updater(normalizeCommerceState(state)));
     return normalizeCommerceState(next);
+  }
+
+  async beginPaymentEvent(provider, eventId, eventType) {
+    const key = `${String(provider || '').trim().toLowerCase()}:${String(eventId || '').trim()}`;
+    if (!key || key.endsWith(':')) throw new Error('A provider and event ID are required.');
+
+    let disposition = { accepted: false, duplicate: true, status: 'UNKNOWN' };
+    await this.updateCommerceState((state) => {
+      const now = new Date();
+      const existing = state.paymentEvents[key];
+      const processingAgeMs = existing?.updatedAt ? now.getTime() - new Date(existing.updatedAt).getTime() : Infinity;
+      if (existing?.status === 'APPLIED' || (existing?.status === 'PROCESSING' && processingAgeMs < 300_000)) {
+        disposition = { accepted: false, duplicate: true, status: existing.status };
+        return state;
+      }
+
+      state.paymentEvents[key] = {
+        provider: String(provider),
+        eventId: String(eventId),
+        eventType: String(eventType || ''),
+        status: 'PROCESSING',
+        attempts: Number(existing?.attempts || 0) + 1,
+        createdAt: existing?.createdAt || now.toISOString(),
+        updatedAt: now.toISOString(),
+        lastError: null,
+      };
+      disposition = { accepted: true, duplicate: false, status: 'PROCESSING' };
+
+      const entries = Object.entries(state.paymentEvents);
+      if (entries.length > 2_000) {
+        entries
+          .sort(([, left], [, right]) => new Date(left.updatedAt) - new Date(right.updatedAt))
+          .slice(0, entries.length - 2_000)
+          .forEach(([oldKey]) => delete state.paymentEvents[oldKey]);
+      }
+      return state;
+    });
+    return disposition;
+  }
+
+  async completePaymentEvent(provider, eventId) {
+    return this.#setPaymentEventStatus(provider, eventId, 'APPLIED');
+  }
+
+  async failPaymentEvent(provider, eventId, error) {
+    return this.#setPaymentEventStatus(provider, eventId, 'FAILED', error);
+  }
+
+  async #setPaymentEventStatus(provider, eventId, status, error = null) {
+    const key = `${String(provider || '').trim().toLowerCase()}:${String(eventId || '').trim()}`;
+    let updated = null;
+    await this.updateCommerceState((state) => {
+      const existing = state.paymentEvents[key];
+      if (!existing) return state;
+      updated = {
+        ...existing,
+        status,
+        updatedAt: new Date().toISOString(),
+        lastError: error ? String(error?.message || error).slice(0, 500) : null,
+      };
+      state.paymentEvents[key] = updated;
+      return state;
+    });
+    return updated;
   }
 
   async getAllBots() {
