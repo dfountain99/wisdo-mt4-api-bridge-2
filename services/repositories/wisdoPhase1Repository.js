@@ -45,7 +45,6 @@ export function createWisdoPhase1State() {
     commissionRulesById: {},
     commissionLedgerById: {},
     payoutsById: {},
-    reviewsById: {},
     subscriptionsById: {},
     paymentPlansById: {},
     vpsAssignmentsById: {},
@@ -100,7 +99,6 @@ export function createWisdoPhase1State() {
     funnelLeadsById: {},
     funnelEvents: [],
     leads: [],
-    telegramReviewEvents: [],
     tradingAccounts: {},
     copierRules: {},
     accountControlSettingsById: {},
@@ -227,8 +225,7 @@ export class WisdoPhase1Repository {
   }
 
   async saveDesk(userId, desk = {}) {
-    const key = String(userId || desk.userId || '').trim();
-    if (!key) throw new Error('A verified user ID is required to save a desk.');
+    const key = String(userId || desk.userId || 'website-buyer');
     let saved;
     await this.updateState((state) => {
       state.wisdoDesksByUserId[key] = {
@@ -245,8 +242,7 @@ export class WisdoPhase1Repository {
   }
 
   async setSelectedAccount(userId, accountId) {
-    const key = String(userId || '').trim();
-    if (!key) throw new Error('A verified user ID is required to select an account.');
+    const key = String(userId || 'website-buyer');
     let preference;
     await this.updateState((state) => {
       state.deskPreferencesByUserId[key] = {
@@ -275,8 +271,7 @@ export class WisdoPhase1Repository {
   }
 
   async saveThemePreference(userId, preference = {}) {
-    const key = String(userId || '').trim();
-    if (!key) throw new Error('A verified user ID is required to save preferences.');
+    const key = String(userId || 'website-buyer');
     let saved;
     await this.updateState((state) => {
       saved = {
@@ -301,8 +296,7 @@ export class WisdoPhase1Repository {
   }
 
   async addNotification(userId, notification = {}) {
-    const key = String(userId || '').trim();
-    if (!key) throw new Error('A verified user ID is required to save notifications.');
+    const key = String(userId || 'website-buyer');
     let saved;
     await this.updateState((state) => {
       state.notificationsByUserId[key] ||= [];
@@ -327,8 +321,7 @@ export class WisdoPhase1Repository {
   }
 
   async saveLessonProgress(userId, progress = {}) {
-    const key = String(userId || '').trim();
-    if (!key) throw new Error('A verified user ID is required to save lesson progress.');
+    const key = String(userId || 'website-buyer');
     const progressId = String(progress.progressId || progress.id || progress.lessonId || makeId('lesson'));
     let saved;
     await this.updateState((state) => {

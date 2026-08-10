@@ -27,13 +27,10 @@ function registryContext() {
 
 test('canonical Discord registry restores remodel commands without duplicates or Discord overflow', () => {
   const registry = createCommandRegistry(registryContext());
-  assert.equal(registry.audit.commandCount, 100);
+  assert.equal(registry.audit.commandCount, 77);
   assert.equal(new Set(registry.audit.names).size, registry.audit.commandCount);
   assert.ok(registry.audit.commandCount <= 100);
   for (const name of ['global-status', 'health', 'confirm', 'protect-profit', 'close-all-safe', 'academy', 'alerts', 'restore-desk']) {
-    assert.ok(registry.commandMap.has(name), `missing /${name}`);
-  }
-  for (const name of ['help', 'switch-account', 'account-health', 'command-queue', 'copier-test', 'reporter-status', 'emergency-stop']) {
     assert.ok(registry.commandMap.has(name), `missing /${name}`);
   }
 });

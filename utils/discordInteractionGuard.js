@@ -1,5 +1,5 @@
 const EPHEMERAL_FLAG = 64;
-const DEFAULT_ACK_DELAY_MS = 50;
+const DEFAULT_ACK_DELAY_MS = 1400;
 
 function normalizeEditPayload(payload) {
   if (typeof payload === 'string' || !payload || typeof payload !== 'object') return payload;
@@ -77,7 +77,6 @@ export function wrapCommandWithInteractionGuard(command, {
   return {
     ...command,
     async execute(interaction) {
-      const startedAt = Date.now();
       const state = {
         primaryResponseSent: Boolean(interaction?.replied),
         modalShown: false,
@@ -99,32 +98,12 @@ export function wrapCommandWithInteractionGuard(command, {
               });
             }
           }
-        }, Math.max(0, Number(ackDelayMs) || DEFAULT_ACK_DELAY_MS));
+        }, Math.max(250, Number(ackDelayMs) || DEFAULT_ACK_DELAY_MS));
         timer.unref?.();
       }
 
       try {
-        const result = await originalExecute(safeInteraction);
-        logger?.info?.('Discord interaction completed.', {
-          interactionId: interaction?.id,
-          command: interaction?.commandName || command?.data?.name,
-          userId: interaction?.user?.id,
-          guildId: interaction?.guildId,
-          acknowledged: Boolean(interaction?.deferred || interaction?.replied || state.primaryResponseSent),
-          durationMs: Date.now() - startedAt,
-        });
-        return result;
-      } catch (error) {
-        logger?.error?.('Discord interaction command failed.', {
-          interactionId: interaction?.id,
-          command: interaction?.commandName || command?.data?.name,
-          userId: interaction?.user?.id,
-          guildId: interaction?.guildId,
-          durationMs: Date.now() - startedAt,
-          errorCode: error?.code || 'interaction_failed',
-          message: error?.message,
-        });
-        throw error;
+        return await originalExecute(safeInteraction);
       } finally {
         if (timer) clearTimeout(timer);
       }

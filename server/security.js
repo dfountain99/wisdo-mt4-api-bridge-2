@@ -134,11 +134,10 @@ export function decryptCredential(value, keyValue = process.env.ENCRYPTION_KEY) 
 }
 
 export function sessionSecurityStatus() {
-  const sessionSecretConfigured = String(process.env.SESSION_SECRET || '').length >= 32;
+  const configured = Boolean(process.env.SESSION_SECRET || process.env.ENCRYPTION_KEY || process.env.DISCORD_CLIENT_SECRET || process.env.CLIENT_SECRET);
   return {
     signedSessions: true,
-    productionSecretConfigured: sessionSecretConfigured,
-    sessionSecretConfigured,
+    productionSecretConfigured: configured,
     credentialEncryptionConfigured: String(process.env.ENCRYPTION_KEY || '').length >= 32,
   };
 }
