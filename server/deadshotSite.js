@@ -3,6 +3,8 @@ import { SquarePaymentGateway, encodeSquarePaymentNote } from '../services/squar
 import { NotificationDeliveryService } from '../services/notificationDeliveryService.js';
 import { GrowthFunnelService } from '../services/growthFunnelService.js';
 import { encodeSignedSession, decodeSignedSession, safeReturnPath } from './security.js';
+import { LiveDeskService } from '../services/liveDeskService.js';
+import { liveDeskHostPage, liveDeskViewerPage, liveDeskDirectoryPage } from './liveDeskViews.js';
 
 const SESSION_COOKIE = 'cc_user';
 
@@ -83,6 +85,7 @@ const PUBLIC_NAV = [
   ['/', 'Home'],
   ['/tunnel', 'Tunnel'],
   ['/webinar/register', 'Webinar'],
+  ['/live', 'Live Desks'],
   ['/growth', 'Start Free'],
   ['/pricing', 'Pricing'],
   ['/faq', 'FAQ'],
@@ -92,6 +95,7 @@ const PUBLIC_NAV = [
 const PORTAL_NAV = [
   ['/app/dashboard', 'Overview'],
   ['/app/presence', 'Presence Awareness'],
+  ['/app/live-desk', 'Wisdo Live Desk'],
   ['/app/notifications', 'Live Notifications'],
   ['/app/connect-account', 'Account Connection'],
   ['/app/advanced-link', 'Advanced Link'],
@@ -234,6 +238,7 @@ function ensureState(state) {
   state.metricHistory ||= {};
   state.subscriptionsById ||= {};
   state.squareCheckoutIntents ||= {};
+  state.liveDeskAudit ||= [];
   state.affiliatesById ||= {};
   state.affiliatePayouts ||= [];
   for (const product of PRODUCTS) state.products[product.id] ||= product;
@@ -940,7 +945,7 @@ async function queueMt4ReporterCommand({ mt4CommandService, membership, state, l
 
 function pageTitle(page) {
   const titleMap = {
-    dashboard: 'Overview', notifications: 'Live Notifications', subscriptions: 'My Subscriptions', membership: 'Culture Coin Membership Status',
+    dashboard: 'Overview', notifications: 'Live Notifications', subscriptions: 'My Subscriptions', membership: 'Culture Coin Membership Status', 'live-desk': 'Wisdo Live Desk',
     'connect-account': 'Account Connection', 'advanced-link': 'Advanced Broker Link', 'community-reporters': 'Community Reporters', 'discord-copier': 'Discord Copier Channel', 'account-configuration': 'Account Configuration', 'wisdo-command-center': 'Wisdo Command Center',
     'copier-engine': 'CEM Culture Relay Engine', 'copier-logs': 'Copier Logs', 'account-trades': 'Account Trades', performance: 'Performance', education: 'Wisdo Education Portal', seminars: 'Wisdo Seminars',
     reporter: 'Culture Coin Reporter', billing: 'Billing Settings', profile: 'Profile Settings', support: 'Support Feedback',
@@ -1615,7 +1620,7 @@ function appDashboardProductPage(liveData, membership, state, accountConfig = {}
   const strongest = symbols[0];
   const weakest = symbols.slice().reverse()[0];
   return `${appAccountRail(state, membership, liveData.accountId)}
-  <section class="app-hero-card"><div><div class="app-hero-top"><span class="eyebrow">Wisdo Command Center</span>${appLiveBadge(liveData)}</div><h2>Live account command deck</h2><p class="muted">Premium member dashboard for account switching, instant MT4 controls, health gauges, pair controls, and command completion feedback.</p><div class="app-command-row"><button class="btn danger ${membership.canCopyTrades ? '' : 'locked'}" data-copy-action="close_all">Close All Selected</button><button class="btn gold ${membership.canCopyTrades ? '' : 'locked'}" data-copy-action="close_profitable">Close Profits</button><button class="btn ${membership.canCopyTrades ? '' : 'locked'}" data-copy-action="pause_copier">Pause Relay</button><a class="btn primary" href="/app/copier-engine${liveData.accountId ? `?accountId=${encodeURIComponent(liveData.accountId)}` : ''}">Build Relay</a></div><div id="commandConfirmBox" class="command-confirm">Ready. Dangerous commands will request phrase confirmation before MT4 queue.</div></div><div class="app-health-orb health-${health.key}"><div class="health-ring" style="--ringValue:${pct(health.ring)}%;--ringColor:${health.color}"><strong>${Math.round(pct(health.ring))}%</strong></div><h3>${esc(health.label)}</h3><p>${esc(health.detail)}</p></div></section>
+  <section class="app-hero-card"><div><div class="app-hero-top"><span class="eyebrow">Wisdo Command Center</span>${appLiveBadge(liveData)}</div><h2>Live account command deck</h2><p class="muted">Premium member dashboard for account switching, instant MT4 controls, health gauges, pair controls, and command completion feedback.</p><div class="app-command-row"><button class="btn danger ${membership.canCopyTrades ? '' : 'locked'}" data-copy-action="close_all">Close All Selected</button><button class="btn gold ${membership.canCopyTrades ? '' : 'locked'}" data-copy-action="close_profitable">Close Profits</button><button class="btn ${membership.canCopyTrades ? '' : 'locked'}" data-copy-action="pause_copier">Pause Relay</button><a class="btn primary" href="/app/copier-engine${liveData.accountId ? `?accountId=${encodeURIComponent(liveData.accountId)}` : ''}">Build Relay</a><a class="btn gold" href="/app/live-desk${liveData.accountId ? `?accountId=${encodeURIComponent(liveData.accountId)}` : ''}">Start Live Desk</a></div><div id="commandConfirmBox" class="command-confirm">Ready. Dangerous commands will request phrase confirmation before MT4 queue.</div></div><div class="app-health-orb health-${health.key}"><div class="health-ring" style="--ringValue:${pct(health.ring)}%;--ringColor:${health.color}"><strong>${Math.round(pct(health.ring))}%</strong></div><h3>${esc(health.label)}</h3><p>${esc(health.detail)}</p></div></section>
   <section class="app-stat-grid">${appMoneyMetric('Balance', money(balance))}${appMoneyMetric('Equity', money(equity), equity >= balance ? 'green' : 'gold')}${appMoneyMetric('Floating P/L', fmtSignedMoney(floating), floating >= 0 ? 'green' : 'red')}${appMoneyMetric('Margin Level', `${margin.toFixed(0)}%`, margin >= 500 ? 'green' : margin >= 300 ? 'gold' : 'red')}${appMoneyMetric('Open Trades', String(openCount))}${appMoneyMetric('Daily Goal', `${Math.round(progress)}%`, progress >= 100 ? 'gold' : 'green')}</section>
   <section class="grid2 app-panel-row"><div class="app-panel"><div class="terminal-top"><div><span class="eyebrow">Pair Command Grid</span><h3>Control open pairs from desktop or mobile</h3></div><span class="tag">${symbols.length} pairs</span></div>${renderPairControlGrid(liveData, membership)}</div><div class="app-panel"><span class="eyebrow">Performance Pulse</span><h3>Strongest / weakest map</h3><div class="app-mini-stack">${appMoneyMetric('Strongest Pair', `${strongest?.symbol || '--'} ${strongest ? fmtSignedMoney(strongest.totalPL) : ''}`, 'green')}${appMoneyMetric('Weakest Pair', `${weakest?.symbol || '--'} ${weakest ? fmtSignedMoney(weakest.totalPL) : ''}`, 'red')}${appMoneyMetric('Snapshot Source', liveData.source || 'none')}${appMoneyMetric('Last Sync', liveData.lastSyncAt || 'waiting')}</div>${appProgress(progress, progress >= 100 ? 'gold' : 'green')}</div></section>
   <section class="app-panel"><div class="terminal-top"><div><span class="eyebrow">Open Trades</span><h3>Live MT4 orders on selected account</h3></div><a class="btn" href="/app/account-trades${liveData.accountId ? `?accountId=${encodeURIComponent(liveData.accountId)}` : ''}">Full Trade Log</a></div><table class="table app-table"><thead><tr><th>Symbol</th><th>Type</th><th>Lot</th><th>Ticket</th><th>Price</th><th>P/L</th></tr></thead><tbody>${appOpenTradeRows(metrics, 12)}</tbody></table></section>
@@ -1688,6 +1693,7 @@ function portalContent(page, membership, state, selectedAccountId = '') {
   const liveData = getLiveAccountData(state, membership, selectedAccountId);
   const { config: accountConfig } = getAccountConfiguration(state, membership.userId);
   if (page === 'dashboard') return appDashboardProductPage(liveData, membership, state, accountConfig);
+  if (page === 'live-desk') return liveDeskHostPage({ accountId: liveData?.accountId || selectedAccountId || '' });
   if (page === 'performance') return appPerformanceProductPage(liveData, membership, state, accountConfig);
   if (page === 'copier-engine' || page === 'advanced-link') return appCopierProductPage(page, membership, state, selectedAccountId) + accessLockNotice(membership);
   if (page === 'discord-copier' || page === 'community-reporters') return appDiscordCopierProductPage(page, membership, state, selectedAccountId) + accessLockNotice(membership);
@@ -2219,6 +2225,7 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
   const publicBaseUrl = String(config?.api?.publicBaseUrl || process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
   const notificationDeliveryService = new NotificationDeliveryService({ loadEcosystemState, saveEcosystemState, logger, publicBaseUrl });
   const growthFunnelService = new GrowthFunnelService({ loadEcosystemState, saveEcosystemState, logger });
+  const liveDeskService = new LiveDeskService({ secret: process.env.SESSION_SECRET, logger });
   const funnelRateLimits = new Map();
   notificationDeliveryService.startRetryLoop();
 
@@ -2237,6 +2244,250 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
     const membership = await resolveMembership({ req, config, state });
     res.send(shell({ title: 'Wisdo Trading Command Center', body: pageFn(req, membership, state), active, mode: 'public', membership }));
   };
+  const activeLiveDeskMember = (membership = {}) => membership.role === 'admin' || membership.subscription_status === 'active';
+  const liveDeskTelemetry = (liveData = {}) => {
+    const metrics = liveData?.metrics || {};
+    const account = liveData?.account || liveData?.record || {};
+    return {
+      accountId: liveData?.accountId || '',
+      accountLabel: account.nickname || account.accountName || metrics.accountName || metrics.accountNumber || liveData?.accountId || 'Trading Account',
+      broker: account.brokerServer || account.server || metrics.brokerServer || metrics.server || '',
+      accountType: account.accountType || account.type || metrics.accountType || '',
+      balance: metrics.balance,
+      equity: metrics.equity,
+      floatingPL: metrics.floatingPL ?? metrics.profit,
+      dailyClosedPL: metrics.dailyClosedPL,
+      openTradeCount: metrics.openTradeCount,
+      buyTradeCount: metrics.buyTradeCount,
+      sellTradeCount: metrics.sellTradeCount,
+      totalLots: metrics.totalLots,
+      drawdownPercent: metrics.drawdownPercent,
+      marginLevel: metrics.marginLevel,
+      symbols: metrics.symbols,
+      logicStatus: metrics.botMode || metrics.marketMode || metrics.logicStatus || '',
+    };
+  };
+  async function auditLiveDesk(req, action, sessionId = '', detail = {}) {
+    try {
+      const state = ensureState(await loadEcosystemState());
+      const user = getSessionUser(req);
+      state.liveDeskAudit.push({
+        id: id('live_desk_audit'),
+        action,
+        sessionId: String(sessionId || ''),
+        actorUserId: String(user?.id || detail.actorUserId || 'guest'),
+        detail,
+        createdAt: nowIso(),
+      });
+      if (state.liveDeskAudit.length > 1000) state.liveDeskAudit.splice(0, state.liveDeskAudit.length - 1000);
+      await saveEcosystemState(state);
+    } catch (error) {
+      logger?.warn?.('Live Desk audit persistence failed', { action, sessionId, message: error.message });
+    }
+  }
+  async function liveDeskMembership(req) {
+    const state = await loadLiveState();
+    const membership = await resolveMembership({ req, config, state });
+    return { state, membership };
+  }
+  function liveDeskError(res, result) {
+    return res.status(Number(result?.status || 400)).json({ ok: false, code: result?.code || 'live_desk_error', error: result?.error || 'Live Desk request failed.' });
+  }
+
+  app.use(['/api/live-desk', '/live'], (_req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Permissions-Policy', 'display-capture=(self), microphone=(self), camera=()');
+    next();
+  });
+
+  app.get('/api/live-desk/ice-config', async (req, res) => {
+    const user = getSessionUser(req);
+    res.json({ ok: true, ...liveDeskService.iceConfig(user?.id || 'guest') });
+  });
+
+  app.post('/api/live-desk/sessions', async (req, res) => {
+    try {
+      const { state, membership } = await liveDeskMembership(req);
+      if (!membership.userId) return res.status(401).json({ ok: false, code: 'login_required', error: 'Login is required to start a Live Desk.' });
+      const accountId = String(req.body?.accountId || getRequestedAccountId(req.body || req.query || {}) || '').trim();
+      const liveData = getLiveAccountData(state, membership, accountId);
+      if (accountId && !liveData.selectionMatched) return res.status(403).json({ ok: false, code: 'account_access_denied', error: 'The selected trading account is not owned or shared with this user.' });
+      const created = liveDeskService.createSession({
+        ownerUserId: membership.userId,
+        ownerDisplayName: userDisplay(membership.user || {}),
+        title: req.body?.title,
+        visibility: req.body?.visibility,
+        accountId: liveData.accountId || accountId,
+        expiresMinutes: req.body?.expiresMinutes,
+        allowedViewerIds: req.body?.allowedViewerIds,
+        roomCode: req.body?.roomCode,
+        showAccountOverlay: req.body?.showAccountOverlay !== false,
+        watermarkEnabled: req.body?.watermarkEnabled !== false,
+        recordingAllowed: false,
+        telemetry: liveDeskTelemetry(liveData),
+      });
+      const base = publicBaseUrl || `${req.protocol}://${req.get('host')}`;
+      await auditLiveDesk(req, 'broadcast_started', created.session.id, { visibility: created.session.visibility, accountId: created.session.accountId, expiresAt: created.session.expiresAt });
+      return res.status(201).json({ ok: true, ...created, viewerUrl: `${base}/live/${encodeURIComponent(created.session.id)}` });
+    } catch (error) {
+      logger?.error?.('Live Desk create failed', { message: error.message });
+      return res.status(400).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.get('/api/live-desk/sessions/mine', async (req, res) => {
+    const { membership } = await liveDeskMembership(req);
+    if (!membership.userId) return res.status(401).json({ ok: false, error: 'Login required.' });
+    res.json({ ok: true, sessions: liveDeskService.listForOwner(membership.userId) });
+  });
+
+  app.get('/api/live-desk/discover', async (req, res) => {
+    const { membership } = await liveDeskMembership(req);
+    res.json({ ok: true, sessions: liveDeskService.discover({ viewerUserId: membership.userId, activeMember: activeLiveDeskMember(membership) }) });
+  });
+
+  app.get('/api/live-desk/sessions/:sessionId', async (req, res) => {
+    const session = liveDeskService.getRaw(req.params.sessionId);
+    if (!session) return res.status(404).json({ ok: false, code: 'session_not_found', error: 'Live Desk session not found.' });
+    const { membership } = await liveDeskMembership(req);
+    const participantId = String(req.query?.participantId || '');
+    const token = String(req.headers?.['x-live-desk-token'] || '');
+    if (participantId && token && liveDeskService.validateParticipant(session, participantId, token)) {
+      return res.json({ ok: true, session: liveDeskService.serializeSession(session, { viewerId: participantId }) });
+    }
+    const access = liveDeskService.authorizeView(session, { viewerUserId: membership.userId, activeMember: activeLiveDeskMember(membership), roomCode: '' });
+    if (!access.ok) {
+      if (access.code === 'room_code_required') return res.json({ ok: true, accessRequired: 'room_code', session: { id: session.id, title: session.title, ownerDisplayName: session.ownerDisplayName, visibility: session.visibility, status: session.status, expiresAt: session.expiresAt } });
+      return liveDeskError(res, access);
+    }
+    return res.json({ ok: true, session: liveDeskService.serializeSession(session) });
+  });
+
+  app.post('/api/live-desk/sessions/:sessionId/join', async (req, res) => {
+    const { membership } = await liveDeskMembership(req);
+    const result = liveDeskService.joinSession(req.params.sessionId, {
+      viewerUserId: membership.userId,
+      displayName: membership.userId ? userDisplay(membership.user || {}) : String(req.body?.displayName || 'Guest Viewer'),
+      activeMember: activeLiveDeskMember(membership),
+      roomCode: req.body?.roomCode || '',
+      deviceType: req.body?.deviceType || 'web',
+    });
+    if (!result.ok) return liveDeskError(res, result);
+    await auditLiveDesk(req, 'viewer_joined', req.params.sessionId, { participantId: result.participant.id, viewerUserId: membership.userId || 'guest', deviceType: result.participant.deviceType });
+    res.status(201).json(result);
+  });
+
+  app.post('/api/live-desk/sessions/:sessionId/leave', async (req, res) => {
+    const result = liveDeskService.leaveSession(req.params.sessionId, req.body?.participantId, req.body?.token);
+    if (!result.ok) return liveDeskError(res, result);
+    auditLiveDesk(req, 'viewer_left', req.params.sessionId, { participantId: result.participant.id }).catch(() => null);
+    res.json(result);
+  });
+
+  app.post('/api/live-desk/sessions/:sessionId/signal', async (req, res) => {
+    const user = getSessionUser(req);
+    const result = liveDeskService.sendSignal(req.params.sessionId, {
+      senderId: req.body?.senderId,
+      recipientId: req.body?.recipientId,
+      token: req.body?.token,
+      ownerUserId: user?.id || '',
+      type: req.body?.type,
+      payload: req.body?.payload,
+    });
+    if (!result.ok) return liveDeskError(res, result);
+    res.json(result);
+  });
+
+  app.get('/api/live-desk/sessions/:sessionId/signals', async (req, res) => {
+    const user = getSessionUser(req);
+    const result = liveDeskService.pollSignals(req.params.sessionId, {
+      participantId: req.query?.participantId,
+      token: req.headers?.['x-live-desk-token'] || '',
+      ownerUserId: user?.id || '',
+      after: req.query?.after,
+    });
+    if (!result.ok) return liveDeskError(res, result);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(result);
+  });
+
+  app.post('/api/live-desk/sessions/:sessionId/telemetry', async (req, res) => {
+    const { state, membership } = await liveDeskMembership(req);
+    if (!membership.userId) return res.status(401).json({ ok: false, error: 'Login required.' });
+    const session = liveDeskService.getRaw(req.params.sessionId);
+    if (!session) return res.status(404).json({ ok: false, error: 'Live Desk session not found.' });
+    if (session.ownerUserId !== membership.userId) return res.status(403).json({ ok: false, error: 'Only the broadcast owner may refresh telemetry.' });
+    const liveData = getLiveAccountData(state, membership, session.accountId || req.body?.accountId || '');
+    const result = liveDeskService.updateTelemetry(session.id, membership.userId, liveDeskTelemetry(liveData));
+    if (!result.ok) return liveDeskError(res, result);
+    res.json(result);
+  });
+
+  app.get('/api/live-desk/sessions/:sessionId/participants', async (req, res) => {
+    const user = getSessionUser(req);
+    if (!user?.id) return res.status(401).json({ ok: false, error: 'Login required.' });
+    const result = liveDeskService.listParticipants(req.params.sessionId, user.id);
+    if (!result.ok) return liveDeskError(res, result);
+    res.json(result);
+  });
+
+  app.post('/api/live-desk/sessions/:sessionId/viewers/:participantId/remove', async (req, res) => {
+    const user = getSessionUser(req);
+    if (!user?.id) return res.status(401).json({ ok: false, error: 'Login required.' });
+    const result = liveDeskService.removeViewer(req.params.sessionId, user.id, req.params.participantId, { block: false });
+    if (!result.ok) return liveDeskError(res, result);
+    await auditLiveDesk(req, 'viewer_removed', req.params.sessionId, { participantId: req.params.participantId });
+    res.json(result);
+  });
+
+  app.post('/api/live-desk/sessions/:sessionId/viewers/:participantId/block', async (req, res) => {
+    const user = getSessionUser(req);
+    if (!user?.id) return res.status(401).json({ ok: false, error: 'Login required.' });
+    const result = liveDeskService.removeViewer(req.params.sessionId, user.id, req.params.participantId, { block: true });
+    if (!result.ok) return liveDeskError(res, result);
+    await auditLiveDesk(req, 'viewer_blocked', req.params.sessionId, { participantId: req.params.participantId, viewerUserId: result.participant?.userId || '' });
+    res.json(result);
+  });
+
+  app.post('/api/live-desk/sessions/:sessionId/stop', async (req, res) => {
+    const user = getSessionUser(req);
+    if (!user?.id) return res.status(401).json({ ok: false, error: 'Login required.' });
+    const result = liveDeskService.endSession(req.params.sessionId, user.id, req.body?.reason || 'owner_stop');
+    if (!result.ok) return liveDeskError(res, result);
+    await auditLiveDesk(req, 'broadcast_stopped', req.params.sessionId, { reason: req.body?.reason || 'owner_stop' });
+    res.json(result);
+  });
+
+  app.post('/api/live-desk/sessions/:sessionId/chat', async (req, res) => {
+    const user = getSessionUser(req);
+    const result = liveDeskService.addChat(req.params.sessionId, {
+      participantId: req.body?.participantId,
+      token: req.body?.token,
+      ownerUserId: user?.id || '',
+      message: req.body?.message,
+    });
+    if (!result.ok) return liveDeskError(res, result);
+    res.status(201).json(result);
+  });
+
+  app.get('/api/live-desk/sessions/:sessionId/chat', async (req, res) => {
+    const user = getSessionUser(req);
+    const result = liveDeskService.getChat(req.params.sessionId, {
+      participantId: req.query?.participantId,
+      token: req.headers?.['x-live-desk-token'] || '',
+      ownerUserId: user?.id || '',
+      after: req.query?.after || '',
+    });
+    if (!result.ok) return liveDeskError(res, result);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(result);
+  });
+
+  app.get('/live', renderPublic(() => liveDeskDirectoryPage(), '/live'));
+  app.get('/live/:sessionId', renderPublic((req) => liveDeskViewerPage(req.params.sessionId), '/live'));
+
   // Public frontend routes replacing the old frontend experience.
   app.get('/', renderPublic(() => tcLandingPage(), '/'));
   app.get('/tunnel', renderPublic(() => tunnelPage(), '/tunnel'));
@@ -2372,7 +2623,12 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
     res.redirect(`/auth/success?provider=email&returnTo=${encodeURIComponent(target)}`);
   });
 
-  app.get('/logout', (req, res) => { clearCookie(res, SESSION_COOKIE); clearCookie(res, 'oauth_state'); res.redirect('/login'); });
+  app.get('/logout', async (req, res) => {
+    const user = getSessionUser(req);
+    const ended = user?.id ? liveDeskService.endAllForOwner(user.id, 'owner_logout') : [];
+    if (ended.length) await auditLiveDesk(req, 'owner_logout_broadcast_stop', ended.join(','), { endedSessionIds: ended });
+    clearCookie(res, SESSION_COOKIE); clearCookie(res, 'oauth_state'); res.redirect('/login');
+  });
 
   // Discord OAuth login / linking. Manual Discord role can keep Culture Coin active.
   app.get('/auth/discord', (req, res) => {
@@ -3227,7 +3483,7 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
 
   // Portal routes.
   app.get(['/app', '/dashboard', '/member', '/member/home'], (req, res) => res.redirect('/app/dashboard'));
-  for (const page of ['dashboard','notifications','subscriptions','membership','connect-account','advanced-link','community-reporters','discord-copier','education','seminars','account-configuration','wisdo-command-center','copier-engine','copier-logs','account-trades','performance','reporter','billing','profile']) {
+  for (const page of ['dashboard','live-desk','notifications','subscriptions','membership','connect-account','advanced-link','community-reporters','discord-copier','education','seminars','account-configuration','wisdo-command-center','copier-engine','copier-logs','account-trades','performance','reporter','billing','profile']) {
     app.get(`/app/${page}`, async (req, res) => {
       const state = await loadLiveState();
       const membership = await resolveMembership({ req, config, state });

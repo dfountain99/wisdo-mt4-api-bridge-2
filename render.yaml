@@ -215,6 +215,16 @@ services:
         value: "24"
       - key: WISDO_AFFILIATE_DEFAULT_PERCENT
         value: "50"
+      - key: WISDO_LIVE_DESK_MAX_VIEWERS
+        value: "8"
+      - key: WISDO_WEBRTC_STUN_URLS
+        value: stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302
+      - key: WISDO_WEBRTC_TURN_URLS
+        sync: false
+      - key: WISDO_WEBRTC_TURN_SHARED_SECRET
+        sync: false
+      - key: WISDO_WEBRTC_TURN_TTL_SECONDS
+        value: "3600"
       - key: SQUARE_ENVIRONMENT
         value: sandbox
       - key: SQUARE_ACCESS_TOKEN
