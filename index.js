@@ -35,6 +35,8 @@ import { DiscordSignalGridService } from './services/discordSignalGridService.js
 import { WisdoMemoryService } from './services/wisdoMemoryService.js';
 import { startApiServer } from './server/apiServer.js';
 import { extractWisdoWakeCommand as extractConfiguredWakeCommand, extractSpokenNumber } from './services/wisdoIntentService.js';
+import { createRuntimeLifecycle } from './services/runtimeLifecycle.js';
+import { AccountSelectionService } from './services/accountSelectionService.js';
 
 // Production source of truth: Render runs `npm start`, which runs this root
 // entrypoint. Keep runtime imports on root config/commands/services plus
@@ -159,6 +161,7 @@ const deskDashboardService = new DeskDashboardService({
   chartRenderService,
   logger,
 });
+const accountSelectionService = new AccountSelectionService({ repository: mt4SyncService.repository, memoryService: wisdoMemoryService });
 
 const registry = createCommandRegistry({
   service,
@@ -174,6 +177,7 @@ const registry = createCommandRegistry({
   botStoreService,
   botRegistryService,
   wisdoMemoryService,
+  accountSelectionService,
   logger,
 });
 
@@ -194,10 +198,14 @@ const apiServer = await startApiServer({
   signalCopyService,
   discordSignalGridService,
   operatorDeskService: service,
+  accountSelectionService,
   commandRegistryAudit: registry.audit,
   client,
   logger,
 });
+
+const runtimeTimers = new Set();
+const runtimeLifecycle = createRuntimeLifecycle({ server: apiServer, client, logger, timers: runtimeTimers });
 
 let commandRegistrationPromise = null;
 
@@ -246,11 +254,13 @@ client.once(Events.ClientReady, async (readyClient) => {
     });
   }
 
-  setInterval(() => {
+  const signalBoardTimer = setInterval(() => {
     tradeSignalService.refreshSignalBoard?.().catch((error) => {
       logger.warn('Active Signal Board scheduled refresh failed.', { message: error.message });
     });
-  }, 30000).unref?.();
+  }, 30000);
+  signalBoardTimer.unref?.();
+  runtimeTimers.add(signalBoardTimer);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -331,7 +341,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       content:
         error?.expose === true
           ? error.message
-          : 'Something went wrong while handling that request. Please try again or check the bot logs.',
+          : `Something went wrong while handling that request. Reference: ${interaction.id || 'unavailable'}.`,
       ephemeral: true,
     };
 
@@ -503,11 +513,15 @@ client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
 
 process.on('unhandledRejection', (reason) => {
   const error = reason instanceof Error ? reason : new Error(String(reason));
-  logDiscordTransportFailure('Unhandled promise rejection', error);
+  if (isTransientDiscordTransportError(error)) {
+    logDiscordTransportFailure('Unhandled transient promise rejection', error);
+    return;
+  }
+  void runtimeLifecycle.fatal(error, 'Unhandled promise rejection');
 });
 
 process.on('uncaughtException', (error) => {
-  logDiscordTransportFailure('Uncaught exception', error);
+  void runtimeLifecycle.fatal(error, 'Uncaught exception');
 });
 
 function extractWisdoWakeCommand(raw) {
@@ -2869,25 +2883,12 @@ if (intent === 'mt4_scenario_control') {
   };
 }
 
-async function shutdown(signal) {
-  logger.info('Shutdown requested', { signal });
-
-  await Promise.allSettled([
-    new Promise((resolve) => {
-      apiServer.close(() => resolve());
-    }),
-    client.destroy(),
-  ]);
-
-  process.exit(0);
-}
-
 process.on('SIGINT', () => {
-  shutdown('SIGINT').catch(() => process.exit(1));
+  runtimeLifecycle.shutdown('SIGINT').catch(() => process.exit(1));
 });
 
 process.on('SIGTERM', () => {
-  shutdown('SIGTERM').catch(() => process.exit(1));
+  runtimeLifecycle.shutdown('SIGTERM').catch(() => process.exit(1));
 });
 
 try {

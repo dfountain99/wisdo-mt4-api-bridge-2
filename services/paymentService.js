@@ -20,11 +20,16 @@ export class PaymentService {
     this.config = config;
     this.repository = repository;
     this.botStoreService = null;
+    this.completedPaymentHandler = null;
     this.square = new SquarePaymentGateway(config, options);
   }
 
   setBotStoreService(botStoreService) {
     this.botStoreService = botStoreService;
+  }
+
+  setCompletedPaymentHandler(handler) {
+    this.completedPaymentHandler = typeof handler === 'function' ? handler : null;
   }
 
   isConfigured() {
@@ -115,16 +120,41 @@ export class PaymentService {
       throw error;
     }
 
-    const payment = paymentFromEvent(event);
-    if (String(event.type || '').startsWith('payment.') && payment?.status === 'COMPLETED') {
-      await this.handleCompletedPayment(payment);
+    const eventId = String(event.event_id || '').trim();
+    if (!eventId) {
+      const error = new Error('Square webhook event ID is required.');
+      error.expose = true;
+      throw error;
+    }
+
+    const claim = await this.repository.beginPaymentEvent('square', eventId, event.type);
+    if (!claim.accepted) {
+      return {
+        ok: true,
+        received: true,
+        duplicate: true,
+        eventType: event.type,
+        eventId,
+      };
+    }
+
+    try {
+      const payment = paymentFromEvent(event);
+      if (String(event.type || '').startsWith('payment.') && payment?.status === 'COMPLETED') {
+        await this.handleCompletedPayment(payment);
+      }
+      await this.repository.completePaymentEvent('square', eventId);
+    } catch (error) {
+      await this.repository.failPaymentEvent('square', eventId, error);
+      throw error;
     }
 
     return {
       ok: true,
       received: true,
+      duplicate: false,
       eventType: event.type,
-      eventId: event.event_id || null,
+      eventId,
     };
   }
 
@@ -141,7 +171,7 @@ export class PaymentService {
       logger.warn('Square bot payment completed without quote metadata.', { paymentId: payment.id });
       return;
     }
-    await this.botStoreService.handleCompletedCheckoutSession({
+    const storeOrder = await this.botStoreService.handleCompletedCheckoutSession({
       id: payment.id,
       amount_total: Number(payment.amount_money?.amount || 0),
       payment_status: 'paid',
@@ -154,5 +184,9 @@ export class PaymentService {
         guildId: metadata.payload?.g || '',
       },
     });
+    if (this.completedPaymentHandler) {
+      await this.completedPaymentHandler({ payment, metadata, quoteId, storeOrder });
+    }
+    return storeOrder;
   }
 }

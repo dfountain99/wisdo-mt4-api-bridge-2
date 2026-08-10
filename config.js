@@ -144,5 +144,9 @@ export const config = {
 };
 
 export function getMissingRuntimeEnv() {
-  return ['DISCORD_TOKEN'].filter((key) => !process.env[key]);
+  const missing = ['DISCORD_TOKEN'].filter((key) => !process.env[key]);
+  if (process.env.NODE_ENV === 'production' && String(process.env.SESSION_SECRET || '').length < 32) {
+    missing.push('SESSION_SECRET');
+  }
+  return missing;
 }

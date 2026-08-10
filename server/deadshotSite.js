@@ -1000,7 +1000,6 @@ function siteScript() {
       const res=await fetch('/api/checkout/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({productId:btn.dataset.checkout})});
       const json=await res.json().catch(()=>({ok:false,error:'Bad response'}));
       if(json.url){ location.href=json.url; return; }
-      if(json.checkoutMode==='manual_invoice_pending'){ alert(json.message || 'Order saved as manual invoice pending. Access unlocks after payment confirmation.'); btn.textContent=old; btn.disabled=false; return; }
       alert(json.error||'Checkout is not configured yet.'); btn.textContent=old; btn.disabled=false;
     }));
     async function pollCommandStatus(commandId, label){
@@ -1250,7 +1249,7 @@ function tcLandingPricingTeaser() {
 function tcPricingCards() {
   const plans = [
     ['standard','Standard','CFD','Flexible · From $10/mo',['Ideal for retail traders','Equity Protection','No limits — pay per account'],'/pricing'],
-    ['premium','Premium','CFD PRO','Ultra-low latency · $15/mo',['Everything in Standard','Ideal for advanced traders','Low latency + HFT support','Priority support','Premium notifications coming soon'],'/pricing'],
+    ['premium','Premium','CFD PRO','Ultra-low latency · $15/mo',['Everything in Standard','Ideal for advanced traders','Low latency + HFT support','Priority support'],'/pricing'],
     ['futures','Futures','FUTURES','10-day trial · From $30/mo',['Built-in 10-day free trial','Tiered or flat-price plans','Scale futures accounts anytime'],'/pricing'],
   ];
   return `<div class="tc-prices">${plans.map(([id,name,tag,price,features,href])=>`<article class="tc-price ${id==='premium'?'popular':''}">${id==='premium'?'<span class="tc-status">Most Popular</span>':''}<p class="tc-micro">${tag}</p><h3>${name}</h3><div class="amount">${price}</div><ul class="tc-list">${features.map(f=>`<li>${esc(f)}</li>`).join('')}</ul><a class="btn primary" href="${href}">Get started →</a></article>`).join('')}</div>`;
@@ -1313,7 +1312,7 @@ function legalPage(kind) {
     : kind === 'privacy'
       ? 'Wisdo should store only the account, billing, and connection data required to operate the service. Broker credentials must be encrypted and never exposed to the browser.'
       : 'Use of Wisdo requires safe command behavior, account-owner authorization, confirmation of dangerous actions, and compliance with broker/platform rules.';
-  return `<main class="tc-page"><section class="tc-product-hero"><div class="container"><span class="tc-kicker">Legal</span><h1 class="tc-display">${esc(titles[kind] || titles.terms)}</h1><p class="tc-copy">${esc(copy)}</p><div class="tc-card"><h3>Important</h3><p class="tc-copy">This is a product-ready placeholder. Replace it with attorney-reviewed final language before launch.</p></div></div></section></main>`;
+  return `<main class="tc-page"><section class="tc-product-hero"><div class="container"><span class="tc-kicker">Legal</span><h1 class="tc-display">${esc(titles[kind] || titles.terms)}</h1><p class="tc-copy">${esc(copy)}</p><div class="tc-card"><h3>Not approved for launch</h3><p class="tc-copy">Attorney-reviewed final language has not been published. Production sales must remain disabled until legal review is complete.</p></div></div></section></main>`;
 }
 
 function homePage() {
@@ -1385,7 +1384,7 @@ function leadLearningPortalPage({ lead = {}, access = {}, resources = [] } = {})
 }
 
 function affiliatePage() {
-  return `<main><section class="hero"><div class="container hero-grid"><div><span class="eyebrow">Wisdo Affiliate Desk</span><h1>Sign up, activate today, and earn split payouts.</h1><p class="lead">Affiliates get a referral code after signup. The activation checkout carries affiliateId, referralCode, and splitPercent metadata into Square/manual invoices so payout ledgers can be reviewed.</p><div class="trust-strip"><span class="chip green">Activation due today</span><span class="chip gold">Default split configurable</span><span class="chip">Payout review ledger</span></div></div><form id="affiliateSignupForm" class="card form"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Email</label><input type="email" name="email" required></div><div class="field"><label>Phone</label><input name="phone"></div><div class="field"><label>Payout Handle</label><input name="payoutHandle" placeholder="Cash App / PayPal / business email"></div><div class="field"><label>Payout Split %</label><div class="range-row"><input type="range" min="10" max="80" value="30" name="splitPercent" oninput="this.nextElementSibling.value=this.value"><output>30</output></div></div><div class="field"><label>Activation Product</label><select name="activationProductId"><option value="setup-fee">One-Time Setup Fee</option><option value="culture-coin-monthly">Monthly Membership</option><option value="webinar-special">Webinar Special</option></select></div><button class="btn primary" type="submit">Create Affiliate + Pay Activation</button><pre class="live-out" id="affiliateSignupOut"></pre></form></div></section></main>`;
+  return `<main><section class="hero"><div class="container hero-grid"><div><span class="eyebrow">Wisdo Affiliate Desk</span><h1>Sign up, activate today, and earn split payouts.</h1><p class="lead">Affiliates get a referral code after signup. The activation checkout carries affiliateId, referralCode, and splitPercent metadata into signed Square payment metadata so payout ledgers can be reviewed after verified payment.</p><div class="trust-strip"><span class="chip green">Activation due today</span><span class="chip gold">Default split configurable</span><span class="chip">Payout review ledger</span></div></div><form id="affiliateSignupForm" class="card form"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Email</label><input type="email" name="email" required></div><div class="field"><label>Phone</label><input name="phone"></div><div class="field"><label>Payout Handle</label><input name="payoutHandle" placeholder="Cash App / PayPal / business email"></div><div class="field"><label>Payout Split %</label><div class="range-row"><input type="range" min="10" max="80" value="30" name="splitPercent" oninput="this.nextElementSibling.value=this.value"><output>30</output></div></div><div class="field"><label>Activation Product</label><select name="activationProductId"><option value="setup-fee">One-Time Setup Fee</option><option value="culture-coin-monthly">Monthly Membership</option><option value="webinar-special">Webinar Special</option></select></div><button class="btn primary" type="submit">Create Affiliate + Pay Activation</button><pre class="live-out" id="affiliateSignupOut"></pre></form></div></section></main>`;
 }
 
 function offerPage() {
@@ -1717,7 +1716,7 @@ function worldClockMarkup() {
 }
 
 function userKeyFromMembership(membership = {}) {
-  return String(membership.userId || membership.linkedDiscordUserId || membership.user?.id || 'website-buyer');
+  return String(membership.userId || membership.linkedDiscordUserId || membership.user?.id || '');
 }
 
 function mt4StateFromPortal(state = {}) {
@@ -3009,12 +3008,8 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
     const product = PRODUCTS.find((p) => p.id === activationProductId) || PRODUCTS.find((p) => p.id === 'setup-fee');
     let checkoutUrl = '';
     if (membership.userId && product) checkoutUrl = await createSquareCheckout({ config, state, userId: membership.userId, product, req, affiliateContext: { affiliateId, referralCode, splitPercent, signupType: 'affiliate_activation' } });
-    if (!checkoutUrl && product) {
-      const paymentId = id('payment');
-      state.payments[paymentId] = { id: paymentId, productId: product.id, affiliateId, userId: membership.userId || 'guest', amount: product.price, status: 'manual_affiliate_activation_pending', accessGranted: false, createdAt: nowIso() };
-    }
     await saveEcosystemState(state);
-    res.json({ ok: true, affiliateId, referralCode, splitPercent, status: 'activation_due', checkoutUrl, message: checkoutUrl ? 'Affiliate created. Send user to checkoutUrl to pay activation today.' : 'Affiliate created with manual activation due because Square is not configured.' });
+    res.status(checkoutUrl ? 201 : 503).json({ ok: Boolean(checkoutUrl), affiliateCreated: true, affiliateId, referralCode, splitPercent, status: 'activation_due', checkoutUrl, message: checkoutUrl ? 'Affiliate created. Complete the Square activation checkout to enable paid affiliate status.' : 'Affiliate application was saved, but activation checkout is disabled until Square and its signed webhook are configured. No payment record or active affiliate status was created.' });
   });
 
 
@@ -3029,11 +3024,7 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
       if (!membership.userId) return res.status(401).json({ ok: false, error: 'Create an account or login before checkout so billing can activate the correct member.', url: `/signup?product=${encodeURIComponent(product.id)}` });
       const url = await createSquareCheckout({ config, state, userId: membership.userId, product, req });
       if (url) return res.json({ ok: true, url });
-      // Manual-invoice fallback: records a real pending order; access stays locked until payment is confirmed.
-      const paymentId = id('payment');
-      state.payments[paymentId] = { id: paymentId, productId: product.id, userId: membership.userId || 'guest', amount: product.price, status: 'manual_invoice_pending', accessGranted: false, createdAt: nowIso() };
-      await saveEcosystemState(state);
-      res.json({ ok: true, checkoutMode: 'manual_invoice_pending', paymentId, message: 'Live price/order saved. Square is not configured, so access remains locked until admin confirms payment.' });
+      return res.status(503).json({ ok:false, code:'payment_provider_unavailable', error:'Checkout is disabled until Square checkout and its signed webhook are configured. No payment record or paid access was created.' });
     } catch (error) {
       logger?.error?.('Checkout session failed', { message: error.message });
       res.status(500).json({ ok: false, error: error.message });
