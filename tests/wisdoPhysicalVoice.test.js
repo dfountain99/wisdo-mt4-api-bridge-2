@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { WisdoAudioService } from '../services/wisdoAudioService.js';
@@ -31,6 +31,17 @@ test('Pi contract uses local wake, server STT upload, idempotency, and playback 
   assert.match(pi,/Recording cancelled by physical mute/);
   assert.match(pi,/path\.unlink\(missing_ok=True\)/);
   assert.match(pi,/uuid\.UUID/); assert.match(pi,/remember_delivery/);
+});
+
+test('physical voice is cross-platform and rejects the permissive wake threshold',()=>{
+  const pi=read('../pi-edge/wisdo_edge.py');
+  assert.match(pi,/platform\.system\(\)/);
+  assert.match(pi,/playback_command/);
+  assert.match(pi,/WISDO_WAKE_SENSITIVITY/);
+  assert.match(pi,/WAKE_BLOCKED_UNTIL/);
+  assert.doesNotMatch(pi,/\[\(word, 1\.0\) for word in WAKE_WORDS\]/);
+  assert.ok(existsSync(new URL('../pi-edge/install-windows.ps1',import.meta.url)));
+  assert.ok(existsSync(new URL('../pi-edge/start-wisdo-windows.cmd',import.meta.url)));
 });
 
 test('delivery schema is bounded, expiring, and owner/device scoped',()=>{

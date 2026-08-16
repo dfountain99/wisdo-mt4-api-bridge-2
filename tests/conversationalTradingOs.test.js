@@ -72,3 +72,5 @@ test('47b conversational execution supplies the command bus dedupe key',async()=
 test('48 existing Reporter lifecycle remains',()=>{assert.match(mt4,/markCommandDelivered/);assert.match(mt4,/markCommandCompleted/);assert.match(mt4,/markCommandFailed/);});
 test('49 database-first command pressure indexes remain in migration',()=>assert.match(migration,/idx_wisdo_receipts_command/));
 test('50 conversation service always catches processing failures',()=>assert.match(WisdoConversationService.prototype.answer.toString(),/COACH_RESPONSES\.failed/));
+test('51 general conversation survives intent-provider failure',async()=>{const provider={extractIntent:async()=>{throw new Error('provider unavailable');}};const result=await new WisdoIntentService({provider}).parse('what is todays date',{});assert.equal(result.intent,'GENERAL_CONVERSATION');});
+test('52 date questions have a deterministic answer path',()=>assert.match(WisdoConversationService.prototype.handle.toString(),/Today is/));

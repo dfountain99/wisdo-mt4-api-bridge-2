@@ -156,7 +156,9 @@ export class WisdoIntentService {
   async parse(text, context = {}) {
     const deterministic = this.deterministic(text, context);
     if (deterministic.confidence >= this.confidenceThreshold || !this.provider) return deterministic;
-    const generated = await this.provider.extractIntent?.({ text, context, schemaVersion: INTENT_SCHEMA_VERSION });
+    let generated=null;
+    try { generated = await this.provider.extractIntent?.({ text, context, schemaVersion: INTENT_SCHEMA_VERSION }); }
+    catch { return deterministic; }
     const validation = validateStructuredIntent(generated);
     if (!validation.ok) return deterministic;
     const parameters = Object.fromEntries(Object.entries(generated.parameters || {}).filter(([, value]) => value !== null));

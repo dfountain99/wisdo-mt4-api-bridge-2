@@ -69,7 +69,17 @@ export class WisdoConversationService {
     if(intent.type==='PLAN')return this.plan({input,text,intent,session,context});
     if(intent.type==='QUERY')return this.query({input,intent,session,context});
     if(intent.type==='ACTION')return this.action({input,text,intent,session,context});
-    if(intent.intent==='GENERAL_CONVERSATION'&&this.intentService.provider?.configured?.()){const recent=await this.contextService.recent(session.session_id,userId,8);const answer=await this.intentService.provider.respond({text,context,recent});if(answer)return {state:'completed',text:`${answer} ${COACH_RESPONSES.ready}`};}
+    if(intent.intent==='GENERAL_CONVERSATION'){
+      if(/\b(what(?:s| is)?|tell me) (?:today(?:s)? )?date\b|\bwhat day is (?:it|today)\b/i.test(text)){
+        const zone=process.env.WISDO_TIME_ZONE||'America/New_York';
+        const date=new Intl.DateTimeFormat('en-US',{timeZone:zone,weekday:'long',year:'numeric',month:'long',day:'numeric'}).format(new Date());
+        return {state:'completed',text:`Today is ${date}. ${COACH_RESPONSES.ready}`};
+      }
+      if(this.intentService.provider?.configured?.()){
+        try{const recent=await this.contextService.recent(session.session_id,userId,16);const answer=await this.intentService.provider.respond({text,context,recent});if(answer)return {state:'completed',text:`${answer} ${COACH_RESPONSES.ready}`};}
+        catch(error){await this.auditService?.record({userId,sessionId:session.session_id,actorType:'provider',eventType:'conversation.ai_unavailable',detail:{message:error.message}}).catch(()=>undefined);return {state:'unavailable',text:'My AI knowledge service is temporarily unavailable, but your WISDO device and trading safeguards are still connected. I did not make any trading changes.'};}
+      }
+    }
     if(intent.confidence<0.7)return {state:'clarification',text:'I want to make sure I understand. Are you asking about an account, a trading action, todayâ€™s plan, or education?'};
     return {state:'completed',text:`I understand. Tell me what you would like to know or change in your trading system. ${COACH_RESPONSES.ready}`};
   }

@@ -4,6 +4,8 @@ import base64
 import hashlib
 import json
 import os
+import platform
+import shutil
 import subprocess
 import struct
 import threading
@@ -17,20 +19,38 @@ from dotenv import load_dotenv
 
 BASE = Path(__file__).resolve().parent
 load_dotenv(BASE / '.env')
+IS_WINDOWS = platform.system().lower() == 'windows'
+
+
+def local_data_path(name):
+    """Use repo-local state on Windows and service state under /opt on Linux."""
+    default_root = BASE / 'data' if IS_WINDOWS else Path('/opt/wisdo-edge/data')
+    return str(default_root / name)
+
+
+def configured_path(variable, fallback):
+    value = os.getenv(variable, '').strip()
+    return Path(value) if value else Path(fallback)
+
+
 CLOUD = os.getenv('WISDO_CLOUD_BASE_URL', '').rstrip('/')
 DEVICE_ID = os.getenv('WISDO_DEVICE_ID', '')
-TOKEN_FILE = Path(os.getenv('WISDO_DEVICE_TOKEN_FILE', str(BASE / 'data/device-token')))
-MUTE_FILE = Path(os.getenv('WISDO_MUTE_FILE', str(BASE / 'data/muted')))
-LED_FILE = Path(os.getenv('WISDO_LED_STATE_FILE', str(BASE / 'data/led-state')))
-PLAYED_FILE = Path(os.getenv('WISDO_PLAYED_DELIVERIES_FILE', str(BASE / 'data/played-deliveries')))
+TOKEN_FILE = configured_path('WISDO_DEVICE_TOKEN_FILE', local_data_path('device-token'))
+MUTE_FILE = configured_path('WISDO_MUTE_FILE', local_data_path('muted'))
+LED_FILE = configured_path('WISDO_LED_STATE_FILE', local_data_path('led-state'))
+PLAYED_FILE = configured_path('WISDO_PLAYED_DELIVERIES_FILE', local_data_path('played-deliveries'))
 AUDIO_OUTPUT = os.getenv('WISDO_AUDIO_OUTPUT', 'default')
 WAKE_WORDS = tuple(v.strip().lower() for v in os.getenv(
     'WISDO_WAKE_WORDS', 'hey coach,hey wisdom,hey wisdo').split(',') if v.strip())
 MAX_AUDIO_BYTES = int(os.getenv('WISDO_AUDIO_MAX_BYTES', '5242880'))
 MAX_PLAYBACK_BYTES = int(os.getenv('WISDO_TTS_MAX_BYTES', '2097152'))
 SESSION_IDLE_SECONDS = int(os.getenv('WISDO_SESSION_IDLE_SECONDS', '90'))
+WAKE_SENSITIVITY = float(os.getenv('WISDO_WAKE_SENSITIVITY', '1e-20'))
+WAKE_COOLDOWN_SECONDS = float(os.getenv('WISDO_WAKE_COOLDOWN_SECONDS', '2.5'))
+POST_PLAYBACK_GUARD_SECONDS = float(os.getenv('WISDO_POST_PLAYBACK_GUARD_SECONDS', '1.5'))
 SESSION_ID = None
 SESSION_TOUCHED = 0.0
+WAKE_BLOCKED_UNTIL = 0.0
 LED_STATE = 'idle'
 PLAYBACK = None
 PLAYBACK_LOCK = threading.Lock()
@@ -56,6 +76,16 @@ def headers():
     return {'Authorization': f'Bearer {TOKEN_FILE.read_text(encoding="utf-8").strip()}',
             'X-Wisdo-Device-Id': DEVICE_ID, 'Content-Type': 'application/json',
             'Accept': 'application/json'}
+
+
+def validate_configuration():
+    missing = []
+    if not CLOUD: missing.append('WISDO_CLOUD_BASE_URL')
+    if not DEVICE_ID: missing.append('WISDO_DEVICE_ID')
+    if not TOKEN_FILE.is_file() or not TOKEN_FILE.read_text(encoding='utf-8').strip():
+        missing.append(f'device token ({TOKEN_FILE})')
+    if missing:
+        raise RuntimeError('Missing WISDO configuration: ' + ', '.join(missing))
 
 
 def muted():
@@ -186,10 +216,16 @@ def microphone_audio(cancel_event=None, max_seconds_override=None, timeout_overr
         engine.terminate()
 
 def local_wake_detect(recognizer, audio):
+    global WAKE_BLOCKED_UNTIL
+    if time.monotonic() < WAKE_BLOCKED_UNTIL:
+        return False
     try:
         phrase = recognizer.recognize_sphinx(
-            audio, keyword_entries=[(word, 1.0) for word in WAKE_WORDS]).lower()
-        return any(word in phrase for word in WAKE_WORDS)
+            audio, keyword_entries=[(word, WAKE_SENSITIVITY) for word in WAKE_WORDS]).lower()
+        matched = any(word in phrase for word in WAKE_WORDS)
+        if matched:
+            WAKE_BLOCKED_UNTIL = time.monotonic() + WAKE_COOLDOWN_SECONDS
+        return matched
     except Exception:
         return False
 
@@ -210,14 +246,46 @@ def upload_utterance(wav, duration_ms):
                                      json=payload, timeout=75)
             response.raise_for_status()
             output = response.json()
-            result = output.get('result') or output
+            # Render releases have returned both {result: conversation} and
+            # {result: {result: conversation}}. Unwrap either shape safely.
+            result = output
+            for _ in range(3):
+                nested = result.get('result') if isinstance(result, dict) else None
+                if not isinstance(nested, dict):
+                    break
+                result = nested
             SESSION_ID = result.get('sessionId') or SESSION_ID
             SESSION_TOUCHED = time.monotonic()
-            return result, output.get('speechError')
+            speech_error = find_response_value(output, 'speechError')
+            delivery_id = find_response_value(output, 'deliveryId')
+            return result, speech_error, clean_transcript(output), delivery_id
         except requests.RequestException as exc:
             last_error = exc
             time.sleep(min(4, 0.5 * (2 ** attempt)))
     raise last_error
+
+
+def clean_transcript(payload):
+    current = payload
+    for _ in range(4):
+        if not isinstance(current, dict):
+            return ''
+        transcript = str(current.get('transcript') or '').strip()
+        if transcript:
+            return transcript
+        current = current.get('result')
+    return ''
+
+
+def find_response_value(payload, key):
+    current = payload
+    for _ in range(4):
+        if not isinstance(current, dict):
+            return None
+        if current.get(key) is not None:
+            return current.get(key)
+        current = current.get('result')
+    return None
 
 
 def delivery_receipt(delivery_id, status, error=None):
@@ -251,11 +319,40 @@ def interrupt_monitor(done, delivery_id):
 
 
 def local_speak(text):
-    subprocess.run(['espeak-ng', str(text)[:500]], check=False, timeout=20)
+    """Emergency/offline speech only. Cloud natural voice remains the normal path."""
+    message = str(text)[:500]
+    if IS_WINDOWS:
+        escaped = message.replace("'", "''")
+        command = [
+            'powershell', '-NoProfile', '-NonInteractive', '-Command',
+            "Add-Type -AssemblyName System.Speech; "
+            "$v=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+            f"$v.Speak('{escaped}')"
+        ]
+    else:
+        command = ['espeak-ng', message]
+    if shutil.which(command[0]):
+        subprocess.run(command, check=False, timeout=20)
+
+
+def playback_command(path, suffix):
+    if IS_WINDOWS:
+        escaped = str(path).replace("'", "''")
+        if suffix == '.wav':
+            return ['powershell', '-NoProfile', '-NonInteractive', '-Command',
+                    f"(New-Object Media.SoundPlayer '{escaped}').PlaySync()"]
+        return ['powershell', '-NoProfile', '-NonInteractive', '-Command',
+                "Add-Type -AssemblyName presentationCore; "
+                "$p=New-Object system.windows.media.mediaplayer; "
+                f"$p.open([uri]'{escaped}'); $p.Play(); "
+                "while(-not $p.NaturalDuration.HasTimeSpan){Start-Sleep -Milliseconds 100}; "
+                "Start-Sleep -Milliseconds $p.NaturalDuration.TimeSpan.TotalMilliseconds; $p.Close()"]
+    return ['aplay', '-q', '-D', AUDIO_OUTPUT, str(path)] if suffix == '.wav' else [
+        'ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet', str(path)]
 
 
 def play_delivery(delivery):
-    global PLAYBACK, PLAYBACK_INTERRUPTED
+    global PLAYBACK, PLAYBACK_INTERRUPTED, WAKE_BLOCKED_UNTIL
     delivery_id = delivery['deliveryId']
     uuid.UUID(str(delivery_id))
     if delivery_id in SEEN_DELIVERIES:
@@ -277,8 +374,7 @@ def play_delivery(delivery):
     try:
         set_led('speaking')
         delivery_receipt(delivery_id, 'PLAYING')
-        command = ['aplay', '-q', '-D', AUDIO_OUTPUT, str(path)] if suffix == '.wav' else [
-            'ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet', str(path)]
+        command = playback_command(path, suffix)
         with PLAYBACK_LOCK:
             PLAYBACK_INTERRUPTED = False
             PLAYBACK = subprocess.Popen(command)
@@ -299,6 +395,7 @@ def play_delivery(delivery):
             if PLAYBACK.returncode:
                 raise RuntimeError(f'Audio player exited with status {PLAYBACK.returncode}.')
             PLAYBACK = None
+        WAKE_BLOCKED_UNTIL = time.monotonic() + POST_PLAYBACK_GUARD_SECONDS
         remember_delivery(delivery_id)
         delivery_receipt(delivery_id, 'PLAYED')
     finally:
@@ -328,9 +425,11 @@ def console_utterance(text):
 
 def main():
     global SESSION_ID
+    validate_configuration()
     set_led('muted' if muted() else 'idle')
     heartbeat(False)
-    print('Wisdo Edge local-wake/server-STT gateway ready.')
+    print(f'Wisdo Edge ready on {platform.system()} ({DEVICE_ID}).')
+    print('Say "Hey Coach" once, then speak naturally. Press Ctrl+C to stop.')
     console = os.getenv('WISDO_CONSOLE_MODE', 'false').lower() == 'true'
     while True:
         try:
@@ -355,17 +454,30 @@ def main():
             if SESSION_ID is None and not local_wake_detect(recognizer, audio):
                 continue
             set_led('processing'); heartbeat(False)
-            result, speech_error = upload_utterance(wav, duration_ms)
-            print('Coach>', result.get('text', ''))
-            if speech_error and result.get('text'):
-                local_speak(result['text'])
-            delivery = poll_delivery(5000)
+            result, speech_error, transcript, delivery_id = upload_utterance(wav, duration_ms)
+            if transcript:
+                print('Heard>', transcript)
+            reply = str(result.get('text') or result.get('responseText') or '').strip()
+            if reply:
+                print('Coach>', reply)
+            else:
+                print('Coach response unavailable. State:', result.get('state', 'unknown'))
+            delivery = poll_delivery(10000)
             if delivery:
                 try: play_delivery(delivery)
                 except Exception as exc:
                     delivery_receipt(delivery['deliveryId'], 'FAILED', exc)
+                    if reply: local_speak(reply)
+            elif reply:
+                reason = speech_error.get('code') if isinstance(speech_error, dict) else 'delivery_missing'
+                print('Cloud voice unavailable; using Windows voice fallback:', reason)
+                local_speak(reply)
         except (KeyboardInterrupt, EOFError):
             break
+        except TimeoutError:
+            # Normal silence is not a device fault and should not flood the console.
+            set_led('idle')
+            continue
         except Exception as exc:
             set_led('error')
             print('Wisdo edge error:', str(exc)[:240])

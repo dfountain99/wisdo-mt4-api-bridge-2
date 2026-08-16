@@ -9,6 +9,8 @@
   "voiceExecutionMode": "DEMO_ONLY",
   "supportedCapabilities": [
     "local-wake-detection",
+    "windows-and-linux-runtime",
+    "wake-cooldown-and-playback-echo-guard",
     "bounded-audio-upload",
     "authenticated-device-heartbeat",
     "text-and-speech-coach-session",
@@ -38,6 +40,9 @@
     "WISDO_AUDIO_OUTPUT",
     "WISDO_MIC_DEVICE_INDEX",
     "WISDO_WAKE_WORDS",
+    "WISDO_WAKE_SENSITIVITY",
+    "WISDO_WAKE_COOLDOWN_SECONDS",
+    "WISDO_POST_PLAYBACK_GUARD_SECONDS",
     "WISDO_CONSOLE_MODE",
     "WISDO_AUDIO_MAX_BYTES",
     "WISDO_TTS_MAX_BYTES",
@@ -54,12 +59,12 @@
     "WISDO_LED_COMMAND"
   ],
   "sha256": {
-    ".env.example": "f86a2ba74c30ba23b02664cc84f5689770a758f269177b93fd8e7dde59f633ee",
+    ".env.example": "9314d7d0b4d9c48cd659cc2397ae004efec7d2696a9385155627d7a24e30be4a",
     "VERSION": "e5c0552aed86841e0254d91082e58c6b66836eb687961d6eb22ff860fb2b9e4e",
-    "enroll.py": "93057a2ecbadd48fa90b5a7677da0dec4ff1dbc54e13272439057e856394bd2d",
-    "install.sh": "11978349cabe6b7fc3c7ef24fa23d2dcea9290aa5df775e2c8b7dc5216f69660",
-    "requirements.txt": "5f2d719872eab79a2b06b99ecd4cedbc5362777243a54c4c30aafd16d2b42db8",
+    "enroll.py": "cfe5ca792e117db423f7c79821c13ac13e7c09ccd3df73cafeb5e1c5d0f2a273",
+    "install.sh": "30712294d611b8476b6ed6385e161867e88a0f3f4cd15e4b0f2ed9a6a06c4889",
+    "requirements.txt": "f4ffdb2526895e49448b4ef157d029ffcb5a2d07d2e96a77edd586cc6bb2da88",
     "uninstall.sh": "ccbb4b0a0dd57a14b4bf07b897e5b84177d6fab7570ed5fbb100a7240001285f",
-    "wisdo_edge.py": "fb74c587a86067870a1340696fd994fdad970cad061b9fc8fae8bc095103265d"
+    "wisdo_edge.py": "b324eae63dd9293c891b3c62c250bd60b1a5e9cba7d35b5ae04a2952cbf6f207"
   }
 }

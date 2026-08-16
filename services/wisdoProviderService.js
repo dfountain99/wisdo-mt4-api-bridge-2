@@ -27,7 +27,7 @@ export class WisdoProviderService {
   constructor({ fetchImpl = globalThis.fetch } = {}) {
     this.fetch = fetchImpl;
     this.apiKey = process.env.OPENAI_API_KEY || '';
-    this.model = process.env.WISDO_CONVERSATION_MODEL || 'gpt-4.1-mini';
+    this.model = process.env.WISDO_CONVERSATION_MODEL || 'gpt-5.6-luna';
   }
 
   configured() { return Boolean(this.apiKey); }
@@ -47,7 +47,8 @@ export class WisdoProviderService {
 
   async respond({ text, context={}, recent=[] }) {
     if(!this.configured())return null;
-    const response=await this.fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${this.apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:this.model,input:[{role:'system',content:'You are Coach, a calm, concise trading educator and assistant. Answer the question directly. Do not claim to execute or complete trading actions. Never invent private account facts; use only supplied authorized context.'},...recent.slice(-8).map((m)=>({role:m.role==='assistant'?'assistant':'user',content:String(m.content||'')})),{role:'user',content:String(text||'')}],metadata:{wisdo_mode:'conversation'}}),signal:AbortSignal.timeout(Number(process.env.WISDO_AI_TIMEOUT_MS||15000))});
+    const now=new Date().toISOString();
+    const response=await this.fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${this.apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:this.model,input:[{role:'system',content:`You are WISDO, a capable general AI assistant, patient teacher, and trading operations coach. The current UTC time is ${now}. Answer ordinary questions directly, teach concepts step by step, use recent conversation for continuity, and clearly distinguish facts from uncertainty. You may discuss any lawful topic. Never claim to execute trading actions yourself, never bypass confirmations, and never invent private account facts; use only supplied authorized context.`},...recent.slice(-16).map((m)=>({role:m.role==='assistant'?'assistant':'user',content:String(m.content||'')})),{role:'user',content:String(text||'')}],metadata:{wisdo_mode:'conversation'}}),signal:AbortSignal.timeout(Number(process.env.WISDO_AI_TIMEOUT_MS||30000))});
     if(!response.ok)throw new Error(`Conversation provider failed with HTTP ${response.status}.`);const body=await response.json();return String(body.output_text||body.output?.flatMap((o)=>o.content||[]).find((c)=>c.type==='output_text')?.text||'').trim()||null;
   }
 
