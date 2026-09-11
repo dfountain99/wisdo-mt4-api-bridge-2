@@ -53,7 +53,7 @@ test('third-person World bundle is route-local, playable, and has a Lite safety 
   assert.match(game, /Raycaster/);
   assert.match(game, /fixedDt/);
   assert.match(game, /buildTradingTower/);
-  assert.match(game, /requestPointerLock/);
+  assert.match(input, /requestPointerLock/);
   assert.match(input, /jumpPressed/);
   assert.match(input, /interactPressed/);
   assert.doesNotMatch(game, /mt4-command|order placement|broker password/i);
