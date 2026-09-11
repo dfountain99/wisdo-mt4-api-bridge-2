@@ -1,6 +1,15 @@
 import { AUTHORED_WORLD_ASSETS, GLTF_LOADER_MODULE_URL } from './authored-asset-manifest.js';
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const now = () => performance.now();
+
+function publishDiagnostics(patch = {}) {
+  const previous = globalThis.WisdoOperatorDiagnostics || {};
+  const next = Object.freeze({ ...previous, ...patch, updatedAt: new Date().toISOString() });
+  globalThis.WisdoOperatorDiagnostics = next;
+  try { window.dispatchEvent(new CustomEvent('wisdo:operator-diagnostics', { detail: next })); } catch {}
+  return next;
+}
 
 function clipByNames(clips, names = []) {
   for (const wanted of names) {
@@ -47,14 +56,81 @@ function normalizeHumanScale(THREE, model, targetHeightMeters = 1.82) {
   return scale;
 }
 
-function loadGltf(GLTFLoader, url, timeoutMs = 15000) {
-  return Promise.race([
-    new Promise((resolve, reject) => {
-      const loader = new GLTFLoader();
-      loader.load(url, resolve, undefined, reject);
-    }),
-    new Promise((_, reject) => setTimeout(() => reject(new Error('Authored Operator load timed out.')), timeoutMs)),
-  ]);
+function collectModelStats(root) {
+  let meshCount = 0;
+  let skinnedMeshCount = 0;
+  let triangles = 0;
+  const materials = new Set();
+  const textures = new Set();
+  root.traverse((object) => {
+    if (!object.isMesh && !object.isSkinnedMesh) return;
+    meshCount += 1;
+    if (object.isSkinnedMesh) skinnedMeshCount += 1;
+    const geometry = object.geometry;
+    if (geometry?.index) triangles += Math.floor(geometry.index.count / 3);
+    else if (geometry?.attributes?.position) triangles += Math.floor(geometry.attributes.position.count / 3);
+    const list = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of list) {
+      if (!material) continue;
+      materials.add(material.uuid || material);
+      for (const value of Object.values(material)) if (value?.isTexture) textures.add(value.uuid || value);
+    }
+  });
+  return { meshCount, skinnedMeshCount, triangles, materialCount: materials.size, textureCount: textures.size };
+}
+
+async function fetchWithTimeout(url, { timeoutMs = 45_000, cache = 'force-cache', attempt = 1 } = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new DOMException('Timed out', 'AbortError')), timeoutMs);
+  const started = now();
+  try {
+    publishDiagnostics({ status: 'FETCHING', attempt, assetUrl: url, timeoutMs });
+    const response = await fetch(url, { mode: 'cors', credentials: 'omit', cache, signal: controller.signal });
+    if (!response.ok) throw new Error(`GLB HTTP ${response.status} ${response.statusText || ''}`.trim());
+    if (response.type === 'opaque') throw new Error('GLB response is opaque; CORS does not permit reading the asset.');
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    const buffer = await response.arrayBuffer();
+    const loadMs = Math.round(now() - started);
+    publishDiagnostics({ status: 'FETCHED', attempt, contentLength, bytesLoaded: buffer.byteLength, fetchMs: loadMs });
+    return { buffer, loadMs, contentLength };
+  } catch (error) {
+    const reason = error?.name === 'AbortError' ? `GLB fetch timed out after ${timeoutMs}ms` : `${error?.name || 'Error'}: ${error?.message || 'GLB fetch failed'}`;
+    publishDiagnostics({ status: 'FETCH_FAILED', attempt, failureReason: reason, fetchMs: Math.round(now() - started) });
+    throw new Error(reason);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchAuthoredAsset(url) {
+  const attempts = [
+    { timeoutMs: 30_000, cache: 'force-cache' },
+    { timeoutMs: 45_000, cache: 'reload' },
+  ];
+  let lastError;
+  for (let i = 0; i < attempts.length; i += 1) {
+    try { return await fetchWithTimeout(url, { ...attempts[i], attempt: i + 1 }); }
+    catch (error) { lastError = error; }
+  }
+  throw lastError || new Error('Authored Operator download failed.');
+}
+
+async function parseGltf(GLTFLoader, buffer, url) {
+  const loader = new GLTFLoader();
+  const basePath = new URL('.', url).href;
+  const started = now();
+  publishDiagnostics({ status: 'PARSING' });
+  try {
+    const gltf = loader.parseAsync
+      ? await loader.parseAsync(buffer, basePath)
+      : await new Promise((resolve, reject) => loader.parse(buffer, basePath, resolve, reject));
+    publishDiagnostics({ status: 'PARSED', parseMs: Math.round(now() - started) });
+    return gltf;
+  } catch (error) {
+    const reason = `GLB parse failed: ${error?.message || error}`;
+    publishDiagnostics({ status: 'PARSE_FAILED', failureReason: reason, parseMs: Math.round(now() - started) });
+    throw new Error(reason);
+  }
 }
 
 function createClipController(THREE, gltf, asset) {
@@ -108,8 +184,33 @@ export async function installAuthoredOperator({ THREE, scene, debug = false } = 
   if (!operator) throw new Error('WisdoOperator physics root is unavailable.');
 
   const asset = AUTHORED_WORLD_ASSETS.defaultOperator;
-  const { GLTFLoader } = await import(GLTF_LOADER_MODULE_URL);
-  const gltf = await loadGltf(GLTFLoader, asset.url);
+  const startedAt = now();
+  publishDiagnostics({
+    renderer: 'PROCEDURAL_FALLBACK',
+    status: 'STARTING',
+    active: false,
+    assetId: asset.id,
+    assetUrl: asset.url,
+    source: asset.sourceRepository,
+    sourceCommit: asset.sourceCommit,
+    failureReason: null,
+    clips: [],
+  });
+
+  let GLTFLoader;
+  try {
+    const imported = await import(GLTF_LOADER_MODULE_URL);
+    GLTFLoader = imported.GLTFLoader;
+    if (!GLTFLoader) throw new Error('GLTFLoader export missing.');
+    publishDiagnostics({ status: 'LOADER_READY', loaderModuleUrl: GLTF_LOADER_MODULE_URL });
+  } catch (error) {
+    const reason = `GLTFLoader import failed: ${error?.message || error}`;
+    publishDiagnostics({ status: 'LOADER_FAILED', failureReason: reason, totalMs: Math.round(now() - startedAt) });
+    throw new Error(reason);
+  }
+
+  const download = await fetchAuthoredAsset(asset.url);
+  const gltf = await parseGltf(GLTFLoader, download.buffer, asset.url);
   if (!gltf?.scene) throw new Error('Authored Operator GLB did not contain a scene.');
 
   const mount = new THREE.Group();
@@ -118,6 +219,7 @@ export async function installAuthoredOperator({ THREE, scene, debug = false } = 
   model.name = 'WISDOAuthoredOperatorModel';
   model.rotation.y = asset.rotationY || 0;
   prepareMaterials(model);
+  const stats = collectModelStats(model);
   const scale = normalizeHumanScale(THREE, model, asset.targetHeightMeters);
   mount.add(model);
   mount.add(makeOperatorBadge(THREE));
@@ -139,13 +241,13 @@ export async function installAuthoredOperator({ THREE, scene, debug = false } = 
   operator.getWorldPosition(previousWorld);
   let destroyed = false;
   let frameId = 0;
-  let last = performance.now();
+  let last = now();
 
-  function frame(now) {
+  function frame(frameNow) {
     if (destroyed) return;
     frameId = requestAnimationFrame(frame);
-    const dt = Math.min(.05, Math.max(.001, (now - last) / 1000));
-    last = now;
+    const dt = Math.min(.05, Math.max(.001, (frameNow - last) / 1000));
+    last = frameNow;
     operator.getWorldPosition(currentWorld);
     const distance = currentWorld.distanceTo(previousWorld);
     const speed = clamp(distance / dt, 0, 12);
@@ -163,6 +265,19 @@ export async function installAuthoredOperator({ THREE, scene, debug = false } = 
   const avatarListener = () => hideFallbacks();
   window.addEventListener('wisdo:avatar.updated', avatarListener);
 
+  const successDiagnostics = publishDiagnostics({
+    renderer: 'AUTHORED_GLTF',
+    status: 'ACTIVE',
+    active: true,
+    loadMs: download.loadMs,
+    totalMs: Math.round(now() - startedAt),
+    bytesLoaded: download.buffer.byteLength,
+    scale,
+    clips: clips.clips,
+    ...stats,
+    failureReason: null,
+  });
+
   globalThis.WisdoAuthoredAssets = Object.freeze({
     operator: Object.freeze({
       active: true,
@@ -172,14 +287,16 @@ export async function installAuthoredOperator({ THREE, scene, debug = false } = 
       license: asset.license,
       scale,
       clips: clips.clips,
+      diagnostics: successDiagnostics,
     }),
   });
   document.documentElement.dataset.wisdoOperator = 'authored-glb';
-  if (debug) console.debug('[WISDO AUTHORED OPERATOR]', globalThis.WisdoAuthoredAssets.operator);
+  if (debug) console.debug('[WISDO AUTHORED OPERATOR]', successDiagnostics);
 
   return {
     active: true,
     assetId: asset.id,
+    diagnostics: successDiagnostics,
     destroy() {
       destroyed = true;
       cancelAnimationFrame(frameId);
@@ -198,6 +315,7 @@ export async function installAuthoredOperator({ THREE, scene, debug = false } = 
       for (const [child, visible] of previousVisibility) child.visible = visible;
       delete document.documentElement.dataset.wisdoOperator;
       delete globalThis.WisdoAuthoredAssets;
+      publishDiagnostics({ renderer: 'PROCEDURAL_FALLBACK', status: 'DESTROYED', active: false });
     },
   };
 }
