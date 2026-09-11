@@ -1,16 +1,21 @@
-import { WORLD_LOCATIONS } from './world-config.js';
+import { WORLD_LOCATIONS, chooseAutoQuality, getWorldCapabilities } from './world-config.js';
 import { createMarketBillboardManager } from './markets/market-billboard-manager.js';
 
 const DEG = Math.PI / 180;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
 function fidelityQuality() {
-  const coarse = matchMedia?.('(pointer: coarse)')?.matches;
-  const memory = Number(navigator.deviceMemory || 4);
-  const cores = Number(navigator.hardwareConcurrency || 4);
-  if (coarse || memory <= 4 || cores <= 4) return 'low';
-  if (memory >= 8 && cores >= 8 && devicePixelRatio <= 2) return 'high';
-  return 'medium';
+  const quality = globalThis.WisdoQualityDiagnostics?.activeQuality || chooseAutoQuality();
+  const capabilities = getWorldCapabilities();
+  globalThis.WisdoQualityDiagnostics = {
+    ...(globalThis.WisdoQualityDiagnostics || {}),
+    initialQuality: globalThis.WisdoQualityDiagnostics?.initialQuality || quality,
+    activeQuality: quality,
+    fidelityQuality: quality,
+    capabilities,
+    touchForcedLow: false,
+  };
+  return quality;
 }
 
 function disposeTree(root) {
