@@ -4,9 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
   <meta name="theme-color" content="#05080d">
-  <meta name="description" content="WISDO World — a playable third-person interface to the WISDO ecosystem.">
+  <meta name="description" content="WISDO World — a persistent Smart Home and third-person interface to the WISDO ecosystem.">
   <title>WISDO World</title>
   <link rel="stylesheet" href="/app/world/world.css">
+  <link rel="stylesheet" href="/app/world/home.css">
 </head>
 <body>
   <div id="loadingScreen" class="loading-screen" role="status" aria-live="polite">
@@ -19,7 +20,7 @@
   </div>
 
   <div id="app" class="world-shell" data-ready="false">
-    <main id="worldStage" class="world-stage" aria-label="WISDO World playable district">
+    <main id="worldStage" class="world-stage" aria-label="WISDO World playable environment">
       <div id="canvasMount" class="canvas-mount" aria-label="WISDO World 3D canvas"></div>
       <div id="liteMount" class="lite-mount" hidden></div>
       <div class="cinema-vignette" aria-hidden="true"></div>
@@ -35,7 +36,7 @@
           <button id="mapBtn" class="chip">Map</button>
           <button id="profileBtn" class="chip">Identity</button>
           <button id="settingsBtn" class="chip">Settings</button>
-          <a class="chip" href="/member/command-center" data-nav>Dashboard</a>
+          <a class="chip" href="/member/command-center" data-nav>Fast Mode</a>
         </nav>
         <div class="identity">
           <span id="tierBadge" class="tier">MEMBER</span>
@@ -44,7 +45,7 @@
       </header>
 
       <section id="firstRunHelp" class="first-run hud-panel" aria-label="World controls">
-        <span>WISDO CENTRAL</span>
+        <span>YOUR WISDO SMART HOME</span>
         <strong>WASD MOVE · MOUSE LOOK · SHIFT SPRINT · SPACE JUMP · E INTERACT</strong>
         <small>Click the world to engage camera control. Esc releases the mouse.</small>
       </section>
@@ -60,9 +61,9 @@
       </aside>
 
       <div id="proximity" class="proximity hud-panel" hidden>
-        <span id="nearKicker">DESTINATION</span>
-        <strong id="nearName">Trading Tower</strong>
-        <em id="nearHint">[E] ENTER</em>
+        <span id="nearKicker">SYSTEM</span>
+        <strong id="nearName">Smart Home</strong>
+        <em id="nearHint">[E] INTERACT</em>
       </div>
 
       <footer class="dock hud-panel" aria-label="WISDO navigation">
@@ -70,7 +71,7 @@
         <button id="dockMesh">⌁ <span>MESH</span></button>
         <button id="dockAchievements">◇ <span>PROGRESS</span></button>
         <a href="/pricing" data-nav>▣ <span>MARKET</span></a>
-        <a href="/member/command-center" data-nav>⚙ <span>COMMAND</span></a>
+        <a href="/member/command-center" data-nav>⚙ <span>FAST</span></a>
       </footer>
 
       <div id="mobileControls" class="mobile-controls" aria-label="Touch game controls">
@@ -79,7 +80,7 @@
         <div class="mobile-actions">
           <button id="sprintBtn" aria-label="Sprint">SPRINT</button>
           <button id="jumpBtn" aria-label="Jump">JUMP</button>
-          <button id="interactBtn" class="interact" aria-label="Interact" hidden>ENTER</button>
+          <button id="interactBtn" class="interact" aria-label="Interact" hidden>USE</button>
         </div>
       </div>
 
@@ -96,7 +97,7 @@
   </div>
 
   <div id="toast" class="toast hud-panel" hidden></div>
-  <noscript>WISDO World requires JavaScript. Use the WISDO dashboard to continue.</noscript>
-  <script type="module" src="/app/world/world.js"></script>
+  <noscript>WISDO World requires JavaScript. Use WISDO Fast Mode to continue.</noscript>
+  <script type="module" src="/app/world/world-v2.js"></script>
 </body>
 </html>
