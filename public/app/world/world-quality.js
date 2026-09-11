@@ -60,8 +60,8 @@ export function chooseQualityFromCapabilities(capabilities = {}) {
   if ((memory && memory <= 2) || (cores <= 2 && !webgl2) || renderPixels > 9_000_000) return 'low';
 
   if (touchLike) {
-    // Safari commonly does not expose deviceMemory. Unknown memory is not treated as 4 GB.
-    if (webgl2 && cores >= 6 && renderPixels <= 5_200_000 && (!memory || memory >= 6)) return 'high';
+    // Modern touch devices start at MEDIUM. Runtime telemetry may later reduce or raise quality.
+    // Safari commonly does not expose deviceMemory, so unknown memory is never treated as 4 GB.
     return 'medium';
   }
 
