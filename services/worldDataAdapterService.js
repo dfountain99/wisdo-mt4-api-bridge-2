@@ -20,6 +20,14 @@ function freshness(lastSyncAt) {
   return { state: 'offline', ageMs, stale: true };
 }
 
+function accountType(account = {}, snapshot = {}) {
+  const explicit = clean(account.accountType || account.type, 24).toUpperCase();
+  if (explicit) return explicit;
+  if (snapshot.isDemo === true) return 'DEMO';
+  if (snapshot.isDemo === false) return 'LIVE';
+  return 'UNKNOWN';
+}
+
 function normalizePosition(trade = {}) {
   return {
     ticket: trade.ticket ?? null,
@@ -43,14 +51,15 @@ function normalizePosition(trade = {}) {
 function normalizeAccount(account = {}, includePrivate = true) {
   const snapshot = account.latestSnapshot?.snapshot || account.snapshot || {};
   const lastSyncAt = account.lastSyncAt || account.latestSnapshot?.receivedAt || null;
+  const rawAccountNumber = account.mt4Login || account.accountNumber || snapshot.accountNumber;
   return {
     accountId: clean(account.accountId || account.id, 100),
     nickname: clean(account.nickname || account.accountName || snapshot.accountName || 'Trading Account', 80),
-    accountNumber: includePrivate ? clean(account.mt4Login || account.accountNumber || snapshot.accountNumber, 40) : maskAccount(account.mt4Login || account.accountNumber || snapshot.accountNumber),
-    accountNumberMasked: maskAccount(account.mt4Login || account.accountNumber || snapshot.accountNumber),
+    accountNumber: includePrivate ? clean(rawAccountNumber, 40) : maskAccount(rawAccountNumber),
+    accountNumberMasked: maskAccount(rawAccountNumber),
     broker: clean(account.brokerName || account.broker || snapshot.broker, 100),
     server: clean(account.brokerServer || account.server || snapshot.brokerServer, 120),
-    accountType: clean(account.accountType || account.type || (snapshot.isDemo ? 'DEMO' : 'LIVE'), 24).toUpperCase(),
+    accountType: accountType(account, snapshot),
     health: clean(account.health || account.status || 'UNKNOWN', 24).toUpperCase(),
     isPrimary: Boolean(account.isPrimary),
     shared: Boolean(account.shared),
@@ -63,8 +72,8 @@ function normalizeAccount(account = {}, includePrivate = true) {
     margin: finite(snapshot.margin, 0),
     freeMargin: finite(snapshot.freeMargin, 0),
     marginLevel: finite(snapshot.marginLevel, 0),
-    terminalConnected: snapshot.terminalConnected !== false,
-    expertEnabled: snapshot.expertEnabled !== false,
+    terminalConnected: typeof snapshot.terminalConnected === 'boolean' ? snapshot.terminalConnected : null,
+    expertEnabled: typeof snapshot.expertEnabled === 'boolean' ? snapshot.expertEnabled : null,
     openTradeCount: finite(snapshot.openTradeCount ?? (Array.isArray(snapshot.openTrades) ? snapshot.openTrades.length : 0), 0),
   };
 }
@@ -106,17 +115,23 @@ export class WorldDataAdapterService {
 
   async snapshot(userId, { includePrivate = true } = {}) {
     const accounts = await this.accountsFor(userId);
-    const activeRaw = accounts.find((item) => item.isPrimary) || accounts[0] || null;
+    // Never guess the active account from list order. The existing WISDO account
+    // selection service persists an explicit primary account and remains authoritative.
+    const activeRaw = accounts.find((item) => item.isPrimary) || null;
     const activeAccount = activeRaw ? normalizeAccount(activeRaw, includePrivate) : null;
     const liveSnapshot = activeRaw?.latestSnapshot?.snapshot || activeRaw?.snapshot || {};
-    const positions = (Array.isArray(liveSnapshot.openTrades) ? liveSnapshot.openTrades : []).slice(0, 100).map(normalizePosition);
+    const positions = activeRaw && Array.isArray(liveSnapshot.openTrades)
+      ? liveSnapshot.openTrades.slice(0, 100).map(normalizePosition)
+      : [];
     let history = [];
-    try {
-      history = this.mt4SyncService?.getSnapshotHistory
-        ? normalizeHistory(await this.mt4SyncService.getSnapshotHistory(String(userId), 40))
-        : [];
-    } catch (error) {
-      this.logger?.warn?.('WISDO World history adapter could not load snapshot history.', { message: error.message });
+    if (activeRaw) {
+      try {
+        history = this.mt4SyncService?.getSnapshotHistory
+          ? normalizeHistory(await this.mt4SyncService.getSnapshotHistory(String(userId), 40))
+          : [];
+      } catch (error) {
+        this.logger?.warn?.('WISDO World history adapter could not load snapshot history.', { message: error.message });
+      }
     }
     const publicAccounts = accounts.map((account) => normalizeAccount(account, includePrivate));
     const reporters = publicAccounts.map((account) => ({
@@ -153,7 +168,8 @@ export class WorldDataAdapterService {
         stale: reporters.filter((item) => item.status === 'stale' || item.status === 'degraded').length,
         offline: reporters.filter((item) => item.status === 'offline' || item.status === 'disconnected').length,
       },
-      selectedSymbol: clean(liveSnapshot.symbol || positions[0]?.symbol || '', 32),
+      selectedSymbol: activeRaw ? clean(liveSnapshot.symbol || positions[0]?.symbol || '', 32) : '',
+      activeAccountRequired: accounts.length > 0 && !activeRaw,
       source: 'authorized-wisdo-services',
       executionFromWorldEnabled: false,
       generatedAt: new Date().toISOString(),
