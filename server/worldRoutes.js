@@ -3,7 +3,10 @@ import express from 'express';
 
 import { getSessionUser } from './security.js';
 import { createWisdoPhase1Repository, ensureWisdoPhase1State } from '../services/repositories/wisdoPhase1Repository.js';
+import { WorldDataAdapterService } from '../services/worldDataAdapterService.js';
 
+const WORLD_VERSION = '2.0.0-smart-home';
+const HOME_SCHEMA_VERSION = 1;
 const WORLD_TIERS = Object.freeze([
   { key: 'member', label: 'Member', level: 0 },
   { key: 'sovereign', label: 'Sovereign', level: 1 },
@@ -27,7 +30,22 @@ const WORLD_DESTINATIONS = Object.freeze([
   { id: 'war-room', name: 'War Room', short: 'OPERATE', minLevel: 3, route: '/member/admin-wisdo', icon: '◆', x: 34, y: 8, description: 'High-authority WISDO operations. Existing role gates remain authoritative.' },
 ]);
 
+const HOME_ROOMS = Object.freeze([
+  { id: 'foyer', name: 'Entry Foyer', purpose: 'Identity, arrival summary, privacy status, and notifications.' },
+  { id: 'living-hub', name: 'Central Smart Living Hub', purpose: 'Coach, account summary, primary chart, city view, and quick navigation.' },
+  { id: 'trading-room', name: 'Trading Room', purpose: 'Live positions, floating P/L, market context, and account-aware inspection.' },
+  { id: 'reporter-room', name: 'Reporter / System Room', purpose: 'Reporter Mesh, connection health, linked platforms, and infrastructure state.' },
+  { id: 'performance-room', name: 'Performance Room', purpose: 'Equity history, trading analytics, comparisons, and campaign review.' },
+  { id: 'account-vault', name: 'Account Vault', purpose: 'Authorized account switching and account identity.' },
+  { id: 'growth-room', name: 'Growth Room', purpose: 'XP, education, levels, achievements, and unlocked access.' },
+  { id: 'trophy-room', name: 'Trophy Room', purpose: 'Persistent milestones and selected achievements.' },
+  { id: 'wardrobe', name: 'Identity / Wardrobe', purpose: 'Avatar identity and supported cosmetic choices.' },
+]);
+
 const AVATAR_STYLES = new Set(['vanguard', 'architect', 'sentinel', 'scholar']);
+const HOME_THEMES = new Set(['obsidian', 'midnight', 'glass', 'warm-modern']);
+const HOME_VISIBILITY = new Set(['private', 'friends', 'invite_only', 'public']);
+const FINANCIAL_VISIBILITY = new Set(['owner_only', 'hidden_when_visitors', 'authorized_visitors']);
 
 function nowIso() {
   return new Date().toISOString();
@@ -81,6 +99,7 @@ export function resolveWorldTier(user = {}, state = {}) {
 function ensureWorldState(state = {}) {
   const next = ensureWisdoPhase1State(state);
   next.worldProfilesByUserId ||= {};
+  next.worldHomesByUserId ||= {};
   next.worldEntitlementsByUserId ||= {};
   next.worldAuditLogsById ||= {};
   return next;
@@ -88,6 +107,7 @@ function ensureWorldState(state = {}) {
 
 function defaultProfile(user = {}) {
   return {
+    schemaVersion: 1,
     userId: String(user.id),
     callsign: clean(user.global_name || user.globalName || user.username || 'Operator', 48) || 'Operator',
     title: 'World Explorer',
@@ -95,6 +115,7 @@ function defaultProfile(user = {}) {
     xp: 0,
     visitedDestinations: [],
     achievements: [],
+    spawnPreference: 'home',
     createdAt: nowIso(),
     updatedAt: nowIso(),
   };
@@ -102,15 +123,64 @@ function defaultProfile(user = {}) {
 
 function profileFor(state, user) {
   const key = String(user.id);
-  const existing = state.worldProfilesByUserId[key];
-  if (!existing) {
-    state.worldProfilesByUserId[key] = defaultProfile(user);
-  }
+  if (!state.worldProfilesByUserId[key]) state.worldProfilesByUserId[key] = defaultProfile(user);
   const profile = state.worldProfilesByUserId[key];
+  profile.schemaVersion ||= 1;
+  profile.spawnPreference ||= 'home';
   if (!Array.isArray(profile.visitedDestinations)) profile.visitedDestinations = [];
   if (!Array.isArray(profile.achievements)) profile.achievements = [];
   if (!Number.isFinite(Number(profile.xp))) profile.xp = 0;
   return profile;
+}
+
+function defaultHome(user = {}) {
+  const userId = String(user.id);
+  return {
+    schemaVersion: HOME_SCHEMA_VERSION,
+    homeId: `home:${userId}`,
+    ownerUserId: userId,
+    tier: 'starter_residence',
+    template: 'operator-house-v1',
+    displayName: 'WISDO Starter Residence',
+    spawn: { roomId: 'foyer', x: 0, y: 0, z: 10.5, yaw: Math.PI },
+    unlockedRooms: HOME_ROOMS.map((room) => room.id),
+    roomLayoutVersion: 1,
+    cosmetics: {
+      theme: 'obsidian',
+      accent: 'cyan-gold',
+      chartWallMode: 'active_account',
+      displayedTrophyIds: [],
+    },
+    privacy: {
+      homeVisibility: 'private',
+      financialVisibility: 'owner_only',
+      showAccountNumbers: false,
+      showTradeSizeToVisitors: false,
+    },
+    preferences: {
+      greetingEnabled: true,
+      primaryRoom: 'living-hub',
+      primaryChartSymbol: '',
+    },
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+  };
+}
+
+function homeFor(state, user) {
+  const key = String(user.id);
+  if (!state.worldHomesByUserId[key]) state.worldHomesByUserId[key] = defaultHome(user);
+  const home = state.worldHomesByUserId[key];
+  home.schemaVersion ||= HOME_SCHEMA_VERSION;
+  home.ownerUserId = key;
+  home.homeId ||= `home:${key}`;
+  home.tier ||= 'starter_residence';
+  home.template ||= 'operator-house-v1';
+  if (!Array.isArray(home.unlockedRooms)) home.unlockedRooms = HOME_ROOMS.map((room) => room.id);
+  home.cosmetics ||= defaultHome(user).cosmetics;
+  home.privacy ||= defaultHome(user).privacy;
+  home.preferences ||= defaultHome(user).preferences;
+  return home;
 }
 
 function grantsFor(state, userId) {
@@ -130,81 +200,111 @@ function destinationAccess(state, user, profile) {
   }));
 }
 
-function publicAccount(account = {}) {
-  return {
-    accountId: clean(account.accountId || account.id || account.linkId, 100),
-    accountNumber: clean(account.accountNumber || account.login, 80),
-    nickname: clean(account.nickname || account.accountName || account.name, 100),
-    broker: clean(account.broker, 100),
-    server: clean(account.server || account.brokerServer, 120),
-    platform: clean(account.platform || 'MT4', 16),
-    accountType: clean(account.accountType || account.type, 30),
-    status: clean(account.status || 'unknown', 40),
-    lastSyncAt: account.lastSyncAt || account.updatedAt || account.receivedAt || null,
-  };
-}
-
-async function getAccounts(mt4SyncService, userId) {
-  const repository = mt4SyncService?.repository;
-  if (!repository) return [];
-  if (typeof repository.getAccessibleMt4Accounts === 'function') {
-    const rows = await repository.getAccessibleMt4Accounts(String(userId));
-    return (Array.isArray(rows) ? rows : []).map(publicAccount);
-  }
-  return [];
-}
-
-function reporterNodeFromAccount(account) {
-  const seenAt = account.lastSyncAt ? new Date(account.lastSyncAt).getTime() : 0;
-  const online = Number.isFinite(seenAt) && seenAt > 0 && Date.now() - seenAt < 180_000;
-  return {
-    id: `reporter:${account.accountId || account.accountNumber || 'unknown'}`,
-    tradingAccountId: account.accountId,
-    name: account.nickname || `${account.platform} ${account.accountNumber}`,
+function reporterMeshFromLive(live = {}) {
+  const accounts = Array.isArray(live.accounts) ? live.accounts : [];
+  const nodes = (Array.isArray(live.reporters) ? live.reporters : []).map((node) => ({
+    id: node.id,
+    tradingAccountId: node.accountId,
+    name: node.name,
     type: 'MT_REPORTER',
-    status: online ? 'online' : account.status || 'offline',
-    lastSeen: account.lastSyncAt,
+    status: node.status === 'live' ? 'online' : node.status,
+    lastSeen: node.lastSeenAt,
+    latencyMs: node.latencyMs,
+    terminalConnected: node.terminalConnected,
+    expertEnabled: node.expertEnabled,
     canReport: true,
     canReceiveSignals: true,
     canExecuteTrades: false,
+  }));
+  return {
+    accounts,
+    nodes,
+    routes: [],
+    summary: {
+      accounts: accounts.length,
+      nodes: nodes.length,
+      onlineNodes: nodes.filter((node) => node.status === 'online').length,
+      executionRoutes: 0,
+      executableRoutes: 0,
+    },
+    safetyNotice: 'WISDO World reads authorized Reporter state. Trade execution remains outside the World presentation layer.',
   };
 }
 
-function worldSnapshot(state, user, profile, accounts) {
+function growthSummary(state, userId, profile) {
+  const lessons = Object.values(state.lessonProgressByUserId?.[String(userId)] || {});
+  const completedLessons = lessons.filter((item) => String(item?.status || '').toLowerCase() === 'completed').length;
+  return {
+    level: Math.max(1, Math.floor(Number(profile.xp || 0) / 250) + 1),
+    xp: Number(profile.xp || 0),
+    achievements: Array.isArray(profile.achievements) ? profile.achievements : [],
+    education: { completedLessons, totalTrackedLessons: lessons.length },
+  };
+}
+
+function unreadNotificationCount(state, userId) {
+  const rows = state.notificationsByUserId?.[String(userId)] || [];
+  return (Array.isArray(rows) ? rows : []).filter((item) => !item?.readAt && String(item?.status || 'unread').toLowerCase() !== 'read').length;
+}
+
+function homeRuntime(home, live, growth, state, userId) {
+  return {
+    instanceId: `${home.homeId}:private`,
+    instanceType: 'private_home',
+    template: home.template,
+    rooms: HOME_ROOMS.filter((room) => home.unlockedRooms.includes(room.id)),
+    live: {
+      account: live.activeAccount,
+      financial: live.financial,
+      positions: live.positions,
+      history: live.history,
+      reporters: live.reporters,
+      reporterSummary: live.reporterSummary,
+      selectedSymbol: live.selectedSymbol,
+      stale: Boolean(live.activeAccount?.freshness?.stale),
+      generatedAt: live.generatedAt,
+    },
+    growth,
+    coach: {
+      available: true,
+      route: '/member/wisdo',
+      executionFromWorldEnabled: false,
+    },
+    notifications: { unread: unreadNotificationCount(state, userId), route: '/member/home' },
+    cityExit: { scene: 'wisdo-central', route: '/world/?scene=central' },
+    fastMode: { route: '/member/home' },
+  };
+}
+
+async function worldSnapshot({ state, user, profile, home, dataAdapter }) {
   const tier = resolveWorldTier(user, state);
   const destinations = destinationAccess(state, user, profile);
-  const nodes = accounts.map(reporterNodeFromAccount);
+  const live = await dataAdapter.snapshot(user.id, { includePrivate: true });
+  const mesh = reporterMeshFromLive(live);
+  const growth = growthSummary(state, user.id, profile);
   return {
     ok: true,
+    version: WORLD_VERSION,
     member: {
       id: String(user.id),
       username: clean(user.username || user.global_name || user.globalName, 80),
     },
-    worldProfile: {
-      ...profile,
-      level: Math.max(1, Math.floor(Number(profile.xp || 0) / 250) + 1),
-    },
+    worldProfile: { ...profile, level: growth.level },
+    home,
+    homeRuntime: homeRuntime(home, live, growth, state, user.id),
+    worldData: live,
+    growth,
     access: {
       tierKey: tier.key,
       worldLabel: tier.label,
       level: tier.level,
       destinations,
     },
-    mesh: {
-      accounts,
-      nodes,
-      routes: [],
-      summary: {
-        accounts: accounts.length,
-        nodes: nodes.length,
-        onlineNodes: nodes.filter((node) => node.status === 'online').length,
-        executionRoutes: 0,
-        executableRoutes: 0,
-      },
-      safetyNotice: 'WISDO World observes existing linked accounts. Trade execution is not enabled from the World layer.',
-    },
+    mesh,
+    scene: profile.spawnPreference === 'central' ? 'central' : 'home',
     persistence: 'wisdo-phase-1-repository',
-    updatedAt: profile.updatedAt,
+    executionFromWorldEnabled: false,
+    updatedAt: nowIso(),
   };
 }
 
@@ -230,18 +330,63 @@ function requireWorldUser(req, res, next) {
   next();
 }
 
+function addWorldAudit(state, userId, action, data = {}) {
+  const id = `world_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
+  state.worldAuditLogsById[id] = { id, userId: String(userId), action, data, createdAt: nowIso() };
+  return id;
+}
+
+async function ensureMemberContext(repository, user) {
+  let context = null;
+  const current = ensureWorldState(await repository.loadState());
+  const key = String(user.id);
+  if (current.worldProfilesByUserId[key] && current.worldHomesByUserId[key]) {
+    return { state: current, profile: profileFor(current, user), home: homeFor(current, user) };
+  }
+  await repository.updateState((raw) => {
+    const state = ensureWorldState(raw);
+    const profile = profileFor(state, user);
+    const home = homeFor(state, user);
+    addWorldAudit(state, user.id, 'world.home.initialized', { homeId: home.homeId, template: home.template });
+    context = { state, profile, home };
+    return state;
+  });
+  return context;
+}
+
+function applyHomeUpdate(home, body = {}) {
+  const theme = clean(body.theme ?? body.cosmetics?.theme, 32).toLowerCase();
+  if (theme && HOME_THEMES.has(theme)) home.cosmetics.theme = theme;
+  const accent = clean(body.accent ?? body.cosmetics?.accent, 40);
+  if (accent) home.cosmetics.accent = accent;
+  const primaryChartSymbol = clean(body.primaryChartSymbol ?? body.preferences?.primaryChartSymbol, 32).toUpperCase();
+  if (primaryChartSymbol) home.preferences.primaryChartSymbol = primaryChartSymbol;
+  if (Array.isArray(body.displayedTrophyIds ?? body.cosmetics?.displayedTrophyIds)) {
+    home.cosmetics.displayedTrophyIds = [...new Set((body.displayedTrophyIds ?? body.cosmetics.displayedTrophyIds).map((item) => clean(item, 100)).filter(Boolean))].slice(0, 24);
+  }
+  const homeVisibility = clean(body.homeVisibility ?? body.privacy?.homeVisibility, 32).toLowerCase();
+  if (HOME_VISIBILITY.has(homeVisibility)) home.privacy.homeVisibility = homeVisibility;
+  const financialVisibility = clean(body.financialVisibility ?? body.privacy?.financialVisibility, 40).toLowerCase();
+  if (FINANCIAL_VISIBILITY.has(financialVisibility)) home.privacy.financialVisibility = financialVisibility;
+  if (typeof (body.showAccountNumbers ?? body.privacy?.showAccountNumbers) === 'boolean') home.privacy.showAccountNumbers = Boolean(body.showAccountNumbers ?? body.privacy.showAccountNumbers);
+  if (typeof (body.greetingEnabled ?? body.preferences?.greetingEnabled) === 'boolean') home.preferences.greetingEnabled = Boolean(body.greetingEnabled ?? body.preferences.greetingEnabled);
+  home.updatedAt = nowIso();
+  return home;
+}
+
 export function worldCatalog() {
   return {
     ok: true,
-    version: '1.0.0-native',
+    version: WORLD_VERSION,
+    architecture: 'persistent-smart-home-civilization',
+    defaultSpawn: 'home',
+    homeSchemaVersion: HOME_SCHEMA_VERSION,
+    homeRooms: HOME_ROOMS,
     tiers: WORLD_TIERS,
-    destinations: WORLD_DESTINATIONS.map((item) => ({
-      ...item,
-      minTier: WORLD_TIERS.find((tier) => tier.level === item.minLevel)?.label || 'Member',
-    })),
+    destinations: WORLD_DESTINATIONS.map((item) => ({ ...item, minTier: WORLD_TIERS.find((tier) => tier.level === item.minLevel)?.label || 'Member' })),
     billingConnected: false,
     executionFromWorldEnabled: false,
-    note: 'World access is derived from the existing WISDO identity and entitlement state. Existing server-side route guards remain authoritative.',
+    note: 'World, Fast Mode, MT4 Reporter data, identity, and entitlements share existing WISDO services. The World layer does not own financial truth or execution authority.',
   };
 }
 
@@ -253,6 +398,7 @@ export function registerWisdoWorldRoutes(app, {
 } = {}) {
   if (!app?.get || !app?.post || !app?.use) throw new TypeError('Express app is required.');
   const repository = createWisdoPhase1Repository(config);
+  const dataAdapter = new WorldDataAdapterService({ mt4SyncService, logger });
   const worldRoot = path.join(publicRoot, 'app', 'world');
   const indexFile = path.join(worldRoot, 'index.html');
 
@@ -263,21 +409,44 @@ export function registerWisdoWorldRoutes(app, {
     res.setHeader('X-Wisdo-Workspace', 'world');
     res.sendFile(indexFile);
   });
-  app.use('/world/assets', express.static(worldRoot, {
-    index: false,
-    redirect: false,
-    fallthrough: true,
-    maxAge: '1h',
-  }));
+  app.use('/world/assets', express.static(worldRoot, { index: false, redirect: false, fallthrough: true, maxAge: '1h' }));
 
   app.get('/api/world/catalog', (_req, res) => res.json(worldCatalog()));
 
-  app.get('/api/world/me', requireWorldUser, async (req, res, next) => {
+  const sendMemberState = async (req, res, next) => {
     try {
-      const state = ensureWorldState(await repository.loadState());
-      const profile = profileFor(state, req.worldUser);
-      const accounts = await getAccounts(mt4SyncService, req.worldUser.id);
-      res.json(worldSnapshot(state, req.worldUser, profile, accounts));
+      const { state, profile, home } = await ensureMemberContext(repository, req.worldUser);
+      res.json(await worldSnapshot({ state, user: req.worldUser, profile, home, dataAdapter }));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  app.get('/api/world/me', requireWorldUser, sendMemberState);
+  app.get('/api/world/state', requireWorldUser, sendMemberState);
+
+  app.get('/api/world/home', requireWorldUser, async (req, res, next) => {
+    try {
+      const { state, profile, home } = await ensureMemberContext(repository, req.worldUser);
+      const snapshot = await worldSnapshot({ state, user: req.worldUser, profile, home, dataAdapter });
+      res.json({ ok: true, home: snapshot.home, runtime: snapshot.homeRuntime, worldProfile: snapshot.worldProfile, access: snapshot.access });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/world/home', requireWorldUser, async (req, res, next) => {
+    try {
+      let captured;
+      await repository.updateState((raw) => {
+        const state = ensureWorldState(raw);
+        const profile = profileFor(state, req.worldUser);
+        const home = applyHomeUpdate(homeFor(state, req.worldUser), req.body || {});
+        addWorldAudit(state, req.worldUser.id, 'world.home.updated', { theme: home.cosmetics.theme, privacy: home.privacy, primaryChartSymbol: home.preferences.primaryChartSymbol });
+        captured = { state, profile, home };
+        return state;
+      });
+      res.json(await worldSnapshot({ ...captured, user: req.worldUser, dataAdapter }));
     } catch (error) {
       next(error);
     }
@@ -285,22 +454,28 @@ export function registerWisdoWorldRoutes(app, {
 
   app.get('/api/world/mesh', requireWorldUser, async (req, res, next) => {
     try {
-      const accounts = await getAccounts(mt4SyncService, req.worldUser.id);
-      const nodes = accounts.map(reporterNodeFromAccount);
-      res.json({
-        ok: true,
-        accounts,
-        nodes,
-        routes: [],
-        summary: {
-          accounts: accounts.length,
-          nodes: nodes.length,
-          onlineNodes: nodes.filter((node) => node.status === 'online').length,
-          executionRoutes: 0,
-          executableRoutes: 0,
-        },
-        safetyNotice: 'Existing account/reporting state is visible here. Execution authority remains in the established WISDO command and MT4 services.',
+      const live = await dataAdapter.snapshot(req.worldUser.id, { includePrivate: true });
+      res.json({ ok: true, ...reporterMeshFromLive(live) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/world/account/select', requireWorldUser, async (req, res, next) => {
+    try {
+      const accountId = clean(req.body?.accountId, 120);
+      if (!accountId) return res.status(400).json({ ok: false, error: 'accountId is required.' });
+      await dataAdapter.selectAccount(req.worldUser.id, accountId);
+      let captured;
+      await repository.updateState((raw) => {
+        const state = ensureWorldState(raw);
+        const profile = profileFor(state, req.worldUser);
+        const home = homeFor(state, req.worldUser);
+        addWorldAudit(state, req.worldUser.id, 'world.account.selected', { accountId });
+        captured = { state, profile, home };
+        return state;
       });
+      res.json(await worldSnapshot({ ...captured, user: req.worldUser, dataAdapter }));
     } catch (error) {
       next(error);
     }
@@ -314,19 +489,20 @@ export function registerWisdoWorldRoutes(app, {
       if (!callsign || !title || !AVATAR_STYLES.has(avatarStyle)) {
         return res.status(400).json({ ok: false, error: 'Valid callsign, title, and avatarStyle are required.' });
       }
-      let snapshot;
-      await repository.updateState(async (raw) => {
+      let captured;
+      await repository.updateState((raw) => {
         const state = ensureWorldState(raw);
         const profile = profileFor(state, req.worldUser);
+        const home = homeFor(state, req.worldUser);
         profile.callsign = callsign;
         profile.title = title;
         profile.avatarStyle = avatarStyle;
         profile.updatedAt = nowIso();
-        const accounts = await getAccounts(mt4SyncService, req.worldUser.id);
-        snapshot = worldSnapshot(state, req.worldUser, profile, accounts);
+        addWorldAudit(state, req.worldUser.id, 'world.profile.updated', { callsign, title, avatarStyle });
+        captured = { state, profile, home };
         return state;
       });
-      res.json(snapshot);
+      res.json(await worldSnapshot({ ...captured, user: req.worldUser, dataAdapter }));
     } catch (error) {
       next(error);
     }
@@ -337,11 +513,11 @@ export function registerWisdoWorldRoutes(app, {
       const destinationId = clean(req.body?.destinationId, 80);
       const destination = WORLD_DESTINATIONS.find((item) => item.id === destinationId);
       if (!destination) return res.status(400).json({ ok: false, error: 'Unknown destination.' });
-
       let result;
-      await repository.updateState(async (raw) => {
+      await repository.updateState((raw) => {
         const state = ensureWorldState(raw);
         const profile = profileFor(state, req.worldUser);
+        const home = homeFor(state, req.worldUser);
         const access = destinationAccess(state, req.worldUser, profile).find((item) => item.id === destinationId);
         if (!access?.unlocked) {
           result = { denied: true, access };
@@ -353,22 +529,13 @@ export function registerWisdoWorldRoutes(app, {
           profile.xp = Number(profile.xp || 0) + 50;
           profile.updatedAt = nowIso();
         }
-        state.worldAuditLogsById[`world_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`] = {
-          userId: String(req.worldUser.id),
-          action: 'world.destination.visited',
-          destinationId,
-          firstVisit,
-          createdAt: nowIso(),
-        };
-        const accounts = await getAccounts(mt4SyncService, req.worldUser.id);
-        result = { firstVisit, xpAwarded: firstVisit ? 50 : 0, state: worldSnapshot(state, req.worldUser, profile, accounts) };
+        addWorldAudit(state, req.worldUser.id, 'world.destination.visited', { destinationId, firstVisit });
+        result = { firstVisit, xpAwarded: firstVisit ? 50 : 0, state, profile, home };
         return state;
       });
-
-      if (result?.denied) {
-        return res.status(403).json({ ok: false, error: `Requires ${result.access?.minTier || 'higher'} access.`, access: result.access });
-      }
-      res.json({ ok: true, ...result });
+      if (result?.denied) return res.status(403).json({ ok: false, error: `Requires ${result.access?.minTier || 'higher'} access.`, access: result.access });
+      const snapshot = await worldSnapshot({ state: result.state, user: req.worldUser, profile: result.profile, home: result.home, dataAdapter });
+      res.json({ ok: true, firstVisit: result.firstVisit, xpAwarded: result.xpAwarded, state: snapshot });
     } catch (error) {
       next(error);
     }
@@ -377,7 +544,7 @@ export function registerWisdoWorldRoutes(app, {
   app.get('/health/world', async (_req, res) => {
     try {
       await repository.loadState();
-      res.json({ ok: true, service: 'wisdo-world', version: '1.0.0-native', staticRoot: '/world/', executionFromWorldEnabled: false });
+      res.json({ ok: true, service: 'wisdo-world', version: WORLD_VERSION, architecture: 'smart-home-first', staticRoot: '/world/', executionFromWorldEnabled: false });
     } catch (error) {
       logger?.error?.('WISDO World health check failed.', { message: error.message });
       res.status(503).json({ ok: false, service: 'wisdo-world', error: error.message });
@@ -387,6 +554,8 @@ export function registerWisdoWorldRoutes(app, {
   return {
     route: '/world/',
     api: '/api/world',
+    defaultSpawn: 'home',
+    architecture: 'persistent-smart-home-civilization',
     executionFromWorldEnabled: false,
   };
 }
