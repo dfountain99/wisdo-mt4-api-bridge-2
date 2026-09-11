@@ -55,6 +55,65 @@ function sseWrite(res, envelope) {
   res.flush?.();
 }
 
+function enrichConfirmedSignal(signal = {}, input = {}) {
+  const trade = input?.trade || {};
+  return {
+    ...signal,
+    tradeTimestamp: trade.openTime || signal.tradeTimestamp || signal.createdAt,
+    openTime: trade.openTime || signal.openTime || null,
+    magicNumber: trade.magicNumber ?? signal.magicNumber ?? null,
+    strategyName: trade.comment || input.strategyName || signal.strategyName || signal.eaName || 'WISDO Bot',
+    strategyId: input.strategyId || trade.magicNumber || signal.strategyId || '',
+    campaignId: input.campaignId || signal.campaignId || '',
+    signalType: input.signalType || signal.signalType || '',
+    worldVisibility: input.worldVisibility || signal.worldVisibility || signal.visibility || 'ACCOUNT_OWNER',
+    audienceUserIds: Array.isArray(input.audienceUserIds) ? input.audienceUserIds : signal.audienceUserIds,
+    requiredEntitlement: input.requiredEntitlement || signal.requiredEntitlement || '',
+  };
+}
+
+export function installConfirmedTradeBridge(source, eventEngine, logger = console) {
+  if (!source || !eventEngine || source.__wisdoWorldEventBridgeInstalled) return false;
+  Object.defineProperty(source, '__wisdoWorldEventBridgeInstalled', { value: true, configurable: true });
+
+  if (typeof source.createSignalsBatch === 'function') {
+    const original = source.createSignalsBatch.bind(source);
+    source.createSignalsBatch = async (inputs = [], ...args) => {
+      const signals = await original(inputs, ...args);
+      const normalizedInputs = Array.isArray(inputs) ? inputs : [];
+      const enriched = (Array.isArray(signals) ? signals : []).map((signal, index) => {
+        const sourceTicket = String(signal?.sourceTicket || '');
+        const input = normalizedInputs.find((candidate) => String(candidate?.trade?.ticket || '') === sourceTicket) || normalizedInputs[index] || {};
+        return enrichConfirmedSignal(signal, input);
+      });
+      await eventEngine.ingestCreatedBatch(enriched).catch((error) => logger?.warn?.('World confirmed signal batch ingestion failed.', { message: error.message }));
+      return signals;
+    };
+  }
+
+  if (typeof source.createSignal === 'function') {
+    const original = source.createSignal.bind(source);
+    source.createSignal = async (input = {}, ...args) => {
+      const signal = await original(input, ...args);
+      if (signal) {
+        const enriched = enrichConfirmedSignal(signal, input);
+        await eventEngine.ingestCreated(enriched).catch((error) => logger?.warn?.('World confirmed signal ingestion failed.', { signalId: signal.signalId, message: error.message }));
+      }
+      return signal;
+    };
+  }
+
+  if (typeof source.queueSignalClosuresBatch === 'function') {
+    const original = source.queueSignalClosuresBatch.bind(source);
+    source.queueSignalClosuresBatch = (events = [], ...args) => {
+      eventEngine.ingestClosedBatch(events).catch((error) => logger?.warn?.('World confirmed signal close ingestion failed.', { message: error.message }));
+      return original(events, ...args);
+    };
+  }
+
+  return true;
+}
+
 export function registerWorldLivingIdentityRoutes(app, {
   config = {},
   logger = console,
@@ -66,7 +125,8 @@ export function registerWorldLivingIdentityRoutes(app, {
   const eventEngine = new WorldEventEngineService({ repository, logger });
   const avatarIdentity = new WorldAvatarIdentityService({ repository, eventEngine, logger });
   const tradeSignalService = mt4SyncService?.tradeSignalService || null;
-  eventEngine.start({ tradeSignalService }).catch((error) => logger?.error?.('WISDO World Event Engine failed to initialize.', { message: error.message }));
+  installConfirmedTradeBridge(tradeSignalService, eventEngine, logger);
+  eventEngine.start().catch((error) => logger?.error?.('WISDO World Event Engine failed to initialize.', { message: error.message }));
 
   const scanFile = path.join(publicRoot, 'app', 'world', 'avatar-scan.html');
   app.get('/world/avatar-scan', (_req, res) => {
