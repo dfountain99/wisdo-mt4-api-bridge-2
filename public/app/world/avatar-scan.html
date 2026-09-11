@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#05080d">
+  <meta name="referrer" content="no-referrer">
+  <title>WISDO Operator Scan</title>
+  <link rel="stylesheet" href="/app/world/world.css">
+  <link rel="stylesheet" href="/app/world/living.css">
+</head>
+<body class="avatar-scan-page">
+  <main class="scan-page-shell">
+    <section class="scan-card hud-panel">
+      <div class="scan-brand"><span class="brand-mark">W</span><div><b>WISDO</b><small>OPERATOR IDENTITY</small></div></div>
+      <div id="scanBody">
+        <span class="modal-kicker">SECURE PHONE HANDOFF</span>
+        <h1>CREATE YOUR WISDO OPERATOR</h1>
+        <p>WISDO can use this camera to help shape your avatar. Camera frames stay on this device and are not uploaded by this first-party capture flow. Only approved avatar parameters and capture-quality metadata are sent back to your original WISDO session.</p>
+        <p>This is avatar creation, not facial-recognition authentication. Face scanning is optional.</p>
+        <div class="privacy-grid">
+          <span>RAW CAPTURE STORED <strong>NO</strong></span>
+          <span>LOGIN ACCESS GRANTED <strong>NO</strong></span>
+          <span>SENSITIVE TRAIT INFERENCE <strong>NO</strong></span>
+        </div>
+        <div class="modal-actions"><button id="continueBtn" class="action primary">Continue With Camera</button><button id="manualBtn" class="action">Build Manually</button></div>
+      </div>
+      <p id="scanStatus" class="scan-status">Waiting for secure capture session…</p>
+    </section>
+  </main>
+
+  <script type="module">
+    import { runGuidedOperatorCapture } from '/app/world/avatar-capture.js';
+
+    const body = document.getElementById('scanBody');
+    const status = document.getElementById('scanStatus');
+    const params = new URLSearchParams(location.hash.replace(/^#/, ''));
+    let token = params.get('token') || '';
+    history.replaceState({}, '', location.pathname + location.search);
+    if (!token) {
+      status.textContent = 'This scan link is missing its one-time token. Return to the WISDO Identity Mirror and create a new phone scan.';
+      document.getElementById('continueBtn').disabled = true;
+      document.getElementById('manualBtn').disabled = true;
+    } else {
+      status.textContent = 'One-time avatar session ready. It does not grant general account access.';
+    }
+
+    const esc = (value = '') => String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+
+    function editor(seed = {}, quality = {}) {
+      const morph = seed.morphParameters || {};
+      body.innerHTML = `
+        <span class="modal-kicker">OPERATOR APPEARANCE</span>
+        <h1>CONFIRM YOUR LOOK</h1>
+        <p>WISDO does not infer your body, race, health, personality, religion, or other sensitive traits from your face. You control these avatar choices.</p>
+        <form id="avatarEditor" class="operator-editor">
+          <label>HEAD SHAPE<select name="headPreset">${['standard','soft','angular','oval','round'].map(v=>`<option value="${v}" ${v === (seed.headPreset || 'standard') ? 'selected' : ''}>${v.toUpperCase()}</option>`).join('')}</select></label>
+          <label>SKIN MATERIAL<select name="skinMaterial">${Array.from({length:8},(_,i)=>`<option value="neutral-${i+1}" ${i+1===4?'selected':''}>MATERIAL ${i+1}</option>`).join('')}</select></label>
+          <label>HAIR<select name="hairPreset">${['none','close','fade','short-curls','medium-curls','waves','locs-short','locs-long','braids','straight-short','straight-long','bun'].map(v=>`<option value="${v}">${v.toUpperCase()}</option>`).join('')}</select></label>
+          <label>FACIAL HAIR<select name="facialHairPreset">${['none','stubble','mustache','goatee','short-beard','full-beard'].map(v=>`<option value="${v}">${v.toUpperCase()}</option>`).join('')}</select></label>
+          <label>BODY FRAME<select name="bodyPreset">${['slim','balanced','athletic','broad'].map(v=>`<option value="${v}" ${v==='balanced'?'selected':''}>${v.toUpperCase()}</option>`).join('')}</select></label>
+          <label>HEIGHT RANGE<select name="heightSetting"><option value="short">SHORT</option><option value="medium" selected>MEDIUM</option><option value="tall">TALL</option></select></label>
+          <label>OUTFIT<select name="outfit"><option value="cem-operator-black-gold">CEM OPERATOR · BLACK/GOLD</option><option value="cem-operator-midnight">CEM OPERATOR · MIDNIGHT</option><option value="cem-operator-formal">CEM OPERATOR · FORMAL</option></select></label>
+          <label>FACE WIDTH<input name="faceWidth" type="range" min="-1" max="1" step="0.05" value="${Number(morph.faceWidth || 0)}"></label>
+          <div class="modal-actions"><button class="action primary" type="submit">Send Preview To WISDO</button><button id="rescanBtn" class="action" type="button">Rescan</button></div>
+        </form>`;
+      document.getElementById('avatarEditor').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const avatar = {
+          headPreset: form.elements.headPreset.value,
+          skinMaterial: form.elements.skinMaterial.value,
+          hairPreset: form.elements.hairPreset.value,
+          facialHairPreset: form.elements.facialHairPreset.value,
+          bodyPreset: form.elements.bodyPreset.value,
+          heightSetting: form.elements.heightSetting.value,
+          outfit: form.elements.outfit.value,
+          morphParameters: { ...morph, faceWidth: Number(form.elements.faceWidth.value) },
+          accessories: [],
+        };
+        status.textContent = 'Sending approved avatar parameters…';
+        try {
+          const response = await fetch('/api/world/avatar/scan-session/complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ avatar, quality }),
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(payload.error || 'Avatar session could not be completed.');
+          token = '';
+          body.innerHTML = `<span class="modal-kicker">CAPTURE COMPLETE</span><h1>RETURN TO YOUR WISDO MIRROR</h1><p>Your approved avatar parameters were returned to the original session. No camera frames were uploaded or stored.</p><div class="scan-complete-mark">✓</div>`;
+          status.textContent = 'Your computer can now preview, edit, accept, or rescan your Operator.';
+        } catch (error) {
+          status.textContent = error.message;
+        }
+      });
+      document.getElementById('rescanBtn').addEventListener('click', () => beginCapture());
+    }
+
+    async function beginCapture() {
+      if (!token) return;
+      status.textContent = 'Camera permission is requested only now, after your approval.';
+      body.innerHTML = '<div id="captureMount"></div>';
+      try {
+        const result = await runGuidedOperatorCapture({ mount: document.getElementById('captureMount'), onCancel: () => editor({}, { processor: 'manual-confirmation' }) });
+        status.textContent = result.fittingCapability === 'basic-face-shape'
+          ? 'Basic face-shape fitting is available on this browser. Confirm all appearance choices before sending.'
+          : 'This browser does not expose local face-shape landmarks. Confirm your appearance manually; no face image will be uploaded.';
+        editor(result.avatarSeed, result.quality);
+      } catch (error) {
+        status.textContent = error.message;
+        editor({}, { faceDetected: false, lighting: 'unknown', blur: 'unknown', posesCompleted: 0, processor: 'manual-confirmation' });
+      }
+    }
+
+    document.getElementById('continueBtn')?.addEventListener('click', beginCapture);
+    document.getElementById('manualBtn')?.addEventListener('click', () => editor({}, { faceDetected: false, lighting: 'unknown', blur: 'unknown', posesCompleted: 0, processor: 'manual-confirmation' }));
+  </script>
+</body>
+</html>
