@@ -1,5 +1,6 @@
 import { THREE_MODULE_URL } from './world-config.js';
 import { installProductionFidelity } from './production-fidelity-layer.js';
+import { installAuthoredOperator } from './authored-operator.js';
 import { createWorldExperience as createCoreWorldExperience } from './world3d-core.js';
 
 export async function createWorldExperience(options = {}) {
@@ -31,7 +32,9 @@ export async function createWorldExperience(options = {}) {
     return core;
   }
 
+  const debug = new URLSearchParams(location.search).get('debug') === '1';
   let fidelity = null;
+  let authoredOperator = null;
   try {
     fidelity = await installProductionFidelity({
       THREE,
@@ -39,7 +42,7 @@ export async function createWorldExperience(options = {}) {
       camera: capturedCamera,
       renderer: capturedRenderer,
       destinations: options.destinations || [],
-      debug: new URLSearchParams(location.search).get('debug') === '1',
+      debug,
     });
     document.documentElement.dataset.wisdoFidelity = 'active';
     globalThis.WisdoFidelityStatus = Object.freeze({
@@ -54,15 +57,28 @@ export async function createWorldExperience(options = {}) {
     console.warn('WISDO production fidelity layer degraded; core World remains active.', error);
   }
 
+  try {
+    authoredOperator = await installAuthoredOperator({ THREE, scene: capturedScene, debug });
+  } catch (error) {
+    document.documentElement.dataset.wisdoOperator = 'procedural-fallback';
+    globalThis.WisdoAuthoredAssets = Object.freeze({
+      operator: Object.freeze({ active: false, fallback: true, reason: error?.message || 'authored_operator_failed' }),
+    });
+    console.warn('WISDO authored Operator unavailable; retaining procedural fallback.', error);
+  }
+
   const baseDestroy = core?.destroy?.bind(core);
   return {
     ...core,
     visualPass: fidelity ? 'production-fidelity' : 'core-fallback',
     fidelityQuality: fidelity?.quality || null,
+    operatorRenderer: authoredOperator?.active ? 'authored-glb' : 'procedural-fallback',
     destroy() {
+      try { authoredOperator?.destroy?.(); } catch (error) { console.warn('Authored Operator cleanup degraded', error); }
       try { fidelity?.destroy?.(); } catch (error) { console.warn('Fidelity cleanup degraded', error); }
       baseDestroy?.();
       delete document.documentElement.dataset.wisdoFidelity;
+      delete document.documentElement.dataset.wisdoOperator;
     },
   };
 }
