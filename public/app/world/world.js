@@ -1,13 +1,33 @@
+import { LOCAL_DESTINATIONS, WORLD_VERSION } from './world-config.js';
+import { createLiteWorld } from './world-lite.js';
+
 const $ = (id) => document.getElementById(id);
+const STORAGE = Object.freeze({
+  settings: 'wisdo-world-settings-v2',
+  helpSeen: 'wisdo-world-help-seen-v2',
+});
 
 const state = {
   catalog: null,
   session: null,
   destinations: [],
-  avatar: { x: 50, y: 62 },
   nearest: null,
-  guest: false,
+  guest: true,
+  online: navigator.onLine,
+  world: null,
+  mode: 'loading',
+  telemetry: null,
+  loadingValue: 4,
 };
+
+const defaultPreferences = Object.freeze({
+  quality: 'auto',
+  sensitivity: 1,
+  invertY: false,
+  volume: 0.6,
+  muted: false,
+  reducedMotion: window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches || false,
+});
 
 function esc(value = '') {
   return String(value)
@@ -18,16 +38,45 @@ function esc(value = '') {
     .replaceAll("'", '&#039;');
 }
 
+function readPreferences() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE.settings) || '{}');
+    return { ...defaultPreferences, ...(saved && typeof saved === 'object' ? saved : {}) };
+  } catch {
+    return { ...defaultPreferences };
+  }
+}
+
+let preferences = readPreferences();
+
+function savePreferences() {
+  try { localStorage.setItem(STORAGE.settings, JSON.stringify(preferences)); } catch {}
+}
+
+function setLoading(phase, value) {
+  state.loadingValue = Math.max(state.loadingValue, Number(value) || state.loadingValue);
+  $('loadingPhase').textContent = phase;
+  $('loadingBar').style.width = `${Math.min(100, state.loadingValue)}%`;
+}
+
+function completeLoading() {
+  state.loadingValue = 100;
+  $('loadingBar').style.width = '100%';
+  $('loadingPhase').textContent = state.mode === '3d' ? 'WISDO Central Online' : 'WISDO World Lite Ready';
+  window.setTimeout(() => $('loadingScreen').classList.add('complete'), 220);
+  $('app').dataset.ready = 'true';
+}
+
 async function api(url, options = {}) {
-  const res = await fetch(url, {
+  const response = await fetch(url, {
     credentials: 'same-origin',
     ...options,
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
   });
-  const payload = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const error = new Error(payload.error || payload.message || `Request failed: ${res.status}`);
-    error.status = res.status;
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload.error || payload.message || `Request failed: ${response.status}`);
+    error.status = response.status;
     error.payload = payload;
     throw error;
   }
@@ -36,18 +85,20 @@ async function api(url, options = {}) {
 
 function toast(message) {
   const el = $('toast');
-  el.textContent = message;
+  el.textContent = String(message || '');
   el.hidden = false;
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => { el.hidden = true; }, 2600);
-}
-
-function tierLevel() {
-  return Number(state.session?.access?.level || 0);
+  toast.timer = setTimeout(() => { el.hidden = true; }, 2800);
 }
 
 function profile() {
-  return state.session?.worldProfile || { callsign: 'Guest', xp: 0, level: 1, avatarStyle: 'vanguard', title: 'World Preview' };
+  return state.session?.worldProfile || {
+    callsign: state.guest ? 'Guest' : 'Operator',
+    xp: 0,
+    level: 1,
+    avatarStyle: 'vanguard',
+    title: state.guest ? 'World Preview' : 'World Explorer',
+  };
 }
 
 function destinationAccess(id) {
@@ -55,30 +106,17 @@ function destinationAccess(id) {
 }
 
 function hydrateDestinations() {
-  const source = state.catalog?.destinations || [];
-  state.destinations = source.map((destination) => {
+  const server = Array.isArray(state.catalog?.destinations) && state.catalog.destinations.length
+    ? state.catalog.destinations
+    : LOCAL_DESTINATIONS;
+  state.destinations = server.map((destination) => {
     const access = destinationAccess(destination.id);
     return {
       ...destination,
-      unlocked: state.guest ? destination.minLevel === 0 : Boolean(access?.unlocked),
+      unlocked: state.guest ? Number(destination.minLevel || 0) === 0 : Boolean(access?.unlocked),
       visited: Boolean(access?.visited),
       minTier: access?.minTier || destination.minTier || 'Member',
     };
-  });
-}
-
-function renderBuildings() {
-  hydrateDestinations();
-  $('buildings').innerHTML = state.destinations.map((d) => `
-    <button class="building ${d.unlocked ? '' : 'locked'}" data-id="${esc(d.id)}" style="left:${Number(d.x)}%;top:${Number(d.y)}%" aria-label="${esc(d.name)}">
-      <span class="b-top"><span class="b-icon">${esc(d.icon || '◇')}</span><span class="lock">${d.unlocked ? '' : 'LOCKED'}</span></span>
-      <strong>${esc(d.name)}</strong>
-      <small>${esc(d.short || '')}</small>
-      ${d.visited ? '<i class="visited-dot"></i>' : ''}
-    </button>
-  `).join('');
-  document.querySelectorAll('.building').forEach((button) => {
-    button.addEventListener('click', () => openDestination(button.dataset.id));
   });
 }
 
@@ -87,7 +125,6 @@ function renderHeader() {
   const access = state.session?.access || { worldLabel: 'Member', level: 0 };
   const mesh = state.session?.mesh?.summary || { accounts: 0, onlineNodes: 0 };
   $('callsign').textContent = p.callsign || 'Operator';
-  $('avatarLabel').textContent = (p.callsign || 'YOU').toUpperCase().slice(0, 12);
   $('tierBadge').textContent = String(access.worldLabel || 'Member').toUpperCase();
   $('accessLabel').textContent = String(access.worldLabel || 'Member').toUpperCase();
   $('xp').textContent = Number(p.xp || 0).toLocaleString();
@@ -96,120 +133,112 @@ function renderHeader() {
   $('onlineCount').textContent = Number(mesh.onlineNodes || 0);
   $('meshCount').textContent = Number(mesh.accounts || 0);
   $('xpBar').style.width = `${Math.min(100, (Number(p.xp || 0) % 250) / 2.5)}%`;
-  $('syncLabel').textContent = state.guest ? 'Preview mode · login to persist your World' : 'Synced to your WISDO identity';
+  $('worldVersion').textContent = `WISDO WORLD ${WORLD_VERSION}`;
+  const dot = $('connectionDot');
+  dot.className = `connection-dot ${state.online ? (state.catalog ? 'online' : 'degraded') : 'degraded'}`;
+  if (!state.online) $('syncLabel').textContent = 'Offline · local exploration remains available';
+  else if (!state.catalog) $('syncLabel').textContent = 'World network reconnecting · local exploration remains available';
+  else if (state.guest) $('syncLabel').textContent = 'Preview mode · sign in to sync identity and Reporter Mesh';
+  else $('syncLabel').textContent = 'Synced to your WISDO identity';
 }
 
-function moveAvatar(dx, dy) {
-  state.avatar.x = Math.max(4, Math.min(96, state.avatar.x + dx));
-  state.avatar.y = Math.max(17, Math.min(88, state.avatar.y + dy));
-  const avatar = $('avatar');
-  avatar.style.left = `${state.avatar.x}%`;
-  avatar.style.top = `${state.avatar.y}%`;
-  updateNearest();
-}
-
-function distance(a, b) {
-  const dx = Number(a.x) - Number(b.x);
-  const dy = Number(a.y) - Number(b.y);
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
-function updateNearest() {
-  let nearest = null;
-  let best = Infinity;
-  for (const destination of state.destinations) {
-    const d = distance(state.avatar, destination);
-    if (d < best) { best = d; nearest = destination; }
-  }
-  const active = best < 11 ? nearest : null;
-  state.nearest = active;
-  document.querySelectorAll('.building').forEach((el) => el.classList.toggle('near', active?.id === el.dataset.id));
-  if (!active) {
-    $('proximity').hidden = true;
+function updateNearest(destination) {
+  state.nearest = destination || null;
+  const prompt = $('proximity');
+  const mobileInteract = $('interactBtn');
+  if (!state.nearest) {
+    prompt.hidden = true;
+    mobileInteract.hidden = true;
     return;
   }
-  $('nearName').textContent = active.name;
-  $('nearHint').textContent = active.unlocked ? 'Press E to interact' : `Requires ${active.minTier}`;
-  $('proximity').hidden = false;
-}
-
-function destinationModal(destination) {
-  const locked = !destination.unlocked;
-  const visited = destination.visited ? 'Visited' : 'Not visited yet';
-  return `
-    <span class="modal-kicker">${esc(destination.short || 'WISDO')} · ${locked ? 'ACCESS LOCKED' : 'ACCESS READY'}</span>
-    <h2>${esc(destination.icon || '◇')} ${esc(destination.name)}</h2>
-    <p>${esc(destination.description || '')}</p>
-    <div class="metric-grid">
-      <div class="metric"><span>ACCESS</span><strong>${locked ? esc(destination.minTier) : 'OPEN'}</strong></div>
-      <div class="metric"><span>STATUS</span><strong>${visited}</strong></div>
-      <div class="metric"><span>WORLD TIER</span><strong>${esc(state.session?.access?.worldLabel || 'Member')}</strong></div>
-    </div>
-    ${locked ? `<p class="locked-message">🔒 This wing requires ${esc(destination.minTier)} access. The existing WISDO server remains the authority for membership and permissions.</p>` : ''}
-    <div class="modal-actions">
-      ${locked ? '<a class="action gold" href="/pricing">View access options</a>' : `<button class="action primary" id="enterDestination">Enter ${esc(destination.name)}</button>`}
-      <button class="action" id="closeDestination">Stay in Plaza</button>
-    </div>
-  `;
-}
-
-async function openDestination(id) {
-  const destination = state.destinations.find((item) => item.id === id);
-  if (!destination) return;
-  showModal(destinationModal(destination));
-  $('closeDestination')?.addEventListener('click', closeModal);
-  $('enterDestination')?.addEventListener('click', async () => {
-    if (!state.guest) {
-      try {
-        const result = await api('/api/world/visit', { method: 'POST', body: JSON.stringify({ destinationId: destination.id }) });
-        if (result.state) state.session = result.state;
-        if (result.xpAwarded) toast(`+${result.xpAwarded} XP · first visit to ${destination.name}`);
-        renderHeader();
-        renderBuildings();
-      } catch (error) {
-        if (error.status === 403) {
-          toast(error.message);
-          return;
-        }
-        console.warn('World visit sync failed', error);
-      }
-    }
-    window.location.assign(destination.route);
-  });
+  $('nearKicker').textContent = state.nearest.unlocked ? 'DESTINATION READY' : 'ACCESS REQUIRED';
+  $('nearName').textContent = state.nearest.name;
+  $('nearHint').textContent = state.nearest.unlocked ? '[E] ENTER' : `REQUIRES ${String(state.nearest.minTier || 'ACCESS').toUpperCase()}`;
+  prompt.hidden = false;
+  mobileInteract.hidden = false;
+  mobileInteract.textContent = state.nearest.unlocked ? 'ENTER' : 'LOCKED';
 }
 
 function showModal(html) {
+  state.world?.releasePointer?.();
   $('modalBody').innerHTML = html;
   $('modal').hidden = false;
 }
 
 function closeModal() {
   $('modal').hidden = true;
-  $('modalBody').innerHTML = '';
+  $('modalBody').replaceChildren();
+}
+
+function destinationModal(destination) {
+  const locked = !destination.unlocked;
+  return `
+    <span class="modal-kicker">${esc(destination.short || 'WISDO')} · ${locked ? 'ACCESS LOCKED' : 'ACCESS READY'}</span>
+    <h2 id="modalTitle">${esc(destination.icon || '◇')} ${esc(destination.name)}</h2>
+    <p>${esc(destination.description || '')}</p>
+    <div class="metric-grid">
+      <div class="metric"><span>ACCESS</span><strong>${locked ? esc(destination.minTier) : 'OPEN'}</strong></div>
+      <div class="metric"><span>WORLD TIER</span><strong>${esc(state.session?.access?.worldLabel || 'Member')}</strong></div>
+      <div class="metric"><span>VISIT</span><strong>${destination.visited ? 'COMPLETE' : 'NEW'}</strong></div>
+    </div>
+    ${locked ? `<p class="locked-message">This location requires ${esc(destination.minTier)} access. Server-side WISDO permissions remain authoritative.</p>` : ''}
+    <div class="modal-actions">
+      ${locked ? '<a class="action gold" href="/pricing" data-nav>View access options</a>' : `<button class="action primary" id="enterDestination">Enter ${esc(destination.name)}</button>`}
+      <button class="action" id="closeDestination">Stay in World</button>
+    </div>`;
+}
+
+async function interactDestination(destination) {
+  if (!destination) return;
+  showModal(destinationModal(destination));
+  $('closeDestination')?.addEventListener('click', closeModal);
+  $('enterDestination')?.addEventListener('click', async () => {
+    if (!state.guest && destination.unlocked) {
+      try {
+        const result = await api('/api/world/visit', {
+          method: 'POST',
+          body: JSON.stringify({ destinationId: destination.id }),
+        });
+        if (result.state) state.session = result.state;
+        if (result.xpAwarded) toast(`+${result.xpAwarded} XP · ${destination.name}`);
+        hydrateDestinations();
+        renderHeader();
+      } catch (error) {
+        if (error.status === 403) return toast(error.message);
+        console.warn('World visit sync unavailable', error);
+      }
+    }
+    state.world?.releasePointer?.();
+    window.location.assign(destination.route);
+  });
 }
 
 function mapModal() {
-  const items = state.destinations.map((d) => `<div class="list-row"><div><span class="dot ${d.unlocked ? 'online' : ''}"></span><strong>${esc(d.name)}</strong><br><small>${d.unlocked ? 'Accessible' : `Requires ${esc(d.minTier)}`}${d.visited ? ' · visited' : ''}</small></div><button class="action" data-map-dest="${esc(d.id)}">View</button></div>`).join('');
-  showModal(`<span class="modal-kicker">WORLD MAP</span><h2>WISDO Plaza</h2><p>Every building is a doorway into the existing WISDO operating system.</p><div class="list">${items}</div>`);
-  document.querySelectorAll('[data-map-dest]').forEach((button) => button.addEventListener('click', () => openDestination(button.dataset.mapDest)));
+  const rows = state.destinations.map((d) => `
+    <div class="list-row">
+      <div><span class="dot ${d.unlocked ? 'online' : ''}"></span><strong>${esc(d.name)}</strong><br><small>${d.unlocked ? 'Accessible' : `Requires ${esc(d.minTier)}`}${d.visited ? ' · visited' : ''}</small></div>
+      <button class="action" data-destination="${esc(d.id)}">Details</button>
+    </div>`).join('');
+  showModal(`<span class="modal-kicker">WORLD MAP</span><h2 id="modalTitle">WISDO Central</h2><p>Every physical location opens an existing WISDO system.</p><div class="list">${rows}</div>`);
+  document.querySelectorAll('[data-destination]').forEach((button) => button.addEventListener('click', () => interactDestination(state.destinations.find((d) => d.id === button.dataset.destination))));
 }
 
 async function meshModal() {
   if (state.guest) {
-    showModal(`<span class="modal-kicker">REPORTER MESH</span><h2>Login required</h2><p>Your live linked accounts and reporter state appear here after you sign in.</p><div class="modal-actions"><a class="action primary" href="/login?returnTo=/world/">Login with Discord</a></div>`);
+    showModal(`<span class="modal-kicker">REPORTER MESH</span><h2 id="modalTitle">Sign in to view your network</h2><p>Your linked trading accounts and reporter presence remain protected by the existing WISDO session.</p><div class="modal-actions"><a class="action primary" href="/login?returnTo=/app/world" data-nav>Login with Discord</a></div>`);
     return;
   }
-  showModal('<span class="modal-kicker">REPORTER MESH</span><h2>Loading your nodes…</h2>');
+  showModal('<span class="modal-kicker">REPORTER MESH</span><h2 id="modalTitle">Loading your nodes…</h2>');
   try {
     const mesh = await api('/api/world/mesh');
     const rows = (mesh.nodes || []).map((node) => `
       <div class="list-row">
         <div><span class="dot ${node.status === 'online' ? 'online' : ''}"></span><strong>${esc(node.name)}</strong><br><small>${esc(node.type)} · ${esc(node.status || 'offline')}</small></div>
-        <small>${node.canExecuteTrades ? 'EXECUTION ENABLED' : 'REPORT / SIGNAL ONLY'}</small>
-      </div>`).join('') || '<div class="list-row"><div><strong>No linked reporters yet</strong><br><small>Connect an MT4 account to populate this mesh.</small></div></div>';
+        <small>${node.canExecuteTrades ? 'EXECUTION ROUTE' : 'REPORT / SIGNAL ONLY'}</small>
+      </div>`).join('') || '<div class="list-row"><div><strong>No linked reporters yet</strong><br><small>Connect an account to populate Reporter Mesh.</small></div></div>';
     showModal(`
-      <span class="modal-kicker">REPORTER MESH · LIVE SERVER STATE</span>
-      <h2>Your WISDO Network</h2>
+      <span class="modal-kicker">REPORTER MESH · LIVE WISDO STATE</span>
+      <h2 id="modalTitle">Your Network</h2>
       <p>${esc(mesh.safetyNotice || '')}</p>
       <div class="metric-grid">
         <div class="metric"><span>ACCOUNTS</span><strong>${Number(mesh.summary?.accounts || 0)}</strong></div>
@@ -217,119 +246,264 @@ async function meshModal() {
         <div class="metric"><span>ONLINE</span><strong>${Number(mesh.summary?.onlineNodes || 0)}</strong></div>
       </div>
       <div class="list">${rows}</div>
-      <div class="modal-actions"><a class="action primary" href="/member/link-account">Connect Account</a><a class="action" href="/member/accounts">Manage Accounts</a></div>
-    `);
+      <div class="modal-actions"><a class="action primary" href="/member/link-account" data-nav>Connect Account</a><a class="action" href="/member/accounts" data-nav>Manage Accounts</a></div>`);
   } catch (error) {
-    showModal(`<span class="modal-kicker">REPORTER MESH</span><h2>Could not load mesh</h2><p>${esc(error.message)}</p>`);
+    showModal(`<span class="modal-kicker">REPORTER MESH</span><h2 id="modalTitle">Network unavailable</h2><p>${esc(error.message)}</p><p>You can continue exploring WISDO World locally.</p>`);
   }
 }
 
 function progressModal() {
   const p = profile();
-  const visited = state.destinations.filter((item) => item.visited).length;
+  const visited = state.destinations.filter((d) => d.visited).length;
   showModal(`
     <span class="modal-kicker">WORLD PROGRESSION</span>
-    <h2>${esc(p.callsign || 'Operator')}</h2>
-    <p>${esc(p.title || 'World Explorer')} · progress is stored in the existing WISDO repository.</p>
+    <h2 id="modalTitle">${esc(p.callsign || 'Operator')}</h2>
+    <p>${esc(p.title || 'World Explorer')} · progression is stored by the existing WISDO platform.</p>
     <div class="metric-grid">
       <div class="metric"><span>LEVEL</span><strong>${Number(p.level || 1)}</strong></div>
       <div class="metric"><span>XP</span><strong>${Number(p.xp || 0).toLocaleString()}</strong></div>
-      <div class="metric"><span>PLACES VISITED</span><strong>${visited}/${state.destinations.length}</strong></div>
+      <div class="metric"><span>PLACES</span><strong>${visited}/${state.destinations.length}</strong></div>
     </div>
-    <div class="modal-actions"><button id="progressProfile" class="action primary">Customize Identity</button></div>
-  `);
+    <div class="modal-actions"><button id="progressProfile" class="action primary">Customize Identity</button></div>`);
   $('progressProfile')?.addEventListener('click', profileModal);
 }
 
 function profileModal() {
   const p = profile();
   if (state.guest) {
-    showModal(`<span class="modal-kicker">WORLD IDENTITY</span><h2>Build your WISDO identity</h2><p>Login to save a callsign, title, avatar class, XP, and visited destinations.</p><div class="modal-actions"><a class="action primary" href="/login?returnTo=/world/">Login with Discord</a></div>`);
+    showModal(`<span class="modal-kicker">WORLD IDENTITY</span><h2 id="modalTitle">Build your WISDO identity</h2><p>Sign in to save your callsign, title, avatar class, XP, and visited locations.</p><div class="modal-actions"><a class="action primary" href="/login?returnTo=/app/world" data-nav>Login with Discord</a></div>`);
     return;
   }
   showModal(`
     <span class="modal-kicker">WORLD IDENTITY</span>
-    <h2>Customize Your Operator</h2>
+    <h2 id="modalTitle">Customize Operator</h2>
     <form id="profileForm" class="profile-form">
       <label>CALLSIGN<input name="callsign" maxlength="48" value="${esc(p.callsign || '')}" required></label>
       <label>TITLE<input name="title" maxlength="64" value="${esc(p.title || '')}" required></label>
       <label class="full">AVATAR CLASS<select name="avatarStyle">
-        ${['vanguard','architect','sentinel','scholar'].map((v) => `<option value="${v}" ${p.avatarStyle === v ? 'selected' : ''}>${v.toUpperCase()}</option>`).join('')}
+        ${['vanguard','architect','sentinel','scholar'].map((value) => `<option value="${value}" ${p.avatarStyle === value ? 'selected' : ''}>${value.toUpperCase()}</option>`).join('')}
       </select></label>
       <div class="full modal-actions"><button class="action primary" type="submit">Save Identity</button></div>
-    </form>
-  `);
+    </form>`);
   $('profileForm').addEventListener('submit', async (event) => {
     event.preventDefault();
     const body = Object.fromEntries(new FormData(event.currentTarget).entries());
     try {
       state.session = await api('/api/world/profile', { method: 'POST', body: JSON.stringify(body) });
+      hydrateDestinations();
       renderHeader();
-      toast('WISDO identity saved');
       closeModal();
-    } catch (error) {
-      toast(error.message);
-    }
+      toast('WISDO identity saved');
+    } catch (error) { toast(error.message); }
   });
 }
 
-function bindControls() {
-  const steps = { ArrowUp: [0,-2], w:[0,-2], W:[0,-2], ArrowDown:[0,2], s:[0,2], S:[0,2], ArrowLeft:[-2,0], a:[-2,0], A:[-2,0], ArrowRight:[2,0], d:[2,0], D:[2,0] };
-  window.addEventListener('keydown', (event) => {
-    if (!$('modal').hidden) {
-      if (event.key === 'Escape') closeModal();
-      return;
-    }
-    if (steps[event.key]) {
-      event.preventDefault();
-      moveAvatar(...steps[event.key]);
-    }
-    if ((event.key === 'e' || event.key === 'E' || event.key === 'Enter') && state.nearest) openDestination(state.nearest.id);
+function settingsModal() {
+  showModal(`
+    <span class="modal-kicker">WORLD SETTINGS</span>
+    <h2 id="modalTitle">Gameplay & Graphics</h2>
+    <form id="settingsForm" class="settings-grid">
+      <label class="setting">GRAPHICS<select name="quality"><option value="auto">AUTO</option><option value="low">LOW</option><option value="medium">MEDIUM</option><option value="high">HIGH</option></select></label>
+      <label class="setting">MOUSE SENSITIVITY<input name="sensitivity" type="range" min="0.45" max="2.1" step="0.05" value="${Number(preferences.sensitivity || 1)}"></label>
+      <label class="setting">MASTER VOLUME<input name="volume" type="range" min="0" max="1" step="0.05" value="${Number(preferences.volume || 0.6)}"></label>
+      <label class="setting check"><input name="invertY" type="checkbox" ${preferences.invertY ? 'checked' : ''}> INVERT Y</label>
+      <label class="setting check"><input name="muted" type="checkbox" ${preferences.muted ? 'checked' : ''}> MUTE</label>
+      <label class="setting check"><input name="reducedMotion" type="checkbox" ${preferences.reducedMotion ? 'checked' : ''}> REDUCED MOTION</label>
+      <div class="modal-actions"><button class="action primary" type="submit">Apply</button><button id="liteModeBtn" class="action" type="button">Open Lite Mode</button></div>
+    </form>`);
+  const quality = $('settingsForm').elements.quality;
+  quality.value = preferences.quality || 'auto';
+  $('settingsForm').addEventListener('submit', (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    preferences = {
+      ...preferences,
+      quality: form.elements.quality.value,
+      sensitivity: Number(form.elements.sensitivity.value),
+      volume: Number(form.elements.volume.value),
+      invertY: Boolean(form.elements.invertY.checked),
+      muted: Boolean(form.elements.muted.checked),
+      reducedMotion: Boolean(form.elements.reducedMotion.checked),
+    };
+    savePreferences();
+    state.world?.setPreferences?.(preferences);
+    closeModal();
+    toast('World settings applied');
   });
-  document.querySelectorAll('[data-move]').forEach((button) => {
-    const delta = { up:[0,-3], down:[0,3], left:[-3,0], right:[3,0] }[button.dataset.move];
-    button.addEventListener('click', () => moveAvatar(...delta));
+  $('liteModeBtn').addEventListener('click', () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('lite', '1');
+    window.location.assign(url);
   });
-  $('interactBtn').addEventListener('click', () => state.nearest && openDestination(state.nearest.id));
+}
+
+function webglAvailable() {
+  try {
+    const canvas = document.createElement('canvas');
+    return Boolean(window.WebGLRenderingContext && (canvas.getContext('webgl2') || canvas.getContext('webgl')));
+  } catch { return false; }
+}
+
+function shouldUseLite() {
+  return new URLSearchParams(window.location.search).get('lite') === '1' || !webglAvailable();
+}
+
+function setupDebug() {
+  const params = new URLSearchParams(location.search);
+  if (params.get('debug') !== '1') return;
+  $('debugPanel').hidden = false;
+}
+
+function renderDebug(data) {
+  state.telemetry = data;
+  if ($('debugPanel').hidden) return;
+  $('debugPanel').textContent = [
+    `MODE ${state.mode.toUpperCase()}`,
+    `FPS ${data?.fps ?? '-'}`,
+    `DRAW ${data?.drawCalls ?? '-'}`,
+    `TRI ${Number(data?.triangles || 0).toLocaleString()}`,
+    `QUALITY ${String(data?.quality || preferences.quality).toUpperCase()}`,
+    `XYZ ${data?.player ? `${data.player.x}, ${data.player.y}, ${data.player.z}` : '-'}`,
+    `TARGET ${state.nearest?.id || '-'}`,
+  ].join('\n');
+}
+
+function bindUi() {
   $('modalClose').addEventListener('click', closeModal);
   $('modalBackdrop').addEventListener('click', closeModal);
-  ['mapBtn','dockMap'].forEach((id) => $(id).addEventListener('click', mapModal));
-  ['meshBtn','dockMesh'].forEach((id) => $(id).addEventListener('click', meshModal));
+  $('mapBtn').addEventListener('click', mapModal);
+  $('dockMap').addEventListener('click', mapModal);
+  $('meshBtn').addEventListener('click', meshModal);
+  $('dockMesh').addEventListener('click', meshModal);
   $('dockAchievements').addEventListener('click', progressModal);
   $('profileBtn').addEventListener('click', profileModal);
+  $('settingsBtn').addEventListener('click', settingsModal);
+  document.addEventListener('click', (event) => {
+    const nav = event.target.closest?.('[data-nav]');
+    if (nav) state.world?.releasePointer?.();
+  });
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !$('modal').hidden) closeModal();
+  });
+  window.addEventListener('online', () => { state.online = true; renderHeader(); refreshSession(); });
+  window.addEventListener('offline', () => { state.online = false; renderHeader(); });
 }
 
-async function boot() {
-  bindControls();
+function bindFirstRunHelp() {
+  let seen = false;
+  try { seen = localStorage.getItem(STORAGE.helpSeen) === '1'; } catch {}
+  if (seen) $('firstRunHelp').classList.add('dismissed');
+  const dismiss = () => {
+    $('firstRunHelp').classList.add('dismissed');
+    try { localStorage.setItem(STORAGE.helpSeen, '1'); } catch {}
+  };
+  window.addEventListener('keydown', (event) => {
+    if (['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(event.key.toLowerCase())) dismiss();
+  }, { once: true });
+  $('worldStage').addEventListener('pointerdown', dismiss, { once: true });
+}
+
+async function loadPlatformState() {
+  setLoading('Connecting to WISDO systems', 15);
   try {
     state.catalog = await api('/api/world/catalog');
   } catch (error) {
-    $('syncLabel').textContent = `World catalog unavailable: ${error.message}`;
-    return;
+    console.warn('World catalog network unavailable', error);
+    state.catalog = null;
   }
-
+  setLoading('Loading operator identity', 27);
   try {
     state.session = await api('/api/world/me');
     state.guest = false;
   } catch (error) {
-    if (error.status === 401) {
-      state.guest = true;
-      state.session = {
-        worldProfile: { callsign: 'Guest', title: 'World Preview', avatarStyle: 'vanguard', xp: 0, level: 1, visitedDestinations: [] },
-        access: { tierKey: 'member', worldLabel: 'Member', level: 0, destinations: state.catalog.destinations.map((d) => ({ ...d, unlocked: d.minLevel === 0, visited: false })) },
-        mesh: { summary: { accounts: 0, onlineNodes: 0 } },
-      };
-      toast('Preview mode · login to save progress and load your accounts');
-    } else {
-      console.warn('World session failed', error);
-      state.guest = true;
-    }
+    if (error.status !== 401) console.warn('World identity sync unavailable', error);
+    state.session = null;
+    state.guest = true;
   }
-
+  hydrateDestinations();
   renderHeader();
-  renderBuildings();
-  moveAvatar(0, 0);
-  $('app').dataset.ready = 'true';
 }
 
-boot();
+async function refreshSession() {
+  if (!navigator.onLine) return;
+  try {
+    state.catalog = await api('/api/world/catalog');
+    if (!state.guest) state.session = await api('/api/world/me');
+    hydrateDestinations();
+    renderHeader();
+  } catch (error) {
+    console.warn('World reconnect attempt unavailable', error);
+    renderHeader();
+  }
+}
+
+async function startLite(reason = '') {
+  state.world?.destroy?.();
+  state.world = null;
+  state.mode = 'lite';
+  $('canvasMount').hidden = true;
+  $('liteMount').hidden = false;
+  setLoading(reason ? 'Starting Lite Mode' : 'Loading Lite Mode', 78);
+  state.world = createLiteWorld({
+    mount: $('liteMount'),
+    destinations: state.destinations,
+    onNearestChange: updateNearest,
+    onInteract: interactDestination,
+  });
+  renderHeader();
+  if (reason) toast(`Lite Mode active · ${reason}`);
+  completeLoading();
+}
+
+async function start3d() {
+  setLoading('Loading 3D engine', 40);
+  try {
+    const { createWorldExperience } = await import('./world3d.js');
+    state.mode = '3d';
+    $('canvasMount').hidden = false;
+    $('liteMount').hidden = true;
+    state.world = await createWorldExperience({
+      mount: $('canvasMount'),
+      destinations: state.destinations,
+      preferences,
+      onPhase: (message) => setLoading(message, Math.min(88, state.loadingValue + 8)),
+      onNearestChange: updateNearest,
+      onInteract: interactDestination,
+      onTelemetry: renderDebug,
+      onFatal: (error) => startLite(error?.message || '3D renderer unavailable'),
+      onReady: () => {
+        setLoading('Spawning operator', 94);
+        completeLoading();
+      },
+    });
+  } catch (error) {
+    console.error('WISDO World 3D start failed', error);
+    await startLite('3D graphics unavailable');
+  }
+}
+
+function destroy() {
+  state.world?.destroy?.();
+  state.world = null;
+}
+
+async function boot() {
+  bindUi();
+  bindFirstRunHelp();
+  setupDebug();
+  renderHeader();
+  await loadPlatformState();
+  if (shouldUseLite()) await startLite(new URLSearchParams(location.search).get('lite') === '1' ? 'Lite Mode selected' : 'WebGL unavailable');
+  else await start3d();
+}
+
+window.addEventListener('pagehide', destroy, { once: true });
+boot().catch(async (error) => {
+  console.error('WISDO World boot failed', error);
+  if (!state.destinations.length) {
+    state.catalog = null;
+    hydrateDestinations();
+  }
+  renderHeader();
+  await startLite('World recovery mode');
+});
