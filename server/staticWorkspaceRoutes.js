@@ -11,6 +11,7 @@ export const DEFAULT_WISDO_WORKSPACES = Object.freeze([
   { slug: 'kernel-control', title: 'Wisdo Kernel Control', required: true },
   { slug: 'voice-studio', title: 'Wisdo Voice Studio', required: true },
   { slug: 'studio', title: 'Wisdo Studio', required: false },
+  { slug: 'world', title: 'WISDO World', required: false },
 ]);
 
 function normalizeWorkspace(entry) {
@@ -82,7 +83,7 @@ export function registerStaticWorkspaceRoutes(app, {
     res.status(requiredMissing.length ? 503 : 200).json({
       ok: requiredMissing.length === 0,
       service: 'wisdo-static-workspaces',
-      version: '3.2.0',
+      version: '3.3.0',
       registered: registered.map(({ slug, title, route }) => ({ slug, title, route })),
       missing: missing.map(({ slug, title, required }) => ({ slug, title, required })),
     });
