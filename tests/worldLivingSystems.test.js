@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { WorldEventEngineService, WORLD_SIGNAL_REVIEW_WINDOW_SECONDS } from '../services/worldEventEngineService.js';
 import { WorldAvatarIdentityService, sanitizeAvatarConfiguration } from '../services/worldAvatarIdentityService.js';
+import { installConfirmedTradeBridge } from '../server/worldLivingIdentityRoutes.js';
 
 function repositoryFixture(seed = {}) {
   let state = structuredClone(seed);
@@ -49,6 +50,32 @@ test('World Signal Event uses the confirmed trade timestamp and an exact 120-sec
   assert.equal(event.presentationStatus, 'active');
   assert.equal(event.symbol, 'XAUUSD');
   assert.equal(event.direction, 'BUY');
+});
+
+test('confirmed MT4 bridge anchors the World countdown to Reporter trade openTime, not browser receipt or signal creation', async () => {
+  const repository = repositoryFixture();
+  const engine = new WorldEventEngineService({ repository });
+  const reportedOpenTime = new Date(Date.now() - 47_000).toISOString();
+  const signalCreatedAt = new Date().toISOString();
+  const source = {
+    async createSignalsBatch() {
+      return [signalFixture({ signalId: 'sig-open-time', tradeTimestamp: undefined, createdAt: signalCreatedAt })];
+    },
+    async createSignal(input) {
+      return signalFixture({ signalId: 'sig-direct-open-time', sourceTicket: String(input?.trade?.ticket || '99102'), tradeTimestamp: undefined, createdAt: signalCreatedAt });
+    },
+    queueSignalClosuresBatch(events) { return { queued: events.length }; },
+  };
+  installConfirmedTradeBridge(source, engine);
+
+  await source.createSignalsBatch([{ trade: { ticket: '99101', openTime: reportedOpenTime, magicNumber: 26080204, comment: 'HIGHTOWER PRIMARY' } }]);
+  const event = repository.state.worldSignalEventsById['world-signal:sig-open-time'];
+  assert.ok(event);
+  assert.equal(event.tradeTimestamp, reportedOpenTime);
+  assert.equal(Date.parse(event.expiresAt) - Date.parse(reportedOpenTime), 120_000);
+  assert.equal(event.magicNumber, 26080204);
+  assert.equal(event.strategyName, 'HIGHTOWER PRIMARY');
+  assert.ok(engine.remainingSeconds(event) <= 73 && engine.remainingSeconds(event) >= 71, `expected about 73 seconds remaining, got ${engine.remainingSeconds(event)}`);
 });
 
 test('World Signal Event ingestion is idempotent and cannot create a duplicate sky burst', async () => {
