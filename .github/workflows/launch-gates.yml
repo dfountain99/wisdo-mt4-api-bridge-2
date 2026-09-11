@@ -23,6 +23,8 @@ jobs:
       - run: npm run test:integration
       - run: npm run test:commands
       - run: npm run smoke
+      - run: npm test
+      - run: npm run check
       - run: npm run audit:runtime
       - run: npm run audit:commands
       - run: npm run audit:stubs
