@@ -13,6 +13,7 @@ import { registerConversationalVoiceRoutes } from './conversationalVoiceRoutes.j
 import { registerWisdoWorldRoutes } from './worldRoutes.js';
 import { registerWorldLivingIdentityRoutes } from './worldLivingIdentityRoutes.js';
 import { registerWorldMarketRoutes } from './worldMarketRoutes.js';
+import { registerWorldCommandRoutes } from './worldCommandRoutes.js';
 
 /**
  * Registers the modern Wisdo Kernel services as one cohesive boundary.
@@ -121,6 +122,13 @@ export function registerWisdoKernelRoutes(app, {
     eventEngine: worldLivingSystems.eventEngine,
   });
 
+  const worldCommand = registerWorldCommandRoutes(app, {
+    logger,
+    mt4SyncService,
+    mt4CommandService,
+    eventEngine: worldLivingSystems.eventEngine,
+  });
+
   app.get('/health/kernel', async (_req, res, next) => {
     try {
       const commandBus = await commandBusService.health();
@@ -129,7 +137,7 @@ export function registerWisdoKernelRoutes(app, {
       res.status(ok ? 200 : 503).json({
         ok,
         service: 'wisdo-master-kernel',
-        version: '3.7.0',
+        version: '3.8.0',
         command_bus: commandBus,
         workspaces: {
           registered: workspaces.registered.map(({ slug, route }) => ({ slug, route })),
@@ -143,6 +151,8 @@ export function registerWisdoKernelRoutes(app, {
           signal_api: worldLivingSystems.signalApi,
           avatar_api: worldLivingSystems.avatarApi,
           market_api: worldMarkets.marketApi,
+          command_api: worldCommand.api,
+          command_authority: worldCommand.executionAuthority,
           execution_from_world_events_enabled: worldLivingSystems.executionFromWorldEventsEnabled,
           execution_from_world_markets_enabled: worldMarkets.executionFromWorldEnabled,
         },
@@ -163,5 +173,6 @@ export function registerWisdoKernelRoutes(app, {
     world,
     worldLivingSystems,
     worldMarkets,
+    worldCommand,
   };
 }
