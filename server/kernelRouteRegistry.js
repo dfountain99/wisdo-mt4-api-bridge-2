@@ -10,6 +10,7 @@ import { WisdoVoiceCreatorService } from '../services/wisdoVoiceCreatorService.j
 import { registerRoomStateRoutes } from './roomStateRoutes.js';
 import { registerVoiceBotAuthorityRoutes } from './voiceBotAuthorityRoutes.js';
 import { registerConversationalVoiceRoutes } from './conversationalVoiceRoutes.js';
+import { registerWisdoWorldRoutes } from './worldRoutes.js';
 
 /**
  * Registers the modern Wisdo Kernel services as one cohesive boundary.
@@ -97,6 +98,13 @@ export function registerWisdoKernelRoutes(app, {
     logger,
   });
 
+  const world = registerWisdoWorldRoutes(app, {
+    config,
+    logger,
+    mt4SyncService,
+    publicRoot,
+  });
+
   app.get('/health/kernel', async (_req, res, next) => {
     try {
       const commandBus = await commandBusService.health();
@@ -105,11 +113,16 @@ export function registerWisdoKernelRoutes(app, {
       res.status(ok ? 200 : 503).json({
         ok,
         service: 'wisdo-master-kernel',
-        version: '3.4.0',
+        version: '3.5.0',
         command_bus: commandBus,
         workspaces: {
           registered: workspaces.registered.map(({ slug, route }) => ({ slug, route })),
           required_missing: requiredMissing.map(({ slug }) => slug),
+        },
+        world: {
+          route: world.route,
+          api: world.api,
+          execution_from_world_enabled: world.executionFromWorldEnabled,
         },
       });
     } catch (error) {
@@ -125,5 +138,6 @@ export function registerWisdoKernelRoutes(app, {
     roomStateService,
     voiceBotAuthorityService,
     workspaces,
+    world,
   };
 }
