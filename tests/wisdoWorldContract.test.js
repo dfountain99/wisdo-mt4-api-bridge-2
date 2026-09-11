@@ -39,7 +39,7 @@ test('WISDO World tier resolver maps existing WISDO identity roles conservativel
 test('Smart Home-first World bundle stays playable, preserves Central, and has a Lite safety path', () => {
   for (const file of [
     'index.html', 'world.css', 'home.css', 'world-v2.js', 'home3d.js', 'world-data-runtime.js',
-    'world3d.js', 'world-config.js', 'input-manager.js', 'world-lite.js',
+    'world3d.js', 'world3d-core.js', 'world3d-production.js', 'world-config.js', 'input-manager.js', 'world-lite.js',
   ]) {
     assert.equal(fs.existsSync(path.join(worldRoot, file)), true, `${file} must exist`);
   }
@@ -48,7 +48,9 @@ test('Smart Home-first World bundle stays playable, preserves Central, and has a
   const app = source('world-v2.js');
   const home = source('home3d.js');
   const runtime = source('world-data-runtime.js');
-  const central = source('world3d.js');
+  const centralEntry = source('world3d.js');
+  const centralCore = source('world3d-core.js');
+  const production = source('world3d-production.js');
   const input = source('input-manager.js');
 
   assert.match(html, /\/app\/world\/world\.css/);
@@ -80,14 +82,17 @@ test('Smart Home-first World bundle stays playable, preserves Central, and has a
   assert.match(runtime, /reporter\.online/);
   assert.match(runtime, /account\.selected/);
 
-  assert.match(central, /THREE_MODULE_URL/);
-  assert.match(central, /Raycaster/);
-  assert.match(central, /fixedDt/);
-  assert.match(central, /buildTradingTower/);
+  assert.match(centralEntry, /world3d-production\.js/);
+  assert.match(production, /world3d-core\.js/);
+  assert.match(production, /installProductionFidelity/);
+  assert.match(centralCore, /THREE_MODULE_URL/);
+  assert.match(centralCore, /Raycaster/);
+  assert.match(centralCore, /fixedDt/);
+  assert.match(centralCore, /buildTradingTower/);
   assert.match(input, /requestPointerLock/);
   assert.match(input, /jumpPressed/);
   assert.match(input, /interactPressed/);
-  assert.doesNotMatch(central, /mt4-command|order placement|broker password/i);
+  assert.doesNotMatch(`${centralEntry}\n${production}\n${centralCore}`, /mt4-command|order placement|broker password/i);
 });
 
 test('World gameplay constants keep fixed-step physics and intended first-district tuning', () => {
