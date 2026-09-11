@@ -114,7 +114,7 @@ function buildStreetFurniture(THREE, root, mat, quality) {
   const group = new THREE.Group(); group.name = 'ProductionStreetFurniture'; root.add(group);
   const density = quality === 'low' ? .55 : quality === 'high' ? 1 : .78;
   const lampPositions = [];
-  for (let z = -48; z <= 86; z += Math.round(18 / density)) for (const x of [-15.6, 15.6]) lampPositions.push([x, z]);
+  for (let z = -48; z <= 88; z += Math.round(18 / density)) for (const x of [-15.6, 15.6]) lampPositions.push([x, z]);
   for (const [x, z] of lampPositions) {
     group.add(mesh(THREE, new THREE.CylinderGeometry(.065, .09, 5.8, 8), mat.blackMetal, [x, 2.9, z], { cast: quality === 'high' }));
     group.add(mesh(THREE, new THREE.BoxGeometry(.72, .12, .34), mat.goldGlow, [x, 5.66, z]));
@@ -165,10 +165,10 @@ function enhanceTradingTower(THREE, scene, mat, quality) {
   const skin = new THREE.Group(); skin.name = 'ProductionTowerSkin'; tower.add(skin);
   const z = -82;
   for (const x of [-14.3,-10.4,10.4,14.3]) {
-    skin.add(mesh(THREE, new THREE.BoxGeometry(.38, 93, .5), x % 2 ? mat.goldMetal : mat.blackMetal, [x,52,z+10.8]));
+    skin.add(mesh(THREE, new THREE.BoxGeometry(.38, 93, .5), Math.abs(x) > 12 ? mat.goldMetal : mat.blackMetal, [x,52,z+10.8]));
   }
   for (let y = 10; y <= 96; y += 4.6) {
-    skin.add(mesh(THREE, new THREE.BoxGeometry(24 - Math.max(0,(y-35)*.08), .12, .3), y % 18 < 5 ? mat.goldGlow : mat.windowCool, [0,y,z+11.35]));
+    skin.add(mesh(THREE, new THREE.BoxGeometry(24 - Math.max(0,(y-35)*.08), .12, .3), Math.round(y/4.6) % 5 === 0 ? mat.goldGlow : mat.windowCool, [0,y,z+11.35]));
   }
   const crownY = 109;
   for (const x of [-5.2,-2.6,0,2.6,5.2]) {
@@ -176,7 +176,7 @@ function enhanceTradingTower(THREE, scene, mat, quality) {
     fin.rotation.z = x * .012;
     skin.add(fin);
   }
-  const lobby = mesh(THREE, new THREE.BoxGeometry(22, 6.2, 9.4), mat.darkGlass, [0,3.2,-66.8], { cast:true }); skin.add(lobby);
+  skin.add(mesh(THREE, new THREE.BoxGeometry(22, 6.2, 9.4), mat.darkGlass, [0,3.2,-66.8], { cast:true }));
   for (const x of [-9.6,9.6]) skin.add(mesh(THREE, new THREE.BoxGeometry(.52,7.2,.7), mat.goldMetal, [x,3.6,-63.2]));
   skin.add(mesh(THREE, new THREE.BoxGeometry(22.5,.28,6.8), mat.blackMetal, [0,6.35,-63.4], { cast:true }));
   skin.add(mesh(THREE, new THREE.BoxGeometry(18,.08,6.9), mat.goldGlow, [0,6.53,-63.4]));
@@ -214,10 +214,8 @@ function addDistantSkyline(THREE, scene, mat, quality) {
   const group = new THREE.Group(); group.name = 'ProductionSkyline'; scene.add(group);
   const count = quality === 'low' ? 38 : quality === 'high' ? 92 : 64;
   const geometry = new THREE.BoxGeometry(1,1,1);
-  const towerMat = mat.obsidian;
-  const windowsMat = mat.windowCool;
-  const towers = new THREE.InstancedMesh(geometry, towerMat, count);
-  const windows = new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,.05), windowsMat, count);
+  const towers = new THREE.InstancedMesh(geometry, mat.obsidian, count);
+  const windows = new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,.05), mat.windowCool, count);
   const matrix = new THREE.Matrix4();
   const position = new THREE.Vector3(); const scale = new THREE.Vector3(); const quat = new THREE.Quaternion();
   for (let i=0;i<count;i+=1) {
@@ -264,28 +262,30 @@ function buildEnhancedOperator(THREE, parent, identity, mat) {
   const skin = new THREE.MeshStandardMaterial({ color: skinMap[identity?.skinMaterial] || 0x9e6b50, roughness:.58 });
   const cloth = new THREE.MeshStandardMaterial({ color: identity?.outfit === 'cem-operator-midnight' ? 0x111f2a : identity?.outfit === 'cem-operator-formal' ? 0x17191e : 0x080c11, roughness:.52, metalness:.18 });
   const cloth2 = new THREE.MeshStandardMaterial({ color:0x1c242b, roughness:.46, metalness:.2 });
-  const gold = mat.goldMetal;
   const bodyPreset = identity?.bodyPreset || 'balanced';
   const shoulder = bodyPreset === 'broad' ? 1.1 : bodyPreset === 'athletic' ? 1.02 : bodyPreset === 'slim' ? .9 : .96;
   const height = identity?.heightSetting === 'tall' ? 1.08 : identity?.heightSetting === 'short' ? .94 : 1;
   root.scale.set(shoulder, height, shoulder*.96);
   const pelvis = new THREE.Group(); pelvis.position.y=.82; root.add(pelvis);
   pelvis.add(mesh(THREE,new THREE.BoxGeometry(.52,.3,.3),cloth,[0,0,0],{cast:true}));
-  const torso = mesh(THREE,new THREE.CapsuleGeometry(.34,.72,8,14),cloth,[0,1.05,0],{cast:true}); root.add(torso);
-  root.add(mesh(THREE,new THREE.BoxGeometry(.58,.12,.09),gold,[0,1.27,-.33]));
+  root.add(mesh(THREE,new THREE.CapsuleGeometry(.34,.72,8,14),cloth,[0,1.05,0],{cast:true}));
+  root.add(mesh(THREE,new THREE.BoxGeometry(.58,.12,.09),mat.goldMetal,[0,1.27,-.33]));
   root.add(mesh(THREE,new THREE.BoxGeometry(.2,.05,.035),mat.cyanData,[0,1.27,-.39]));
-  const neck = mesh(THREE,new THREE.CylinderGeometry(.1,.12,.18,12),skin,[0,1.62,0],{cast:true}); root.add(neck);
-  const head = mesh(THREE,new THREE.SphereGeometry(.27,24,18),skin,[0,1.91,0],{cast:true}); head.scale.set(identity?.headPreset==='oval'?.92:1,identity?.headPreset==='round'?.94:1.06,.96); root.add(head);
+  root.add(mesh(THREE,new THREE.CylinderGeometry(.1,.12,.18,12),skin,[0,1.62,0],{cast:true}));
+  const head = mesh(THREE,new THREE.SphereGeometry(.27,24,18),skin,[0,1.91,0],{cast:true});
+  const headWidth = identity?.headPreset === 'oval' ? .92 : identity?.headPreset === 'round' ? 1.04 : 1;
+  const headHeight = identity?.headPreset === 'round' ? .96 : identity?.headPreset === 'oval' ? 1.08 : 1.03;
+  head.scale.set(headWidth, headHeight, .96); root.add(head);
   const hairPreset=identity?.hairPreset || 'close';
   if (hairPreset !== 'none') {
     const hair = mesh(THREE,new THREE.SphereGeometry(.276,20,12,0,Math.PI*2,0,Math.PI*.48),new THREE.MeshStandardMaterial({color:0x11100e,roughness:.86}),[0,1.975,0],{cast:true});
     hair.scale.y = hairPreset.includes('locs') || hairPreset.includes('curls') ? 1.15 : 1; root.add(hair);
   }
-  const faceVisor = mesh(THREE,new THREE.BoxGeometry(.34,.035,.04),mat.cyanData,[0,1.91,-.264]); root.add(faceVisor);
+  root.add(mesh(THREE,new THREE.BoxGeometry(.34,.035,.04),mat.cyanData,[0,1.91,-.264]));
   const joints = {};
   for (const side of [-1,1]) {
     const armRoot=new THREE.Group(); armRoot.position.set(side*.43,1.37,0); root.add(armRoot);
-    const upper=mesh(THREE,new THREE.CapsuleGeometry(.085,.42,6,10),cloth2,[0,-.26,0],{cast:true}); armRoot.add(upper);
+    armRoot.add(mesh(THREE,new THREE.CapsuleGeometry(.085,.42,6,10),cloth2,[0,-.26,0],{cast:true}));
     const fore=new THREE.Group(); fore.position.set(0,-.53,0); armRoot.add(fore);
     fore.add(mesh(THREE,new THREE.CapsuleGeometry(.075,.34,6,10),cloth,[0,-.22,0],{cast:true}));
     fore.add(mesh(THREE,new THREE.SphereGeometry(.095,12,10),skin,[0,-.48,0],{cast:true}));
@@ -293,7 +293,7 @@ function buildEnhancedOperator(THREE, parent, identity, mat) {
     legRoot.add(mesh(THREE,new THREE.CapsuleGeometry(.105,.48,6,10),cloth,[0,-.31,0],{cast:true}));
     const calf=new THREE.Group(); calf.position.set(0,-.61,0); legRoot.add(calf);
     calf.add(mesh(THREE,new THREE.CapsuleGeometry(.092,.44,6,10),cloth2,[0,-.28,0],{cast:true}));
-    const shoe=mesh(THREE,new THREE.BoxGeometry(.22,.14,.39),mat.obsidian,[0,-.56,-.08],{cast:true}); calf.add(shoe);
+    calf.add(mesh(THREE,new THREE.BoxGeometry(.22,.14,.39),mat.obsidian,[0,-.56,-.08],{cast:true}));
     joints[side<0?'leftArm':'rightArm']=armRoot; joints[side<0?'leftFore':'rightFore']=fore; joints[side<0?'leftLeg':'rightLeg']=legRoot; joints[side<0?'leftCalf':'rightCalf']=calf;
   }
   root.userData.joints=joints; root.userData.lastWorld=new THREE.Vector3(); root.userData.speed=0; root.userData.phase=0;
@@ -342,15 +342,17 @@ export async function installProductionFidelity({ THREE, scene, camera, renderer
   let identity = globalThis.WisdoIdentityMirror?.operator || null;
   let enhancedOperator = operator ? buildEnhancedOperator(THREE, operator, identity, mat) : null;
   const avatarListener = (event) => {
-    if (!operator || !event.detail?.operator) return;
+    const nextIdentity = event.detail?.detail?.operator || globalThis.WisdoIdentityMirror?.operator || null;
+    if (!operator || !nextIdentity) return;
     const old = enhancedOperator?.root;
-    if (old) { old.parent?.remove(old); disposeTree(old); }
-    identity = event.detail.operator;
+    if (old) disposeTree(old);
+    identity = nextIdentity;
     enhancedOperator = buildEnhancedOperator(THREE, operator, identity, mat);
   };
-  window.addEventListener('wisdo:avatar-updated', avatarListener);
+  window.addEventListener('wisdo:avatar.updated', avatarListener);
 
-  const marketManager = createMarketBillboardManager({ THREE, scene, camera, qualityName: quality, onChanged: ({ markets, billboardCount }) => {
+  let marketManager = null;
+  marketManager = createMarketBillboardManager({ THREE, scene, camera, qualityName: quality, onChanged: ({ markets, billboardCount }) => {
     const anchors = marketManager?.anchors || [];
     globalThis.WisdoWorldDiagnostics = {
       ...(globalThis.WisdoWorldDiagnostics || {}),
@@ -393,7 +395,7 @@ export async function installProductionFidelity({ THREE, scene, camera, renderer
     quality,
     diagnostics: globalThis.WisdoWorldDiagnostics,
     destroy() {
-      destroyed=true; cancelAnimationFrame(frameId); clearInterval(marketTimer); window.removeEventListener('wisdo:avatar-updated',avatarListener);
+      destroyed=true; cancelAnimationFrame(frameId); clearInterval(marketTimer); window.removeEventListener('wisdo:avatar.updated',avatarListener);
       marketManager.destroy();
       if (enhancedOperator?.root) disposeTree(enhancedOperator.root);
       if (enhancedOperator?.originalChildren) enhancedOperator.originalChildren.forEach((child)=>{child.visible=true;});
