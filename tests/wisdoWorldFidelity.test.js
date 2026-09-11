@@ -6,16 +6,21 @@ import path from 'node:path';
 const root = process.cwd();
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
-test('production fidelity keeps the existing World route and renderer contract', () => {
+test('production fidelity keeps the existing World route and uses a direct production renderer entrypoint', () => {
   const index = read('public/app/world/index.html');
+  const entry = read('public/app/world/world3d.js');
   const wrapper = read('public/app/world/world3d-production.js');
+  const core = read('public/app/world/world3d-core.js');
   assert.match(index, /world-v2\.js/);
   assert.match(index, /world-living-runtime\.js/);
-  assert.match(index, /world3d-production\.js/);
   assert.match(index, /fidelity\.css/);
+  assert.match(entry, /world3d-production\.js/);
   assert.match(wrapper, /createWorldExperience as createCoreWorldExperience/);
-  assert.match(wrapper, /world3d\.js\?production-core=1/);
+  assert.match(wrapper, /world3d-core\.js/);
   assert.match(wrapper, /installProductionFidelity/);
+  assert.match(wrapper, /wisdoFidelity/);
+  assert.match(core, /function buildTradingTower/);
+  assert.match(core, /function createOperator/);
 });
 
 test('fidelity layer uses authorized World market state and existing billboard manager', () => {
