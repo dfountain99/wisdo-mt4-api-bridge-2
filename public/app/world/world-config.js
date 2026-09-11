@@ -1,3 +1,5 @@
+import { chooseAutoQuality as choosePolicyQuality, collectWorldCapabilities } from './world-quality.js';
+
 export const WORLD_VERSION = '2.0.0-third-person';
 export const THREE_MODULE_URL = 'https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.min.js';
 
@@ -81,11 +83,10 @@ export const WORLD_LOCATIONS = Object.freeze({
   'war-room': Object.freeze({ position: [-36, 0, -92], interaction: [-30, 0, -70], size: [25, 15, 18], kind: 'war' }),
 });
 
-export function chooseAutoQuality() {
-  const coarse = globalThis.matchMedia?.('(pointer: coarse)').matches;
-  const memory = Number(globalThis.navigator?.deviceMemory || 0);
-  const cores = Number(globalThis.navigator?.hardwareConcurrency || 4);
-  if (coarse || (memory > 0 && memory <= 4) || cores <= 4) return 'low';
-  if ((memory > 0 && memory <= 8) || cores <= 8) return 'medium';
-  return 'high';
+export function chooseAutoQuality(environment = globalThis, overrides = {}) {
+  return choosePolicyQuality(environment, overrides);
+}
+
+export function getWorldCapabilities(environment = globalThis, overrides = {}) {
+  return collectWorldCapabilities(environment, overrides);
 }
