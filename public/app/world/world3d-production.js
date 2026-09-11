@@ -110,7 +110,7 @@ export async function createWorldExperience(options = {}) {
 
   // Load the authored human in the background. The World stays playable while a slow mobile network fetches it.
   document.documentElement.dataset.wisdoOperator = 'loading-authored-glb';
-  const operatorTask = installAuthoredOperator({ THREE, scene: capturedScene, debug })
+  installAuthoredOperator({ THREE, scene: capturedScene, debug })
     .then((result) => {
       authoredOperator = result;
       if (destroyed) authoredOperator?.destroy?.();
@@ -158,7 +158,6 @@ export async function createWorldExperience(options = {}) {
     },
     destroy() {
       destroyed = true;
-      operatorTask?.then?.((loaded) => loaded?.destroy?.()).catch?.(() => {});
       try { authoredOperator?.destroy?.(); } catch (error) { console.warn('Authored Operator cleanup degraded', error); }
       try { fidelity?.destroy?.(); } catch (error) { console.warn('Fidelity cleanup degraded', error); }
       baseDestroy?.();
