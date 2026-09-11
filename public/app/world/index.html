@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="/app/world/living.css">
   <link rel="stylesheet" href="/app/world/fidelity.css">
   <script type="importmap">
-    {"imports":{"/app/world/world3d.js":"/app/world/world3d-production.js"}}
+    {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.min.js","/app/world/world3d.js":"/app/world/world3d-production.js"}}
   </script>
 </head>
 <body>
@@ -79,31 +79,22 @@
         <a href="/member/command-center" data-nav>⚙ <span>FAST</span></a>
       </footer>
 
-      <div id="mobileControls" class="mobile-controls" aria-label="Touch game controls">
+      <div class="touch-controls" aria-label="Mobile world controls">
         <div id="moveStick" class="move-stick" aria-label="Movement joystick"><i id="moveKnob"></i></div>
         <div id="lookZone" class="look-zone" aria-label="Camera look area"></div>
-        <div class="mobile-actions">
-          <button id="sprintBtn" aria-label="Sprint">SPRINT</button>
-          <button id="jumpBtn" aria-label="Jump">JUMP</button>
-          <button id="interactBtn" class="interact" aria-label="Interact" hidden>USE</button>
+        <div class="touch-actions">
+          <button id="interactBtn" hidden>ENTER</button>
+          <button id="jumpBtn">JUMP</button>
+          <button id="sprintBtn">SPRINT</button>
         </div>
       </div>
 
-      <aside id="debugPanel" class="debug-panel" hidden></aside>
+      <section id="modalLayer" class="modal-layer" hidden></section>
+      <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+      <div id="debugHud" class="debug-hud" hidden></div>
     </main>
   </div>
 
-  <div id="modal" class="modal" hidden>
-    <button id="modalBackdrop" class="modal-backdrop" aria-label="Close modal"></button>
-    <section class="modal-card hud-panel" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-      <button id="modalClose" class="modal-close" aria-label="Close">×</button>
-      <div id="modalBody"></div>
-    </section>
-  </div>
-
-  <div id="toast" class="toast hud-panel" hidden></div>
-  <noscript>WISDO World requires JavaScript. Use WISDO Fast Mode to continue.</noscript>
   <script type="module" src="/app/world/world-v2.js"></script>
-  <script type="module" src="/app/world/world-living-runtime.js"></script>
 </body>
 </html>
