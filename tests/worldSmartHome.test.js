@@ -96,6 +96,20 @@ test('WorldDataAdapter exposes real authorized account state without execution a
   assert.equal(snapshot.history.length, 2);
 });
 
+test('World never guesses an active account from list order', async () => {
+  const { userId, account, mt4SyncService } = fixture();
+  account.isPrimary = false;
+  const adapter = new WorldDataAdapterService({ mt4SyncService });
+  const snapshot = await adapter.snapshot(userId);
+
+  assert.equal(snapshot.accounts.length, 1);
+  assert.equal(snapshot.activeAccount, null);
+  assert.equal(snapshot.financial, null);
+  assert.deepEqual(snapshot.positions, []);
+  assert.deepEqual(snapshot.history, []);
+  assert.equal(snapshot.activeAccountRequired, true);
+});
+
 test('World account selection delegates to existing authorized selection service', async () => {
   const { userId, mt4SyncService } = fixture();
   const adapter = new WorldDataAdapterService({ mt4SyncService });
