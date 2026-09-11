@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#040910">
+  <meta name="description" content="WISDO World — the immersive trading, learning, progression, and account command plaza.">
+  <title>WISDO World</title>
+  <link rel="stylesheet" href="/world/assets/world.css">
+</head>
+<body>
+  <div id="app" class="world-shell" data-ready="false">
+    <header class="topbar glass">
+      <a class="brand" href="/member/command-center" aria-label="Return to WISDO Command Center">
+        <span class="brand-mark">W</span>
+        <span><b>WISDO</b><small>WORLD</small></span>
+      </a>
+      <nav class="top-actions" aria-label="World controls">
+        <button id="meshBtn" class="chip">Reporter Mesh <span id="meshCount">0</span></button>
+        <button id="mapBtn" class="chip">Map</button>
+        <button id="profileBtn" class="chip">Identity</button>
+        <a class="chip" href="/member/command-center">Dashboard</a>
+      </nav>
+      <div class="identity">
+        <span id="tierBadge" class="tier">MEMBER</span>
+        <div><strong id="callsign">Operator</strong><small><span id="xp">0</span> XP · LV <span id="level">1</span></small></div>
+      </div>
+    </header>
+
+    <main class="world-stage" id="worldStage" aria-label="WISDO World plaza">
+      <div class="sky-glow glow-a"></div>
+      <div class="sky-glow glow-b"></div>
+      <div class="grid-floor" aria-hidden="true"></div>
+
+      <section class="world-title glass-soft">
+        <span>CEM CULTURE · CONNECT. COPY. CONTROL.</span>
+        <h1>MORE THAN A PLATFORM.<br><em>A PLACE YOU BELONG.</em></h1>
+        <p>Walk the plaza. Enter the systems. Build your WISDO identity.</p>
+      </section>
+
+      <section class="core-plaza" aria-label="WISDO central plaza">
+        <div class="orb-ring ring-a"></div>
+        <div class="orb-ring ring-b"></div>
+        <div class="wisdo-orb">W</div>
+        <div class="motto">DISCIPLINE CREATES FREEDOM</div>
+      </section>
+
+      <div id="buildings" class="buildings"></div>
+
+      <div id="avatar" class="avatar" role="img" aria-label="Your WISDO avatar">
+        <div class="avatar-head"></div>
+        <div class="avatar-body"></div>
+        <div class="avatar-shadow"></div>
+        <span id="avatarLabel">YOU</span>
+      </div>
+
+      <div id="proximity" class="proximity glass" hidden>
+        <strong id="nearName">Trading Tower</strong>
+        <span id="nearHint">Press E to interact</span>
+      </div>
+
+      <aside class="status-panel glass">
+        <div class="status-row"><span>LINKED ACCOUNTS</span><strong id="accountCount">0</strong></div>
+        <div class="status-row"><span>REPORTERS ONLINE</span><strong id="onlineCount">0</strong></div>
+        <div class="status-row"><span>WORLD ACCESS</span><strong id="accessLabel">MEMBER</strong></div>
+        <div class="progress-track"><i id="xpBar"></i></div>
+        <small id="syncLabel">Connecting to WISDO…</small>
+      </aside>
+
+      <div class="mobile-pad" aria-label="Movement controls">
+        <button data-move="up" aria-label="Move up">▲</button>
+        <button data-move="left" aria-label="Move left">◀</button>
+        <button id="interactBtn" class="interact" aria-label="Interact">E</button>
+        <button data-move="right" aria-label="Move right">▶</button>
+        <button data-move="down" aria-label="Move down">▼</button>
+      </div>
+    </main>
+
+    <footer class="dock glass">
+      <button id="dockMap">◫ <span>MAP</span></button>
+      <button id="dockMesh">⌁ <span>MESH</span></button>
+      <button id="dockAchievements">◇ <span>PROGRESS</span></button>
+      <a href="/pricing">▣ <span>MARKET</span></a>
+      <a href="/member/command-center">⚙ <span>COMMAND</span></a>
+    </footer>
+  </div>
+
+  <div id="modal" class="modal" hidden>
+    <button id="modalBackdrop" class="modal-backdrop" aria-label="Close modal"></button>
+    <section class="modal-card glass" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <button id="modalClose" class="modal-close" aria-label="Close">×</button>
+      <div id="modalBody"></div>
+    </section>
+  </div>
+
+  <div id="toast" class="toast glass" hidden></div>
+
+  <noscript>WISDO World requires JavaScript.</noscript>
+  <script type="module" src="/world/assets/world.js"></script>
+</body>
+</html>
