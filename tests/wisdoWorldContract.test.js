@@ -40,6 +40,7 @@ test('Smart Home-first World bundle stays playable, preserves Central, and has a
   for (const file of [
     'index.html', 'world.css', 'home.css', 'world-v2.js', 'home3d.js', 'world-data-runtime.js',
     'world3d.js', 'world3d-core.js', 'world3d-production.js', 'world-config.js', 'input-manager.js', 'world-lite.js',
+    'authored-asset-manifest.js', 'authored-operator.js', 'ASSET_LICENSES.md',
   ]) {
     assert.equal(fs.existsSync(path.join(worldRoot, file)), true, `${file} must exist`);
   }
@@ -51,11 +52,15 @@ test('Smart Home-first World bundle stays playable, preserves Central, and has a
   const centralEntry = source('world3d.js');
   const centralCore = source('world3d-core.js');
   const production = source('world3d-production.js');
+  const authored = source('authored-operator.js');
+  const manifest = source('authored-asset-manifest.js');
+  const licenses = source('ASSET_LICENSES.md');
   const input = source('input-manager.js');
 
   assert.match(html, /\/app\/world\/world\.css/);
   assert.match(html, /\/app\/world\/home\.css/);
   assert.match(html, /\/app\/world\/world-v2\.js/);
+  assert.match(html, /"three":"https:\/\/cdn\.jsdelivr\.net\/npm\/three@0\.185\.1\/build\/three\.module\.min\.js"/);
   assert.match(html, /YOUR WISDO SMART HOME/);
   assert.match(html, /id="canvasMount"/);
   assert.match(html, /id="moveStick"/);
@@ -85,14 +90,27 @@ test('Smart Home-first World bundle stays playable, preserves Central, and has a
   assert.match(centralEntry, /world3d-production\.js/);
   assert.match(production, /world3d-core\.js/);
   assert.match(production, /installProductionFidelity/);
+  assert.match(production, /installAuthoredOperator/);
   assert.match(centralCore, /THREE_MODULE_URL/);
   assert.match(centralCore, /Raycaster/);
   assert.match(centralCore, /fixedDt/);
   assert.match(centralCore, /buildTradingTower/);
+
+  assert.match(authored, /GLTFLoader/);
+  assert.match(authored, /AnimationMixer/);
+  assert.match(authored, /WISDOAuthoredOperatorMount/);
+  assert.match(authored, /procedural fallback|fallback/i);
+  assert.match(manifest, /wisdo-default-operator-v1/);
+  assert.match(manifest, /suited\.glb/);
+  assert.match(manifest, /CC0-1\.0/);
+  assert.match(manifest, /3f97faf85e46d2f9a122b0a8b8d3ccc0af598f91/);
+  assert.match(licenses, /Default authored WISDO Operator/);
+  assert.match(licenses, /MakeHuman \/ MPFB 2/);
+
   assert.match(input, /requestPointerLock/);
   assert.match(input, /jumpPressed/);
   assert.match(input, /interactPressed/);
-  assert.doesNotMatch(`${centralEntry}\n${production}\n${centralCore}`, /mt4-command|order placement|broker password/i);
+  assert.doesNotMatch(`${centralEntry}\n${production}\n${centralCore}\n${authored}`, /mt4-command|order placement|broker password|DISCORD_TOKEN|MT4_SYNC_API_KEY/i);
 });
 
 test('World gameplay constants keep fixed-step physics and intended first-district tuning', () => {
