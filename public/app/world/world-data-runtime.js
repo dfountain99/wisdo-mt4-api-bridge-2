@@ -1,33 +1,7 @@
+import { worldEventBus } from './world-event-bus.js';
+
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const id = (value) => String(value ?? '');
-
-export class WorldEventBus {
-  constructor() {
-    this.listeners = new Map();
-  }
-
-  on(type, listener) {
-    if (typeof listener !== 'function') return () => {};
-    if (!this.listeners.has(type)) this.listeners.set(type, new Set());
-    this.listeners.get(type).add(listener);
-    return () => this.listeners.get(type)?.delete(listener);
-  }
-
-  emit(type, detail = {}) {
-    const event = Object.freeze({ type, detail, at: new Date().toISOString() });
-    for (const listener of this.listeners.get(type) || []) {
-      try { listener(event); } catch (error) { console.warn(`World listener failed: ${type}`, error); }
-    }
-    for (const listener of this.listeners.get('*') || []) {
-      try { listener(event); } catch (error) { console.warn('World wildcard listener failed', error); }
-    }
-    return event;
-  }
-
-  clear() {
-    this.listeners.clear();
-  }
-}
 
 async function request(url, options = {}) {
   const response = await fetch(url, {
@@ -58,6 +32,7 @@ function reporterMap(snapshot) {
 function diffState(previous, next, bus) {
   if (!previous) {
     bus.emit('world.ready', { snapshot: next });
+    if (next?.worldProfile?.operatorIdentity) bus.emit('avatar.updated', { operator: next.worldProfile.operatorIdentity, previous: null });
     return;
   }
 
@@ -91,10 +66,17 @@ function diffState(previous, next, bus) {
       bus.emit(type, { reporter, previous: before || null });
     }
   }
+  for (const [reporterId, reporter] of beforeReporters) {
+    if (!afterReporters.has(reporterId)) bus.emit('reporter.offline', { reporter: { ...reporter, status: 'offline' }, previous: reporter });
+  }
 
   if (!same(previous?.growth, next?.growth)) bus.emit('xp.updated', { growth: next?.growth, previous: previous?.growth });
   if (!same(previous?.access, next?.access)) bus.emit('membership.updated', { access: next?.access, previous: previous?.access });
   if (!same(previous?.home, next?.home)) bus.emit('home.updated', { home: next?.home, previous: previous?.home });
+
+  const previousOperator = previous?.worldProfile?.operatorIdentity || null;
+  const nextOperator = next?.worldProfile?.operatorIdentity || null;
+  if (!same(previousOperator, nextOperator)) bus.emit('avatar.updated', { operator: nextOperator, previous: previousOperator });
 
   const previousUnread = Number(previous?.homeRuntime?.notifications?.unread || 0);
   const nextUnread = Number(next?.homeRuntime?.notifications?.unread || 0);
@@ -106,8 +88,7 @@ function diffState(previous, next, bus) {
   }
 }
 
-export function createWorldDataRuntime({ initial = null, onSnapshot = null, onStatus = null } = {}) {
-  const bus = new WorldEventBus();
+export function createWorldDataRuntime({ initial = null, onSnapshot = null, onStatus = null, bus = worldEventBus } = {}) {
   let snapshot = initial;
   let timer = null;
   let stopped = false;
@@ -179,7 +160,6 @@ export function createWorldDataRuntime({ initial = null, onSnapshot = null, onSt
   function stop() {
     stopped = true;
     clearTimeout(timer);
-    bus.clear();
   }
 
   function onVisibility() {
@@ -201,3 +181,5 @@ export function createWorldDataRuntime({ initial = null, onSnapshot = null, onSt
   };
   return api;
 }
+
+export { worldEventBus };
