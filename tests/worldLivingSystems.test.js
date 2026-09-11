@@ -160,7 +160,7 @@ test('World Event Engine bridges confirmed TradeSignalService results and emits 
 test('Avatar configuration accepts render parameters but rejects raw biometric-adjacent capture payloads', () => {
   const avatar = sanitizeAvatarConfiguration({
     headPreset: 'angular',
-    morphParameters: { faceWidth: 0.25, jawWidth: -0.1, unknownLandmark: 10 },
+    morphParameters: { faceWidth: 0.25, jawWidth: -0.1, unknownMorph: 10 },
     skinMaterial: 'neutral-5',
     hairPreset: 'waves',
     facialHairPreset: 'short-beard',
@@ -171,7 +171,7 @@ test('Avatar configuration accepts render parameters but rejects raw biometric-a
   });
   assert.equal(avatar.topology, 'wisdo-operator-standard-v1');
   assert.equal(avatar.morphParameters.faceWidth, 0.25);
-  assert.equal('unknownLandmark' in avatar.morphParameters, false);
+  assert.equal('unknownMorph' in avatar.morphParameters, false);
   assert.throws(() => sanitizeAvatarConfiguration({ rawImage: 'data:image/jpeg;base64,abc' }), /Raw facial capture data is not accepted/);
   assert.throws(() => sanitizeAvatarConfiguration({ faceLandmarks: [1, 2, 3] }), /Raw facial capture data is not accepted/);
 });
