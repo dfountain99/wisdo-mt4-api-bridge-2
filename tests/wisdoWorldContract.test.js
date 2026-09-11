@@ -19,6 +19,10 @@ test('WISDO World catalog exposes immersive destinations without trade execution
   assert.equal(catalog.ok, true);
   assert.equal(catalog.executionFromWorldEnabled, false);
   assert.equal(catalog.billingConnected, false);
+  assert.equal(catalog.defaultSpawn, 'home');
+  assert.equal(catalog.architecture, 'persistent-smart-home-civilization');
+  assert.ok(catalog.homeRooms.some((item) => item.id === 'trading-room'));
+  assert.ok(catalog.homeRooms.some((item) => item.id === 'reporter-room'));
   assert.ok(catalog.destinations.length >= 10);
   assert.ok(catalog.destinations.some((item) => item.id === 'trading-tower' && item.route === '/member/command-center'));
   assert.ok(catalog.destinations.some((item) => item.id === 'academy' && item.route === '/member/education'));
@@ -32,31 +36,58 @@ test('WISDO World tier resolver maps existing WISDO identity roles conservativel
   assert.equal(resolveWorldTier({ id: '4', roles: ['owner'] }, {}).label, 'Commander');
 });
 
-test('third-person World bundle is route-local, playable, and has a Lite safety path', () => {
-  for (const file of ['index.html','world.css','world.js','world3d.js','world-config.js','input-manager.js','world-lite.js']) {
+test('Smart Home-first World bundle stays playable, preserves Central, and has a Lite safety path', () => {
+  for (const file of [
+    'index.html', 'world.css', 'home.css', 'world-v2.js', 'home3d.js', 'world-data-runtime.js',
+    'world3d.js', 'world-config.js', 'input-manager.js', 'world-lite.js',
+  ]) {
     assert.equal(fs.existsSync(path.join(worldRoot, file)), true, `${file} must exist`);
   }
+
   const html = source('index.html');
-  const app = source('world.js');
-  const game = source('world3d.js');
+  const app = source('world-v2.js');
+  const home = source('home3d.js');
+  const runtime = source('world-data-runtime.js');
+  const central = source('world3d.js');
   const input = source('input-manager.js');
+
   assert.match(html, /\/app\/world\/world\.css/);
-  assert.match(html, /\/app\/world\/world\.js/);
+  assert.match(html, /\/app\/world\/home\.css/);
+  assert.match(html, /\/app\/world\/world-v2\.js/);
+  assert.match(html, /YOUR WISDO SMART HOME/);
   assert.match(html, /id="canvasMount"/);
   assert.match(html, /id="moveStick"/);
   assert.match(html, /id="lookZone"/);
+
   assert.match(app, /\/api\/world\/catalog/);
   assert.match(app, /\/api\/world\/me/);
-  assert.match(app, /createLiteWorld/);
+  assert.match(app, /createWorldDataRuntime/);
+  assert.match(app, /createHomeExperience/);
   assert.match(app, /createWorldExperience/);
-  assert.match(game, /THREE_MODULE_URL/);
-  assert.match(game, /Raycaster/);
-  assert.match(game, /fixedDt/);
-  assert.match(game, /buildTradingTower/);
+  assert.match(app, /createLiteWorld/);
+  assert.match(app, /state\.scene\s*=\s*state\.guest\s*\?\s*'central'/);
+
+  assert.match(home, /TRADING ROOM/);
+  assert.match(home, /REPORTER MESH/);
+  assert.match(home, /ACCOUNT VAULT/);
+  assert.match(home, /WISDO will not fabricate chart candles/);
+  assert.match(home, /WORLD_CONFIG\.world\.fixedDt/);
+  assert.doesNotMatch(home, /mt4-command|broker password|DISCORD_TOKEN|MT4_SYNC_API_KEY/i);
+
+  assert.match(runtime, /position\.opened/);
+  assert.match(runtime, /position\.updated/);
+  assert.match(runtime, /position\.closed/);
+  assert.match(runtime, /reporter\.online/);
+  assert.match(runtime, /account\.selected/);
+
+  assert.match(central, /THREE_MODULE_URL/);
+  assert.match(central, /Raycaster/);
+  assert.match(central, /fixedDt/);
+  assert.match(central, /buildTradingTower/);
   assert.match(input, /requestPointerLock/);
   assert.match(input, /jumpPressed/);
   assert.match(input, /interactPressed/);
-  assert.doesNotMatch(game, /mt4-command|order placement|broker password/i);
+  assert.doesNotMatch(central, /mt4-command|order placement|broker password/i);
 });
 
 test('World gameplay constants keep fixed-step physics and intended first-district tuning', () => {
