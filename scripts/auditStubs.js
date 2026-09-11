@@ -8,10 +8,14 @@ const patterns=/TODO|FIXME|placeholder|coming soon|not implemented|website-buyer
 const allowedExtensions=new Set(['.js','.json','.md','.html']);
 const excludedDirectories=new Set(['node_modules','.git','data','.venv','dist','build']);
 
+function isExcludedPath(file=''){
+  return String(file).replaceAll('\\','/').split('/').some((segment)=>excludedDirectories.has(segment)||segment.startsWith('.venv'));
+}
+
 async function walk(directory,relative=''){
   const files=[];
   for(const entry of await readdir(directory,{withFileTypes:true})){
-    if(entry.isDirectory()&&excludedDirectories.has(entry.name))continue;
+    if(entry.isDirectory()&&(excludedDirectories.has(entry.name)||entry.name.startsWith('.venv')))continue;
     const rel=relative?`${relative}/${entry.name}`:entry.name;
     const full=path.join(directory,entry.name);
     if(entry.isDirectory())files.push(...await walk(full,rel));
@@ -42,7 +46,7 @@ function classify(file,line,term){
   return'REVIEW_REQUIRED';
 }
 
-const files=(gitFiles()||await walk(root)).filter((file)=>!file.includes('legacy-source-notes'));
+const files=(gitFiles()||await walk(root)).filter((file)=>!isExcludedPath(file)&&!file.includes('legacy-source-notes'));
 const findings=[];
 for(const file of files){
   const body=await readFile(path.join(root,file),'utf8').catch(()=>null);
