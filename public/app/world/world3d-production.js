@@ -15,7 +15,7 @@ export async function createWorldExperience(options = {}) {
   globalThis.WisdoWorldRenderInstance = instanceId;
   const isCurrent = () => globalThis.WisdoWorldRenderInstance === instanceId;
   let capturedScene=null,capturedCamera=null,capturedRenderer=null,core=null,adaptive=null,destroyed=false;
-  const requestedQuality=options.preferences?.quality||'auto';
+  const requestedQuality = options.preferences?.quality || 'auto';
   const proto=THREE.WebGLRenderer.prototype, originalRender=proto.render;
   proto.render=function captureProductionWorld(scene,camera){capturedScene ||= scene;capturedCamera ||= camera;capturedRenderer ||= this;return originalRender.call(this,scene,camera);};
 
@@ -23,8 +23,8 @@ export async function createWorldExperience(options = {}) {
   try{core=await createCoreWorldExperience({...options,onTelemetry:telemetryProxy});}finally{proto.render=originalRender;}
 
   const capabilities=getWorldCapabilities();
-  publishQualityDiagnostics({requestedQuality,initialQuality:core?.quality||chooseAutoQuality(),activeQuality:core?.quality||chooseAutoQuality(),adaptive:requestedQuality==='auto',capabilities,touchForcedLow:false,lastReason:'initial-capability-policy'});
-  adaptive=createAdaptiveQualityController({initialQuality:core?.quality||chooseAutoQuality(),enabled:requestedQuality==='auto',setQuality:(quality)=>core?.setQuality?.(quality),onChange:({quality,reason,sample})=>publishQualityDiagnostics({activeQuality:quality,lastReason:reason,lastFps:sample?.fps??null})});
+  publishQualityDiagnostics({requestedQuality,initialQuality:core?.quality||chooseAutoQuality(),activeQuality:core?.quality||chooseAutoQuality(),adaptive:requestedQuality === 'auto',capabilities,touchForcedLow:false,lastReason:'initial-capability-policy'});
+  adaptive=createAdaptiveQualityController({initialQuality:core?.quality||chooseAutoQuality(),enabled:requestedQuality === 'auto',setQuality:(quality)=>core?.setQuality?.(quality),onChange:({quality,reason,sample})=>publishQualityDiagnostics({activeQuality:quality,lastReason:reason,lastFps:sample?.fps??null})});
 
   if(!capturedScene||!capturedCamera||!capturedRenderer){if(isCurrent()){document.documentElement.dataset.wisdoFidelity='degraded';globalThis.WisdoFidelityStatus=Object.freeze({active:false,reason:'renderer_capture_failed',installedAt:new Date().toISOString()});}console.warn('WISDO production fidelity layer could not capture the active Central renderer; core World remains active.');return core;}
 
