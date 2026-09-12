@@ -16,7 +16,7 @@
     "test:unit": "node --test tests/majorStabilityCore.test.js tests/conversationalTradingOs.test.js tests/wisdoPhysicalVoice.test.js",
     "test:integration": "node --test tests/commandBusContract.test.js tests/major-product.test.js tests/v708-database-first-trading.test.js",
     "test:commands": "node --test tests/v701-runtime-repair.test.js tests/commandBusContract.test.js",
-    "smoke": "node --test tests/majorStabilityCore.test.js tests/kernelRouteRegistryContract.test.js tests/runtime-lifecycle-stability.test.js tests/wisdoWorldContract.test.js tests/worldSmartHome.test.js tests/worldLivingSystems.test.js tests/wisdoWorldQuality.test.js tests/wisdoWorldRuntimeContracts.test.js",
+    "smoke": "node --test tests/majorStabilityCore.test.js tests/kernelRouteRegistryContract.test.js tests/runtime-lifecycle-stability.test.js tests/wisdoWorldContract.test.js tests/worldSmartHome.test.js tests/worldLivingSystems.test.js tests/wisdoWorldQuality.test.js tests/wisdoWorldRuntimeContracts.test.js tests/wisdoWorldCoreGame.test.js",
     "migrate:postgres": "node scripts/migratePostgres.js",
     "postinstall": "node scripts/patchWsHandshake.js",
     "pressure:v706": "node --max-old-space-size=64 --expose-gc scripts/pressureSnapshotChurn.js 1000",
@@ -30,9 +30,7 @@
     "test:adaptive": "node --test tests/adaptiveFabricContract.test.js",
     "audit:secrets": "node scripts/auditSecrets.js"
   },
-  "engines": {
-    "node": "22.x"
-  },
+  "engines": { "node": "22.x" },
   "dependencies": {
     "compression": "^1.8.1",
     "discord.js": "^14.27.0",
@@ -42,10 +40,5 @@
     "redis": "^5.8.2",
     "web-push": "^3.6.7"
   },
-  "overrides": {
-    "ws": "8.21.1",
-    "body-parser": "2.3.0",
-    "qs": "6.15.3",
-    "undici": "6.28.0"
-  }
+  "overrides": { "ws": "8.21.1", "body-parser": "2.3.0", "qs": "6.15.3", "undici": "6.28.0" }
 }

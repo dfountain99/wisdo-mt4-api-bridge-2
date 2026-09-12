@@ -32,7 +32,7 @@
       <div class="reticle" aria-hidden="true"><i></i></div>
 
       <header class="topbar hud-panel">
-        <a class="brand" href="/member/command-center" data-nav aria-label="Return to WISDO Command Center">
+        <a class="brand" href="/member/command-center" data-nav aria-label="Open WISDO Command inside World">
           <span class="brand-mark">W</span>
           <span><b>WISDO</b><small>WORLD</small></span>
         </a>
@@ -41,7 +41,7 @@
           <button id="mapBtn" class="chip">Map</button>
           <button id="profileBtn" class="chip">Identity</button>
           <button id="settingsBtn" class="chip">Settings</button>
-          <a class="chip" href="/member/command-center" data-nav>Fast Mode</a>
+          <a class="chip" href="/member/command-center" data-nav data-world-external="fast-mode">Fast Mode</a>
         </nav>
         <div class="identity">
           <span id="tierBadge" class="tier">MEMBER</span>
@@ -63,7 +63,7 @@
         <div class="progress-track"><i id="xpBar"></i></div>
         <small id="syncLabel">Connecting to WISDO…</small>
         <small id="worldVersion" class="world-version">WISDO WORLD</small>
-        <small class="world-version" data-world-build="PERSISTENT-TV-1">BUILD PERSISTENT-TV-1</small>
+        <small class="world-version" data-world-build="CORE-EXPERIENCE-V1">BUILD CORE-EXPERIENCE-V1</small>
       </aside>
 
       <div id="proximity" class="proximity hud-panel" hidden>
@@ -77,7 +77,7 @@
         <button id="dockMesh">⌁ <span>MESH</span></button>
         <button id="dockAchievements">◇ <span>PROGRESS</span></button>
         <a href="/pricing" data-nav>▣ <span>MARKET</span></a>
-        <a href="/member/command-center" data-nav>⚙ <span>FAST</span></a>
+        <a href="/member/command-center" data-nav data-world-external="fast-mode">⚙ <span>FAST</span></a>
       </footer>
 
       <div id="mobileControls" class="mobile-controls" aria-label="Touch game controls">

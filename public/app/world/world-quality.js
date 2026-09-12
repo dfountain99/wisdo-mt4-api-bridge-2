@@ -1,4 +1,5 @@
 const ORDER = Object.freeze(['low', 'medium', 'high']);
+const WEBGL2_CACHE = new WeakMap();
 
 const numberOr = (value, fallback = 0) => {
   const number = Number(value);
@@ -11,11 +12,19 @@ function mediaMatches(environment, query) {
 }
 
 function detectWebGL2(environment) {
+  const key = environment && (typeof environment === 'object' || typeof environment === 'function') ? environment : null;
+  if (key && WEBGL2_CACHE.has(key)) return WEBGL2_CACHE.get(key);
+  let available = false;
   try {
     const documentRef = environment?.document;
     const canvas = documentRef?.createElement?.('canvas');
-    return Boolean(canvas?.getContext?.('webgl2'));
-  } catch { return false; }
+    const context = canvas?.getContext?.('webgl2') || null;
+    available = Boolean(context);
+    try { context?.getExtension?.('WEBGL_lose_context')?.loseContext?.(); } catch {}
+    try { canvas?.remove?.(); } catch {}
+  } catch { available = false; }
+  if (key) WEBGL2_CACHE.set(key, available);
+  return available;
 }
 
 export function collectWorldCapabilities(environment = globalThis, overrides = {}) {
@@ -35,17 +44,8 @@ export function collectWorldCapabilities(environment = globalThis, overrides = {
   const renderPixels = cssWidth * cssHeight * renderDpr * renderDpr;
 
   return Object.freeze({
-    coarse: Boolean(coarse),
-    touchLike,
-    webgl2: Boolean(webgl2),
-    reducedMotion: Boolean(reducedMotion),
-    memoryGb: memoryRaw > 0 ? memoryRaw : null,
-    memoryKnown: memoryRaw > 0,
-    cores,
-    dpr,
-    cssWidth,
-    cssHeight,
-    renderPixels,
+    coarse: Boolean(coarse), touchLike, webgl2: Boolean(webgl2), reducedMotion: Boolean(reducedMotion),
+    memoryGb: memoryRaw > 0 ? memoryRaw : null, memoryKnown: memoryRaw > 0, cores, dpr, cssWidth, cssHeight, renderPixels,
   });
 }
 
@@ -55,92 +55,21 @@ export function chooseQualityFromCapabilities(capabilities = {}) {
   const renderPixels = Math.max(1, numberOr(capabilities.renderPixels, 1));
   const touchLike = Boolean(capabilities.touchLike || capabilities.coarse);
   const webgl2 = Boolean(capabilities.webgl2);
-
-  // Hard limits may select LOW. Touch/coarse input by itself never does.
+  // Hard capability limits may select LOW. Touch/coarse input by itself never does.
   if ((memory && memory <= 2) || (cores <= 2 && !webgl2) || renderPixels > 9_000_000) return 'low';
-
-  if (touchLike) {
-    // Modern touch devices start at MEDIUM. Runtime telemetry may later reduce or raise quality.
-    // Safari commonly does not expose deviceMemory, so unknown memory is never treated as 4 GB.
-    return 'medium';
-  }
-
+  if (touchLike) return 'medium';
   if ((!memory || memory >= 8) && cores >= 8 && webgl2 && renderPixels <= 6_500_000) return 'high';
   if ((memory && memory <= 4) || cores <= 4 || !webgl2) return 'medium';
   return 'medium';
 }
 
-export function chooseAutoQuality(environment = globalThis, overrides = {}) {
-  return chooseQualityFromCapabilities(collectWorldCapabilities(environment, overrides));
-}
+export function chooseAutoQuality(environment = globalThis, overrides = {}) { return chooseQualityFromCapabilities(collectWorldCapabilities(environment, overrides)); }
+export function stepQuality(current, direction) { const index = Math.max(0, ORDER.indexOf(current)); return ORDER[Math.max(0, Math.min(ORDER.length - 1, index + Math.sign(direction || 0)))]; }
 
-export function stepQuality(current, direction) {
-  const index = Math.max(0, ORDER.indexOf(current));
-  return ORDER[Math.max(0, Math.min(ORDER.length - 1, index + Math.sign(direction || 0)))];
-}
-
-export function createAdaptiveQualityController({
-  initialQuality = 'medium',
-  enabled = true,
-  setQuality = () => {},
-  onChange = () => {},
-  downgradeSamples = 7,
-  upgradeSamples = 18,
-  cooldownMs = 15_000,
-  lowFps = 27,
-  highFps = 52,
-  now = () => Date.now(),
-} = {}) {
-  let activeQuality = ORDER.includes(initialQuality) ? initialQuality : 'medium';
-  let isEnabled = Boolean(enabled);
-  let lowCount = 0;
-  let highCount = 0;
-  let lastChangeAt = -Infinity;
-
-  function resetCounters() { lowCount = 0; highCount = 0; }
-
-  function apply(next, reason, sample) {
-    if (next === activeQuality || !ORDER.includes(next)) return false;
-    activeQuality = next;
-    lastChangeAt = now();
-    resetCounters();
-    setQuality(next);
-    onChange({ quality: next, reason, sample, at: lastChangeAt });
-    return true;
-  }
-
-  function sample(sampleValue = {}) {
-    if (!isEnabled) return activeQuality;
-    const fps = numberOr(sampleValue.fps, 0);
-    if (fps <= 0) return activeQuality;
-    const currentTime = now();
-    if (currentTime - lastChangeAt < cooldownMs) return activeQuality;
-
-    if (fps < lowFps) {
-      lowCount += 1;
-      highCount = Math.max(0, highCount - 2);
-    } else if (fps >= highFps) {
-      highCount += 1;
-      lowCount = Math.max(0, lowCount - 1);
-    } else {
-      lowCount = Math.max(0, lowCount - 1);
-      highCount = Math.max(0, highCount - 1);
-    }
-
-    if (lowCount >= downgradeSamples && activeQuality !== 'low') apply(stepQuality(activeQuality, -1), 'sustained-low-fps', sampleValue);
-    else if (highCount >= upgradeSamples && activeQuality !== 'high') apply(stepQuality(activeQuality, 1), 'sustained-high-fps', sampleValue);
-    return activeQuality;
-  }
-
-  return Object.freeze({
-    sample,
-    get quality() { return activeQuality; },
-    get enabled() { return isEnabled; },
-    setEnabled(value) { isEnabled = Boolean(value); resetCounters(); },
-    reset(nextQuality = activeQuality) {
-      if (ORDER.includes(nextQuality)) activeQuality = nextQuality;
-      resetCounters();
-      lastChangeAt = -Infinity;
-    },
-  });
+export function createAdaptiveQualityController({ initialQuality='medium', enabled=true, setQuality=()=>{}, onChange=()=>{}, downgradeSamples=7, upgradeSamples=18, cooldownMs=15000, lowFps=27, highFps=52, now=()=>Date.now() }={}) {
+  let activeQuality=ORDER.includes(initialQuality)?initialQuality:'medium', isEnabled=Boolean(enabled), lowCount=0, highCount=0, lastChangeAt=-Infinity;
+  function resetCounters(){lowCount=0;highCount=0;}
+  function apply(next,reason,sample){if(next===activeQuality||!ORDER.includes(next))return false;activeQuality=next;lastChangeAt=now();resetCounters();setQuality(next);onChange({quality:next,reason,sample,at:lastChangeAt});return true;}
+  function sample(sampleValue={}){if(!isEnabled)return activeQuality;const fps=numberOr(sampleValue.fps,0);if(fps<=0)return activeQuality;const currentTime=now();if(currentTime-lastChangeAt<cooldownMs)return activeQuality;if(fps<lowFps){lowCount+=1;highCount=Math.max(0,highCount-2);}else if(fps>=highFps){highCount+=1;lowCount=Math.max(0,lowCount-1);}else{lowCount=Math.max(0,lowCount-1);highCount=Math.max(0,highCount-1);}if(lowCount>=downgradeSamples&&activeQuality!=='low')apply(stepQuality(activeQuality,-1),'sustained-low-fps',sampleValue);else if(highCount>=upgradeSamples&&activeQuality!=='high')apply(stepQuality(activeQuality,1),'sustained-high-fps',sampleValue);return activeQuality;}
+  return Object.freeze({sample,get quality(){return activeQuality;},get enabled(){return isEnabled;},setEnabled(value){isEnabled=Boolean(value);resetCounters();},reset(nextQuality=activeQuality){if(ORDER.includes(nextQuality))activeQuality=nextQuality;resetCounters();lastChangeAt=-Infinity;}});
 }
