@@ -1,6 +1,10 @@
 import { LOCAL_DESTINATIONS } from './world-config.js';
 import { createLiteWorld } from './world-lite.js';
 import { createWorldDataRuntime } from './world-data-runtime.js';
+import { isWorldScene, sceneType, sceneForDestination, sceneForLegacyRoute, worldUrlForScene, requestedWorldScene } from './world-scene-router.js';
+import { startWorldGameRuntime } from './world-game-runtime.js';
+import { startWorldDirector } from './world-director.js';
+import { startWorldTelemetry } from './world-telemetry.js';
 
 const $ = (id) => document.getElementById(id);
 const STORAGE = Object.freeze({ settings: 'wisdo-world-settings-v3', helpSeen: 'wisdo-world-help-seen-v3' });
@@ -22,6 +26,10 @@ const state = {
   scene: 'home',
   telemetry: null,
   loadingValue: 4,
+  command: null,
+  game: null,
+  director: null,
+  analytics: null,
 };
 
 const defaultPreferences = Object.freeze({
@@ -58,10 +66,17 @@ function setLoading(phase, value) {
   $('loadingBar').style.width = `${Math.min(100, state.loadingValue)}%`;
 }
 
+function sceneLabel() {
+  if (state.scene === 'home') return 'WISDO Smart Home';
+  if (state.scene === 'central') return 'WISDO Central';
+  const destination = state.destinations.find((item) => item.id === state.scene);
+  return destination?.name || state.scene.replaceAll('-', ' ').toUpperCase();
+}
+
 function completeLoading() {
   state.loadingValue = 100;
   $('loadingBar').style.width = '100%';
-  $('loadingPhase').textContent = state.scene === 'home' ? 'WISDO Smart Home Online' : state.mode.includes('3d') ? 'WISDO Central Online' : 'WISDO World Lite Ready';
+  $('loadingPhase').textContent = `${sceneLabel()} Online`;
   setTimeout(() => $('loadingScreen').classList.add('complete'), 180);
   $('app').dataset.ready = 'true';
 }
@@ -105,7 +120,8 @@ function renderHeader() {
   if (!state.online) $('syncLabel').textContent = 'Offline · live financial state may be stale';
   else if (state.guest) $('syncLabel').textContent = 'Preview mode · sign in to receive your WISDO residence';
   else if (state.scene === 'home') $('syncLabel').textContent = 'Private Smart Home · synced to authorized WISDO services';
-  else $('syncLabel').textContent = 'WISDO Central · identity and platform state synced';
+  else if (state.scene === 'central') $('syncLabel').textContent = 'WISDO Central · identity and platform state synced';
+  else $('syncLabel').textContent = `${sceneLabel()} · persistent World interior`;
 }
 
 function renderSceneHelp() {
@@ -115,9 +131,12 @@ function renderSceneHelp() {
   if (state.scene === 'home') {
     label.textContent = 'YOUR WISDO SMART HOME';
     hint.textContent = 'WASD MOVE · MOUSE LOOK · SHIFT SPRINT · SPACE JUMP · E INTERACT';
-  } else {
+  } else if (state.scene === 'central') {
     label.textContent = 'WISDO CENTRAL';
     hint.textContent = 'WASD MOVE · MOUSE LOOK · SHIFT SPRINT · SPACE JUMP · E ENTER';
+  } else {
+    label.textContent = sceneLabel().toUpperCase();
+    hint.textContent = 'WASD MOVE · MOUSE LOOK · SHIFT SPRINT · E USE TERMINAL · EXIT RETURNS TO CENTRAL';
   }
 }
 
@@ -127,12 +146,13 @@ function updateNearest(entity) {
   const mobileInteract = $('interactBtn');
   if (!entity) { prompt.hidden = true; mobileInteract.hidden = true; return; }
   const homeStation = entity.kind === 'home-station';
-  $('nearKicker').textContent = homeStation ? `SMART HOME · ${entity.short || 'SYSTEM'}` : entity.unlocked ? 'DESTINATION READY' : 'ACCESS REQUIRED';
+  const interiorStation = entity.kind === 'world-interior-station';
+  $('nearKicker').textContent = homeStation ? `SMART HOME · ${entity.short || 'SYSTEM'}` : interiorStation ? `${sceneLabel().toUpperCase()} · TERMINAL` : entity.unlocked ? 'DESTINATION READY' : 'ACCESS REQUIRED';
   $('nearName').textContent = entity.name;
-  $('nearHint').textContent = entity.unlocked === false ? `REQUIRES ${String(entity.minTier || 'ACCESS').toUpperCase()}` : homeStation ? '[E] INTERACT' : '[E] ENTER';
+  $('nearHint').textContent = entity.unlocked === false ? `REQUIRES ${String(entity.minTier || 'ACCESS').toUpperCase()}` : homeStation || interiorStation ? '[E] INTERACT' : '[E] ENTER';
   prompt.hidden = false;
   mobileInteract.hidden = false;
-  mobileInteract.textContent = entity.unlocked === false ? 'LOCKED' : homeStation ? 'USE' : 'ENTER';
+  mobileInteract.textContent = entity.unlocked === false ? 'LOCKED' : homeStation || interiorStation ? 'USE' : 'ENTER';
 }
 
 function showModal(html) {
@@ -181,7 +201,7 @@ function tradingModal() {
 
 function meshModal() {
   if (state.guest) {
-    showModal('<span class="modal-kicker">REPORTER MESH</span><h2 id="modalTitle">Sign in to view your infrastructure</h2><p>Reporter presence is private account data.</p><div class="modal-actions"><a class="action primary" href="/login?returnTo=/world/" data-nav>Sign In</a></div>');
+    showModal('<span class="modal-kicker">REPORTER MESH</span><h2 id="modalTitle">Sign in to view your infrastructure</h2><p>Reporter presence is private account data.</p><div class="modal-actions"><a class="action primary" href="/login?returnTo=/app/world" data-world-external="auth">Sign In</a></div>');
     return;
   }
   const reporters = state.session?.worldData?.reporters || [];
@@ -213,7 +233,7 @@ function progressModal() {
 function profileModal() {
   const p = profile();
   if (state.guest) {
-    showModal('<span class="modal-kicker">WORLD IDENTITY</span><h2 id="modalTitle">Sign in to build your identity</h2><div class="modal-actions"><a class="action primary" href="/login?returnTo=/world/" data-nav>Sign In</a></div>'); return;
+    showModal('<span class="modal-kicker">WORLD IDENTITY</span><h2 id="modalTitle">Sign in to build your identity</h2><div class="modal-actions"><a class="action primary" href="/login?returnTo=/app/world" data-world-external="auth">Sign In</a></div>'); return;
   }
   showModal(`<span class="modal-kicker">WORLD IDENTITY</span><h2 id="modalTitle">Customize Operator</h2><form id="profileForm" class="profile-form"><label>CALLSIGN<input name="callsign" maxlength="48" value="${esc(p.callsign || '')}" required></label><label>TITLE<input name="title" maxlength="64" value="${esc(p.title || '')}" required></label><label class="full">AVATAR CLASS<select name="avatarStyle">${['vanguard','architect','sentinel','scholar'].map((value) => `<option value="${value}" ${p.avatarStyle === value ? 'selected' : ''}>${value.toUpperCase()}</option>`).join('')}</select></label><div class="full modal-actions"><button class="action primary" type="submit">Save Identity</button></div></form>`);
   $('profileForm').addEventListener('submit', async (event) => {
@@ -233,6 +253,12 @@ function mapModal() {
     $('goCentral')?.addEventListener('click', () => { closeModal(); switchScene('central'); });
     return;
   }
+  if (sceneType(state.scene) === 'interior') {
+    showModal(`<span class="modal-kicker">WORLD MAP · ${esc(sceneLabel())}</span><h2 id="modalTitle">Stay in the World</h2><p>Return to Central or go directly to your Smart Home without leaving /app/world.</p><div class="modal-actions"><button id="goCentral" class="action primary">WISDO Central</button>${!state.guest ? '<button id="goHome" class="action">Smart Home</button>' : ''}</div>`);
+    $('goCentral')?.addEventListener('click', () => { closeModal(); switchScene('central'); });
+    $('goHome')?.addEventListener('click', () => { closeModal(); switchScene('home'); });
+    return;
+  }
   const rows = state.destinations.map((d) => `<div class="list-row"><div><span class="dot ${d.unlocked ? 'online' : ''}"></span><strong>${esc(d.name)}</strong><br><small>${d.unlocked ? 'Accessible' : `Requires ${esc(d.minTier)}`}${d.visited ? ' · visited' : ''}</small></div><button class="action" data-destination="${esc(d.id)}">Details</button></div>`).join('');
   showModal(`<span class="modal-kicker">WORLD MAP</span><h2 id="modalTitle">WISDO Central</h2><p>Public districts connect the larger platform.</p><div class="list">${rows}</div>${!state.guest ? '<div class="modal-actions"><button id="goHome" class="action primary">Return Home</button></div>' : ''}`);
   document.querySelectorAll('[data-destination]').forEach((button) => button.addEventListener('click', () => interactDestination(state.destinations.find((d) => d.id === button.dataset.destination))));
@@ -241,13 +267,14 @@ function mapModal() {
 
 function destinationModal(destination) {
   const locked = !destination.unlocked;
-  return `<span class="modal-kicker">${esc(destination.short || 'WISDO')} · ${locked ? 'ACCESS LOCKED' : 'ACCESS READY'}</span><h2 id="modalTitle">${esc(destination.icon || '◇')} ${esc(destination.name)}</h2><p>${esc(destination.description || '')}</p><div class="metric-grid"><div class="metric"><span>ACCESS</span><strong>${locked ? esc(destination.minTier) : 'OPEN'}</strong></div><div class="metric"><span>WORLD TIER</span><strong>${esc(state.session?.access?.worldLabel || 'Member')}</strong></div><div class="metric"><span>VISIT</span><strong>${destination.visited ? 'COMPLETE' : 'NEW'}</strong></div></div>${locked ? `<p class="locked-message">Requires ${esc(destination.minTier)} access. Server authorization remains authoritative.</p>` : ''}<div class="modal-actions">${locked ? '<a class="action gold" href="/pricing" data-nav>View Access</a>' : `<button class="action primary" id="enterDestination">Enter ${esc(destination.name)}</button>`}<button class="action" id="closeDestination">Stay Here</button></div>`;
+  return `<span class="modal-kicker">${esc(destination.short || 'WISDO')} · ${locked ? 'ACCESS LOCKED' : 'ACCESS READY'}</span><h2 id="modalTitle">${esc(destination.icon || '◇')} ${esc(destination.name)}</h2><p>${esc(destination.description || '')}</p><div class="metric-grid"><div class="metric"><span>ACCESS</span><strong>${locked ? esc(destination.minTier) : 'OPEN'}</strong></div><div class="metric"><span>WORLD TIER</span><strong>${esc(state.session?.access?.worldLabel || 'Member')}</strong></div><div class="metric"><span>VISIT</span><strong>${destination.visited ? 'COMPLETE' : 'NEW'}</strong></div></div>${locked ? `<p class="locked-message">Requires ${esc(destination.minTier)} access. Server authorization remains authoritative.</p>` : ''}<div class="modal-actions">${locked ? '<button class="action gold" id="worldMarketplace">View Access In World</button>' : `<button class="action primary" id="enterDestination">Enter ${esc(destination.name)}</button>`}<button class="action" id="closeDestination">Stay Here</button></div>`;
 }
 
 async function interactDestination(destination) {
   if (!destination) return;
   showModal(destinationModal(destination));
   $('closeDestination')?.addEventListener('click', closeModal);
+  $('worldMarketplace')?.addEventListener('click', () => { closeModal(); switchScene('marketplace'); });
   $('enterDestination')?.addEventListener('click', async () => {
     if (!state.guest && destination.unlocked) {
       try {
@@ -257,8 +284,70 @@ async function interactDestination(destination) {
         hydrateDestinations(); renderHeader();
       } catch (error) { if (error.status === 403) return toast(error.message); }
     }
-    state.world?.releasePointer?.(); window.location.assign(destination.route);
+    closeModal();
+    await switchScene(sceneForDestination(destination), { destination });
   });
+}
+
+async function openCommandCenter() {
+  state.world?.releasePointer?.();
+  if (!state.command) {
+    const mod = await import('./command/command-center-runtime.js');
+    state.command = mod.startCampaignCommandCenter();
+  }
+  state.command.open();
+  window.dispatchEvent(new CustomEvent('wisdo:world-destination-entered', { detail: { id: 'command', name: 'Campaign Command', source: 'world-interior' } }));
+}
+
+async function marketWorldModal() {
+  showModal('<span class="modal-kicker">WORLD MARKET</span><h2 id="modalTitle">Synchronizing active WISDO markets…</h2>');
+  try {
+    const payload = await api('/api/world/markets/active');
+    const markets = Array.isArray(payload) ? payload : payload.markets || payload.items || payload.data || [];
+    const rows = markets.map((market) => `<div class="list-row"><div><strong>${esc(market.symbol || market.id || 'MARKET')}</strong><br><small>${Number(market.participantCount ?? market.activePositionCount ?? market.participants?.length ?? 0)} authorized World participant(s) · ${esc(market.status || 'ACTIVE')}</small></div><strong>${esc(String(market.currentPrice ?? market.price ?? 'LIVE'))}</strong></div>`).join('') || '<div class="list-row"><div><strong>No authorized active markets</strong><br><small>The World will not fabricate a billboard or market state.</small></div></div>';
+    showModal(`<span class="modal-kicker">WORLD MARKET · AUTHORITATIVE STATE</span><h2 id="modalTitle">Live market layer</h2><div class="list">${rows}</div>`);
+    window.dispatchEvent(new CustomEvent('wisdo:world-market-inspected', { detail: { count: markets.length } }));
+  } catch (error) { showModal(`<span class="modal-kicker">WORLD MARKET</span><h2 id="modalTitle">Market state unavailable</h2><p>${esc(error.message)}</p>`); }
+}
+
+async function signalWorldModal() {
+  showModal('<span class="modal-kicker">SIGNAL OBSERVATORY</span><h2 id="modalTitle">Synchronizing verified signals…</h2>');
+  try {
+    const payload = await api('/api/world/signals/active');
+    const signals = Array.isArray(payload) ? payload : payload.signals || payload.items || payload.data || [];
+    const rows = signals.map((signal) => `<div class="list-row"><div><strong>${esc(signal.symbol || 'SIGNAL')} · ${esc(String(signal.direction || '').toUpperCase())}</strong><br><small>${esc(signal.botName || signal.strategyName || 'WISDO BOT')} · ${esc(signal.status || 'ACTIVE')}</small></div><small>${signal.remainingSeconds != null ? `${Math.max(0, Number(signal.remainingSeconds))}s` : 'SERVER EVENT'}</small></div>`).join('') || '<div class="list-row"><div><strong>No active signal events</strong><br><small>Sky events only exist when WISDO confirms a qualifying backend event.</small></div></div>';
+    showModal(`<span class="modal-kicker">SIGNAL OBSERVATORY · VERIFIED EVENTS</span><h2 id="modalTitle">Active WISDO Signals</h2><div class="list">${rows}</div>`);
+    window.dispatchEvent(new CustomEvent('wisdo:world-signal-inspected', { detail: { count: signals.length } }));
+  } catch (error) { showModal(`<span class="modal-kicker">SIGNAL OBSERVATORY</span><h2 id="modalTitle">Signal state unavailable</h2><p>${esc(error.message)}</p>`); }
+}
+
+function worldTerminalModal(title, message, href = null) {
+  showModal(`<span class="modal-kicker">WISDO WORLD TERMINAL</span><h2 id="modalTitle">${esc(title)}</h2><p>${esc(message)}</p>${href ? `<div class="modal-actions"><a class="action" href="${esc(href)}" data-world-external="fast">Open Fast Mode</a></div>` : ''}`);
+}
+
+async function interiorStationModal(station) {
+  if (!station) return;
+  switch (station.station) {
+    case 'exit': return switchScene('central');
+    case 'tower': return switchScene('trading-tower');
+    case 'home': return switchScene(state.guest ? 'central' : 'home');
+    case 'command': return openCommandCenter();
+    case 'market': return marketWorldModal();
+    case 'signals': return signalWorldModal();
+    case 'reporter': return meshModal();
+    case 'progress': return progressModal();
+    case 'coach': return coachModal();
+    case 'accounts': return accountModal();
+    case 'performance': return performanceModal();
+    case 'learn': return worldTerminalModal('Academy Learning Lab', 'World missions and education progress are separate from trading profit. Complete learning objectives to advance your Operator identity.', '/member/education');
+    case 'checkout': return showModal('<span class="modal-kicker">SECURE CHECKOUT</span><h2 id="modalTitle">Leave World intentionally</h2><p>Billing stays in the secure conventional interface. Returning to World preserves your World profile.</p><div class="modal-actions"><a class="action primary" href="/pricing" data-world-external="billing">Open Secure Checkout</a></div>');
+    case 'profile': return profileModal();
+    case 'simulation': return worldTerminalModal('Simulation Lab', 'Simulation mode is read-only decision support and never sends live trading commands.', '/member/simulator');
+    case 'bots': return worldTerminalModal('Bot Arena', 'Inspect bot families and verified metadata without turning the World into execution authority.', '/member/bots');
+    case 'vault': return worldTerminalModal('System Vault', 'Owned systems and entitlements remain server-authorized.', '/member/bots');
+    case 'community': return worldTerminalModal('Culture Arena', 'Community presence is separate from ambient NPC population and fake online counts are never used.', '/member/social');
+    default: return worldTerminalModal(station.name || 'WISDO Terminal', 'This system remains inside the persistent World. Fast Mode is optional, not an automatic redirect.');
+  }
 }
 
 function homeStationModal(station) {
@@ -278,6 +367,7 @@ function homeStationModal(station) {
 
 function interactEntity(entity) {
   if (entity?.kind === 'home-station') return homeStationModal(entity);
+  if (entity?.kind === 'world-interior-station') return interiorStationModal(entity);
   return interactDestination(entity);
 }
 
@@ -298,8 +388,13 @@ function settingsModal() {
 }
 
 function webglAvailable() {
-  try { const canvas = document.createElement('canvas'); return Boolean(window.WebGLRenderingContext && (canvas.getContext('webgl2') || canvas.getContext('webgl'))); }
-  catch { return false; }
+  try {
+    const canvas = document.createElement('canvas');
+    const context = window.WebGL2RenderingContext ? canvas.getContext('webgl2') : canvas.getContext('webgl');
+    const available = Boolean(window.WebGLRenderingContext && context);
+    context?.getExtension?.('WEBGL_lose_context')?.loseContext?.();
+    return available;
+  } catch { return false; }
 }
 function shouldUseLite() { return new URLSearchParams(location.search).get('lite') === '1' || !webglAvailable(); }
 
@@ -310,13 +405,33 @@ function renderDebug(data) {
   $('debugPanel').textContent = [`SCENE ${state.scene.toUpperCase()}`, `MODE ${state.mode.toUpperCase()}`, `FPS ${data?.fps ?? '-'}`, `DRAW ${data?.drawCalls ?? '-'}`, `TRI ${Number(data?.triangles || 0).toLocaleString()}`, `QUALITY ${String(data?.quality || preferences.quality).toUpperCase()}`, `XYZ ${data?.player ? `${data.player.x}, ${data.player.y}, ${data.player.z}` : '-'}`, `TARGET ${state.nearest?.id || '-'}`].join('\n');
 }
 
+async function routeAnchorInWorld(anchor, event) {
+  if (!anchor || anchor.dataset.worldExternal) return false;
+  const label = String(anchor.textContent || '').trim().toLowerCase();
+  if (label.includes('fast mode') || label === 'fast') return false;
+  let url;
+  try { url = new URL(anchor.href, location.href); } catch { return false; }
+  if (url.origin !== location.origin || url.pathname.startsWith('/login') || url.pathname.startsWith('/logout')) return false;
+  const scene = sceneForLegacyRoute(url.pathname);
+  if (scene) {
+    event.preventDefault(); event.stopPropagation(); closeModal(); await switchScene(scene); return true;
+  }
+  if (url.pathname.startsWith('/member/')) {
+    event.preventDefault(); event.stopPropagation();
+    worldTerminalModal('Fast Mode available', 'This function does not yet have a dedicated physical station. Stay in World, or open the conventional interface deliberately.', `${url.pathname}${url.search}`);
+    return true;
+  }
+  return false;
+}
+
 function bindUi() {
   $('modalClose').addEventListener('click', closeModal); $('modalBackdrop').addEventListener('click', closeModal);
   $('mapBtn').addEventListener('click', mapModal); $('dockMap').addEventListener('click', mapModal);
   $('meshBtn').addEventListener('click', meshModal); $('dockMesh').addEventListener('click', meshModal);
   $('dockAchievements').addEventListener('click', progressModal); $('profileBtn').addEventListener('click', profileModal); $('settingsBtn').addEventListener('click', settingsModal);
-  document.addEventListener('click', (event) => { if (event.target.closest?.('[data-nav]')) state.world?.releasePointer?.(); });
+  document.addEventListener('click', (event) => { const anchor = event.target.closest?.('a[href]'); if (anchor) routeAnchorInWorld(anchor, event); });
   window.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !$('modal').hidden) closeModal(); });
+  window.addEventListener('popstate', () => { const requested = requestedWorldScene({ guest: state.guest }); if (requested !== state.scene) switchScene(requested, { historyMode: 'replace' }); });
   window.addEventListener('online', () => { state.online = true; renderHeader(); state.runtime?.refresh(); });
   window.addEventListener('offline', () => { state.online = false; renderHeader(); });
 }
@@ -345,8 +460,11 @@ async function loadPlatformState() {
     state.session = null; state.guest = true;
   }
   hydrateDestinations();
-  const requested = new URLSearchParams(location.search).get('scene');
-  state.scene = state.guest ? 'central' : requested === 'central' ? 'central' : 'home';
+  const requested = requestedWorldScene({ guest: state.guest });
+  if (sceneType(requested) === 'interior') {
+    const destination = state.destinations.find((item) => item.id === requested);
+    state.scene = destination?.unlocked === false ? 'central' : requested;
+  } else state.scene = requested;
   renderSceneHelp(); renderHeader();
 }
 
@@ -365,6 +483,13 @@ async function startLite(reason = '') {
   if (state.scene === 'home' && !state.guest) {
     state.mode = 'home-lite'; renderHomeLite();
     state.world = { mode: 'home-lite', destroy: () => $('liteMount').replaceChildren(), updateSnapshot: renderHomeLite, releasePointer() {}, setPreferences() {} };
+  } else if (sceneType(state.scene) === 'interior') {
+    state.mode = 'interior-lite';
+    const destination = state.destinations.find((item) => item.id === state.scene) || { id: state.scene, name: sceneLabel(), description: 'World interior' };
+    $('liteMount').innerHTML = `<section class="home-lite-shell"><header><span>WISDO WORLD INTERIOR</span><h2>${esc(destination.name)}</h2><p>${esc(destination.description || '')}</p></header><div class="home-lite-grid"><button id="liteCentral"><span>WORLD</span><strong>RETURN</strong><small>WISDO Central</small></button><button id="liteFast"><span>OPTIONAL</span><strong>FAST MODE</strong><small>Conventional interface</small></button></div></section>`;
+    $('liteCentral')?.addEventListener('click', () => switchScene('central'));
+    $('liteFast')?.addEventListener('click', () => window.location.assign(destination.route || '/member/home'));
+    state.world = { mode: 'interior-lite', destroy: () => $('liteMount').replaceChildren(), updateSnapshot() {}, releasePointer() {}, setPreferences() {} };
   } else {
     state.mode = 'lite';
     state.world = createLiteWorld({ mount: $('liteMount'), destinations: state.destinations, onNearestChange: updateNearest, onInteract: interactDestination });
@@ -391,23 +516,49 @@ async function startCentral3d() {
   } catch (error) { console.error('Central 3D start failed', error); await startLite('Central graphics unavailable'); }
 }
 
-async function switchScene(scene) {
-  const next = scene === 'home' && !state.guest ? 'home' : 'central';
-  if (state.scene === next && state.world) return;
-  closeModal(); updateNearest(null); state.world?.destroy?.(); state.world = null; state.scene = next;
-  const url = new URL(location.href); url.searchParams.set('scene', next); history.replaceState({}, '', url);
-  $('loadingScreen').classList.remove('complete'); state.loadingValue = 12; renderSceneHelp(); renderHeader();
-  if (shouldUseLite()) await startLite(); else if (next === 'home') await startHome3d(); else await startCentral3d();
+async function startInterior3d(sceneId) {
+  setLoading(`Entering ${sceneLabel()}`, 46);
+  try {
+    const { createWorldInterior } = await import('./world-interior3d.js');
+    state.mode = 'interior3d'; $('canvasMount').hidden = false; $('liteMount').hidden = true;
+    state.world = await createWorldInterior({ mount: $('canvasMount'), sceneId, snapshot: state.session, preferences, onNearestChange: updateNearest, onInteract: interactEntity, onTelemetry: renderDebug, onFatal: (error) => startLite(error?.message || 'Interior renderer unavailable'), onReady: completeLoading });
+  } catch (error) { console.error('World interior start failed', error); await startLite(`${sceneLabel()} graphics unavailable`); }
 }
 
-function destroy() { state.runtime?.stop?.(); state.world?.destroy?.(); state.world = null; }
+async function switchScene(scene, { historyMode = 'push', destination = null } = {}) {
+  let next = isWorldScene(scene) ? scene : 'central';
+  if (next === 'home' && state.guest) next = 'central';
+  if (sceneType(next) === 'interior') {
+    const row = destination || state.destinations.find((item) => item.id === next);
+    if (row?.unlocked === false) { interactDestination(row); return; }
+  }
+  if (state.scene === next && state.world) return;
+  const previous = state.scene;
+  closeModal(); updateNearest(null); state.world?.destroy?.(); state.world = null; state.scene = next;
+  if (historyMode !== 'none') worldUrlForScene(next, { replace: historyMode === 'replace' });
+  $('loadingScreen').classList.remove('complete'); state.loadingValue = 12; renderSceneHelp(); renderHeader();
+  if (next === 'home') state.game?.completeStep?.(previous === 'central' ? 'return-home' : 'home', 'scene');
+  else if (next === 'central') state.game?.completeStep?.('central', 'scene');
+  if (sceneType(next) === 'interior') window.dispatchEvent(new CustomEvent('wisdo:world-destination-entered', { detail: { id: next, name: sceneLabel(), source: 'scene-router' } }));
+  window.dispatchEvent(new CustomEvent('wisdo:game-scene', { detail: { scene: next, previous } }));
+  if (shouldUseLite()) await startLite(); else if (next === 'home') await startHome3d(); else if (next === 'central') await startCentral3d(); else await startInterior3d(next);
+}
+
+function destroy() {
+  state.runtime?.stop?.(); state.world?.destroy?.(); state.command?.stop?.(); state.analytics?.stop?.(); state.director?.stop?.(); state.game?.stop?.();
+  state.world = null;
+}
 
 async function boot() {
   bindUi(); bindFirstRunHelp(); setupDebug(); renderHeader();
   await loadPlatformState();
+  state.game = startWorldGameRuntime();
+  state.director = startWorldDirector();
+  state.analytics = startWorldTelemetry();
   if (shouldUseLite()) await startLite(new URLSearchParams(location.search).get('lite') === '1' ? 'Lite Mode selected' : 'WebGL unavailable');
   else if (state.scene === 'home') await startHome3d();
-  else await startCentral3d();
+  else if (state.scene === 'central') await startCentral3d();
+  else await startInterior3d(state.scene);
 }
 
 window.addEventListener('pagehide', destroy, { once: true });
