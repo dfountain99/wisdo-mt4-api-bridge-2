@@ -47,6 +47,9 @@ function stationObject(THREE, station, x, z) {
 
 export async function createWorldInterior({ mount, sceneId, snapshot, preferences = {}, onNearestChange=()=>{}, onInteract=()=>{}, onTelemetry=()=>{}, onReady=()=>{}, onFatal=()=>{} }={}) {
   const THREE = await import(THREE_MODULE_URL);
+  const instanceId = globalThis.crypto?.randomUUID?.() || `interior-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  globalThis.WisdoWorldRenderInstance = instanceId;
+  const isCurrent = () => globalThis.WisdoWorldRenderInstance === instanceId;
   const config = INTERIORS[sceneId] || INTERIORS['trading-tower'];
   const quality = preferences.quality === 'auto' || !preferences.quality ? chooseAutoQuality() : preferences.quality;
   const preset = QUALITY_PRESETS[quality] || QUALITY_PRESETS.medium;
@@ -68,16 +71,17 @@ export async function createWorldInterior({ mount, sceneId, snapshot, preference
   for(const [id,name,x,z] of config.stations){ const object=stationObject(THREE,id,x,z); object.userData.entity={kind:'world-interior-station',station:id,id:`${sceneId}:${id}`,name,sceneId,unlocked:true}; scene.add(object); stations.push(object); const sign=canvasLabel(THREE,name,'[E] INTERACT'); sign.scale.set(.42,.42,.42); sign.position.set(x,3.1,z); sign.lookAt(0,2,12); scene.add(sign); }
   const input=new InputManager({canvas:renderer.domElement,sensitivity:Number(preferences.sensitivity||1)*.0022,invertY:Boolean(preferences.invertY)});
   input.bindTouch({joystick:document.getElementById('moveStick'),knob:document.getElementById('moveKnob'),lookZone:document.getElementById('lookZone'),jumpButton:document.getElementById('jumpBtn'),sprintButton:document.getElementById('sprintBtn'),interactButton:document.getElementById('interactBtn')});
-  let yaw=0,pitch=.18,velocity=new THREE.Vector3(),destroyed=false,last=performance.now(),frames=0,fpsAt=last,nearest=null;
+  let yaw=0,pitch=.18,velocity=new THREE.Vector3(),destroyed=false,last=performance.now(),frames=0,fpsAt=last,nearest=null,frameId=0;
   const forward=new THREE.Vector3(),right=new THREE.Vector3(),desired=new THREE.Vector3(),camTarget=new THREE.Vector3();
-  let authored=null; installAuthoredOperator({THREE,scene,debug:new URLSearchParams(location.search).get('debug')==='1'}).then((v)=>{authored=v;}).catch((e)=>console.warn('Interior authored Operator fallback',e));
-  function resize(){const w=mount.clientWidth||innerWidth,h=mount.clientHeight||innerHeight; camera.aspect=w/h; camera.updateProjectionMatrix(); renderer.setSize(w,h,false);} window.addEventListener('resize',resize);
-  function loop(now){ if(destroyed)return; requestAnimationFrame(loop); const dt=Math.min(.05,Math.max(.001,(now-last)/1000)); last=now; const i=input.frame(); yaw-=i.lookX; pitch=Math.max(-.25,Math.min(.95,pitch-i.lookY));
+  let authored=null;
+  installAuthoredOperator({THREE,scene,debug:new URLSearchParams(location.search).get('debug')==='1',instanceId}).then((value)=>{if(!destroyed&&isCurrent())authored=value;else value?.destroy?.();}).catch((error)=>{if(!destroyed&&isCurrent())console.warn('Interior authored Operator fallback',error);});
+  function resize(){if(!isCurrent())return;const w=mount.clientWidth||innerWidth,h=mount.clientHeight||innerHeight; camera.aspect=w/h; camera.updateProjectionMatrix(); renderer.setSize(w,h,false);} window.addEventListener('resize',resize);
+  function loop(now){ if(destroyed||!isCurrent())return; frameId=requestAnimationFrame(loop); const dt=Math.min(.05,Math.max(.001,(now-last)/1000)); last=now; const i=input.frame(); yaw-=i.lookX; pitch=Math.max(-.25,Math.min(.95,pitch-i.lookY));
     forward.set(-Math.sin(yaw),0,-Math.cos(yaw)); right.set(Math.cos(yaw),0,-Math.sin(yaw)); desired.copy(forward).multiplyScalar(i.moveY).addScaledVector(right,i.moveX); if(desired.lengthSq()>1)desired.normalize(); const speed=i.sprint?6.5:3.3; desired.multiplyScalar(speed); velocity.lerp(desired,1-Math.exp(-12*dt)); operator.position.addScaledVector(velocity,dt); operator.position.x=Math.max(-23,Math.min(23,operator.position.x)); operator.position.z=Math.max(-22,Math.min(21,operator.position.z)); if(velocity.lengthSq()>.04)operator.rotation.y=Math.atan2(velocity.x,velocity.z);
     camTarget.copy(operator.position).add(new THREE.Vector3(0,1.45,0)); camera.position.set(camTarget.x+Math.sin(yaw)*4.7,camTarget.y+1.1+Math.sin(pitch)*2.0,camTarget.z+Math.cos(yaw)*4.7); camera.lookAt(camTarget);
     let best=null,bestD=4.2; for(const s of stations){const d=s.position.distanceTo(operator.position); if(d<bestD){bestD=d;best=s.userData.entity;}} if(best?.id!==nearest?.id){nearest=best;onNearestChange(best);} if(i.interactPressed&&nearest)onInteract(nearest);
     renderer.render(scene,camera); frames++; if(now-fpsAt>1000){onTelemetry({fps:Math.round(frames*1000/(now-fpsAt)),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,quality,player:{x:operator.position.x.toFixed(1),y:'0.0',z:operator.position.z.toFixed(1)}});frames=0;fpsAt=now;}
   }
-  requestAnimationFrame(loop); onReady();
-  return {mode:'world-interior',sceneId,releasePointer:()=>input.releasePointer(),setPreferences:(p)=>input.setPreferences(p),updateSnapshot:()=>{},destroy(){destroyed=true; input.destroy(); authored?.destroy?.(); window.removeEventListener('resize',resize); renderer.dispose(); mount.replaceChildren(); onNearestChange(null);}};
+  frameId=requestAnimationFrame(loop); window.dispatchEvent(new CustomEvent('wisdo:world-interior-ready',{detail:{sceneId,instanceId}})); onReady();
+  return {mode:'world-interior',sceneId,releasePointer:()=>input.releasePointer(),setPreferences:(p)=>input.setPreferences(p),updateSnapshot:()=>{},destroy(){destroyed=true;cancelAnimationFrame(frameId);input.destroy();authored?.destroy?.();window.removeEventListener('resize',resize);renderer.dispose();mount.replaceChildren();onNearestChange(null);if(isCurrent())delete globalThis.WisdoWorldRenderInstance;}};
 }
