@@ -18,6 +18,7 @@ const MISSIONS = Object.freeze([
 ]);
 
 const safeParse = (raw, fallback) => { try { const value=JSON.parse(raw); return value && typeof value==='object' ? value : fallback; } catch { return fallback; } };
+function clone(value){ return typeof globalThis.structuredClone === 'function' ? globalThis.structuredClone(value) : JSON.parse(JSON.stringify(value)); }
 function loadState(){ const state=safeParse(localStorage.getItem(STORAGE_KEY),{}); return { version:VERSION, activeMission:state.activeMission||'first-shift', progress:state.progress||{}, completed:Array.isArray(state.completed)?state.completed:[], startedAt:state.startedAt||Date.now() }; }
 function saveState(state){ try { localStorage.setItem(STORAGE_KEY,JSON.stringify({version:VERSION,activeMission:state.activeMission,progress:state.progress,completed:state.completed,startedAt:state.startedAt})); } catch {} }
 function currentMission(state){ return MISSIONS.find((m)=>m.id===state.activeMission) || MISSIONS[0]; }
@@ -56,6 +57,6 @@ export function startWorldGameRuntime(){
   window.addEventListener('wisdo:bot.signal.created',signal);
   window.addEventListener('wisdo:signal.created',signal);
   render();
-  globalThis.WisdoWorldGame=Object.freeze({version:VERSION,missions:MISSIONS,get state(){return structuredClone?structuredClone(state):JSON.parse(JSON.stringify(state));},completeStep});
+  globalThis.WisdoWorldGame=Object.freeze({version:VERSION,missions:MISSIONS,get state(){return clone(state);},completeStep});
   return Object.freeze({stop(){if(stopped)return;stopped=true;clearInterval(sceneTimer);observer?.disconnect();window.removeEventListener('wisdo:world-destination-entered',destinationEvent);window.removeEventListener('wisdo:bot.signal.created',signal);window.removeEventListener('wisdo:signal.created',signal);hud.remove();link.remove();delete globalThis.WisdoWorldGame;}});
 }
