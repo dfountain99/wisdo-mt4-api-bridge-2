@@ -55,6 +55,7 @@ export function chooseQualityFromCapabilities(capabilities = {}) {
   const renderPixels = Math.max(1, numberOr(capabilities.renderPixels, 1));
   const touchLike = Boolean(capabilities.touchLike || capabilities.coarse);
   const webgl2 = Boolean(capabilities.webgl2);
+  // Hard capability limits may select LOW. Touch/coarse input by itself never does.
   if ((memory && memory <= 2) || (cores <= 2 && !webgl2) || renderPixels > 9_000_000) return 'low';
   if (touchLike) return 'medium';
   if ((!memory || memory >= 8) && cores >= 8 && webgl2 && renderPixels <= 6_500_000) return 'high';
