@@ -3,12 +3,12 @@ import { InputManager } from './input-manager.js';
 import { installAuthoredOperator } from './authored-operator.js';
 
 const INTERIORS = Object.freeze({
-  'trading-tower': { title: 'TRADING TOWER', subtitle: 'MARKET OPERATIONS', stations: [['observatory','SIGNAL OBSERVATORY',0,-18],['command','CAMPAIGN COMMAND',-9,-7],['market','LIVE MARKETS',9,-7],['exit','RETURN TO CENTRAL',0,17]] },
+  'trading-tower': { title: 'TRADING TOWER', subtitle: 'MARKET OPERATIONS', stations: [['signals','SIGNAL OBSERVATORY',0,-18],['command','CAMPAIGN COMMAND',-9,-7],['market','LIVE MARKETS',9,-7],['exit','RETURN TO CENTRAL',0,17]] },
   observatory: { title: 'SIGNAL OBSERVATORY', subtitle: 'LIVE WISDO INTELLIGENCE', stations: [['signals','ACTIVE SIGNALS',0,-17],['market','WORLD MARKETS',-9,-5],['command','MY CAMPAIGNS',9,-5],['tower','TRADING TOWER',0,16]] },
   academy: { title: 'WISDO ACADEMY', subtitle: 'LEARN · PRACTICE · LEVEL UP', stations: [['learn','LEARNING LAB',-8,-8],['progress','PROGRESS',8,-8],['exit','RETURN TO CENTRAL',0,16]] },
   vault: { title: 'THE VAULT', subtitle: 'OWNED SYSTEMS', stations: [['vault','MY SYSTEMS',0,-8],['progress','ACHIEVEMENTS',8,2],['exit','RETURN TO CENTRAL',0,16]] },
   'bot-arena': { title: 'BOT ARENA', subtitle: 'SYSTEM EXHIBITION', stations: [['bots','BOT FLOOR',-8,-6],['market','MARKET',8,-6],['exit','RETURN TO CENTRAL',0,16]] },
-  'switch-lab': { title: 'SWITCH LAB', subtitle: 'WISDO CONFIGURATION', stations: [['coach','COACH',-8,-6],['command','COMMAND',8,-6],['exit','RETURN TO CENTRAL',0,16]] },
+  'switch-lab': { title: 'SWITCH LAB', subtitle: 'WISDO CONFIGURATION', stations: [['coach','COACH',-8,-6],['command','COMMAND',8,2],['exit','RETURN TO CENTRAL',0,16]] },
   'growth-chamber': { title: 'GROWTH CHAMBER', subtitle: 'ACCOUNT HISTORY', stations: [['accounts','ACCOUNT GROWTH',-8,-6],['progress','MILESTONES',8,-6],['exit','RETURN TO CENTRAL',0,16]] },
   'strategy-lab': { title: 'STRATEGY LAB', subtitle: 'SIMULATION · REVIEW', stations: [['simulation','SIMULATION',-8,-6],['performance','PERFORMANCE',8,-6],['exit','RETURN TO CENTRAL',0,16]] },
   'coach-center': { title: 'COACH CENTER', subtitle: 'WISDO INTELLIGENCE', stations: [['coach','TALK TO COACH',0,-8],['command','COMMAND',8,2],['exit','RETURN TO CENTRAL',0,16]] },
