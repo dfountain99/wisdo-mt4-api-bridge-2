@@ -3,7 +3,7 @@ services:
     name: culture-coin-operator-desks-bot
     runtime: node
     plan: starter
-    autoDeploy: false
+    autoDeploy: true
     buildCommand: npm ci --omit=dev --no-audit --no-fund
     preDeployCommand: npm run migrate:postgres
     startCommand: npm start
@@ -403,4 +403,3 @@ services:
         sync: false
       - key: DISCORD_CONNECTION_CHANNEL_ID
         sync: false
-
