@@ -179,7 +179,7 @@ export function decryptCredential(value, keyValue = process.env.ENCRYPTION_KEY) 
 }
 
 export function sessionSecurityStatus() {
-  const sessionSecretConfigured = String(process.env.SESSION_SECRET || '').length >= MIN_SECRET_LENGTH;
+  const sessionSecretConfigured = String(process.env.SESSION_SECRET || '').length >= 32;
   return {
     signedSessions: true,
     strictSignedSessions: true,
