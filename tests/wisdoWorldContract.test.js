@@ -36,10 +36,11 @@ test('WISDO World tier resolver maps existing WISDO identity roles conservativel
   assert.equal(resolveWorldTier({ id: '4', roles: ['owner'] }, {}).label, 'Commander');
 });
 
-test('Smart Home-first World bundle stays playable, preserves Central, and has a Lite safety path', () => {
+test('Smart Home-first World bundle stays playable, preserves production Central, and has a Lite safety path', () => {
   for (const file of [
     'index.html', 'world.css', 'home.css', 'world-v2.js', 'home3d.js', 'world-data-runtime.js',
-    'world3d.js', 'world3d-core.js', 'world3d-production.js', 'world-config.js', 'input-manager.js', 'world-lite.js',
+    'world3d.js', 'world3d-core.js', 'world3d-production-core.js', 'world3d-production.js', 'world-production-city.js',
+    'world-pbr-materials.js', 'world-config.js', 'input-manager.js', 'world-lite.js',
     'authored-asset-manifest.js', 'authored-operator.js', 'ASSET_LICENSES.md',
   ]) {
     assert.equal(fs.existsSync(path.join(worldRoot, file)), true, `${file} must exist`);
@@ -50,7 +51,8 @@ test('Smart Home-first World bundle stays playable, preserves Central, and has a
   const home = source('home3d.js');
   const runtime = source('world-data-runtime.js');
   const centralEntry = source('world3d.js');
-  const centralCore = source('world3d-core.js');
+  const productionCore = source('world3d-production-core.js');
+  const productionCity = source('world-production-city.js');
   const production = source('world3d-production.js');
   const authored = source('authored-operator.js');
   const manifest = source('authored-asset-manifest.js');
@@ -88,13 +90,15 @@ test('Smart Home-first World bundle stays playable, preserves Central, and has a
   assert.match(runtime, /account\.selected/);
 
   assert.match(centralEntry, /world3d-production\.js/);
-  assert.match(production, /world3d-core\.js/);
+  assert.match(production, /world3d-production-core\.js/);
   assert.match(production, /installProductionFidelity/);
   assert.match(production, /installAuthoredOperator/);
-  assert.match(centralCore, /THREE_MODULE_URL/);
-  assert.match(centralCore, /Raycaster/);
-  assert.match(centralCore, /fixedDt/);
-  assert.match(centralCore, /buildTradingTower/);
+  assert.match(productionCore, /THREE_MODULE_URL/);
+  assert.match(productionCore, /Raycaster/);
+  assert.match(productionCore, /fixedDt/);
+  assert.match(productionCore, /buildProductionCity/);
+  assert.match(productionCity, /TradingTowerDistrict/);
+  assert.match(productionCity, /WISDOCentralHeadquarters/);
 
   assert.match(authored, /GLTFLoader/);
   assert.match(authored, /AnimationMixer/);
@@ -110,7 +114,7 @@ test('Smart Home-first World bundle stays playable, preserves Central, and has a
   assert.match(input, /requestPointerLock/);
   assert.match(input, /jumpPressed/);
   assert.match(input, /interactPressed/);
-  assert.doesNotMatch(`${centralEntry}\n${production}\n${centralCore}\n${authored}`, /mt4-command|order placement|broker password|DISCORD_TOKEN|MT4_SYNC_API_KEY/i);
+  assert.doesNotMatch(`${centralEntry}\n${production}\n${productionCore}\n${productionCity}\n${authored}`, /mt4-command|order placement|broker password|DISCORD_TOKEN|MT4_SYNC_API_KEY/i);
 });
 
 test('World gameplay constants keep fixed-step physics and intended first-district tuning', () => {
