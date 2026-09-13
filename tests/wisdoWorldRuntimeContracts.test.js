@@ -21,9 +21,10 @@ test('production quality policy does not equate coarse pointer with LOW', () => 
   assert.match(policy, /return 'medium'/);
 });
 
-test('authored Operator exposes diagnosable resilient loading instead of silent fallback', () => {
+test('authored Operator exposes diagnosable resilient loading with a real humanoid fallback', () => {
   const authored = world('authored-operator.js');
   const production = world('world3d-production.js');
+  const productionCore = world('world3d-production-core.js');
   const debug = world('world-debug-runtime.js');
   const html = world('index.html');
 
@@ -36,8 +37,11 @@ test('authored Operator exposes diagnosable resilient loading instead of silent 
   assert.match(authored, /skinnedMeshCount/);
   assert.match(authored, /triangle/);
   assert.match(production, /loading-authored-glb/);
-  assert.match(production, /PROCEDURAL_FALLBACK/);
-  assert.match(debug, /AUTHORED_GLTF|PROCEDURAL_FALLBACK/);
+  assert.match(production, /WISDO_HUMANOID_FALLBACK|wisdo-humanoid-fallback/);
+  assert.match(productionCore, /createFallbackOperator/);
+  assert.match(productionCore, /leftArm/);
+  assert.match(productionCore, /leftLeg/);
+  assert.match(debug, /AUTHORED_GLTF|PROCEDURAL_FALLBACK|WISDO_HUMANOID_FALLBACK/);
   assert.match(debug, /failureReason/);
   assert.match(html, /world-debug-runtime\.js/);
 });
@@ -46,7 +50,7 @@ test('automatic quality adaptation is telemetry driven and user overrides remain
   const production = world('world3d-production.js');
   assert.match(production, /createAdaptiveQualityController/);
   assert.match(production, /adaptive\?\.sample/);
-  assert.match(production, /requestedQuality === 'auto'/);
+  assert.match(production, /requestedQuality\s*===\s*'auto'/);
   assert.match(production, /adaptive\?\.setEnabled\?\.\(false\)/);
   assert.match(production, /rendererWidth/);
   assert.match(production, /rendererHeight/);
