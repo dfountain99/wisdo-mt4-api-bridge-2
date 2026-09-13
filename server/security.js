@@ -1,16 +1,26 @@
 import crypto from 'node:crypto';
 
 const VERSION = 'v1';
+const MIN_SECRET_LENGTH = 32;
+const MAX_SESSION_BYTES = 16 * 1024;
+const DEVELOPMENT_SESSION_SECRET = 'wisdo-development-session-secret-change-me';
+const ALLOWED_SAME_SITE = new Map([
+  ['lax', 'Lax'],
+  ['strict', 'Strict'],
+  ['none', 'None'],
+]);
+
+function isProduction() {
+  return String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+}
 
 function secret() {
-  return String(
-    process.env.SESSION_SECRET ||
-    process.env.ENCRYPTION_KEY ||
-    process.env.DISCORD_CLIENT_SECRET ||
-    process.env.CLIENT_SECRET ||
-    process.env.MT4_SYNC_API_KEY ||
-    'wisdo-development-session-secret-change-me',
-  );
+  const configured = String(process.env.SESSION_SECRET || '');
+  if (configured.length >= MIN_SECRET_LENGTH) return configured;
+  if (isProduction()) {
+    throw new Error(`SESSION_SECRET must be at least ${MIN_SECRET_LENGTH} characters in production.`);
+  }
+  return configured || DEVELOPMENT_SESSION_SECRET;
 }
 
 function b64(value) {
@@ -31,33 +41,55 @@ function safeEqual(left, right) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+function normalizedSameSite(value) {
+  return ALLOWED_SAME_SITE.get(String(value || 'Lax').toLowerCase()) || 'Lax';
+}
+
+function shouldSecureCookie(options = {}) {
+  if (options.secure === true) return true;
+  if (options.secure === false) return false;
+  return isProduction() || String(process.env.PUBLIC_BASE_URL || '').startsWith('https://');
+}
+
 export function encodeSignedSession(user, options = {}) {
+  if (!user || typeof user !== 'object') throw new TypeError('A session user object is required.');
+  const maxAgeSeconds = Number(options.maxAgeSeconds || 60 * 60 * 24 * 30);
+  if (!Number.isFinite(maxAgeSeconds) || maxAgeSeconds <= 0) throw new TypeError('maxAgeSeconds must be a positive number.');
   const payload = b64(JSON.stringify({
     user,
     issuedAt: new Date().toISOString(),
-    expiresAt: options.expiresAt || new Date(Date.now() + Number(options.maxAgeSeconds || 60 * 60 * 24 * 30) * 1000).toISOString(),
+    expiresAt: options.expiresAt || new Date(Date.now() + maxAgeSeconds * 1000).toISOString(),
   }));
+  if (payload.length > MAX_SESSION_BYTES) throw new Error('Session payload is too large.');
   return `${VERSION}.${payload}.${sign(`${VERSION}.${payload}`)}`;
 }
 
 export function decodeSignedSession(value, options = {}) {
   if (!value) return null;
   const raw = String(value);
-  if (raw.startsWith(`${VERSION}.`)) {
-    const [version, payload, signature] = raw.split('.');
-    if (!payload || !signature || !safeEqual(signature, sign(`${version}.${payload}`))) return null;
-    try {
-      const decoded = JSON.parse(unb64(payload));
-      if (!options.allowExpired && decoded.expiresAt && new Date(decoded.expiresAt).getTime() < Date.now()) return null;
-      return decoded.user || null;
-    } catch {
-      return null;
-    }
-  }
+  if (raw.length > MAX_SESSION_BYTES + 256) return null;
 
-  // One-release compatibility path for sessions created by the original source ZIP.
+  const parts = raw.split('.');
+  if (parts.length !== 3) return null;
+  const [version, payload, signature] = parts;
+  if (version !== VERSION || !payload || !signature) return null;
+  if (!/^[A-Za-z0-9_-]+$/.test(payload) || !/^[A-Za-z0-9_-]+$/.test(signature)) return null;
+
+  let expectedSignature;
   try {
-    return JSON.parse(unb64(raw))?.user || null;
+    expectedSignature = sign(`${version}.${payload}`);
+  } catch {
+    return null;
+  }
+  if (!safeEqual(signature, expectedSignature)) return null;
+
+  try {
+    const decoded = JSON.parse(unb64(payload));
+    if (!decoded || typeof decoded !== 'object' || !decoded.user || typeof decoded.user !== 'object') return null;
+    const expiresAtMs = decoded.expiresAt ? new Date(decoded.expiresAt).getTime() : NaN;
+    if (!options.allowExpired && (!Number.isFinite(expiresAtMs) || expiresAtMs < Date.now())) return null;
+    if (decoded.issuedAt && !Number.isFinite(new Date(decoded.issuedAt).getTime())) return null;
+    return decoded.user;
   } catch {
     return null;
   }
@@ -70,6 +102,7 @@ export function parseCookies(req) {
     const idx = part.indexOf('=');
     if (idx < 0) continue;
     const key = part.slice(0, idx).trim();
+    if (!key || key.length > 256) continue;
     const value = part.slice(idx + 1).trim();
     try { output[key] = decodeURIComponent(value); } catch { output[key] = value; }
   }
@@ -82,20 +115,32 @@ export function getSessionUser(req) {
 }
 
 export function setHttpOnlyCookie(res, name, value, options = {}) {
-  const attrs = [`${name}=${encodeURIComponent(value)}`, 'Path=/', 'HttpOnly', `SameSite=${options.sameSite || 'Lax'}`];
-  if (options.maxAge !== undefined) attrs.push(`Max-Age=${Number(options.maxAge)}`);
-  const secure = options.secure === true || (options.secure !== false && (process.env.NODE_ENV === 'production' || String(process.env.PUBLIC_BASE_URL || '').startsWith('https://')));
+  const cookieName = String(name || '').trim();
+  if (!cookieName || /[=;\s]/.test(cookieName)) throw new TypeError('Invalid cookie name.');
+  const sameSite = normalizedSameSite(options.sameSite);
+  const secure = sameSite === 'None' ? true : shouldSecureCookie(options);
+  const attrs = [`${cookieName}=${encodeURIComponent(value)}`, 'Path=/', 'HttpOnly', `SameSite=${sameSite}`];
+  if (options.maxAge !== undefined) {
+    const maxAge = Number(options.maxAge);
+    if (!Number.isFinite(maxAge) || maxAge < 0) throw new TypeError('Cookie maxAge must be a non-negative number.');
+    attrs.push(`Max-Age=${Math.floor(maxAge)}`);
+  }
   if (secure) attrs.push('Secure');
   res.append('Set-Cookie', attrs.join('; '));
 }
 
-export function clearHttpOnlyCookie(res, name) {
-  res.append('Set-Cookie', `${name}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
+export function clearHttpOnlyCookie(res, name, options = {}) {
+  const cookieName = String(name || '').trim();
+  if (!cookieName || /[=;\s]/.test(cookieName)) throw new TypeError('Invalid cookie name.');
+  const sameSite = normalizedSameSite(options.sameSite);
+  const secure = sameSite === 'None' ? true : shouldSecureCookie(options);
+  res.append('Set-Cookie', `${cookieName}=; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=0${secure ? '; Secure' : ''}`);
 }
 
 export function safeReturnPath(value = '', fallback = '/app/dashboard') {
   const raw = String(value || '').trim();
   if (!raw || !raw.startsWith('/') || raw.startsWith('//') || raw.includes('://') || raw.includes('\\')) return fallback;
+  if (/[%]0[0ad]/i.test(raw) || /[\u0000-\u001F\u007F]/.test(raw)) return fallback;
   return raw;
 }
 
@@ -111,7 +156,7 @@ export function verifyHmacSha256({ rawBody, signature, secretValue }) {
 export function encryptCredential(value, keyValue = process.env.ENCRYPTION_KEY) {
   if (!value) return '';
   const keyText = String(keyValue || '');
-  if (keyText.length < 32) throw new Error('ENCRYPTION_KEY must be at least 32 characters before broker credentials can be stored.');
+  if (keyText.length < MIN_SECRET_LENGTH) throw new Error(`ENCRYPTION_KEY must be at least ${MIN_SECRET_LENGTH} characters before broker credentials can be stored.`);
   const key = crypto.createHash('sha256').update(keyText).digest();
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
@@ -125,7 +170,7 @@ export function decryptCredential(value, keyValue = process.env.ENCRYPTION_KEY) 
   const [version, ivText, tagText, bodyText] = String(value).split('.');
   if (version !== 'gcm1') throw new Error('Unsupported encrypted credential format.');
   const keyText = String(keyValue || '');
-  if (keyText.length < 32) throw new Error('ENCRYPTION_KEY is not configured.');
+  if (keyText.length < MIN_SECRET_LENGTH) throw new Error('ENCRYPTION_KEY is not configured.');
   const key = crypto.createHash('sha256').update(keyText).digest();
   const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivText, 'base64url'));
   decipher.setAuthTag(Buffer.from(tagText, 'base64url'));
@@ -137,8 +182,11 @@ export function sessionSecurityStatus() {
   const sessionSecretConfigured = String(process.env.SESSION_SECRET || '').length >= 32;
   return {
     signedSessions: true,
+    strictSignedSessions: true,
+    legacyUnsignedSessionsAccepted: false,
+    isolatedSessionSecret: true,
     productionSecretConfigured: sessionSecretConfigured,
     sessionSecretConfigured,
-    credentialEncryptionConfigured: String(process.env.ENCRYPTION_KEY || '').length >= 32,
+    credentialEncryptionConfigured: String(process.env.ENCRYPTION_KEY || '').length >= MIN_SECRET_LENGTH,
   };
 }

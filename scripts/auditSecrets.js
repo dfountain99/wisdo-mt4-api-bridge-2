@@ -2,13 +2,24 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const root = process.cwd();
-const ignored = new Set(['node_modules', '.git', 'docs', 'render', '.venv', 'tests']);
+const ignored = new Set(['node_modules', '.git', 'docs', 'render', '.venv', 'tests', 'coverage']);
 const findings = [];
 const suspicious = [
-  ['OpenAI-style API key', /\bsk-[A-Za-z0-9_-]{20,}\b/g],
+  ['OpenAI-style API key', /\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b/g],
   ['Square access token', /\bEAAA[A-Za-z0-9_-]{20,}\b/g],
-  ['PostgreSQL URL with embedded password', /postgres(?:ql)?:\/\/[^\s:@/]+:[^\s@/]+@[^\s/]+/gi],
+  ['GitHub classic token', /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g],
+  ['GitHub fine-grained token', /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g],
+  ['Google API key', /\bAIza[0-9A-Za-z_-]{35}\b/g],
+  ['AWS access key id', /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g],
+  ['Slack token', /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/g],
+  ['Telegram bot token', /\b\d{8,12}:[A-Za-z0-9_-]{30,}\b/g],
+  ['Discord bot token', /\b[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}\b/g],
+  ['Stripe secret key', /\bsk_(?:live|test)_[A-Za-z0-9]{20,}\b/g],
+  ['Twilio auth token assignment', /TWILIO_AUTH_TOKEN\s*[:=]\s*["']?[a-fA-F0-9]{32}["']?/g],
+  ['Private key material', /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/g],
+  ['Database/cache URL with embedded password', /(?:postgres(?:ql)?|mysql|mariadb|redis|rediss):\/\/[^\s:@/]+:[^\s@/]+@[^\s/]+/gi],
 ];
+const auditableExtension = /\.(?:c?js|mjs|json|ya?ml|txt|toml|ini|conf|sh|ps1)$/i;
 
 function isRuntimeEnv(rel, name) {
   if (name === '.env.example' || name.endsWith('.env.example')) return false;
@@ -22,7 +33,7 @@ function walk(dir) {
     const rel = path.relative(root, full).replaceAll('\\', '/');
     if (entry.isDirectory()) { walk(full); continue; }
     if (isRuntimeEnv(rel, entry.name)) findings.push(`${rel}: runtime environment file must not ship`);
-    if (!/\.(js|json|ya?ml|txt)$/i.test(entry.name)) continue;
+    if (!auditableExtension.test(entry.name)) continue;
     let text = '';
     try { text = fs.readFileSync(full, 'utf8'); } catch { continue; }
     for (const [label, pattern] of suspicious) {
@@ -35,7 +46,8 @@ function walk(dir) {
 walk(root);
 if (findings.length) {
   console.error('Secret audit failed:');
-  for (const item of [...new Set(findings)].slice(0, 50)) console.error(`- ${item}`);
+  for (const item of [...new Set(findings)].slice(0, 100)) console.error(`- ${item}`);
+  if (findings.length > 100) console.error(`- ...and ${findings.length - 100} additional finding(s)`);
   process.exit(1);
 }
-console.log('Secret audit passed: no runtime .env files or obvious committed credentials found.');
+console.log(`Secret audit passed: scanned supported runtime text files for ${suspicious.length} high-confidence credential patterns and runtime .env files.`);
