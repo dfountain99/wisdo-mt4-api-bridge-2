@@ -35,77 +35,59 @@ function diffState(previous, next, bus) {
     if (next?.worldProfile?.operatorIdentity) bus.emit('avatar.updated', { operator: next.worldProfile.operatorIdentity, previous: null });
     return;
   }
-
   const previousAccount = previous?.worldData?.activeAccount || null;
   const nextAccount = next?.worldData?.activeAccount || null;
-  if (id(previousAccount?.accountId) !== id(nextAccount?.accountId)) {
-    bus.emit('account.selected', { previous: previousAccount, account: nextAccount });
-  }
+  if (id(previousAccount?.accountId) !== id(nextAccount?.accountId)) bus.emit('account.selected', { previous: previousAccount, account: nextAccount });
   if (!same(previousAccount, nextAccount)) bus.emit('account.updated', { account: nextAccount, previous: previousAccount });
-
   const previousFinancial = previous?.worldData?.financial || null;
   const nextFinancial = next?.worldData?.financial || null;
   if (!same(previousFinancial, nextFinancial)) bus.emit('financial.updated', { financial: nextFinancial, previous: previousFinancial });
 
-  const beforePositions = positionMap(previous);
-  const afterPositions = positionMap(next);
+  const beforePositions = positionMap(previous), afterPositions = positionMap(next);
   for (const [ticket, position] of afterPositions) {
     if (!beforePositions.has(ticket)) bus.emit('position.opened', { position });
     else if (!same(beforePositions.get(ticket), position)) bus.emit('position.updated', { position, previous: beforePositions.get(ticket) });
   }
-  for (const [ticket, position] of beforePositions) {
-    if (!afterPositions.has(ticket)) bus.emit('position.closed', { position });
-  }
+  for (const [ticket, position] of beforePositions) if (!afterPositions.has(ticket)) bus.emit('position.closed', { position });
 
-  const beforeReporters = reporterMap(previous);
-  const afterReporters = reporterMap(next);
+  const beforeReporters = reporterMap(previous), afterReporters = reporterMap(next);
   for (const [reporterId, reporter] of afterReporters) {
     const before = beforeReporters.get(reporterId);
     if (!before || before.status !== reporter.status || before.terminalConnected !== reporter.terminalConnected) {
       const connected = reporter.status === 'live' || reporter.terminalConnected === true;
       const disconnected = reporter.status === 'offline' || reporter.status === 'disconnected' || reporter.terminalConnected === false;
-      const type = connected ? 'reporter.online' : disconnected ? 'reporter.offline' : 'reporter.updated';
-      bus.emit(type, { reporter, previous: before || null });
+      bus.emit(connected ? 'reporter.online' : disconnected ? 'reporter.offline' : 'reporter.updated', { reporter, previous: before || null });
     }
   }
-  for (const [reporterId, reporter] of beforeReporters) {
-    if (!afterReporters.has(reporterId)) bus.emit('reporter.offline', { reporter: { ...reporter, status: 'offline', terminalConnected: false }, previous: reporter });
-  }
+  for (const [reporterId, reporter] of beforeReporters) if (!afterReporters.has(reporterId)) bus.emit('reporter.offline', { reporter: { ...reporter, status: 'offline', terminalConnected: false }, previous: reporter });
 
   if (!same(previous?.growth, next?.growth)) bus.emit('xp.updated', { growth: next?.growth, previous: previous?.growth });
   if (!same(previous?.access, next?.access)) bus.emit('membership.updated', { access: next?.access, previous: previous?.access });
   if (!same(previous?.home, next?.home)) bus.emit('home.updated', { home: next?.home, previous: previous?.home });
-
   const previousOperator = previous?.worldProfile?.operatorIdentity || null;
   const nextOperator = next?.worldProfile?.operatorIdentity || null;
   if (!same(previousOperator, nextOperator)) bus.emit('avatar.updated', { operator: nextOperator, previous: previousOperator });
-
-  const previousUnread = Number(previous?.homeRuntime?.notifications?.unread || 0);
-  const nextUnread = Number(next?.homeRuntime?.notifications?.unread || 0);
+  const previousUnread = Number(previous?.homeRuntime?.notifications?.unread || 0), nextUnread = Number(next?.homeRuntime?.notifications?.unread || 0);
   if (nextUnread !== previousUnread) bus.emit('notification.updated', { unread: nextUnread, previousUnread });
-
   const beforeAchievements = new Set(previous?.worldProfile?.achievements || []);
-  for (const achievement of next?.worldProfile?.achievements || []) {
-    if (!beforeAchievements.has(achievement)) bus.emit('achievement.unlocked', { achievement });
-  }
+  for (const achievement of next?.worldProfile?.achievements || []) if (!beforeAchievements.has(achievement)) bus.emit('achievement.unlocked', { achievement });
 }
 
 export function createWorldDataRuntime({ initial = null, onSnapshot = null, onStatus = null, bus = worldEventBus } = {}) {
-  let snapshot = initial;
-  let timer = null;
-  let stopped = false;
-  let inFlight = null;
-  let failures = 0;
-  let publishedReady = false;
+  let snapshot = initial, timer = null, stopped = false, inFlight = null, failures = 0, publishedReady = false;
+  const bridge = Object.freeze({ get snapshot() { return snapshot; } });
+  globalThis.WisdoWorldData = bridge;
 
   function delay() {
     if (document.hidden) return 10_000;
     return Math.min(15_000, 2_500 * Math.max(1, 2 ** Math.min(3, failures)));
   }
-
-  function schedule() {
-    clearTimeout(timer);
-    if (!stopped) timer = setTimeout(refresh, delay());
+  function schedule() { clearTimeout(timer); if (!stopped) timer = setTimeout(refresh, delay()); }
+  function publishReady(next) {
+    if (publishedReady || !next) return;
+    bus.emit('world.ready', { snapshot: next });
+    if (next?.worldProfile?.operatorIdentity) bus.emit('avatar.updated', { operator: next.worldProfile.operatorIdentity, previous: null });
+    publishedReady = true;
   }
 
   async function refresh({ immediate = false } = {}) {
@@ -115,82 +97,52 @@ export function createWorldDataRuntime({ initial = null, onSnapshot = null, onSt
       const previousFailures = failures;
       try {
         const next = await request('/api/world/state');
-        const previous = snapshot;
-        snapshot = next;
-        failures = 0;
-        if (!publishedReady) {
-          bus.emit('world.ready', { snapshot: next });
-          if (next?.worldProfile?.operatorIdentity) bus.emit('avatar.updated', { operator: next.worldProfile.operatorIdentity, previous: null });
-          publishedReady = true;
-        } else diffState(previous, next, bus);
+        const previous = snapshot; snapshot = next; failures = 0;
+        if (!publishedReady) publishReady(next); else diffState(previous, next, bus);
         if (previousFailures > 0) bus.emit('world.connection', { state: 'live', recovered: true, generatedAt: next?.worldData?.generatedAt || next?.updatedAt });
-        onSnapshot?.(next, previous);
-        onStatus?.({ state: 'live', generatedAt: next?.worldData?.generatedAt || next?.updatedAt });
+        onSnapshot?.(next, previous); onStatus?.({ state: 'live', generatedAt: next?.worldData?.generatedAt || next?.updatedAt });
         return next;
       } catch (error) {
         failures += 1;
-        onStatus?.({ state: error.status === 401 ? 'unauthorized' : 'degraded', error, failures });
-        bus.emit('world.connection', { state: error.status === 401 ? 'unauthorized' : 'degraded', error: error.message });
+        const connectionState = error.status === 401 ? 'unauthorized' : 'degraded';
+        onStatus?.({ state: connectionState, error, failures });
+        bus.emit('world.connection', { state: connectionState, error: error.message });
         if (immediate) throw error;
         return snapshot;
-      } finally {
-        inFlight = null;
-        schedule();
-      }
+      } finally { inFlight = null; schedule(); }
     })();
     return inFlight;
   }
 
   async function selectAccount(accountId) {
     const next = await request('/api/world/account/select', { method: 'POST', body: JSON.stringify({ accountId }) });
-    const previous = snapshot;
-    snapshot = next;
-    if (!publishedReady) { bus.emit('world.ready', { snapshot: next }); publishedReady = true; }
-    else diffState(previous, next, bus);
-    onSnapshot?.(next, previous);
-    return next;
+    const previous = snapshot; snapshot = next;
+    if (!publishedReady) publishReady(next); else diffState(previous, next, bus);
+    onSnapshot?.(next, previous); return next;
   }
 
   async function updateHome(patch = {}) {
     const next = await request('/api/world/home', { method: 'POST', body: JSON.stringify(patch) });
-    const previous = snapshot;
-    snapshot = next;
-    if (!publishedReady) { bus.emit('world.ready', { snapshot: next }); publishedReady = true; }
-    else diffState(previous, next, bus);
-    onSnapshot?.(next, previous);
-    return next;
+    const previous = snapshot; snapshot = next;
+    if (!publishedReady) publishReady(next); else diffState(previous, next, bus);
+    onSnapshot?.(next, previous); return next;
   }
 
   function start() {
     stopped = false;
-    if (!snapshot) refresh();
-    else {
-      if (!publishedReady) {
-        bus.emit('world.ready', { snapshot });
-        if (snapshot?.worldProfile?.operatorIdentity) bus.emit('avatar.updated', { operator: snapshot.worldProfile.operatorIdentity, previous: null });
-        publishedReady = true;
-      }
-      schedule();
-    }
+    if (!snapshot) refresh(); else { publishReady(snapshot); schedule(); }
     return api;
   }
-
-  function stop() {
-    stopped = true;
-    clearTimeout(timer);
-  }
-
-  function onVisibility() {
-    if (!document.hidden && !stopped) refresh();
-  }
+  function stop() { stopped = true; clearTimeout(timer); }
+  function onVisibility() { if (!document.hidden && !stopped) refresh(); }
   document.addEventListener('visibilitychange', onVisibility);
 
   const api = {
     bus,
     start,
     stop() {
-      document.removeEventListener('visibilitychange', onVisibility);
-      stop();
+      document.removeEventListener('visibilitychange', onVisibility); stop();
+      if (globalThis.WisdoWorldData === bridge) delete globalThis.WisdoWorldData;
     },
     refresh,
     selectAccount,
