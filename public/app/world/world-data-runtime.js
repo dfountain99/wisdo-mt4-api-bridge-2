@@ -61,13 +61,15 @@ function diffState(previous, next, bus) {
   const afterReporters = reporterMap(next);
   for (const [reporterId, reporter] of afterReporters) {
     const before = beforeReporters.get(reporterId);
-    if (!before || before.status !== reporter.status) {
-      const type = reporter.status === 'live' ? 'reporter.online' : reporter.status === 'offline' || reporter.status === 'disconnected' ? 'reporter.offline' : 'reporter.updated';
+    if (!before || before.status !== reporter.status || before.terminalConnected !== reporter.terminalConnected) {
+      const connected = reporter.status === 'live' || reporter.terminalConnected === true;
+      const disconnected = reporter.status === 'offline' || reporter.status === 'disconnected' || reporter.terminalConnected === false;
+      const type = connected ? 'reporter.online' : disconnected ? 'reporter.offline' : 'reporter.updated';
       bus.emit(type, { reporter, previous: before || null });
     }
   }
   for (const [reporterId, reporter] of beforeReporters) {
-    if (!afterReporters.has(reporterId)) bus.emit('reporter.offline', { reporter: { ...reporter, status: 'offline' }, previous: reporter });
+    if (!afterReporters.has(reporterId)) bus.emit('reporter.offline', { reporter: { ...reporter, status: 'offline', terminalConnected: false }, previous: reporter });
   }
 
   if (!same(previous?.growth, next?.growth)) bus.emit('xp.updated', { growth: next?.growth, previous: previous?.growth });
@@ -94,6 +96,7 @@ export function createWorldDataRuntime({ initial = null, onSnapshot = null, onSt
   let stopped = false;
   let inFlight = null;
   let failures = 0;
+  let publishedReady = false;
 
   function delay() {
     if (document.hidden) return 10_000;
@@ -109,12 +112,18 @@ export function createWorldDataRuntime({ initial = null, onSnapshot = null, onSt
     if (stopped) return snapshot;
     if (inFlight) return inFlight;
     inFlight = (async () => {
+      const previousFailures = failures;
       try {
         const next = await request('/api/world/state');
         const previous = snapshot;
         snapshot = next;
         failures = 0;
-        diffState(previous, next, bus);
+        if (!publishedReady) {
+          bus.emit('world.ready', { snapshot: next });
+          if (next?.worldProfile?.operatorIdentity) bus.emit('avatar.updated', { operator: next.worldProfile.operatorIdentity, previous: null });
+          publishedReady = true;
+        } else diffState(previous, next, bus);
+        if (previousFailures > 0) bus.emit('world.connection', { state: 'live', recovered: true, generatedAt: next?.worldData?.generatedAt || next?.updatedAt });
         onSnapshot?.(next, previous);
         onStatus?.({ state: 'live', generatedAt: next?.worldData?.generatedAt || next?.updatedAt });
         return next;
@@ -136,7 +145,8 @@ export function createWorldDataRuntime({ initial = null, onSnapshot = null, onSt
     const next = await request('/api/world/account/select', { method: 'POST', body: JSON.stringify({ accountId }) });
     const previous = snapshot;
     snapshot = next;
-    diffState(previous, next, bus);
+    if (!publishedReady) { bus.emit('world.ready', { snapshot: next }); publishedReady = true; }
+    else diffState(previous, next, bus);
     onSnapshot?.(next, previous);
     return next;
   }
@@ -145,7 +155,8 @@ export function createWorldDataRuntime({ initial = null, onSnapshot = null, onSt
     const next = await request('/api/world/home', { method: 'POST', body: JSON.stringify(patch) });
     const previous = snapshot;
     snapshot = next;
-    diffState(previous, next, bus);
+    if (!publishedReady) { bus.emit('world.ready', { snapshot: next }); publishedReady = true; }
+    else diffState(previous, next, bus);
     onSnapshot?.(next, previous);
     return next;
   }
@@ -153,7 +164,14 @@ export function createWorldDataRuntime({ initial = null, onSnapshot = null, onSt
   function start() {
     stopped = false;
     if (!snapshot) refresh();
-    else schedule();
+    else {
+      if (!publishedReady) {
+        bus.emit('world.ready', { snapshot });
+        if (snapshot?.worldProfile?.operatorIdentity) bus.emit('avatar.updated', { operator: snapshot.worldProfile.operatorIdentity, previous: null });
+        publishedReady = true;
+      }
+      schedule();
+    }
     return api;
   }
 
