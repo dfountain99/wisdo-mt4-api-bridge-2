@@ -17,7 +17,7 @@
     "test:security": "node --test tests/security-hardening.test.js",
     "test:integration": "node --test tests/commandBusContract.test.js tests/major-product.test.js tests/v708-database-first-trading.test.js",
     "test:commands": "node --test tests/v701-runtime-repair.test.js tests/commandBusContract.test.js",
-    "smoke": "node --test tests/majorStabilityCore.test.js tests/kernelRouteRegistryContract.test.js tests/runtime-lifecycle-stability.test.js tests/wisdoWorldContract.test.js tests/worldSmartHome.test.js tests/worldLivingSystems.test.js tests/wisdoWorldQuality.test.js tests/wisdoWorldRuntimeContracts.test.js tests/wisdoWorldCoreGame.test.js",
+    "smoke": "node --test tests/majorStabilityCore.test.js tests/kernelRouteRegistryContract.test.js tests/runtime-lifecycle-stability.test.js tests/wisdoWorldContract.test.js tests/worldSmartHome.test.js tests/worldLivingSystems.test.js tests/wisdoWorldQuality.test.js tests/wisdoWorldRuntimeContracts.test.js tests/wisdoWorldCoreGame.test.js tests/wisdoWorldProductionRebuild.test.js tests/wisdoWorldMasterMerge.test.js",
     "migrate:postgres": "node scripts/migratePostgres.js",
     "postinstall": "node scripts/patchWsHandshake.js",
     "pressure:v706": "node --max-old-space-size=64 --expose-gc scripts/pressureSnapshotChurn.js 1000",
