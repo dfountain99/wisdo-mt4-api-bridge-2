@@ -14,6 +14,7 @@ import { registerWisdoWorldRoutes } from './worldRoutes.js';
 import { registerWorldLivingIdentityRoutes } from './worldLivingIdentityRoutes.js';
 import { registerWorldMarketRoutes } from './worldMarketRoutes.js';
 import { registerWorldCommandRoutes } from './worldCommandRoutes.js';
+import { registerWorldRealtimeRoutes } from './worldRealtimeRoutes.js';
 
 /**
  * Registers the modern Wisdo Kernel services as one cohesive boundary.
@@ -108,6 +109,10 @@ export function registerWisdoKernelRoutes(app, {
     publicRoot,
   });
 
+  // Multiplayer is intentionally registered as a separate World-only boundary.
+  // It owns ephemeral presence/movement only and never receives MT4 execution services.
+  registerWorldRealtimeRoutes(app, { logger });
+
   const worldLivingSystems = registerWorldLivingIdentityRoutes(app, {
     config,
     logger,
@@ -146,6 +151,8 @@ export function registerWisdoKernelRoutes(app, {
         world: {
           route: world.route,
           api: world.api,
+          realtime_api: '/api/world/realtime',
+          realtime_instance: 'central',
           execution_from_world_enabled: world.executionFromWorldEnabled,
           event_stream: worldLivingSystems.eventStream,
           signal_api: worldLivingSystems.signalApi,
