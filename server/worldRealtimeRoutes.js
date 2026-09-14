@@ -120,23 +120,24 @@ function hasClientForUser(userId) {
 }
 
 async function identityForUser(loadEcosystemState, saveEcosystemState, user) {
-  try {
-    const state = ensurePresenceState(await loadEcosystemState());
-    const hadPresence = Boolean(state.culturePresenceByUserId?.[String(user.id)]);
-    const profile = buildPresenceSnapshot(state, user);
-    if (!hadPresence) await saveEcosystemState(state);
-    return {
-      displayName: cleanText(profile.displayName || user.global_name || user.username || 'Operator'),
-      cultureId: cleanText(profile.cultureId || '', 24),
-      title: cleanText(profile.title || 'Operator', 40),
-    };
-  } catch {
-    return {
-      displayName: cleanText(user.global_name || user.username || 'Operator'),
-      cultureId: '',
-      title: 'Operator',
-    };
+  if (typeof loadEcosystemState === 'function' && typeof saveEcosystemState === 'function') {
+    try {
+      const state = ensurePresenceState(await loadEcosystemState());
+      const hadPresence = Boolean(state.culturePresenceByUserId?.[String(user.id)]);
+      const profile = buildPresenceSnapshot(state, user);
+      if (!hadPresence) await saveEcosystemState(state);
+      return {
+        displayName: cleanText(profile.displayName || user.global_name || user.username || 'Operator'),
+        cultureId: cleanText(profile.cultureId || '', 24),
+        title: cleanText(profile.title || 'Operator', 40),
+      };
+    } catch {}
   }
+  return {
+    displayName: cleanText(user.global_name || user.username || 'Operator'),
+    cultureId: '',
+    title: 'Operator',
+  };
 }
 
 function removeClient(client) {
@@ -219,7 +220,7 @@ export function registerWorldRealtimeRoutes(app, { loadEcosystemState, saveEcosy
       clearInterval(heartbeat);
       removeClient(client);
     };
-    req.on('close', close);
+    req.on('aborted', close);
     res.on('close', close);
   });
 
