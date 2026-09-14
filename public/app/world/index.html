@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
-  <meta name="theme-color" content="#8ba8bc">
-  <meta name="description" content="WISDO World — a playable third-person financial-tech city for the WISDO ecosystem.">
+  <meta name="theme-color" content="#08131d">
+  <meta name="description" content="WISDO World — a persistent third-person financial world powered by the WISDO ecosystem.">
   <title>WISDO World</title>
   <link rel="stylesheet" href="/app/world/world.css">
   <link rel="stylesheet" href="/app/world/home.css">
   <link rel="stylesheet" href="/app/world/living.css">
   <link rel="stylesheet" href="/app/world/fidelity.css">
-  <link rel="stylesheet" href="/app/world/production-world.css?v=20260913-production-v1">
+  <link rel="stylesheet" href="/app/world/production-world.css?v=20260914-master-v1">
   <script type="importmap">
-    {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.min.js","/app/world/world3d.js":"/app/world/world3d-production.js?v=20260913-production-v1","/app/world/world-interior3d.js":"/app/world/world-interior3d-v2.js?v=20260912-merged3","/app/world/markets/market-billboard-manager.js":"/app/world/markets/market-billboard-manager-v2.js?v=20260912-merged3"}}
+    {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.min.js","/app/world/world3d.js":"/app/world/world3d-master.js?v=20260914-master-v1","/app/world/world-interior3d.js":"/app/world/world-interior3d-master.js?v=20260914-master-v1","/app/world/markets/market-billboard-manager.js":"/app/world/markets/market-billboard-manager-v2.js?v=20260914-master-v1"}}
   </script>
 </head>
 <body>
@@ -20,7 +20,7 @@
     <div class="loading-brand">W</div>
     <p class="loading-eyebrow">CEM CULTURE</p>
     <h1>ENTERING WISDO</h1>
-    <p id="loadingPhase">Building production world</p>
+    <p id="loadingPhase">Connecting your WISDO universe</p>
     <div class="loading-track"><i id="loadingBar"></i></div>
     <small>CONNECT. COPY. CONTROL.</small>
   </div>
@@ -64,7 +64,7 @@
         <div class="progress-track"><i id="xpBar"></i></div>
         <small id="syncLabel">Connecting to WISDO…</small>
         <small id="worldVersion" class="world-version">WISDO WORLD</small>
-        <small class="world-version" data-world-build="PRODUCTION-CITY-V1">BUILD PRODUCTION-CITY-V1</small>
+        <small class="world-version" data-world-build="MASTER-WORLD-V1">BUILD MASTER-WORLD-V1</small>
       </aside>
 
       <div id="proximity" class="proximity hud-panel" hidden>
@@ -105,11 +105,12 @@
 
   <div id="toast" class="toast hud-panel" hidden></div>
   <noscript>WISDO World requires JavaScript. Use WISDO Fast Mode to continue.</noscript>
-  <script type="module" src="/app/world/markets/tradingview-market-terminal-v1.js?v=20260912-merged3"></script>
-  <script type="module" src="/app/world/world-v2.js?v=20260913-production-v1"></script>
-  <script type="module" src="/app/world/world-merged-runtime-v3.js?v=20260913-production-v1"></script>
-  <script type="module" src="/app/world/world-minimap-runtime.js?v=20260913-production-v1"></script>
-  <script type="module" src="/app/world/world-living-runtime.js?v=20260913-production-v1"></script>
-  <script type="module" src="/app/world/world-debug-runtime.js?v=20260913-production-v1"></script>
+  <script type="module" src="/app/world/markets/tradingview-market-terminal-v1.js?v=20260914-master-v1"></script>
+  <script type="module" src="/app/world/world-v2.js?v=20260914-master-v1"></script>
+  <script type="module" src="/app/world/world-merged-runtime-v3.js?v=20260914-master-v1"></script>
+  <script type="module" src="/app/world/world-master-runtime.js?v=20260914-master-v1"></script>
+  <script type="module" src="/app/world/world-minimap-runtime.js?v=20260914-master-v1"></script>
+  <script type="module" src="/app/world/world-living-runtime.js?v=20260914-master-v1"></script>
+  <script type="module" src="/app/world/world-debug-runtime.js?v=20260914-master-v1"></script>
 </body>
 </html>
