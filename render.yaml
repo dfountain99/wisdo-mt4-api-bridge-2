@@ -94,7 +94,7 @@ services:
       - key: WISDO_COACH_FLIGHT_MAX
         value: "150"
       - key: WISDO_MEMORY_SHED_RATIO
-        value: "0.65"
+        value: "0.88"
       - key: WISDO_RENDER_MEMORY_LIMIT_MB
         value: "512"
       - key: WISDO_LOW_MEMORY_RELAY_MODE
