@@ -1,4 +1,4 @@
-const BUILD = 'MERGED-WORLD-V3';
+const BUILD = 'WISDO-WORLD-MASTER-V1';
 const MARKET_SCENES = new Set(['trading-tower', 'observatory', 'bot-arena']);
 
 function currentScene() {
@@ -61,10 +61,13 @@ function installBuildMarker() {
 function installDiagnostics() {
   globalThis.WisdoWorldMerge = Object.freeze({
     build: BUILD,
-    architecture: '3d-city -> loading-transition -> distinct-3d-interior -> in-world-terminal',
+    architecture: 'same-authority-fast-mode + persistent-world-mode + physical-interiors + authoritative-live-markets',
+    visualArchitecture: 'production-city-core + world-master-production-layer',
     persistentMarkets: true,
     tradingViewTerminal: true,
     distinctInteriors: true,
+    companionDashboard: true,
+    worldDirector: 'v2',
     websiteRedirectsDefault: false,
     fastModeExplicitOnly: true,
     goldHeroMarket: 'XAUUSD',
