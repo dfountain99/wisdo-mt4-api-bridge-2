@@ -4,6 +4,7 @@ import { startWorldTelemetry } from './world-telemetry.js';
 import { startWorldCompanionDashboard } from './world-companion-dashboard.js';
 import { startWorldAudioRuntime } from './world-audio-runtime.js';
 import { startWorldPopulationRuntime } from './world-population-runtime.js';
+import { startWorldAtmosphereRuntime } from './world-atmosphere-runtime.js';
 
 const BUILD = 'MASTER-WORLD-V1';
 const systems = [];
@@ -23,6 +24,7 @@ function start(name, factory) {
 const game = start('game', startWorldGameRuntime);
 const director = start('director', startWorldDirector);
 const telemetry = start('telemetry', startWorldTelemetry);
+const atmosphere = start('atmosphere', startWorldAtmosphereRuntime);
 const companion = start('companion', startWorldCompanionDashboard);
 const audio = start('audio', startWorldAudioRuntime);
 const population = start('population', startWorldPopulationRuntime);
@@ -39,6 +41,7 @@ globalThis.WisdoWorldMaster = Object.freeze({
     game: Boolean(game),
     director: Boolean(director),
     telemetry: Boolean(telemetry),
+    atmosphere: Boolean(atmosphere),
     companion: Boolean(companion),
     audio: Boolean(audio),
     ambientPopulation: Boolean(population),
