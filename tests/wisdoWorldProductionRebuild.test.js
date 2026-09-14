@@ -4,11 +4,12 @@ import fs from 'node:fs';
 
 const read=(path)=>fs.readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 
-test('production World entry removes HUD-first holographic skin and loads production presentation',()=>{
+test('production World entry keeps the rebuilt city presentation under the master runtime',()=>{
   const html=read('public/app/world/index.html');
   assert.match(html,/production-world\.css/);
   assert.match(html,/world-minimap-runtime\.js/);
-  assert.match(html,/PRODUCTION-CITY-V1/);
+  assert.match(html,/MASTER-WORLD-V1/);
+  assert.match(html,/world3d-master\.js/);
   assert.doesNotMatch(html,/holo-ai-theme\.css|holo-ai-theme\.js/);
 });
 
