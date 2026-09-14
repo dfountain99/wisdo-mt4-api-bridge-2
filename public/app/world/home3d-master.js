@@ -1,5 +1,5 @@
 import { THREE_MODULE_URL } from './world-config.js';
-import { createHomeExperience as createProductionHomeExperience } from './home3d.js';
+import { createHomeExperience as createProductionHomeExperience } from './home3d.js?direct=20260914-master-v1';
 
 export async function createHomeExperience(options = {}) {
   const THREE = await import(THREE_MODULE_URL);
