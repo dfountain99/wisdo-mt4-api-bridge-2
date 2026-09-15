@@ -123,7 +123,10 @@ app.get('/v1/world/stream', requireTicket('world:events:read'), async (req, res)
   }, 15000);
   heartbeat.unref?.();
 
+  let cleaned = false;
   const cleanup = async () => {
+    if (cleaned) return;
+    cleaned = true;
     clearInterval(heartbeat);
     streams.delete(stream);
     await unsubscribe().catch(() => undefined);
