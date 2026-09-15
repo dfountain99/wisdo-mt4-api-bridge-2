@@ -11,7 +11,7 @@ import {
   tickTradingGame,
   tradingGameIds,
   tradingSimulationCapabilities,
-} from '../public/app/world/arcade/trading-sim-core.js';
+} from '../public/app/world/arcade/trading-sim-release.js';
 import {
   ARCADE_BUILD_TRAIN,
   ARCADE_RELEASE_RANGE,
@@ -248,6 +248,8 @@ test('capability contract exposes market realism, analytics, review and all 50 g
   assert.ok(caps.marketRealism.includes('variable-spread'));
   assert.ok(caps.analytics.includes('expectancy'));
   assert.ok(caps.review.includes('trade-autopsy'));
+  assert.ok(caps.actions.includes('stopstructure'));
+  assert.ok(caps.actions.includes('modelimit'));
   assert.ok(caps.actions.includes('stopStructure'));
   assert.ok(caps.actions.includes('modeLimit'));
 });
