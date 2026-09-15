@@ -1,6 +1,6 @@
-import { WORLD_BUILD } from './world-build.js?v=2026.09.15.visual-fidelity-v2';
+import { WORLD_BUILD } from './world-build.js?v=2026.09.15.visual-fidelity-v3';
 
-const DEBUG_CLIENT_REVISION='2026.09.15.visual-fidelity-v2';
+const DEBUG_CLIENT_REVISION='2026.09.15.visual-fidelity-v3';
 globalThis.WisdoDebugClientRevision=DEBUG_CLIENT_REVISION;
 const params = new URLSearchParams(location.search);
 
@@ -24,6 +24,7 @@ if (params.get('debug') === '1') {
       const cinematic = globalThis.WisdoCinematicDiagnostics || {};
       const arcade = globalThis.WisdoArcadeWorldDiagnostics || {};
       const visualV2 = globalThis.WisdoVisualFidelityV2Diagnostics || {};
+      const visualV3 = globalThis.WisdoVisualFidelityV3Diagnostics || {};
       const multiplayer = globalThis.WisdoMultiplayerDiagnostics || {};
       const errors = globalThis.WisdoVisualRuntimeErrors || {};
       const safety = globalThis.WisdoWorldSafetyDiagnostics || {};
@@ -32,6 +33,7 @@ if (params.get('debug') === '1') {
       const cinematicError = errors['cinematic-primary'] || errors.cinematic || null;
       const arcadeError = errors['arcade-primary'] || errors['arcade-plaza'] || null;
       const visualV2Error = errors['visual-fidelity-v2'] || errors['visual-fidelity-v2-frame'] || null;
+      const visualV3Error = errors['visual-fidelity-v3'] || errors['visual-fidelity-v3-frame'] || null;
       const componentErrors = Object.keys(arcade.componentErrors || {});
       const coreRevision=globalThis.WisdoWorldClientRevision||'MISSING';
       const fidelityRevision=globalThis.WisdoFidelityClientRevision||'MISSING';
@@ -47,10 +49,12 @@ if (params.get('debug') === '1') {
         `RENDER CTX ${renderContext.status || 'UNKNOWN'} · ${shorten(renderContext.reason || renderContext.source || '-', 72)}`,
         `VISUAL ${cinematic.active ? cinematic.visualPass : 'CORE'} · ARCADE ${arcade.active ? 'ACTIVE' : 'DEGRADED'}`,
         `VISUAL V2 ${visualV2.active ? 'ACTIVE' : 'DEGRADED'} · ${visualV2.touchLike ? 'MOBILE' : 'DESKTOP'} · OBJECTS ${visualV2.objectCount ?? 0}`,
+        `VISUAL V3 ${visualV3.active ? 'ACTIVE' : 'DEGRADED'} · CROWD ${visualV3.crowdCount ?? 0} · BRAND ${visualV3.operatorBrandingIntegrated ? 'INTEGRATED' : 'PENDING'}`,
         `V2 ERR ${shorten(visualV2Error?.message || 'NONE', 96)}`,
+        `V3 ERR ${shorten(visualV3Error?.message || 'NONE', 96)}`,
         `RECOVERY cinematic=${cinematic.recoveryMode ? 'YES' : 'NO'} arcade=${arcade.recoveryMode ? 'YES' : 'NO'}`,
         `SCENE brew=${registry.businesses?.brew ? 'YES' : 'NO'} arcade=${registry.businesses?.arcade ? 'YES' : 'NO'} gym=${registry.businesses?.gym ? 'YES' : 'NO'} coach=${registry.landmarks?.coach ? 'YES' : 'NO'}`,
-        `POP npc=${arcade.npcCount ?? 0} palms=${arcade.palmCount ?? 0} drones=${cinematic.ambientDrones ?? 0}`,
+        `POP npc=${arcade.npcCount ?? 0} palms=${arcade.palmCount ?? 0} drones=${cinematic.ambientDrones ?? 0} crowd=${visualV3.crowdCount ?? 0}`,
         `CIN ERR ${shorten(cinematicError?.message || cinematic.recoveryCause || 'NONE', 96)}`,
         `ARC ERR ${shorten(arcadeError?.message || arcade.recoveryCause || 'NONE', 96)}`,
         `ARC PARTS ${componentErrors.length ? componentErrors.join(',') : 'NONE'}`,
@@ -61,7 +65,7 @@ if (params.get('debug') === '1') {
         `CLIPS ${Array.isArray(operator.clips) && operator.clips.length ? operator.clips.join(', ') : '-'}`,
         `MODEL mesh=${operator.meshCount ?? '-'} skin=${operator.skinnedMeshCount ?? '-'} mat=${operator.materialCount ?? '-'} tex=${operator.textureCount ?? '-'} tri=${Number(operator.triangles || 0).toLocaleString()}`,
         `FAIL ${shorten(operator.failureReason || 'NONE', 96)}`,
-        `QUALITY ${(quality.activeQuality || renderState.qualityDecision || '-').toUpperCase()} · AUTO ${quality.adaptive ? 'ON' : 'OFF'}`,
+        `QUALITY ${(quality.activeQuality || renderState.qualityDecision || '-').toUpperCase()} · AUTO ${quality.adaptive ? 'ON' : 'OFF'} · TARGET ${visualV3.targetMobileFps ?? 30}FPS`,
         `DEVICE touch=${caps.touchLike ? 'YES' : 'NO'} webgl2=${caps.webgl2 ? 'YES' : 'NO'} cores=${caps.cores ?? '-'} memory=${caps.memoryGb ?? 'UNKNOWN'}GB`,
         `DPR ${renderState.dpr ?? '-'} · SHADOW ${renderState.shadows ? 'ON' : 'OFF'}`,
         `RENDER ${renderState.rendererWidth ?? '-'}×${renderState.rendererHeight ?? '-'}`,
@@ -81,6 +85,7 @@ if (params.get('debug') === '1') {
     window.addEventListener('wisdo:cinematic-ready', render);
     window.addEventListener('wisdo:arcade-world-ready', render);
     window.addEventListener('wisdo:visual-v2-ready', render);
+    window.addEventListener('wisdo:visual-v3-ready', render);
     window.addEventListener('wisdo:visual-runtime-error', render);
   }
 }
