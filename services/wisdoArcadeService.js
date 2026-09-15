@@ -5,7 +5,6 @@ import {
   BULL_MAN_TICK_MS,
   BULL_MAN_VERSION,
   replayBullMan,
-  scoreBullManEducation,
 } from '../public/app/world/arcade/bull-man-core.js';
 
 const GAME_ROWS = [
@@ -70,6 +69,19 @@ function clean(value,max=200){return String(value??'').replace(/\u0000/g,'').tri
 function asBool(value){return value===true||['1','true','yes','on'].includes(String(value||'').toLowerCase());}
 function integer(value,min,max,fallback=0){const n=Math.trunc(Number(value));return Number.isFinite(n)?Math.max(min,Math.min(max,n)):fallback;}
 function gameById(id){return ARCADE_CATALOG.find((game)=>game.id===clean(id,80))||null;}
+
+const BULL_MAN_ANSWER_KEY = Object.freeze([1,0,1]);
+
+export function scoreBullManEducation(result={},answers=[]){
+  const answerList=Array.isArray(answers)?answers:[];
+  const correct=BULL_MAN_ANSWER_KEY.reduce((sum,expected,index)=>sum+(Number(answerList[index])===expected?1:0),0);
+  const knowledge=Math.round(correct/BULL_MAN_ANSWER_KEY.length*100);
+  const execution=Math.round(Math.max(0,Math.min(1,Number(result.completion||0)))*100);
+  const riskDiscipline=Math.max(0,Math.min(100,100-Number(result.hits||0)*28+(Number(result.lives||0)>=3?8:0)));
+  const consistency=Math.max(0,Math.min(100,Math.round((execution+riskDiscipline)/2)));
+  const weighted=Math.round(knowledge*.35+execution*.30+riskDiscipline*.25+consistency*.10);
+  return Object.freeze({knowledge,execution,riskDiscipline,consistency,weighted,correctAnswers:correct,totalQuestions:BULL_MAN_ANSWER_KEY.length});
+}
 
 export function arcadeEconomyPolicy(env=process.env){
   const centsRaw=Number(env.WISDO_CULTURE_COIN_USD_CENTS);
@@ -146,7 +158,7 @@ export class WisdoArcadeService{
     const seed=crypto.randomInt(1,2_000_000_000);
     const expiresAt=new Date(Date.now()+30*60*1000);
     const result=await this.pool.query(`INSERT INTO wisdo_arcade_sessions(session_id,user_id,game_id,game_version,seed,expires_at) VALUES($1,$2,$3,$4,$5,$6) RETURNING session_id,user_id,game_id,game_version,seed,status,started_at,expires_at`,[sessionId,clean(userId,200),game.id,BULL_MAN_VERSION,seed,expiresAt]);
-    return {...result.rows[0],tickMs:BULL_MAN_TICK_MS,maxTicks:BULL_MAN_MAX_TICKS,lessons:BULL_MAN_LESSONS.map(({correct,...safe})=>safe),policy:this.policy()};
+    return {...result.rows[0],tickMs:BULL_MAN_TICK_MS,maxTicks:BULL_MAN_MAX_TICKS,lessons:BULL_MAN_LESSONS,policy:this.policy()};
   }
   async finishSession(userId,sessionId,payload={}){
     await this.ensureSchema();
@@ -201,7 +213,7 @@ export class WisdoArcadeService{
     await this.ensureSchema();
     const game=gameById(gameId);if(!game){const error=new Error('Arcade game not found.');error.statusCode=404;throw error;}
     const result=await this.pool.query(`SELECT user_id,MAX((result->'verified'->>'score')::int)::int AS score,MAX((result->'education'->>'weighted')::int)::int AS mastery,COUNT(*)::int AS sessions FROM wisdo_arcade_sessions WHERE game_id=$1 AND status='finalized' GROUP BY user_id ORDER BY score DESC,mastery DESC LIMIT $2`,[game.id,integer(limit,1,100,20)]);
-    return result.rows;
+    return result.rows.map((row)=>({player:`OP-${crypto.createHash('sha256').update(String(row.user_id)).digest('hex').slice(0,8).toUpperCase()}`,score:Number(row.score||0),mastery:Number(row.mastery||0),sessions:Number(row.sessions||0)}));
   }
   async health(){
     await this.ensureSchema();
