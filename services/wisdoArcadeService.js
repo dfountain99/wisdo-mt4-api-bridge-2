@@ -61,7 +61,6 @@ export function scoreArcadeEducation(gameId,result={},answers=[]){
   const weighted=Math.round(knowledge*.30+execution*.30+riskDiscipline*.25+consistency*.15);
   return Object.freeze({knowledge,execution,riskDiscipline,consistency,weighted,correctAnswers:correct,totalQuestions:key.length});
 }
-export function scoreBullManEducation(result,answers,policy){return computeArcadeReward('bull-man',result,answers,policy);}
 
 export function arcadeEconomyPolicy(env=process.env){
   const centsRaw=Number(env.WISDO_CULTURE_COIN_USD_CENTS);
