@@ -153,7 +153,7 @@ export function registerWisdoKernelRoutes(app, {
       res.status(ok ? 200 : 503).json({
         ok,
         service: 'wisdo-master-kernel',
-        version: '3.9.0',
+        version: '3.10.0',
         command_bus: commandBus,
         workspaces: {
           registered: workspaces.registered.map(({ slug, route }) => ({ slug, route })),
@@ -177,10 +177,11 @@ export function registerWisdoKernelRoutes(app, {
           execution_from_world_markets_enabled: worldMarkets.executionFromWorldEnabled,
         },
         arcade: {
-          build: 'ARCADE-ALPHA1',
+          build: 'ARCADE-ALPHA2',
           api: '/api/arcade',
           health: '/health/arcade',
           catalog_games: arcade.catalog().length,
+          playable_games: arcade.catalog().filter((game) => game.status === 'playable').length,
           wagering: false,
         },
       });
