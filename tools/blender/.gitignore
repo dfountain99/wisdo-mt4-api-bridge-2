@@ -1,0 +1,5 @@
+# Blender pipeline runtime output; source scripts and presets remain tracked.
+temp/
+reports/*.json
+*.blend1
+*.blend2
