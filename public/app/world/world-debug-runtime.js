@@ -1,5 +1,7 @@
-import { WORLD_BUILD } from './world-build.js';
+import { WORLD_BUILD } from './world-build.js?v=2026.09.14.runtime-recovery-v3';
 
+const DEBUG_CLIENT_REVISION='2026.09.14.runtime-recovery-v3';
+globalThis.WisdoDebugClientRevision=DEBUG_CLIENT_REVISION;
 const params = new URLSearchParams(location.search);
 
 if (params.get('debug') === '1') {
@@ -28,12 +30,17 @@ if (params.get('debug') === '1') {
       const cinematicError = errors['cinematic-primary'] || errors.cinematic || null;
       const arcadeError = errors['arcade-primary'] || errors['arcade-plaza'] || null;
       const componentErrors = Object.keys(arcade.componentErrors || {});
+      const coreRevision=globalThis.WisdoWorldClientRevision||'MISSING';
+      const fidelityRevision=globalThis.WisdoFidelityClientRevision||'MISSING';
+      const revisionsMatch=coreRevision===DEBUG_CLIENT_REVISION&&fidelityRevision===DEBUG_CLIENT_REVISION;
       const lines = [
         coreText,
         '--- RUNTIME ---',
         `BUILD ${build.worldVersion || WORLD_BUILD.worldVersion} · ${build.buildId || WORLD_BUILD.buildId}`,
         `COMMIT ${String(build.commit || 'unknown').slice(0, 12)} · ENV ${String(build.environment || '-').toUpperCase()}`,
         `RENDERER ${build.renderer || WORLD_BUILD.renderer} · CITY ${build.city || WORLD_BUILD.city}`,
+        `CLIENT REV debug=${DEBUG_CLIENT_REVISION} core=${coreRevision} fidelity=${fidelityRevision}`,
+        `CLIENT COHERENCE ${revisionsMatch ? 'VERIFIED' : 'MISMATCH'}`,
         `VISUAL ${cinematic.active ? cinematic.visualPass : 'CORE'} · ARCADE ${arcade.active ? 'ACTIVE' : 'DEGRADED'}`,
         `RECOVERY cinematic=${cinematic.recoveryMode ? 'YES' : 'NO'} arcade=${arcade.recoveryMode ? 'YES' : 'NO'}`,
         `SCENE brew=${registry.businesses?.brew ? 'YES' : 'NO'} arcade=${registry.businesses?.arcade ? 'YES' : 'NO'} gym=${registry.businesses?.gym ? 'YES' : 'NO'} coach=${registry.landmarks?.coach ? 'YES' : 'NO'}`,
