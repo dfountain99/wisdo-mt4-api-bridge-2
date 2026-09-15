@@ -1,13 +1,13 @@
-import { THREE_MODULE_URL, chooseAutoQuality, getWorldCapabilities } from './world-config.js?v=2026.09.15.visual-fidelity-v2';
-import { createAdaptiveQualityController } from './world-quality.js?v=2026.09.15.visual-fidelity-v2';
-import { installProductionFidelity } from './production-fidelity-layer.js?v=2026.09.15.visual-fidelity-v2';
-import { installAuthoredOperator } from './authored-operator.js?v=2026.09.15.visual-fidelity-v2';
-import { AUTHORED_WORLD_ASSETS } from './authored-asset-manifest.js?v=2026.09.15.visual-fidelity-v2';
-import { createWorldExperience as createCoreWorldExperience } from './world3d-production-core.js?v=2026.09.15.visual-fidelity-v2';
+import { THREE_MODULE_URL, chooseAutoQuality, getWorldCapabilities } from './world-config.js?v=2026.09.15.visual-fidelity-v3';
+import { createAdaptiveQualityController } from './world-quality.js?v=2026.09.15.visual-fidelity-v3';
+import { installProductionFidelity } from './production-fidelity-layer.js?v=2026.09.15.visual-fidelity-v3';
+import { installAuthoredOperator } from './authored-operator.js?v=2026.09.15.visual-fidelity-v3';
+import { AUTHORED_WORLD_ASSETS } from './authored-asset-manifest.js?v=2026.09.15.visual-fidelity-v3';
+import { createWorldExperience as createCoreWorldExperience } from './world3d-production-core.js?v=2026.09.15.visual-fidelity-v3';
 
 // Compatibility contract retained for the production rebuild regression suite.
 const PRODUCTION_CITY_COMPATIBILITY = 'production-city-v1';
-const WORLD_CLIENT_REVISION = '2026.09.15.visual-fidelity-v2';
+const WORLD_CLIENT_REVISION = '2026.09.15.visual-fidelity-v3';
 globalThis.WisdoWorldClientRevision = WORLD_CLIENT_REVISION;
 
 function publishQualityDiagnostics(patch={}){
@@ -48,7 +48,7 @@ export async function createWorldExperience(options={}){
     publishRenderContextDiagnostics(instanceId,{status:complete?'CAPTURED':'INCOMPLETE',source:'CORE_CALLBACK',reason:complete?null:'Core callback did not provide scene, camera and renderer.'});
     try{options.onRenderContext?.(context);}catch(error){console.warn('External render-context observer degraded.',error);}
   };
-  const telemetryProxy=(data={})=>{const operator=globalThis.WisdoOperatorDiagnostics||{},renderer=capturedRenderer;const enriched={...data,dpr:renderer?.getPixelRatio?.()??null,shadows:Boolean(renderer?.shadowMap?.enabled),rendererWidth:renderer?.domElement?.width||null,rendererHeight:renderer?.domElement?.height||null,operatorRenderer:operator.renderer||document.documentElement.dataset.wisdoOperator||'WISDO_HUMANOID_FALLBACK',operatorStatus:operator.status||'STARTING',qualityDecision:globalThis.WisdoQualityDiagnostics?.activeQuality||data.quality||null,visualArchitecture:globalThis.WisdoVisualFidelityV2Diagnostics?.artDirection||globalThis.WisdoCinematicDiagnostics?.visualPass||'production-city-core',clientRevision:WORLD_CLIENT_REVISION};if(isCurrent())globalThis.WisdoRenderDiagnostics=Object.freeze(enriched);adaptive?.sample(enriched);options.onTelemetry?.(enriched);};
+  const telemetryProxy=(data={})=>{const operator=globalThis.WisdoOperatorDiagnostics||{},renderer=capturedRenderer;const enriched={...data,dpr:renderer?.getPixelRatio?.()??null,shadows:Boolean(renderer?.shadowMap?.enabled),rendererWidth:renderer?.domElement?.width||null,rendererHeight:renderer?.domElement?.height||null,operatorRenderer:operator.renderer||document.documentElement.dataset.wisdoOperator||'WISDO_HUMANOID_FALLBACK',operatorStatus:operator.status||'STARTING',qualityDecision:globalThis.WisdoQualityDiagnostics?.activeQuality||data.quality||null,visualArchitecture:globalThis.WisdoVisualFidelityV3Diagnostics?.artDirection||globalThis.WisdoVisualFidelityV2Diagnostics?.artDirection||globalThis.WisdoCinematicDiagnostics?.visualPass||'production-city-core',clientRevision:WORLD_CLIENT_REVISION};if(isCurrent())globalThis.WisdoRenderDiagnostics=Object.freeze(enriched);adaptive?.sample(enriched);options.onTelemetry?.(enriched);};
   core=await createCoreWorldExperience({...options,onTelemetry:telemetryProxy,onRenderContext:captureRenderContext});
   const capabilities=getWorldCapabilities();
   publishQualityDiagnostics({requestedQuality,initialQuality:core?.quality||chooseAutoQuality(),activeQuality:core?.quality||chooseAutoQuality(),adaptive:requestedQuality==='auto',capabilities,touchForcedLow:false,lastReason:'production-city-capability-policy'});
@@ -95,7 +95,7 @@ export async function createWorldExperience(options={}){
     fidelity=await installProductionFidelity({THREE,scene:capturedScene,camera:capturedCamera,renderer:capturedRenderer,destinations:options.destinations||[],debug});
     if(isCurrent()){
       document.documentElement.dataset.wisdoFidelity='active';
-      globalThis.WisdoFidelityStatus=Object.freeze({active:true,quality:fidelity?.quality||null,installedAt:new Date().toISOString(),renderer:'production-city-visual-fidelity-v2',instanceId});
+      globalThis.WisdoFidelityStatus=Object.freeze({active:true,quality:fidelity?.quality||null,installedAt:new Date().toISOString(),renderer:'production-city-visual-fidelity-v3',instanceId});
     }
   }catch(error){
     if(isCurrent()){
@@ -113,5 +113,5 @@ export async function createWorldExperience(options={}){
   }).catch(()=>{});
 
   const baseDestroy=core?.destroy?.bind(core),baseSetPreferences=core?.setPreferences?.bind(core);
-  return{...core,visualPass:'production-city-v3-visual-fidelity-v2',clientRevision:WORLD_CLIENT_REVISION,compatibilityMarker:PRODUCTION_CITY_COMPATIBILITY,fidelityQuality:fidelity?.quality||null,get operatorRenderer(){return authoredOperator?.active?'authored-glb':globalThis.WisdoOperatorDiagnostics?.renderer||document.documentElement.dataset.wisdoOperator||'wisdo-humanoid-fallback';},setPreferences(next={}){baseSetPreferences?.(next);if(!Object.prototype.hasOwnProperty.call(next,'quality'))return;if(next.quality==='auto'){const automatic=chooseAutoQuality();core?.setQuality?.(automatic);adaptive?.reset?.(automatic);adaptive?.setEnabled?.(true);publishQualityDiagnostics({requestedQuality:'auto',activeQuality:automatic,adaptive:true,lastReason:'user-auto'});}else{adaptive?.setEnabled?.(false);adaptive?.reset?.(next.quality);publishQualityDiagnostics({requestedQuality:next.quality,activeQuality:next.quality,adaptive:false,lastReason:'user-manual'});}},destroy(){destroyed=true;try{authoredOperator?.destroy?.();}catch(error){console.warn('Authored Operator cleanup degraded',error);}try{fidelity?.destroy?.();}catch(error){console.warn('Visual fidelity cleanup degraded',error);}baseDestroy?.();if(isCurrent()){delete document.documentElement.dataset.wisdoFidelity;delete document.documentElement.dataset.wisdoOperator;delete globalThis.WisdoWorldScene;delete globalThis.WisdoWorldSceneInstance;delete globalThis.WisdoWorldRenderInstance;delete globalThis.WisdoRenderContextDiagnostics;}operatorTask?.catch?.(()=>{});}};
+  return{...core,visualPass:'production-city-v4-visual-fidelity-v3',clientRevision:WORLD_CLIENT_REVISION,compatibilityMarker:PRODUCTION_CITY_COMPATIBILITY,fidelityQuality:fidelity?.quality||null,get operatorRenderer(){return authoredOperator?.active?'authored-glb':globalThis.WisdoOperatorDiagnostics?.renderer||document.documentElement.dataset.wisdoOperator||'wisdo-humanoid-fallback';},setPreferences(next={}){baseSetPreferences?.(next);if(!Object.prototype.hasOwnProperty.call(next,'quality'))return;if(next.quality==='auto'){const automatic=chooseAutoQuality();core?.setQuality?.(automatic);adaptive?.reset?.(automatic);adaptive?.setEnabled?.(true);publishQualityDiagnostics({requestedQuality:'auto',activeQuality:automatic,adaptive:true,lastReason:'user-auto'});}else{adaptive?.setEnabled?.(false);adaptive?.reset?.(next.quality);publishQualityDiagnostics({requestedQuality:next.quality,activeQuality:next.quality,adaptive:false,lastReason:'user-manual'});}},destroy(){destroyed=true;try{authoredOperator?.destroy?.();}catch(error){console.warn('Authored Operator cleanup degraded',error);}try{fidelity?.destroy?.();}catch(error){console.warn('Visual fidelity cleanup degraded',error);}baseDestroy?.();if(isCurrent()){delete document.documentElement.dataset.wisdoFidelity;delete document.documentElement.dataset.wisdoOperator;delete globalThis.WisdoWorldScene;delete globalThis.WisdoWorldSceneInstance;delete globalThis.WisdoWorldRenderInstance;delete globalThis.WisdoRenderContextDiagnostics;}operatorTask?.catch?.(()=>{});}};
 }
