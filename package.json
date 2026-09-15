@@ -17,7 +17,7 @@
     "blender:build": "node tools/blender/run_blender.mjs build",
     "blender:bridge": "node tools/blender/bridge/agent.mjs",
     "blender:bridge:once": "node tools/blender/bridge/agent.mjs --once",
-    "test:blender": "node --test tests/blenderBridge.test.js",
+    "test:blender": "node --test tests/blenderBridge.test.js tests/blenderAssetCatalog.test.js",
     "test:visual-completion": "node scripts/checkVisualCompletion.js",
     "test": "node --test tests/*.test.js && npm run test:visual-completion",
     "check": "node scripts/checkBuild.js && npm test",
