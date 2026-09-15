@@ -37,16 +37,18 @@ export async function createWorldExperience(options = {}) {
     : Promise.resolve(null);
 
   const baseDestroy = world?.destroy?.bind(world);
-  return {
-    ...world,
-    get npcVisualRuntime() { return npcRuntime; },
-    destroy() {
-      if (destroyed) return;
-      destroyed = true;
-      try { npcRuntime?.destroy?.(); } catch (error) { console.warn('NPC runtime cleanup degraded.', error); }
-      npcRuntime = null;
-      npcTask.catch(() => {});
-      baseDestroy?.();
-    },
+  Object.defineProperty(world, 'npcVisualRuntime', {
+    configurable: true,
+    enumerable: true,
+    get() { return npcRuntime; },
+  });
+  world.destroy = () => {
+    if (destroyed) return;
+    destroyed = true;
+    try { npcRuntime?.destroy?.(); } catch (error) { console.warn('NPC runtime cleanup degraded.', error); }
+    npcRuntime = null;
+    npcTask.catch(() => {});
+    baseDestroy?.();
   };
+  return world;
 }
