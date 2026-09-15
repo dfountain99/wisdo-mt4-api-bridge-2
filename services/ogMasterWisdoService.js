@@ -49,6 +49,11 @@ const byId = new Map(MISSION_DEFINITIONS.map((mission) => [mission.id, mission])
 const unique = (values = []) => [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || '').trim()).filter(Boolean))];
 const finiteInt = (value, fallback = 0) => Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : fallback;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const optionalFiniteInt = (value, min = 0, max = Number.MAX_SAFE_INTEGER) => {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? clamp(Math.trunc(number), min, max) : null;
+};
 
 export function createOgMasterProgress() {
   return {
@@ -110,8 +115,8 @@ export function gradeOgMasterMission(id, answers = []) {
 
 export function ogMasterChamberUnlock(progressValue = {}, { arcadeLevel = null, arcadeBestMastery = null } = {}) {
   const progress = normalizeOgMasterProgress(progressValue);
-  const verifiedArcadeLevel = Number.isFinite(Number(arcadeLevel)) ? Math.max(0, finiteInt(arcadeLevel)) : null;
-  const verifiedArcadeBestMastery = Number.isFinite(Number(arcadeBestMastery)) ? clamp(finiteInt(arcadeBestMastery), 0, 100) : null;
+  const verifiedArcadeLevel = optionalFiniteInt(arcadeLevel, 0);
+  const verifiedArcadeBestMastery = optionalFiniteInt(arcadeBestMastery, 0, 100);
   const arcadeQualified = verifiedArcadeLevel !== null && verifiedArcadeLevel >= 5;
   const masteryQualified = verifiedArcadeBestMastery !== null && verifiedArcadeBestMastery >= 70;
   return Object.freeze({
