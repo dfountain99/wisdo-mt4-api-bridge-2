@@ -7,7 +7,7 @@
   "properties": {
     "assetId": {"type": "string", "minLength": 1, "maxLength": 80},
     "name": {"type": "string", "maxLength": 80},
-    "assetType": {"enum": ["character", "arcade", "building", "vehicle", "vegetation", "prop", "interior"]},
+    "assetType": {"enum": ["character", "arcade", "building", "vehicle", "vegetation", "prop"]},
     "source": {
       "type": "object",
       "additionalProperties": false,
