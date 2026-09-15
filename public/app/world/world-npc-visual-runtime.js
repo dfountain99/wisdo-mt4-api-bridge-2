@@ -6,6 +6,7 @@ import { OG_MASTER_WISDO } from './og-master-wisdo-contract.js';
 const DEFAULT_FETCH_TIMEOUT_MS = 45_000;
 const DEFAULT_TARGET_HEIGHT_METERS = 1.84;
 const NPC_CONTRACTS = Object.freeze([OG_MASTER_WISDO]);
+const ONE_SHOT_ACTIONS = new Set(['greet', 'speak', 'point', 'stand', 'sit', 'interact']);
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
@@ -182,25 +183,59 @@ function clipByNames(clips, names = []) {
   return null;
 }
 
+function semanticClipCandidates(descriptor, semantic) {
+  const configured = descriptor.asset.clips || {};
+  const fallback = {
+    seated: ['SEATED_IDLE', 'IDLE', 'Idle'],
+    idle: ['IDLE', 'Idle', 'SEATED_IDLE'],
+    greet: ['GREET', 'WAVE', 'INTERACT', 'SPEAK', 'IDLE'],
+    speak: ['SPEAK', 'INTERACT', 'IDLE'],
+    point: ['POINT', 'INTERACT', 'SPEAK', 'IDLE'],
+    stand: ['STAND', 'IDLE'],
+    sit: ['SIT', 'SEATED_IDLE', 'IDLE'],
+    interact: ['INTERACT', 'GREET', 'IDLE'],
+    walk: ['WALK_FORWARD', 'WALK', 'IDLE'],
+  };
+  return [...(configured[semantic] || []), ...(fallback[semantic] || fallback.idle)];
+}
+
 function createAnimationController(THREE, gltf, descriptor) {
   const clips = Array.isArray(gltf.animations) ? gltf.animations : [];
-  if (!clips.length) return Object.freeze({ clips: Object.freeze([]), update() {}, destroy() {} });
+  if (!clips.length) return Object.freeze({ clips: Object.freeze([]), play: () => Object.freeze({ played: false, reason: 'NO_CLIPS' }), update() {}, destroy() {} });
   const mixer = new THREE.AnimationMixer(gltf.scene);
-  const preferred = [
-    ...(descriptor.asset.clips.seated || []),
-    ...(descriptor.asset.clips.idle || []),
-    'SEATED_IDLE',
-    'IDLE',
-    'Idle',
-  ];
-  const clip = clipByNames(clips, preferred) || clips[0];
-  const action = mixer.clipAction(clip);
-  action.setLoop(THREE.LoopRepeat, Infinity);
-  action.play();
+  const baseSemantic = descriptor.asset.clips.seated?.length ? 'seated' : 'idle';
+  let currentAction = null;
+  let currentSemantic = null;
+
+  const play = (semantic = baseSemantic, fade = 0.16) => {
+    const requested = String(semantic || baseSemantic).toLowerCase();
+    const clip = clipByNames(clips, semanticClipCandidates(descriptor, requested)) || clipByNames(clips, semanticClipCandidates(descriptor, baseSemantic)) || clips[0];
+    if (!clip) return Object.freeze({ played: false, semantic: requested, reason: 'CLIP_MISSING' });
+    const next = mixer.clipAction(clip);
+    if (next === currentAction && currentSemantic === requested && next.isRunning()) return Object.freeze({ played: true, semantic: requested, clip: clip.name, reused: true });
+    const oneShot = ONE_SHOT_ACTIONS.has(requested);
+    next.reset();
+    next.enabled = true;
+    next.clampWhenFinished = oneShot;
+    next.setLoop(oneShot ? THREE.LoopOnce : THREE.LoopRepeat, oneShot ? 1 : Infinity);
+    next.setEffectiveWeight(1);
+    next.fadeIn(fade).play();
+    if (currentAction && currentAction !== next) currentAction.fadeOut(fade);
+    currentAction = next;
+    currentSemantic = requested;
+    return Object.freeze({ played: true, semantic: requested, clip: clip.name, fallback: !semanticClipCandidates(descriptor, requested).some((name) => String(name).toLowerCase() === String(clip.name).toLowerCase()) });
+  };
+
+  const onFinished = () => {
+    if (currentSemantic && ONE_SHOT_ACTIONS.has(currentSemantic)) play(baseSemantic, 0.18);
+  };
+  mixer.addEventListener('finished', onFinished);
+  play(baseSemantic, 0);
   return Object.freeze({
     clips: Object.freeze(clips.map((item) => item.name)),
+    play,
     update(dt) { mixer.update(dt); },
-    destroy() { mixer.stopAllAction(); },
+    destroy() { mixer.removeEventListener('finished', onFinished); mixer.stopAllAction(); },
   });
 }
 
@@ -304,6 +339,21 @@ export async function installWorldNpcVisuals({ THREE, scene, instanceId = null, 
     publishDiagnostics(instanceId, { nearbyNpcId: detail.npcId, nearbyAssetId: detail.assetId, nearbyDistance: detail.distance });
     try { globalThis.window?.dispatchEvent?.(new CustomEvent('wisdo:npc-proximity', { detail })); } catch {}
   };
+  const onNpcAction = (event) => {
+    if (destroyed) return;
+    const detail = event?.detail || {};
+    const visual = visuals.find((item) => (detail.assetId && item.descriptor.assetId === detail.assetId) || (detail.npcId && item.descriptor.npcId === detail.npcId));
+    if (!visual) return;
+    const result = visual.animation.play?.(detail.action || 'idle') || { played: false, reason: 'ANIMATION_CONTROLLER_UNAVAILABLE' };
+    publishDiagnostics(instanceId, {
+      lastAction: String(detail.action || 'idle'),
+      lastActionAssetId: visual.descriptor.assetId,
+      lastActionClip: result.clip || null,
+      lastActionPlayed: Boolean(result.played),
+      lastActionFallback: Boolean(result.fallback),
+      lastActionReason: result.reason || null,
+    });
+  };
 
   function frame(now) {
     if (destroyed) return;
@@ -314,6 +364,7 @@ export async function installWorldNpcVisuals({ THREE, scene, instanceId = null, 
   }
 
   globalThis.window?.addEventListener?.('wisdo:world-player-state', onPlayerState);
+  globalThis.window?.addEventListener?.('wisdo:npc-action', onNpcAction);
   if (visuals.length) frameId = requestAnimationFrame(frame);
 
   const diagnostics = publishDiagnostics(instanceId, {
@@ -344,13 +395,14 @@ export async function installWorldNpcVisuals({ THREE, scene, instanceId = null, 
       destroyed = true;
       cancelAnimationFrame(frameId);
       globalThis.window?.removeEventListener?.('wisdo:world-player-state', onPlayerState);
+      globalThis.window?.removeEventListener?.('wisdo:npc-action', onNpcAction);
       for (const visual of visuals) {
         visual.animation.destroy();
         scene.remove(visual.mount);
         disposeObject(visual.mount);
       }
       if (!instanceId || globalThis.WisdoWorldRenderInstance === instanceId) {
-        publishDiagnostics(instanceId, { status: 'DESTROYED', active: false, activeCount: 0, nearbyNpcId: null, nearbyAssetId: null });
+        publishDiagnostics(instanceId, { status: 'DESTROYED', active: false, activeCount: 0, nearbyNpcId: null, nearbyAssetId: null, lastAction: null });
       }
     },
   });
