@@ -6,8 +6,32 @@ export const JOB_MARKER = '<!-- WISDO_BLENDER_JOB:v1 -->';
 export const CLAIM_MARKER = '<!-- WISDO_BLENDER_CLAIM:v1 ';
 export const RESULT_MARKER = '<!-- WISDO_BLENDER_RESULT:v1 ';
 
-export const ASSET_TYPES = Object.freeze(['character','arcade','building','vehicle','vegetation','prop']);
-export const REGISTER_TARGETS = Object.freeze(['none','playerV2','arcadeV2']);
+export const ASSET_TYPES = Object.freeze(['character','arcade','building','vehicle','vegetation','prop','interior']);
+export const REGISTER_TARGETS = Object.freeze([
+  'none',
+  'playerV2',
+  'arcadeV2',
+  'npc',
+  'building',
+  'prop',
+  'vehicle',
+  'interior',
+  'vegetation',
+  'worldObject',
+]);
+
+const TARGET_ASSET_TYPES = Object.freeze({
+  playerV2: Object.freeze(['character']),
+  arcadeV2: Object.freeze(['arcade']),
+  npc: Object.freeze(['character']),
+  building: Object.freeze(['building']),
+  prop: Object.freeze(['prop']),
+  vehicle: Object.freeze(['vehicle']),
+  interior: Object.freeze(['interior','building']),
+  vegetation: Object.freeze(['vegetation']),
+  worldObject: Object.freeze(['prop','building','vegetation','interior']),
+});
+
 export const DEFAULT_ALLOWED_HOSTS = Object.freeze([
   'github.com',
   'raw.githubusercontent.com',
@@ -48,17 +72,32 @@ function assertRelativePath(value, label, allowedPrefixes) {
   return normalized;
 }
 
+function assertTargetMatchesAssetType(registerTarget, assetType) {
+  if(registerTarget==='none') return;
+  const allowed=TARGET_ASSET_TYPES[registerTarget]||[];
+  if(!allowed.includes(assetType)) {
+    throw new Error(`registerTarget ${registerTarget} is incompatible with assetType ${assetType}. Expected: ${allowed.join(', ') || 'none'}`);
+  }
+}
+
 export function validateJob(input, {allowedHosts=DEFAULT_ALLOWED_HOSTS}={}) {
   if(!input||typeof input!=='object'||Array.isArray(input)) throw new Error('Blender job must be an object.');
+  if(!String(input.assetId||'').trim()) throw new Error('assetId is required.');
+  if(!String(input.output||'').trim()) throw new Error('output is required.');
+  if(!String(input.report||'').trim()) throw new Error('report is required.');
+
   const assetType=String(input.assetType||'').toLowerCase();
   if(!ASSET_TYPES.includes(assetType)) throw new Error(`Unsupported assetType: ${assetType}`);
-  const name=slug(input.name||input.assetId||'WISDO_ASSET','WISDO_ASSET').toUpperCase();
-  const assetId=slug(input.assetId||name.toLowerCase(),'wisdo-asset').toLowerCase();
+  const name=slug(input.name||input.assetId,'WISDO_ASSET').toUpperCase();
+  const assetId=slug(input.assetId,'wisdo-asset').toLowerCase();
   const output=assertRelativePath(input.output,'output',['public/world-assets']);
   if(!output.toLowerCase().endsWith('.glb')) throw new Error('output must end in .glb.');
-  const report=assertRelativePath(input.report||output.replace(/\.glb$/i,'.report.json'),'report',['public/world-assets','tools/blender/reports']);
+  const report=assertRelativePath(input.report,'report',['public/world-assets','tools/blender/reports']);
+  if(!report.toLowerCase().endsWith('.json')) throw new Error('report must end in .json.');
   const registerTarget=String(input.registerTarget||'none');
   if(!REGISTER_TARGETS.includes(registerTarget)) throw new Error(`Unsupported registerTarget: ${registerTarget}`);
+  assertTargetMatchesAssetType(registerTarget,assetType);
+
   let source=null;
   if(input.source?.repoPath) {
     source={kind:'repo',repoPath:assertRelativePath(input.source.repoPath,'source.repoPath',['assets-source','public/world-assets','tools/blender/temp'])};
@@ -74,10 +113,12 @@ export function validateJob(input, {allowedHosts=DEFAULT_ALLOWED_HOSTS}={}) {
   } else {
     throw new Error('source.repoPath or source.url is required.');
   }
+
   const targetHeight=input.targetHeight==null?null:Number(input.targetHeight);
   if(targetHeight!=null && (!Number.isFinite(targetHeight)||targetHeight<=0||targetHeight>500)) throw new Error('targetHeight is invalid.');
   const lodRatios=Array.isArray(input.lodRatios)?input.lodRatios.map(Number):null;
   if(lodRatios && (lodRatios.length<1||lodRatios.length>6||lodRatios.some((n)=>!Number.isFinite(n)||n<=0||n>1))) throw new Error('lodRatios must contain 1-6 values in (0,1].');
+
   return Object.freeze({
     protocol:BRIDGE_PROTOCOL_VERSION,
     assetId,
@@ -91,7 +132,7 @@ export function validateJob(input, {allowedHosts=DEFAULT_ALLOWED_HOSTS}={}) {
     lodRatios,
     license:String(input.license||'UNSPECIFIED').slice(0,120),
     sourceNote:String(input.sourceNote||'').slice(0,300),
-    clips:input.clips&&typeof input.clips==='object'?input.clips:null,
+    clips:input.clips&&typeof input.clips==='object'&&!Array.isArray(input.clips)?input.clips:null,
   });
 }
 
