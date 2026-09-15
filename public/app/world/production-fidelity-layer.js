@@ -1,9 +1,9 @@
-import { chooseAutoQuality, getWorldCapabilities } from './world-config.js?v=2026.09.14.runtime-recovery-v3';
-import { createMarketBillboardManager } from './markets/market-billboard-manager.js?v=2026.09.14.runtime-recovery-v3';
-import { installResilientCinematicWorldLayer } from './world-cinematic-recovery.js?v=2026.09.14.runtime-recovery-v3';
-import { installResilientArcadeCityVerticalSlice } from './world-arcade-recovery.js?v=2026.09.14.runtime-recovery-v3';
+import { chooseAutoQuality, getWorldCapabilities } from './world-config.js?v=2026.09.14.runtime-recovery-v4';
+import { createMarketBillboardManager } from './markets/market-billboard-manager.js?v=2026.09.14.runtime-recovery-v4';
+import { installResilientCinematicWorldLayer } from './world-cinematic-recovery.js?v=2026.09.14.runtime-recovery-v4';
+import { installResilientArcadeCityVerticalSlice } from './world-arcade-recovery.js?v=2026.09.14.runtime-recovery-v4';
 
-const FIDELITY_CLIENT_REVISION='2026.09.14.runtime-recovery-v3';
+const FIDELITY_CLIENT_REVISION='2026.09.14.runtime-recovery-v4';
 globalThis.WisdoFidelityClientRevision=FIDELITY_CLIENT_REVISION;
 
 function resolveQuality(){
