@@ -11,6 +11,12 @@ import {
 
 const EDITABLE = 'input,textarea,select,[contenteditable="true"]';
 const $ = (id) => document.getElementById(id);
+const escapeHtml = (value = '') => String(value)
+  .replaceAll('&', '&amp;')
+  .replaceAll('<', '&lt;')
+  .replaceAll('>', '&gt;')
+  .replaceAll('"', '&quot;')
+  .replaceAll("'", '&#039;');
 
 async function api(url, options = {}) {
   const response = await fetch(url, {
@@ -112,7 +118,7 @@ export function installOgMasterAcademyRuntime() {
         bindHub();
         return;
       }
-      show(`<span class="modal-kicker">WISDO ACADEMY</span><h2 id="modalTitle">Founder Wing unavailable</h2><p>${String(error.message || 'Academy service unavailable.')}</p><div class="modal-actions"><button class="action" id="closeMasterAcademy">Return to Central</button></div>`);
+      show(`<span class="modal-kicker">WISDO ACADEMY</span><h2 id="modalTitle">Founder Wing unavailable</h2><p>${escapeHtml(error.message || 'Academy service unavailable.')}</p><div class="modal-actions"><button class="action" id="closeMasterAcademy">Return to Central</button></div>`);
       bindHub();
     }
   };
