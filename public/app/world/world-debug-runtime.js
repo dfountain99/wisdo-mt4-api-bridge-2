@@ -1,91 +1,26 @@
-import { WORLD_BUILD } from './world-build.js?v=2026.09.15.visual-fidelity-v3';
+import { WORLD_BUILD } from './world-build.js?v=2026.09.15.visual-fidelity-v4';
 
-const DEBUG_CLIENT_REVISION='2026.09.15.visual-fidelity-v3';
+const DEBUG_CLIENT_REVISION='2026.09.15.visual-fidelity-v4';
 globalThis.WisdoDebugClientRevision=DEBUG_CLIENT_REVISION;
-const params = new URLSearchParams(location.search);
+const params=new URLSearchParams(location.search);
 
-if (params.get('debug') === '1') {
-  const panel = document.getElementById('debugPanel');
-  if (panel) {
-    panel.hidden = false;
-    const shorten = (value, max = 72) => {
-      const text = String(value ?? '-');
-      return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
-    };
-    let build = { ...WORLD_BUILD, commit: 'loading', environment: '-' };
-    fetch('/api/world/build', { credentials: 'same-origin', cache: 'no-store' }).then((response) => response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`))).then((payload) => { build = payload; render(); }).catch(() => { build = { ...WORLD_BUILD, commit: 'unavailable', environment: '-' }; render(); });
+if(params.get('debug')==='1'){
+  const panel=document.getElementById('debugPanel');
+  if(panel){
+    panel.hidden=false;
+    const shorten=(value,max=72)=>{const text=String(value??'-');return text.length<=max?text:`${text.slice(0,max-1)}…`;};
+    let build={...WORLD_BUILD,commit:'loading',environment:'-'};
+    fetch('/api/world/build',{credentials:'same-origin',cache:'no-store'}).then((response)=>response.ok?response.json():Promise.reject(new Error(`HTTP ${response.status}`))).then((payload)=>{build=payload;render();}).catch(()=>{build={...WORLD_BUILD,commit:'unavailable',environment:'-'};render();});
 
-    function render() {
-      const coreText = String(panel.textContent || '').split('\n--- RUNTIME ---')[0].trim();
-      const operator = globalThis.WisdoOperatorDiagnostics || {};
-      const quality = globalThis.WisdoQualityDiagnostics || {};
-      const renderState = globalThis.WisdoRenderDiagnostics || {};
-      const renderContext = globalThis.WisdoRenderContextDiagnostics || {};
-      const cinematic = globalThis.WisdoCinematicDiagnostics || {};
-      const arcade = globalThis.WisdoArcadeWorldDiagnostics || {};
-      const visualV2 = globalThis.WisdoVisualFidelityV2Diagnostics || {};
-      const visualV3 = globalThis.WisdoVisualFidelityV3Diagnostics || {};
-      const multiplayer = globalThis.WisdoMultiplayerDiagnostics || {};
-      const errors = globalThis.WisdoVisualRuntimeErrors || {};
-      const safety = globalThis.WisdoWorldSafetyDiagnostics || {};
-      const caps = quality.capabilities || {};
-      const registry = globalThis.WisdoWorldRegistry || {};
-      const cinematicError = errors['cinematic-primary'] || errors.cinematic || null;
-      const arcadeError = errors['arcade-primary'] || errors['arcade-plaza'] || null;
-      const visualV2Error = errors['visual-fidelity-v2'] || errors['visual-fidelity-v2-frame'] || null;
-      const visualV3Error = errors['visual-fidelity-v3'] || errors['visual-fidelity-v3-frame'] || null;
-      const componentErrors = Object.keys(arcade.componentErrors || {});
-      const coreRevision=globalThis.WisdoWorldClientRevision||'MISSING';
-      const fidelityRevision=globalThis.WisdoFidelityClientRevision||'MISSING';
-      const revisionsMatch=coreRevision===DEBUG_CLIENT_REVISION&&fidelityRevision===DEBUG_CLIENT_REVISION;
-      const lines = [
-        coreText,
-        '--- RUNTIME ---',
-        `BUILD ${build.worldVersion || WORLD_BUILD.worldVersion} · ${build.buildId || WORLD_BUILD.buildId}`,
-        `COMMIT ${String(build.commit || 'unknown').slice(0, 12)} · ENV ${String(build.environment || '-').toUpperCase()}`,
-        `RENDERER ${build.renderer || WORLD_BUILD.renderer} · CITY ${build.city || WORLD_BUILD.city}`,
-        `CLIENT REV debug=${DEBUG_CLIENT_REVISION} core=${coreRevision} fidelity=${fidelityRevision}`,
-        `CLIENT COHERENCE ${revisionsMatch ? 'VERIFIED' : 'MISMATCH'}`,
-        `RENDER CTX ${renderContext.status || 'UNKNOWN'} · ${shorten(renderContext.reason || renderContext.source || '-', 72)}`,
-        `VISUAL ${cinematic.active ? cinematic.visualPass : 'CORE'} · ARCADE ${arcade.active ? 'ACTIVE' : 'DEGRADED'}`,
-        `VISUAL V2 ${visualV2.active ? 'ACTIVE' : 'DEGRADED'} · ${visualV2.touchLike ? 'MOBILE' : 'DESKTOP'} · OBJECTS ${visualV2.objectCount ?? 0}`,
-        `VISUAL V3 ${visualV3.active ? 'ACTIVE' : 'DEGRADED'} · CROWD ${visualV3.crowdCount ?? 0} · BRAND ${visualV3.operatorBrandingIntegrated ? 'INTEGRATED' : 'PENDING'}`,
-        `V2 ERR ${shorten(visualV2Error?.message || 'NONE', 96)}`,
-        `V3 ERR ${shorten(visualV3Error?.message || 'NONE', 96)}`,
-        `RECOVERY cinematic=${cinematic.recoveryMode ? 'YES' : 'NO'} arcade=${arcade.recoveryMode ? 'YES' : 'NO'}`,
-        `SCENE brew=${registry.businesses?.brew ? 'YES' : 'NO'} arcade=${registry.businesses?.arcade ? 'YES' : 'NO'} gym=${registry.businesses?.gym ? 'YES' : 'NO'} coach=${registry.landmarks?.coach ? 'YES' : 'NO'}`,
-        `POP npc=${arcade.npcCount ?? 0} palms=${arcade.palmCount ?? 0} drones=${cinematic.ambientDrones ?? 0} crowd=${visualV3.crowdCount ?? 0}`,
-        `CIN ERR ${shorten(cinematicError?.message || cinematic.recoveryCause || 'NONE', 96)}`,
-        `ARC ERR ${shorten(arcadeError?.message || arcade.recoveryCause || 'NONE', 96)}`,
-        `ARC PARTS ${componentErrors.length ? componentErrors.join(',') : 'NONE'}`,
-        `OPERATOR ${operator.renderer || (cinematic.cinematicFallbackOperator ? 'CINEMATIC_FALLBACK' : 'PROCEDURAL_FALLBACK')}`,
-        `OP STATUS ${operator.status || (cinematic.cinematicFallbackOperator ? 'CINEMATIC FALLBACK ACTIVE' : 'STARTING')}`,
-        `ASSET ${shorten(operator.assetUrl || '-')}`,
-        `LOAD ${operator.totalMs ?? operator.fetchMs ?? '-'}ms · ${operator.bytesLoaded ? `${Math.round(operator.bytesLoaded / 1024)}KB` : '-'}`,
-        `CLIPS ${Array.isArray(operator.clips) && operator.clips.length ? operator.clips.join(', ') : '-'}`,
-        `MODEL mesh=${operator.meshCount ?? '-'} skin=${operator.skinnedMeshCount ?? '-'} mat=${operator.materialCount ?? '-'} tex=${operator.textureCount ?? '-'} tri=${Number(operator.triangles || 0).toLocaleString()}`,
-        `FAIL ${shorten(operator.failureReason || 'NONE', 96)}`,
-        `QUALITY ${(quality.activeQuality || renderState.qualityDecision || '-').toUpperCase()} · AUTO ${quality.adaptive ? 'ON' : 'OFF'} · TARGET ${visualV3.targetMobileFps ?? 30}FPS`,
-        `DEVICE touch=${caps.touchLike ? 'YES' : 'NO'} webgl2=${caps.webgl2 ? 'YES' : 'NO'} cores=${caps.cores ?? '-'} memory=${caps.memoryGb ?? 'UNKNOWN'}GB`,
-        `DPR ${renderState.dpr ?? '-'} · SHADOW ${renderState.shadows ? 'ON' : 'OFF'}`,
-        `RENDER ${renderState.rendererWidth ?? '-'}×${renderState.rendererHeight ?? '-'}`,
-        `MULTIPLAYER ${multiplayer.connected ? 'CONNECTED' : multiplayer.status || 'UNKNOWN'} · ONLINE ${multiplayer.online ?? '-'}`,
-        `EXECUTION FROM VISUALS ${safety.executionFromVisuals === false ? 'NO' : 'UNVERIFIED'}`,
-        `EXEC AUTHORITY ${safety.authority || '-'}`,
-        `QUALITY REASON ${quality.lastReason || '-'}`,
-      ].filter(Boolean);
-      panel.textContent = lines.join('\n');
+    function render(){
+      const coreText=String(panel.textContent||'').split('\n--- RUNTIME ---')[0].trim();
+      const operator=globalThis.WisdoOperatorDiagnostics||{},quality=globalThis.WisdoQualityDiagnostics||{},renderState=globalThis.WisdoRenderDiagnostics||{},renderContext=globalThis.WisdoRenderContextDiagnostics||{},cinematic=globalThis.WisdoCinematicDiagnostics||{},arcade=globalThis.WisdoArcadeWorldDiagnostics||{},visualV2=globalThis.WisdoVisualFidelityV2Diagnostics||{},visualV3=globalThis.WisdoVisualFidelityV3Diagnostics||{},visualV4=globalThis.WisdoVisualFidelityV4Diagnostics||{},multiplayer=globalThis.WisdoMultiplayerDiagnostics||{},errors=globalThis.WisdoVisualRuntimeErrors||{},safety=globalThis.WisdoWorldSafetyDiagnostics||{},caps=quality.capabilities||{},registry=globalThis.WisdoWorldRegistry||{};
+      const cinematicError=errors['cinematic-primary']||errors.cinematic||null,arcadeError=errors['arcade-primary']||errors['arcade-plaza']||null,visualV2Error=errors['visual-fidelity-v2']||errors['visual-fidelity-v2-frame']||null,visualV3Error=errors['visual-fidelity-v3']||errors['visual-fidelity-v3-frame']||null,visualV4Error=errors['visual-fidelity-v4']||errors['visual-fidelity-v4-frame']||null,componentErrors=Object.keys(arcade.componentErrors||{});
+      const coreRevision=globalThis.WisdoWorldClientRevision||'MISSING',fidelityRevision=globalThis.WisdoFidelityClientRevision||'MISSING',revisionsMatch=coreRevision===DEBUG_CLIENT_REVISION&&fidelityRevision===DEBUG_CLIENT_REVISION;
+      const lines=[coreText,'--- RUNTIME ---',`BUILD ${build.worldVersion||WORLD_BUILD.worldVersion} · ${build.buildId||WORLD_BUILD.buildId}`,`COMMIT ${String(build.commit||'unknown').slice(0,12)} · ENV ${String(build.environment||'-').toUpperCase()}`,`RENDERER ${build.renderer||WORLD_BUILD.renderer} · CITY ${build.city||WORLD_BUILD.city}`,`CLIENT REV debug=${DEBUG_CLIENT_REVISION} core=${coreRevision} fidelity=${fidelityRevision}`,`CLIENT COHERENCE ${revisionsMatch?'VERIFIED':'MISMATCH'}`,`RENDER CTX ${renderContext.status||'UNKNOWN'} · ${shorten(renderContext.reason||renderContext.source||'-',72)}`,`VISUAL ${cinematic.active?cinematic.visualPass:'CORE'} · ARCADE ${arcade.active?'ACTIVE':'DEGRADED'}`,`VISUAL V2 ${visualV2.active?'ACTIVE':'DEGRADED'} · OBJECTS ${visualV2.objectCount??0}`,`VISUAL V3 ${visualV3.active?'ACTIVE':'DEGRADED'} · CROWD ${visualV3.crowdCount??0} · BRAND ${visualV3.operatorBrandingIntegrated?'INTEGRATED':'PENDING'}`,`VISUAL V4 ${visualV4.active?'ACTIVE':'DEGRADED'} · CROWD ${visualV4.crowdCount??0} · PALMS ${visualV4.palmCount??0} · STORES ${visualV4.storefrontCount??0}`,`V2 ERR ${shorten(visualV2Error?.message||'NONE',96)}`,`V3 ERR ${shorten(visualV3Error?.message||'NONE',96)}`,`V4 ERR ${shorten(visualV4Error?.message||'NONE',96)}`,`RECOVERY cinematic=${cinematic.recoveryMode?'YES':'NO'} arcade=${arcade.recoveryMode?'YES':'NO'}`,`SCENE brew=${registry.businesses?.brew?'YES':'NO'} arcade=${registry.businesses?.arcade?'YES':'NO'} gym=${registry.businesses?.gym?'YES':'NO'} coach=${registry.landmarks?.coach?'YES':'NO'}`,`POP npc=${arcade.npcCount??0} palms=${arcade.palmCount??0} drones=${cinematic.ambientDrones??0} v3crowd=${visualV3.crowdCount??0} v4crowd=${visualV4.crowdCount??0}`,`CIN ERR ${shorten(cinematicError?.message||cinematic.recoveryCause||'NONE',96)}`,`ARC ERR ${shorten(arcadeError?.message||arcade.recoveryCause||'NONE',96)}`,`ARC PARTS ${componentErrors.length?componentErrors.join(','):'NONE'}`,`OPERATOR ${operator.renderer||(cinematic.cinematicFallbackOperator?'CINEMATIC_FALLBACK':'PROCEDURAL_FALLBACK')}`,`OP STATUS ${operator.status||(cinematic.cinematicFallbackOperator?'CINEMATIC FALLBACK ACTIVE':'STARTING')}`,`ASSET ${shorten(operator.assetUrl||'-')}`,`LOAD ${operator.totalMs??operator.fetchMs??'-'}ms · ${operator.bytesLoaded?`${Math.round(operator.bytesLoaded/1024)}KB`:'-'}`,`CLIPS ${Array.isArray(operator.clips)&&operator.clips.length?operator.clips.join(', '):'-'}`,`MODEL mesh=${operator.meshCount??'-'} skin=${operator.skinnedMeshCount??'-'} mat=${operator.materialCount??'-'} tex=${operator.textureCount??'-'} tri=${Number(operator.triangles||0).toLocaleString()}`,`FAIL ${shorten(operator.failureReason||'NONE',96)}`,`QUALITY ${(quality.activeQuality||renderState.qualityDecision||'-').toUpperCase()} · AUTO ${quality.adaptive?'ON':'OFF'} · TARGET ${visualV3.targetMobileFps??30}FPS`,`DEVICE touch=${caps.touchLike?'YES':'NO'} webgl2=${caps.webgl2?'YES':'NO'} cores=${caps.cores??'-'} memory=${caps.memoryGb??'UNKNOWN'}GB`,`DPR ${renderState.dpr??'-'} · SHADOW ${renderState.shadows?'ON':'OFF'}`,`RENDER ${renderState.rendererWidth??'-'}×${renderState.rendererHeight??'-'}`,`MULTIPLAYER ${multiplayer.connected?'CONNECTED':multiplayer.status||'UNKNOWN'} · ONLINE ${multiplayer.online??'-'}`,`EXECUTION FROM VISUALS ${safety.executionFromVisuals===false?'NO':'UNVERIFIED'}`,`EXEC AUTHORITY ${safety.authority||'-'}`,`QUALITY REASON ${quality.lastReason||'-'}`].filter(Boolean);
+      panel.textContent=lines.join('\n');
     }
 
-    const timer = setInterval(render, 350);
-    render();
-    window.addEventListener('pagehide', () => clearInterval(timer), { once: true });
-    window.addEventListener('wisdo:operator-diagnostics', render);
-    window.addEventListener('wisdo:world-renderer-ready', render);
-    window.addEventListener('wisdo:cinematic-ready', render);
-    window.addEventListener('wisdo:arcade-world-ready', render);
-    window.addEventListener('wisdo:visual-v2-ready', render);
-    window.addEventListener('wisdo:visual-v3-ready', render);
-    window.addEventListener('wisdo:visual-runtime-error', render);
+    const timer=setInterval(render,350);render();window.addEventListener('pagehide',()=>clearInterval(timer),{once:true});window.addEventListener('wisdo:operator-diagnostics',render);window.addEventListener('wisdo:world-renderer-ready',render);window.addEventListener('wisdo:cinematic-ready',render);window.addEventListener('wisdo:arcade-world-ready',render);window.addEventListener('wisdo:visual-v2-ready',render);window.addEventListener('wisdo:visual-v3-ready',render);window.addEventListener('wisdo:visual-v4-ready',render);window.addEventListener('wisdo:visual-runtime-error',render);
   }
 }
