@@ -6,6 +6,13 @@ export const OG_MASTER_WISDO = Object.freeze({
   name: 'OG MASTER WISDO',
   role: 'Founder / Legendary Mentor / Master Guide',
   hierarchyTier: 3,
+  asset: Object.freeze({
+    assetId: 'og-master-wisdo',
+    catalog: 'npcs',
+    format: 'glb',
+    requiredForMissionLogic: false,
+    visualStatusUntilGenerated: 'pending-blender-asset',
+  }),
   district: 'WISDO Academy',
   room: 'Master Chamber',
   location: Object.freeze({
