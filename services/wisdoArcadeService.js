@@ -127,13 +127,15 @@ export function arcadeEconomyPolicy(env=process.env){
 
 export function computeArcadeReward(gameId,result,answers,policy=arcadeEconomyPolicy({})){
   const education=scoreArcadeEducation(gameId,result,answers),verifier=verifierFor(gameId);
-  const eligible=Number(result?.ticks||0)>=Number(verifier?.minTicks||20)&&education.weighted>=40;
+  const enoughDecisions=Number(result?.ticks||0)>=Number(verifier?.minTicks||20);
+  const demonstratedTradingSkill=verifier?.gameType!=='trading_simulation'||(Number(result?.trades||0)>=1&&Number(result?.goodEntries||0)>=1);
+  const eligible=enoughDecisions&&education.weighted>=40&&demonstratedTradingSkill;
   let coins=eligible?Math.floor(education.weighted/10):0;
-  if(Number.isFinite(Number(result?.realizedR)))coins+=Math.min(3,Math.floor(Math.max(0,Number(result.realizedR))));
-  if(Number(result?.riskScore||0)>=90)coins+=2;
-  else if(result?.status==='won')coins+=2;
+  if(eligible&&Number.isFinite(Number(result?.realizedR)))coins+=Math.min(3,Math.floor(Math.max(0,Number(result.realizedR))));
+  if(eligible&&Number(result?.riskScore||0)>=90)coins+=2;
+  else if(eligible&&result?.status==='won')coins+=2;
   coins=Math.max(0,Math.min(Number(policy.maxCoinsPerSession||15),coins));
-  return Object.freeze({eligible,coins,education});
+  return Object.freeze({eligible,coins,education,eligibility:{enoughDecisions,demonstratedTradingSkill}});
 }
 export function computeBullManReward(result,answers,policy=arcadeEconomyPolicy({})){return computeArcadeReward('bull-man',result,answers,policy);}
 
@@ -172,7 +174,7 @@ export class WisdoArcadeService{
       const verified=verifier.replay(String(row.seed),inputs),policy=this.policy(),reward=computeArcadeReward(row.game_id,verified,answers,policy);
       const daily=await client.query(`SELECT COALESCE(SUM(amount),0)::int AS earned FROM wisdo_culture_coin_ledger WHERE user_id=$1 AND source_type='arcade' AND amount>0 AND created_at>=date_trunc('day',NOW())`,[clean(userId,200)]);
       const already=Number(daily.rows[0]?.earned||0),remaining=Math.max(0,policy.dailyEarnCap-already),award=Math.min(reward.coins,remaining),digest=crypto.createHash('sha256').update(JSON.stringify(inputs)).digest('hex');
-      const result={verified,education:reward.education,antiCheat:{serverReplay:true,gameVersion:row.game_version,inputDigest:digest,inputTicks:inputs.length,elapsedMs,minimumElapsedMs},reward:{rawCoins:reward.coins,dailyBefore:already,dailyRemainingAfter:Math.max(0,remaining-award),capped:award<reward.coins}};
+      const result={verified,education:reward.education,antiCheat:{serverReplay:true,gameVersion:row.game_version,inputDigest:digest,inputTicks:inputs.length,elapsedMs,minimumElapsedMs},reward:{rawCoins:reward.coins,eligible:reward.eligible,eligibility:reward.eligibility,dailyBefore:already,dailyRemainingAfter:Math.max(0,remaining-award),capped:award<reward.coins}};
       if(award>0)await client.query(`INSERT INTO wisdo_culture_coin_ledger(ledger_id,user_id,source_type,source_id,amount,metadata) VALUES($1,$2,'arcade',$3,$4,$5::jsonb) ON CONFLICT(source_type,source_id) DO NOTHING`,[crypto.randomUUID(),clean(userId,200),row.session_id,award,JSON.stringify({gameId:row.game_id,gameVersion:row.game_version,score:verified.score,weighted:reward.education.weighted,realizedR:verified.realizedR??null,riskScore:verified.riskScore??null})]);
       await client.query(`UPDATE wisdo_arcade_sessions SET status='finalized',replay=$2::jsonb,result=$3::jsonb,culture_coin_awarded=$4,finalized_at=NOW(),updated_at=NOW() WHERE session_id=$1`,[row.session_id,JSON.stringify({inputDigest:digest,inputTicks:inputs.length}),JSON.stringify(result),award]);await client.query('COMMIT');
       return{sessionId:row.session_id,gameId:row.game_id,status:'finalized',result,cultureCoinAwarded:award,idempotent:false,policy};
