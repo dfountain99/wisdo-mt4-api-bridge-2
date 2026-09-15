@@ -128,7 +128,7 @@ async function materializeSource(job,dir) {
   return dest;
 }
 function presetPath(job) {
-  const map={character:'character.json',arcade:'arcade.json',building:'building.json',vehicle:'vehicle.json',vegetation:'vegetation.json',prop:'building.json'};
+  const map={character:'character.json',arcade:'arcade.json',building:'building.json',vehicle:'vehicle.json',vegetation:'vegetation.json',prop:'building.json',interior:'building.json'};
   return `tools/blender/presets/${map[job.assetType]}`;
 }
 function runBlender(job,dir,inputPath) {
@@ -148,18 +148,21 @@ function runBlender(job,dir,inputPath) {
 }
 function registerAsset(job,dir) {
   if(job.registerTarget==='none') return;
-  run(process.execPath,['tools/blender/bridge/register-generated-asset.mjs',
+  const args=['tools/blender/bridge/register-generated-asset.mjs',
     '--target',job.registerTarget,
     '--asset-id',job.assetId,
     '--output',job.output,
     '--report',job.report,
     '--license',job.license,
     '--source-note',job.sourceNote||'',
-  ],{cwd:dir});
+  ];
+  if(job.clips) args.push('--clips-json',JSON.stringify(job.clips));
+  run(process.execPath,args,{cwd:dir});
 }
 function validateRepo(job,dir) {
   run(process.execPath,['--check','public/app/world/authored-asset-manifest.js'],{cwd:dir});
   run(process.execPath,['--check','public/app/world/generated-asset-registry.js'],{cwd:dir});
+  run(process.execPath,['--check','public/app/world/npc-runtime-registry.js'],{cwd:dir});
   const report=JSON.parse(readFileSync(path.join(dir,job.report),'utf8'));
   if(report?.checks?.glbExport!=='PASS') throw new Error('Asset report does not show a successful GLB export.');
   if(job.assetType==='character'&&report?.checks?.armature!=='PASS') throw new Error('Character report does not pass armature validation.');
