@@ -1,0 +1,46 @@
+:root{--wisdo-v3-cyan:#73ecff;--wisdo-v3-gold:#e8c06c;--wisdo-v3-violet:#9177ff;--wisdo-v3-panel:rgba(2,8,19,.80)}
+html[data-wisdo-visual-v3="active"] .cinema-vignette{background:radial-gradient(circle at 50% 42%,transparent 58%,rgba(3,8,24,.08) 76%,rgba(0,2,8,.38) 100%)!important;box-shadow:inset 0 0 76px rgba(3,12,32,.18)!important}
+html[data-wisdo-visual-v3="active"] .topbar{background:linear-gradient(180deg,rgba(2,8,20,.88),rgba(2,7,16,.62))!important;border-color:rgba(115,236,255,.24)!important;border-bottom-color:rgba(232,192,108,.38)!important;box-shadow:0 12px 38px rgba(0,0,0,.36),0 0 26px rgba(76,197,255,.09)!important}
+html[data-wisdo-visual-v3="active"] .wisdo-financial-hud,html[data-wisdo-visual-v3="active"] .wisdo-production-map-card,html[data-wisdo-visual-v3="active"] .wisdo-game-card,html[data-wisdo-visual-v3="active"] #wisdoMultiplayer{background:linear-gradient(155deg,rgba(2,9,21,.88),rgba(3,12,25,.68))!important;border-color:rgba(115,236,255,.22)!important;box-shadow:0 14px 36px rgba(0,0,0,.36),0 0 24px rgba(69,198,255,.07)!important}
+html[data-wisdo-visual-v3="active"] .wisdo-activity-ribbon{background:rgba(2,8,18,.70)!important;border-color:rgba(115,236,255,.18)!important;backdrop-filter:blur(12px)!important}
+html[data-wisdo-visual-v3="active"] .wisdo-activity-ribbon button{background:linear-gradient(180deg,rgba(10,25,48,.74),rgba(4,12,27,.62))!important;border-color:rgba(115,236,255,.18)!important;color:#e8fbff!important}
+html[data-wisdo-visual-v3="active"] .wisdo-activity-ribbon button:hover,html[data-wisdo-visual-v3="active"] .wisdo-activity-ribbon button:focus-visible{border-color:rgba(232,192,108,.58)!important;color:#f4d991!important}
+html[data-wisdo-visual-v3="active"] .wf-grid strong{color:#f9fdff!important;text-shadow:0 0 12px rgba(115,236,255,.12)}
+html[data-wisdo-visual-v3="active"] .wisdo-production-waypoint{border-left-color:var(--wisdo-v3-cyan)!important;border-right-color:rgba(232,192,108,.18)!important}
+html[data-wisdo-visual-v3="active"] .move-stick{border-color:rgba(115,236,255,.24)!important;background:radial-gradient(circle,rgba(30,62,91,.25),rgba(3,10,22,.28))!important}
+html[data-wisdo-visual-v3="active"] .mobile-actions button{background:linear-gradient(180deg,rgba(5,15,32,.78),rgba(3,9,20,.62))!important;border-color:rgba(115,236,255,.23)!important}
+
+@media(max-width:900px){
+  html[data-wisdo-visual-v3="active"] .topbar{left:7px!important;right:7px!important;min-height:46px!important;padding:5px 8px!important;border-radius:13px!important}
+  html[data-wisdo-visual-v3="active"] .top-actions .chip:not(#settingsBtn){display:none!important}
+  html[data-wisdo-visual-v3="active"] .top-actions #settingsBtn{display:flex!important;width:48px!important;min-width:48px!important;height:29px!important;font-size:8px!important;padding:0 5px!important}
+  html[data-wisdo-visual-v3="active"] .identity{margin-left:auto!important;padding-left:5px!important}html[data-wisdo-visual-v3="active"] .identity strong{font-size:10px!important}html[data-wisdo-visual-v3="active"] .identity small{font-size:7px!important}html[data-wisdo-visual-v3="active"] .tier{display:none!important}
+  html[data-wisdo-visual-v3="active"] .status-panel,html[data-wisdo-visual-v3="active"] .first-run,html[data-wisdo-visual-v3="active"] .dock,html[data-wisdo-visual-v3="active"] .wisdo-link-orb{display:none!important}
+
+  html[data-wisdo-visual-v3="active"] .wisdo-production-map{left:8px!important;top:66px!important;width:116px!important;z-index:34!important}html[data-wisdo-visual-v3="active"] .wisdo-production-map-card{padding:5px!important;border-radius:12px!important}html[data-wisdo-visual-v3="active"] .wisdo-production-map canvas{width:106px!important;height:92px!important;border-radius:9px!important}html[data-wisdo-visual-v3="active"] .wisdo-production-waypoint{margin-top:5px!important;padding:6px 7px!important;border-radius:8px!important}html[data-wisdo-visual-v3="active"] .wisdo-production-waypoint span{font-size:6px!important}html[data-wisdo-visual-v3="active"] .wisdo-production-waypoint strong{font-size:8px!important}html[data-wisdo-visual-v3="active"] .wisdo-production-waypoint em{font-size:7px!important}
+
+  html[data-wisdo-visual-v3="active"] .wisdo-game-hud{left:8px!important;top:190px!important;bottom:auto!important;width:118px!important;z-index:33!important;opacity:.88!important}
+  html[data-wisdo-visual-v3="active"] .wisdo-game-card{padding:7px 8px!important;border-radius:10px!important}
+  html[data-wisdo-visual-v3="active"] .wisdo-game-card>span{font-size:6px!important}html[data-wisdo-visual-v3="active"] .wisdo-game-card>strong{font-size:8px!important;margin:2px 0 4px!important}
+  html[data-wisdo-visual-v3="active"] .wisdo-game-hud .wisdo-game-step{display:none!important}html[data-wisdo-visual-v3="active"] .wisdo-game-hud .wisdo-game-step.current{display:grid!important;grid-template-columns:11px 1fr!important;gap:3px!important;margin:2px 0!important;font-size:7px!important;line-height:1.22!important}
+  html[data-wisdo-visual-v3="active"] .wisdo-game-meta{display:none!important}
+
+  html[data-wisdo-visual-v3="active"] .wisdo-financial-hud{left:8px!important;top:auto!important;bottom:88px!important;width:124px!important;padding:8px!important;border-radius:11px!important;opacity:.92!important;z-index:33!important}
+  html[data-wisdo-visual-v3="active"] .wf-brand{padding-bottom:5px!important}html[data-wisdo-visual-v3="active"] .wf-brand b{font-size:9px!important}html[data-wisdo-visual-v3="active"] .wf-brand small,html[data-wisdo-visual-v3="active"] .wf-safe{display:none!important}html[data-wisdo-visual-v3="active"] .wf-mode{font-size:5px!important;margin:4px 0!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+  html[data-wisdo-visual-v3="active"] .wf-grid{grid-template-columns:1fr 1fr!important;gap:4px!important}html[data-wisdo-visual-v3="active"] .wf-grid div{padding:4px!important;border-radius:7px!important}html[data-wisdo-visual-v3="active"] .wf-grid span{font-size:5px!important}html[data-wisdo-visual-v3="active"] .wf-grid strong{font-size:7px!important}html[data-wisdo-visual-v3="active"] .wf-grid .wf-wide{display:none!important}
+
+  html[data-wisdo-visual-v3="active"] .wisdo-activity-ribbon{right:7px!important;top:42%!important;bottom:auto!important;transform:translateY(-50%)!important;display:flex!important;flex-direction:column!important;gap:3px!important;padding:4px!important;border-radius:11px!important;opacity:.84!important;z-index:34!important}
+  html[data-wisdo-visual-v3="active"] .wisdo-activity-ribbon button{min-width:54px!important;padding:7px 5px!important;font-size:6px!important;border-radius:7px!important}
+
+  html[data-wisdo-visual-v3="active"] #wisdoMultiplayer{left:auto!important;right:7px!important;top:auto!important;bottom:84px!important;min-width:0!important;width:104px!important;max-width:104px!important;padding:6px!important;border-radius:10px!important;opacity:.86!important;z-index:34!important}
+  html[data-wisdo-visual-v3="active"] #wisdoMultiplayer .wm-head{font-size:6px!important;gap:3px!important}html[data-wisdo-visual-v3="active"] #wisdoMultiplayer .wm-status{display:none!important}html[data-wisdo-visual-v3="active"] #wisdoMultiplayer .wm-event{display:none!important}html[data-wisdo-visual-v3="active"] #wisdoMultiplayer button{margin-top:3px!important;padding:5px!important;font-size:5px!important;border-radius:6px!important}
+
+  html[data-wisdo-visual-v3="active"] .proximity{bottom:118px!important;left:50%!important;min-width:150px!important;max-width:190px!important;padding:7px 9px!important;border-radius:10px!important}html[data-wisdo-visual-v3="active"] .proximity span{font-size:6px!important}html[data-wisdo-visual-v3="active"] .proximity strong{font-size:10px!important}html[data-wisdo-visual-v3="active"] .proximity em{font-size:7px!important}
+  html[data-wisdo-visual-v3="active"] .wisdo-build-badge{right:7px!important;bottom:64px!important;max-width:116px!important;font-size:4.5px!important;opacity:.45!important}
+}
+
+@media(max-width:430px){
+  html[data-wisdo-visual-v3="active"] .brand b{font-size:10px!important}html[data-wisdo-visual-v3="active"] .brand-mark{width:31px!important;height:31px!important}
+  html[data-wisdo-visual-v3="active"] .wisdo-production-map{width:110px!important}html[data-wisdo-visual-v3="active"] .wisdo-production-map canvas{width:100px!important;height:88px!important}
+  html[data-wisdo-visual-v3="active"] .wisdo-game-hud{width:112px!important}html[data-wisdo-visual-v3="active"] .wisdo-financial-hud{width:116px!important}
+}

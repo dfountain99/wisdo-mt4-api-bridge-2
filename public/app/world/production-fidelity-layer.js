@@ -1,10 +1,11 @@
-import { chooseAutoQuality, getWorldCapabilities } from './world-config.js?v=2026.09.15.visual-fidelity-v2';
-import { createMarketBillboardManager } from './markets/market-billboard-manager.js?v=2026.09.15.visual-fidelity-v2';
-import { installResilientCinematicWorldLayer } from './world-cinematic-recovery.js?v=2026.09.15.visual-fidelity-v2';
-import { installResilientArcadeCityVerticalSlice } from './world-arcade-recovery.js?v=2026.09.15.visual-fidelity-v2';
-import { installWisdoVisualFidelityV2 } from './world-visual-fidelity-v2.js?v=2026.09.15.visual-fidelity-v2';
+import { chooseAutoQuality, getWorldCapabilities } from './world-config.js?v=2026.09.15.visual-fidelity-v3';
+import { createMarketBillboardManager } from './markets/market-billboard-manager.js?v=2026.09.15.visual-fidelity-v3';
+import { installResilientCinematicWorldLayer } from './world-cinematic-recovery.js?v=2026.09.15.visual-fidelity-v3';
+import { installResilientArcadeCityVerticalSlice } from './world-arcade-recovery.js?v=2026.09.15.visual-fidelity-v3';
+import { installWisdoVisualFidelityV2 } from './world-visual-fidelity-v2.js?v=2026.09.15.visual-fidelity-v3';
+import { installWisdoVisualFidelityV3 } from './world-visual-fidelity-v3.js?v=2026.09.15.visual-fidelity-v3';
 
-const FIDELITY_CLIENT_REVISION='2026.09.15.visual-fidelity-v2';
+const FIDELITY_CLIENT_REVISION='2026.09.15.visual-fidelity-v3';
 globalThis.WisdoFidelityClientRevision=FIDELITY_CLIENT_REVISION;
 
 function resolveQuality(){
@@ -48,7 +49,7 @@ export async function installProductionFidelity({THREE,scene,camera,renderer,deb
   const quality=resolveQuality();
   globalThis.WisdoWorldSafetyDiagnostics=Object.freeze({executionFromVisuals:false,authority:'WISDO_COMMAND_API',verifiedAt:new Date().toISOString()});
 
-  let cinematic=null,arcadePlaza=null,visualV2=null,marketManager=null;
+  let cinematic=null,arcadePlaza=null,visualV2=null,visualV3=null,marketManager=null;
   try{
     cinematic=installResilientCinematicWorldLayer({THREE,scene,camera,renderer,quality,debug});
   }catch(error){
@@ -67,6 +68,12 @@ export async function installProductionFidelity({THREE,scene,camera,renderer,deb
     recordVisualError('visual-fidelity-v2',error);
     console.warn('WISDO Visual Fidelity V2 degraded; cinematic core remains active.',error);
   }
+  try{
+    visualV3=installWisdoVisualFidelityV3({THREE,scene,camera,renderer,quality,debug});
+  }catch(error){
+    recordVisualError('visual-fidelity-v3',error);
+    console.warn('WISDO Visual Fidelity V3 degraded; V2 remains active.',error);
+  }
 
   const publishDiagnostics=(patch={})=>{
     const previous=globalThis.WisdoWorldDiagnostics||{};
@@ -76,11 +83,15 @@ export async function installProductionFidelity({THREE,scene,camera,renderer,deb
       fidelityQuality:quality,
       clientRevision:FIDELITY_CLIENT_REVISION,
       fakeCandlesAllowed:false,
-      visualArchitecture:visualV2?.diagnostics?.artDirection||cinematic?.diagnostics?.visualPass||'production-city-core',
+      visualArchitecture:visualV3?.diagnostics?.artDirection||visualV2?.diagnostics?.artDirection||cinematic?.diagnostics?.visualPass||'production-city-core',
       cinematicActive:Boolean(cinematic?.diagnostics?.active),
       arcadePlazaActive:Boolean(arcadePlaza?.diagnostics?.active),
       visualFidelityV2Active:Boolean(visualV2?.diagnostics?.active),
+      visualFidelityV3Active:Boolean(visualV3?.diagnostics?.active),
       visualFidelityV2Objects:visualV2?.diagnostics?.objects||[],
+      visualFidelityV3Objects:visualV3?.diagnostics?.objects||[],
+      v3CrowdCount:visualV3?.diagnostics?.crowdCount||0,
+      v3TargetMobileFps:visualV3?.diagnostics?.targetMobileFps||30,
       arcadeBusinesses:arcadePlaza?.diagnostics?.businesses||[],
       npcCount:arcadePlaza?.diagnostics?.npcCount||0,
       palmCount:arcadePlaza?.diagnostics?.palmCount||0,
@@ -126,6 +137,7 @@ export async function installProductionFidelity({THREE,scene,camera,renderer,deb
     const dt=Math.min(.05,Math.max(.001,(now-last)/1000));last=now;elapsed+=dt;
     try{marketManager?.update?.(dt,elapsed);}catch(error){recordVisualError('market-billboard-frame',error);}
     try{visualV2?.update?.(dt,elapsed);}catch(error){recordVisualError('visual-fidelity-v2-frame',error);}
+    try{visualV3?.update?.(dt,elapsed);}catch(error){recordVisualError('visual-fidelity-v3-frame',error);}
   }
   frameId=requestAnimationFrame(frame);
 
@@ -135,12 +147,14 @@ export async function installProductionFidelity({THREE,scene,camera,renderer,deb
     cinematic:cinematic?.diagnostics||null,
     arcadePlaza:arcadePlaza?.diagnostics||null,
     visualV2:visualV2?.diagnostics||null,
+    visualV3:visualV3?.diagnostics||null,
     diagnostics:globalThis.WisdoWorldDiagnostics,
     destroy(){
       destroyed=true;
       cancelAnimationFrame(frameId);
       clearInterval(timer);
       try{marketManager?.destroy?.();}catch{}
+      try{visualV3?.destroy?.();}catch{}
       try{visualV2?.destroy?.();}catch{}
       try{arcadePlaza?.destroy?.();}catch{}
       try{cinematic?.destroy?.();}catch{}
