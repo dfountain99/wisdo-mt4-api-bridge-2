@@ -3,11 +3,11 @@
   "title": "WISDO Blender Bridge Job",
   "type": "object",
   "additionalProperties": false,
-  "required": ["assetId", "assetType", "source", "output"],
+  "required": ["assetId", "assetType", "source", "output", "report"],
   "properties": {
     "assetId": {"type": "string", "minLength": 1, "maxLength": 80},
     "name": {"type": "string", "maxLength": 80},
-    "assetType": {"enum": ["character", "arcade", "building", "vehicle", "vegetation", "prop"]},
+    "assetType": {"enum": ["character", "arcade", "building", "vehicle", "vegetation", "prop", "interior"]},
     "source": {
       "type": "object",
       "additionalProperties": false,
@@ -19,8 +19,8 @@
       "oneOf": [{"required": ["repoPath"]}, {"required": ["url"]}]
     },
     "output": {"type": "string", "pattern": "^public/world-assets/.+\\.glb$"},
-    "report": {"type": "string"},
-    "registerTarget": {"enum": ["none", "playerV2", "arcadeV2"]},
+    "report": {"type": "string", "pattern": "^(public/world-assets|tools/blender/reports)/.+\\.json$"},
+    "registerTarget": {"enum": ["none", "playerV2", "arcadeV2", "npc", "building", "prop", "vehicle", "interior", "vegetation", "worldObject"]},
     "targetHeight": {"type": "number", "exclusiveMinimum": 0, "maximum": 500},
     "lodRatios": {
       "type": "array",
