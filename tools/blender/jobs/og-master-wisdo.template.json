@@ -1,0 +1,26 @@
+{
+  "assetId": "og-master-wisdo",
+  "name": "OG_MASTER_WISDO",
+  "assetType": "character",
+  "source": {
+    "repoPath": "assets-source/characters/npcs/og-master-wisdo/og_master_wisdo.blend"
+  },
+  "output": "public/world-assets/characters/npcs/og-master-wisdo/og_master_wisdo.glb",
+  "report": "public/world-assets/characters/npcs/og-master-wisdo/og_master_wisdo.report.json",
+  "registerTarget": "npc",
+  "targetHeight": 1.84,
+  "lodRatios": [1.0, 0.62, 0.36, 0.18],
+  "license": "USER_PROVIDED",
+  "sourceNote": "Original OG MASTER WISDO founder/legendary mentor NPC created for WISDO World.",
+  "clips": {
+    "IDLE": ["IDLE"],
+    "SEATED_IDLE": ["SEATED_IDLE"],
+    "WALK_FORWARD": ["WALK_FORWARD"],
+    "GREET": ["GREET"],
+    "SPEAK": ["SPEAK"],
+    "POINT": ["POINT"],
+    "STAND": ["STAND"],
+    "SIT": ["SIT"],
+    "INTERACT": ["INTERACT"]
+  }
+}
