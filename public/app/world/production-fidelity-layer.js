@@ -1,7 +1,7 @@
 import { chooseAutoQuality, getWorldCapabilities } from './world-config.js';
 import { createMarketBillboardManager } from './markets/market-billboard-manager.js';
-import { installCinematicWorldLayer } from './world-cinematic-layer.js';
-import { installArcadeCityVerticalSlice } from './world-arcade-plaza.js';
+import { installResilientCinematicWorldLayer } from './world-cinematic-recovery.js';
+import { installResilientArcadeCityVerticalSlice } from './world-arcade-recovery.js';
 
 function resolveQuality(){
   const quality=globalThis.WisdoQualityDiagnostics?.activeQuality||chooseAutoQuality();
@@ -46,13 +46,13 @@ export async function installProductionFidelity({THREE,scene,camera,renderer,deb
 
   let cinematic=null,arcadePlaza=null,marketManager=null;
   try{
-    cinematic=installCinematicWorldLayer({THREE,scene,camera,renderer,quality,debug});
+    cinematic=installResilientCinematicWorldLayer({THREE,scene,camera,renderer,quality,debug});
   }catch(error){
     recordVisualError('cinematic',error);
     console.warn('WISDO cinematic visual layer degraded; production city remains active.',error);
   }
   try{
-    arcadePlaza=installArcadeCityVerticalSlice({THREE,scene,camera,renderer,quality,debug});
+    arcadePlaza=installResilientArcadeCityVerticalSlice({THREE,scene,camera,renderer,quality,debug});
   }catch(error){
     recordVisualError('arcade-plaza',error);
     console.warn('WISDO Arcade Plaza vertical slice degraded; core World remains active.',error);
