@@ -1,5 +1,5 @@
 import { getSessionUser } from './security.js';
-import { WisdoArcadeService } from '../services/wisdoArcadeService.js';
+import { ARCADE_BUILD, WisdoArcadeService } from '../services/wisdoArcadeService.js';
 
 function bool(value){return value===true||['1','true','yes','on'].includes(String(value||'').toLowerCase());}
 function currentUser(req){
@@ -27,7 +27,7 @@ export function registerArcadeRoutes(app,{pool,logger=console}={}){
     try{
       const profile=await service.profile(req.wisdoUser.id);
       res.set('Cache-Control','private, no-store');
-      res.json({ok:true,games:service.catalog(),profile,policy:service.policy(),build:'ARCADE-ALPHA1'});
+      res.json({ok:true,games:service.catalog(),profile,policy:service.policy(),build:ARCADE_BUILD});
     }catch(error){logger?.warn?.('Arcade catalog failed',{message:error.message});sendError(res,error);}
   });
 
