@@ -6,10 +6,9 @@ import {
   BULL_MAN_MAX_TICKS,
   createBullManState,
   replayBullMan,
-  scoreBullManEducation,
   tickBullMan,
 } from '../public/app/world/arcade/bull-man-core.js';
-import { ARCADE_CATALOG, arcadeEconomyPolicy, computeBullManReward } from '../services/wisdoArcadeService.js';
+import { ARCADE_CATALOG, arcadeEconomyPolicy, computeBullManReward, scoreBullManEducation } from '../services/wisdoArcadeService.js';
 
 test('arcade catalog contains exactly 50 education games and Bull-Man is the launch cabinet',()=>{
   assert.equal(ARCADE_CATALOG.length,50);
@@ -34,8 +33,8 @@ test('Bull-Man never accepts arbitrary movement through walls',()=>{
 
 test('education score is derived from server-known correct answers',()=>{
   const result={ticks:100,completion:.5,hits:1,lives:2,status:'playing'};
-  const correct=BULL_MAN_LESSONS.map((q)=>q.correct);
-  const wrong=BULL_MAN_LESSONS.map((q)=>(q.correct+1)%q.choices.length);
+  const correct=[1,0,1];
+  const wrong=[0,1,0];
   assert.equal(scoreBullManEducation(result,correct).knowledge,100);
   assert.equal(scoreBullManEducation(result,wrong).knowledge,0);
 });
@@ -51,7 +50,7 @@ test('Culture Coin policy never enables wagering and redemption is opt-in',()=>{
 
 test('reward computation respects per-session cap',()=>{
   const result={ticks:200,completion:1,hits:0,lives:3,status:'won'};
-  const answers=BULL_MAN_LESSONS.map((q)=>q.correct);
+  const answers=[1,0,1];
   const reward=computeBullManReward(result,answers,{maxCoinsPerSession:9});
   assert.equal(reward.eligible,true);
   assert.equal(reward.coins,9);
