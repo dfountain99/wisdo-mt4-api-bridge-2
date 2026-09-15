@@ -21,6 +21,7 @@
     "test:integration": "node --test tests/commandBusContract.test.js tests/major-product.test.js tests/v708-database-first-trading.test.js",
     "test:commands": "node --test tests/v701-runtime-repair.test.js tests/commandBusContract.test.js",
     "test:world-scale": "node --test tests/worldScaleFoundation.test.js",
+    "test:world-alpha4": "node --test tests/worldScaleFoundation.test.js tests/worldAlpha4Realtime.test.js",
     "smoke": "node --test tests/majorStabilityCore.test.js tests/kernelRouteRegistryContract.test.js tests/runtime-lifecycle-stability.test.js tests/wisdoWorldContract.test.js tests/worldSmartHome.test.js tests/worldLivingSystems.test.js tests/wisdoWorldQuality.test.js tests/wisdoWorldRuntimeContracts.test.js tests/wisdoWorldCoreGame.test.js",
     "migrate:postgres": "node scripts/migratePostgres.js",
     "postinstall": "node scripts/patchWsHandshake.js",
