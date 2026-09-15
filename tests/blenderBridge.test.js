@@ -44,6 +44,21 @@ test('Blender Bridge accepts generalized NPC registration and explicit clip inte
   assert.deepEqual(job.clips.SPEAK,['SPEAK']);
 });
 
+test('interior is a runtime catalog target backed by the supported building Blender pipeline',()=>{
+  const job=validateJob({
+    ...good,
+    assetId:'wisdo-master-chamber',
+    name:'WISDO_MASTER_CHAMBER',
+    assetType:'building',
+    registerTarget:'interior',
+    output:'public/world-assets/interiors/wisdo-master-chamber.glb',
+    report:'public/world-assets/interiors/wisdo-master-chamber.report.json',
+  });
+  assert.equal(job.assetType,'building');
+  assert.equal(job.registerTarget,'interior');
+  assert.throws(()=>validateJob({...job,assetType:'interior'}),/Unsupported assetType/);
+});
+
 test('Blender Bridge requires durable asset identity, output and report paths',()=>{
   assert.throws(()=>validateJob({...good,assetId:''}),/assetId is required/);
   assert.throws(()=>validateJob({...good,output:''}),/output is required/);
