@@ -36,11 +36,12 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install Blender
+      - name: Install Blender runtime dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y blender
+          sudo apt-get install -y blender python3-numpy
           blender --version | head -n 1
+          blender -b --python-expr "import numpy; print('WISDO_NUMPY', numpy.__version__)"
 
       - name: Configure Git identity
         run: |
