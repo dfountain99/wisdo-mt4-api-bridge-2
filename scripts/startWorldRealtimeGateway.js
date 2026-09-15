@@ -12,6 +12,7 @@ const serviceSecret = String(process.env.WISDO_WORLD_SERVICE_SECRET || '');
 const fabric = createWorldRealtimeFabric();
 const outbox = createWorldEventOutboxRepository();
 const streams = new Set();
+const recentEventIds = new Map();
 let shuttingDown = false;
 
 function clean(value, max = 160) {
@@ -65,13 +66,70 @@ function requireService(req, res, next) {
 }
 
 function sseWrite(res, event, data, id = '') {
+  if (res.writableEnded || res.destroyed) return false;
   if (id) res.write(`id: ${String(id).replace(/[\r\n]/g, '')}\n`);
   if (event) res.write(`event: ${String(event).replace(/[\r\n]/g, '')}\n`);
   res.write(`data: ${JSON.stringify(data)}\n\n`);
+  return true;
+}
+
+function configuredOrigins() {
+  const values = [
+    process.env.PUBLIC_BASE_URL,
+    process.env.WISDO_CLOUD_URL,
+    ...(String(process.env.WISDO_WORLD_ALLOWED_ORIGINS || '').split(',')),
+  ].map((value) => clean(value, 2048).replace(/\/$/, '')).filter(Boolean);
+  const origins = new Set();
+  for (const value of values) {
+    try { origins.add(new URL(value).origin); } catch {}
+  }
+  return origins;
+}
+
+const allowedOrigins = configuredOrigins();
+
+function allowCors(req, res, next) {
+  const origin = clean(req.headers.origin, 2048);
+  if (origin && allowedOrigins.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization,Content-Type,Last-Event-ID');
+    res.setHeader('Access-Control-Max-Age', '600');
+  }
+  if (req.method === 'OPTIONS') {
+    if (origin && !allowedOrigins.has(origin)) return res.status(403).end();
+    return res.status(204).end();
+  }
+  next();
+}
+
+function streamTopics(ticket) {
+  return [...new Set([
+    `instance.${ticket.instanceId}`,
+    `account.${ticket.sub}`,
+    `user.${ticket.sub}`,
+  ])];
+}
+
+function rememberEvent(eventId) {
+  const id = clean(eventId, 220);
+  if (!id) return false;
+  const now = Date.now();
+  if (recentEventIds.has(id)) return true;
+  recentEventIds.set(id, now);
+  if (recentEventIds.size > 5000) {
+    for (const [key, at] of recentEventIds) {
+      if (now - at > 5 * 60 * 1000 || recentEventIds.size > 4000) recentEventIds.delete(key);
+      if (recentEventIds.size <= 4000) break;
+    }
+  }
+  return false;
 }
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
+app.use(allowCors);
 app.use(express.json({ limit: '64kb', strict: true }));
 
 app.get('/health', (_req, res) => {
@@ -89,6 +147,7 @@ app.get('/ready', async (_req, res) => {
     outbox: database,
     ticketConfigured: ticketSecret.length >= 32,
     serviceAuthConfigured: serviceSecret.length >= 32,
+    corsOriginsConfigured: allowedOrigins.size,
     streams: streams.size,
   });
 });
@@ -96,24 +155,47 @@ app.get('/ready', async (_req, res) => {
 app.get('/v1/world/stream', requireTicket('world:events:read'), async (req, res) => {
   if (streams.size >= maxStreams) return res.status(503).json({ ok: false, error: 'world_stream_capacity' });
   const ticket = req.worldTicket;
-  const topic = `instance.${ticket.instanceId}`;
+  const topics = streamTopics(ticket);
   res.status(200);
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
-  const stream = { userId: ticket.sub, instanceId: ticket.instanceId, openedAt: Date.now() };
-  streams.add(stream);
-  sseWrite(res, 'ready', { ok: true, userId: ticket.sub, worldId: ticket.worldId, instanceId: ticket.instanceId, serverTime: new Date().toISOString() });
 
-  let unsubscribe = async () => undefined;
+  // streamId is deliberately unique per browser connection. This preserves
+  // de-duplication when one event is published to multiple subscribed topics,
+  // while ensuring a second tab for the same user still receives that event.
+  const stream = { streamId: crypto.randomUUID(), userId: ticket.sub, instanceId: ticket.instanceId, openedAt: Date.now(), topics };
+  streams.add(stream);
+  const initialPresence = await fabric.listPresence(ticket.instanceId).catch(() => []);
+  sseWrite(res, 'ready', {
+    ok: true,
+    userId: ticket.sub,
+    worldId: ticket.worldId,
+    instanceId: ticket.instanceId,
+    serverTime: new Date().toISOString(),
+    presence: initialPresence,
+    execution: false,
+  });
+
+  const unsubscribers = [];
   try {
-    unsubscribe = await fabric.subscribe(topic, (event) => {
-      if (!res.writableEnded) sseWrite(res, event.type || 'world.event', event, event.eventId || '');
-    });
-  } catch (error) {
+    for (const topic of topics) {
+      const unsubscribe = await fabric.subscribe(topic, (event) => {
+        if (res.writableEnded || res.destroyed) return;
+        const eventId = event?.eventId || event?.id || '';
+        // The same normalized financial event can intentionally be addressed to
+        // both a private user topic and an instance topic. Deliver it once per
+        // connection, never once per user across all of their tabs/devices.
+        if (eventId && rememberEvent(`${stream.streamId}:${eventId}`)) return;
+        sseWrite(res, event.type || 'world.event', event, eventId);
+      });
+      unsubscribers.push(unsubscribe);
+    }
+  } catch {
     streams.delete(stream);
+    for (const unsubscribe of unsubscribers) await unsubscribe().catch(() => undefined);
     sseWrite(res, 'error', { ok: false, error: 'subscription_failed' });
     return res.end();
   }
@@ -129,7 +211,7 @@ app.get('/v1/world/stream', requireTicket('world:events:read'), async (req, res)
     cleaned = true;
     clearInterval(heartbeat);
     streams.delete(stream);
-    await unsubscribe().catch(() => undefined);
+    await Promise.allSettled(unsubscribers.map((unsubscribe) => unsubscribe()));
   };
   req.on('close', cleanup);
   req.on('aborted', cleanup);
@@ -144,6 +226,9 @@ app.post('/v1/world/presence', requireTicket('world:presence:write'), async (req
       userId: ticket.sub,
       state: {
         worldId: ticket.worldId,
+        scene: clean(ticket.metadata?.scene || body.scene, 80),
+        displayName: clean(ticket.metadata?.displayName, 80) || 'Operator',
+        title: clean(ticket.metadata?.title, 80) || 'Operator',
         position: vec3(body.position),
         rotation: {
           x: finite(body.rotation?.x, 0, -Math.PI * 4, Math.PI * 4),
@@ -165,7 +250,8 @@ app.post('/v1/world/presence', requireTicket('world:presence:write'), async (req
       worldId: ticket.worldId,
       presence,
     });
-    res.json({ ok: true, presence });
+    res.set('Cache-Control', 'no-store');
+    res.json({ ok: true, presence, serverTime: new Date().toISOString() });
   } catch (error) {
     next(error);
   }
@@ -183,6 +269,7 @@ app.delete('/v1/world/presence', requireTicket('world:presence:write'), async (r
       instanceId: ticket.instanceId,
       worldId: ticket.worldId,
     });
+    res.set('Cache-Control', 'no-store');
     res.json({ ok: true });
   } catch (error) {
     next(error);
@@ -197,7 +284,8 @@ app.get('/v1/world/presence/:instanceId', requireTicket('world:presence:read'), 
       return res.status(403).json({ ok: false, error: 'instance_scope_mismatch' });
     }
     const presence = await fabric.listPresence(requested);
-    res.json({ ok: true, instanceId: requested, count: presence.length, presence });
+    res.set('Cache-Control', 'no-store');
+    res.json({ ok: true, instanceId: requested, count: presence.length, presence, serverTime: new Date().toISOString() });
   } catch (error) {
     next(error);
   }

@@ -7,6 +7,7 @@ import { registerUniversalControlRoutes } from './universalControlRoutes.js';
 import { registerPhaseTwoEightRoutes } from './phaseTwoEightRoutes.js';
 import { registerStaticWorkspaceRoutes } from './staticWorkspaceRoutes.js';
 import { WisdoVoiceCreatorService } from '../services/wisdoVoiceCreatorService.js';
+import { installWorldDurableEventBridge } from '../services/worldDurableEventBridge.js';
 import { registerRoomStateRoutes } from './roomStateRoutes.js';
 import { registerVoiceBotAuthorityRoutes } from './voiceBotAuthorityRoutes.js';
 import { registerConversationalVoiceRoutes } from './conversationalVoiceRoutes.js';
@@ -120,8 +121,8 @@ export function registerWisdoKernelRoutes(app, {
     logger,
   });
 
-  // Multiplayer is intentionally registered as a separate World-only boundary.
-  // It owns ephemeral presence/movement only and never receives MT4 execution services.
+  // Realtime owns presence and World event transport only. It never receives
+  // MT4 execution services or broker credentials.
   registerWorldRealtimeRoutes(app, { logger });
 
   const worldLivingSystems = registerWorldLivingIdentityRoutes(app, {
@@ -130,6 +131,11 @@ export function registerWisdoKernelRoutes(app, {
     mt4SyncService,
     publicRoot,
   });
+
+  // The existing confirmed World event engine remains the source of semantic
+  // signal truth. This optional bridge copies those confirmed events into the
+  // durable PostgreSQL outbox used by the distributed realtime worker.
+  const worldDurableEvents = installWorldDurableEventBridge(worldLivingSystems.eventEngine, { logger });
 
   const worldMarkets = registerWorldMarketRoutes(app, {
     config,
@@ -153,7 +159,7 @@ export function registerWisdoKernelRoutes(app, {
       res.status(ok ? 200 : 503).json({
         ok,
         service: 'wisdo-master-kernel',
-        version: '3.11.0',
+        version: '3.12.0-world-alpha4',
         command_bus: commandBus,
         workspaces: {
           registered: workspaces.registered.map(({ slug, route }) => ({ slug, route })),
@@ -165,7 +171,8 @@ export function registerWisdoKernelRoutes(app, {
           build_api: worldBuild.api,
           build: worldBuild.build,
           realtime_api: '/api/world/realtime',
-          realtime_instance: 'central',
+          realtime_architecture: 'core-fallback-or-distributed-gateway',
+          durable_events: worldDurableEvents,
           execution_from_world_enabled: world.executionFromWorldEnabled,
           event_stream: worldLivingSystems.eventStream,
           signal_api: worldLivingSystems.signalApi,
@@ -206,6 +213,7 @@ export function registerWisdoKernelRoutes(app, {
     worldBuild,
     arcade,
     worldLivingSystems,
+    worldDurableEvents,
     worldMarkets,
     worldCommand,
   };
