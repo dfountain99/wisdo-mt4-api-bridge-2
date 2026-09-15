@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import { getSessionUser, safeReturnPath } from './security.js';
 import { buildPresenceSnapshot, ensurePresenceState } from '../services/culturePresenceService.js';
+import { issueWorldRealtimeTicket } from '../services/worldRealtimeTicketService.js';
+import { publicWorldInstance, resolveWorldInstance, worldRealtimeScopesForInstance } from '../services/worldInstanceService.js';
 
 const WORLD_INSTANCE = 'central';
 const MAX_PLAYERS = 24;
@@ -17,6 +19,27 @@ const room = {
 
 function parseBool(value) {
   return value === true || ['1', 'true', 'yes', 'on'].includes(String(value || '').toLowerCase());
+}
+
+function clean(value, max = 2048) {
+  return String(value ?? '').replace(/\u0000/g, '').trim().slice(0, max);
+}
+
+function publicGatewayUrl() {
+  const raw = clean(process.env.WISDO_WORLD_REALTIME_PUBLIC_URL, 2048).replace(/\/$/, '');
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    if (!['https:', 'http:'].includes(url.protocol)) return '';
+    if (process.env.NODE_ENV === 'production' && url.protocol !== 'https:') return '';
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return '';
+  }
+}
+
+function externalRealtimeReady() {
+  return Boolean(publicGatewayUrl() && String(process.env.WISDO_WORLD_REALTIME_TICKET_SECRET || '').length >= 32);
 }
 
 function currentUser(req) {
@@ -156,10 +179,82 @@ function removeClient(client) {
   }
 }
 
+function resolveRequestedInstance(req, user) {
+  const scene = clean(req.body?.scene ?? req.query?.scene ?? 'central', 80);
+  return resolveWorldInstance({ scene, destinationId: scene, userId: user.id });
+}
+
+function realtimeConfigFor(instance) {
+  const gatewayUrl = publicGatewayUrl();
+  const external = externalRealtimeReady();
+  return {
+    ok: true,
+    version: 'alpha4',
+    mode: external ? 'external-gateway' : 'core-fallback',
+    transport: external ? 'sse+http-presence' : 'same-origin-sse',
+    gatewayUrl: external ? gatewayUrl : null,
+    instance: publicWorldInstance(instance),
+    heartbeatMs: external ? Math.max(1000, Number(process.env.WISDO_WORLD_CLIENT_HEARTBEAT_MS || 3000)) : MIN_STATE_INTERVAL_MS,
+    reconnectBaseMs: 900,
+    reconnectMaxMs: 15000,
+    ticketTtlSeconds: Math.min(180, Math.max(45, Number(process.env.WISDO_WORLD_REALTIME_TICKET_TTL_SECONDS || 90))),
+    execution: false,
+    financialAuthority: 'wisdo-core-only',
+  };
+}
+
 export function registerWorldRealtimeRoutes(app, { loadEcosystemState, saveEcosystemState, logger = null } = {}) {
+  app.get('/api/world/realtime/config', requireUser, (req, res) => {
+    try {
+      const instance = resolveRequestedInstance(req, req.wisdoUser);
+      res.set('Cache-Control', 'private, no-store');
+      res.json(realtimeConfigFor(instance));
+    } catch (error) {
+      res.status(400).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.post('/api/world/realtime/ticket', requireUser, async (req, res) => {
+    try {
+      if (!externalRealtimeReady()) {
+        return res.status(503).json({ ok: false, error: 'External World realtime gateway is not configured.', mode: 'core-fallback' });
+      }
+      const instance = resolveRequestedInstance(req, req.wisdoUser);
+      const identity = await identityForUser(loadEcosystemState, saveEcosystemState, req.wisdoUser);
+      const ttlSeconds = Math.min(180, Math.max(45, Number(process.env.WISDO_WORLD_REALTIME_TICKET_TTL_SECONDS || 90)));
+      const ticket = issueWorldRealtimeTicket({
+        userId: String(req.wisdoUser.id),
+        worldId: instance.worldId,
+        instanceId: instance.instanceId,
+        scopes: worldRealtimeScopesForInstance(instance),
+        ttlSeconds,
+        metadata: {
+          scene: instance.scene,
+          displayName: identity.displayName,
+          title: identity.title,
+        },
+      });
+      res.set('Cache-Control', 'private, no-store');
+      res.json({
+        ok: true,
+        ticket,
+        gatewayUrl: publicGatewayUrl(),
+        instance: publicWorldInstance(instance),
+        expiresInSeconds: ttlSeconds,
+        execution: false,
+      });
+    } catch (error) {
+      logger?.warn?.('World realtime ticket issuance failed.', { message: error.message, userId: req.wisdoUser?.id });
+      res.status(500).json({ ok: false, error: 'World realtime ticket could not be issued.' });
+    }
+  });
+
+  // Same-process WISDO Central transport remains as a zero-infrastructure fallback.
+  // It is intentionally Central-only; Home and destination instances require the
+  // external gateway so one Node process never becomes the persistent MMO server.
   app.get('/api/world/realtime/stream', requireUser, async (req, res) => {
     const instance = sanitizeWorldInstance(req.query.instance);
-    if (!instance) return res.status(400).json({ ok: false, error: 'Only the WISDO Central multiplayer instance is enabled in this alpha.' });
+    if (!instance) return res.status(400).json({ ok: false, error: 'Only the WISDO Central fallback instance is enabled.' });
     if (room.clients.size >= MAX_CLIENTS) return res.status(503).json({ ok: false, error: 'WISDO Central realtime capacity is full. Retry shortly.' });
 
     const userId = String(req.wisdoUser.id);
@@ -226,7 +321,7 @@ export function registerWorldRealtimeRoutes(app, { loadEcosystemState, saveEcosy
 
   app.post('/api/world/realtime/state', requireUser, (req, res) => {
     const instance = sanitizeWorldInstance(req.body?.instance);
-    if (!instance) return res.status(400).json({ ok: false, error: 'Invalid World instance.' });
+    if (!instance) return res.status(400).json({ ok: false, error: 'Invalid World fallback instance.' });
     const userId = String(req.wisdoUser.id);
     const player = room.players.get(userId);
     if (!player) return res.status(409).json({ ok: false, error: 'Join the WISDO Central realtime stream before sending movement.' });
@@ -268,10 +363,25 @@ export function registerWorldRealtimeRoutes(app, { loadEcosystemState, saveEcosy
     return res.json({ ok: true, event: room.lastEvent });
   });
 
-  app.get('/api/world/realtime/status', requireUser, (_req, res) => {
+  app.get('/api/world/realtime/status', requireUser, (req, res) => {
+    let instance;
+    try { instance = resolveRequestedInstance(req, req.wisdoUser); }
+    catch { instance = resolveWorldInstance({ scene: 'central', userId: req.wisdoUser.id }); }
     res.set('Cache-Control', 'private, no-store');
-    res.json({ ok: true, instance: WORLD_INSTANCE, online: room.players.size, clients: room.clients.size, capacity: MAX_PLAYERS, execution: false });
+    res.json({
+      ok: true,
+      mode: externalRealtimeReady() ? 'external-gateway' : 'core-fallback',
+      externalReady: externalRealtimeReady(),
+      instance: publicWorldInstance(instance),
+      fallback: { instance: WORLD_INSTANCE, online: room.players.size, clients: room.clients.size, capacity: MAX_PLAYERS },
+      execution: false,
+    });
   });
 
-  logger?.info?.('WISDO World realtime alpha routes registered', { instance: WORLD_INSTANCE, maxPlayers: MAX_PLAYERS, maxClients: MAX_CLIENTS });
+  logger?.info?.('WISDO World realtime routes registered', {
+    fallbackInstance: WORLD_INSTANCE,
+    maxPlayers: MAX_PLAYERS,
+    maxClients: MAX_CLIENTS,
+    externalReady: externalRealtimeReady(),
+  });
 }
