@@ -8,6 +8,24 @@ let activeScene = new URLSearchParams(location.search).get('scene') || 'home';
 let lastPulseId = null;
 let destroyed = false;
 
+const multiplayerDiagnostics = globalThis.WisdoMultiplayerDiagnostics = {
+  connected: false,
+  status: 'STARTING',
+  online: 0,
+  mode: 'unknown',
+  transport: 'unknown',
+  scene: activeScene,
+  instanceId: null,
+  remoteOperators: 0,
+  lastEventAt: null,
+  updatedAt: new Date().toISOString(),
+};
+
+function updateDiagnostics(patch = {}) {
+  Object.assign(multiplayerDiagnostics, patch, { updatedAt: new Date().toISOString() });
+  window.dispatchEvent(new CustomEvent('wisdo:multiplayer-diagnostics', { detail: { ...multiplayerDiagnostics } }));
+}
+
 function installHud() {
   if (document.getElementById('wisdoMultiplayer')) return document.getElementById('wisdoMultiplayer');
   const style = document.createElement('style');
@@ -16,7 +34,7 @@ function installHud() {
     #wisdoMultiplayer .wm-head{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
     #wisdoMultiplayer .wm-dot{width:8px;height:8px;border-radius:999px;background:#6d7c86;box-shadow:0 0 0 3px rgba(109,124,134,.12)}
     #wisdoMultiplayer[data-state="online"] .wm-dot{background:#63f2bd;box-shadow:0 0 14px rgba(99,242,189,.8)}
-    #wisdoMultiplayer[data-state="reconnecting"],#wisdoMultiplayer[data-state="connecting"] .wm-dot{background:#ffd479;box-shadow:0 0 14px rgba(255,212,121,.7)}
+    #wisdoMultiplayer[data-state="reconnecting"] .wm-dot,#wisdoMultiplayer[data-state="connecting"] .wm-dot{background:#ffd479;box-shadow:0 0 14px rgba(255,212,121,.7)}
     #wisdoMultiplayer .wm-status{display:block;margin-top:6px;color:#9eb9c8;font-size:11px;line-height:1.35}
     #wisdoMultiplayer .wm-event{display:block;min-height:15px;margin-top:4px;color:#70e7f5;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:250px}
     #wisdoMultiplayer button{margin-top:8px;width:100%;border:1px solid rgba(112,231,245,.3);border-radius:9px;background:rgba(112,231,245,.09);color:#eaffff;padding:7px 9px;font-size:10px;font-weight:800;letter-spacing:.1em;cursor:pointer}
@@ -134,6 +152,7 @@ function applyRoster(roster = []) {
   }
   for (const id of [...remotePlayers.keys()]) if (!seen.has(id)) removeRemote(id);
   countEl.textContent = `${roster.length} ONLINE`;
+  updateDiagnostics({ online: roster.length, remoteOperators: remotePlayers.size });
 }
 
 function angleLerp(current, target, amount) {
@@ -161,6 +180,7 @@ function handleRealtimeEvent(event = {}) {
   const id = event.eventId || event.id || '';
   if (id && id === lastPulseId) return; if (id) lastPulseId = id;
   const type = String(event.type || '');
+  updateDiagnostics({ lastEventAt: new Date().toISOString(), lastEventType: type || 'world.event' });
   if (type === 'world-pulse') flashEvent(`${event.displayName || 'Operator'}: ${event.label || 'SYNC PULSE'}`);
   else if (type === 'operator-joined') flashEvent(`${event.displayName || 'Operator'} entered`);
   else if (type === 'operator-left') flashEvent('Operator left');
@@ -181,7 +201,18 @@ const realtime = createWorldRealtimeClient({
   initialScene: activeScene,
   onStatus: (next) => {
     const mode = next.mode === 'external-gateway' ? 'Distributed World gateway' : next.state === 'standby' ? 'Realtime standby' : 'WISDO Core realtime fallback';
-    setStatus(next.state === 'online' ? 'online' : next.state === 'reconnecting' || next.state === 'connecting' ? 'reconnecting' : 'offline', mode, Number(next.online || 0));
+    const connected = next.state === 'online';
+    setStatus(connected ? 'online' : next.state === 'reconnecting' || next.state === 'connecting' ? 'reconnecting' : 'offline', mode, Number(next.online || 0));
+    updateDiagnostics({
+      connected,
+      status: String(next.state || 'unknown').toUpperCase(),
+      online: Number(next.online || 0),
+      mode: next.mode || 'unknown',
+      transport: next.mode === 'external-gateway' ? 'sse+http-presence' : next.mode === 'core-fallback' ? 'same-origin-sse' : 'standby',
+      scene: next.scene || activeScene,
+      instanceId: next.instance?.instanceId || null,
+      lastEventAt: next.lastEventAt || multiplayerDiagnostics.lastEventAt,
+    });
   },
   onRoster: applyRoster,
   onEvent: handleRealtimeEvent,
@@ -222,6 +253,7 @@ window.addEventListener('wisdo:world-player-state', (event) => {
 window.addEventListener('wisdo:game-scene', async (event) => {
   activeScene = String(event.detail?.scene || 'central');
   for (const id of [...remotePlayers.keys()]) removeRemote(id);
+  updateDiagnostics({ scene: activeScene, remoteOperators: 0, status: 'SWITCHING' });
   await realtime.setScene(activeScene);
 });
 
@@ -232,6 +264,7 @@ window.addEventListener('wisdo:world-renderer-ready', () => {
 
 window.addEventListener('pagehide', () => {
   destroyed = true;
+  updateDiagnostics({ connected: false, status: 'STOPPED', online: 0, remoteOperators: 0 });
   realtime.stop();
   for (const id of [...remotePlayers.keys()]) removeRemote(id);
 }, { once: true });
