@@ -6,7 +6,7 @@ export const JOB_MARKER = '<!-- WISDO_BLENDER_JOB:v1 -->';
 export const CLAIM_MARKER = '<!-- WISDO_BLENDER_CLAIM:v1 ';
 export const RESULT_MARKER = '<!-- WISDO_BLENDER_RESULT:v1 ';
 
-export const ASSET_TYPES = Object.freeze(['character','arcade','building','vehicle','vegetation','prop','interior']);
+export const ASSET_TYPES = Object.freeze(['character','arcade','building','vehicle','vegetation','prop']);
 export const REGISTER_TARGETS = Object.freeze([
   'none',
   'playerV2',
@@ -27,9 +27,12 @@ const TARGET_ASSET_TYPES = Object.freeze({
   building: Object.freeze(['building']),
   prop: Object.freeze(['prop']),
   vehicle: Object.freeze(['vehicle']),
-  interior: Object.freeze(['interior','building']),
+  // Interiors are a runtime catalog classification. The checked-in Blender
+  // pipeline intentionally processes them with the existing building asset
+  // pipeline so we do not advertise a CLI type the Python pipeline cannot run.
+  interior: Object.freeze(['building']),
   vegetation: Object.freeze(['vegetation']),
-  worldObject: Object.freeze(['prop','building','vegetation','interior']),
+  worldObject: Object.freeze(['prop','building','vegetation']),
 });
 
 export const DEFAULT_ALLOWED_HOSTS = Object.freeze([
