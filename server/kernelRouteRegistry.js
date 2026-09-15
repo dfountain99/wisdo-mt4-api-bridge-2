@@ -113,8 +113,8 @@ export function registerWisdoKernelRoutes(app, {
 
   const worldBuild = registerWorldBuildRoutes(app);
 
-  // Arcade rewards share the kernel Postgres pool, remain isolated from MT4 execution,
-  // and independently verify gameplay before issuing Culture Coin ledger credits.
+  // Trading Arcade is an isolated simulation/education boundary. It does not
+  // receive MT4 execution services and cannot place live orders.
   const arcade = registerArcadeRoutes(app, {
     pool: commandBusService.pool,
     logger,
@@ -153,7 +153,7 @@ export function registerWisdoKernelRoutes(app, {
       res.status(ok ? 200 : 503).json({
         ok,
         service: 'wisdo-master-kernel',
-        version: '3.10.0',
+        version: '3.11.0',
         command_bus: commandBus,
         workspaces: {
           registered: workspaces.registered.map(({ slug, route }) => ({ slug, route })),
@@ -177,12 +177,16 @@ export function registerWisdoKernelRoutes(app, {
           execution_from_world_markets_enabled: worldMarkets.executionFromWorldEnabled,
         },
         arcade: {
-          build: 'ARCADE-ALPHA2',
+          build: 'ARCADE-ALPHA3',
+          game_type: 'trading_simulation',
           api: '/api/arcade',
+          progression_api: '/api/arcade/progression',
+          season_leaderboard_api: '/api/arcade/season-leaderboard',
           health: '/health/arcade',
           catalog_games: arcade.catalog().length,
           playable_games: arcade.catalog().filter((game) => game.status === 'playable').length,
           wagering: false,
+          live_mt4_execution: false,
         },
       });
     } catch (error) {
