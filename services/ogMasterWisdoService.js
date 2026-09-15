@@ -108,21 +108,23 @@ export function gradeOgMasterMission(id, answers = []) {
   return Object.freeze({ missionId: mission.id, score, correct, total: mission.answerKey.length, passed: score >= mission.minimumScore, minimumScore: mission.minimumScore });
 }
 
-export function ogMasterChamberUnlock(progressValue = {}, { arcadeLevel = null } = {}) {
+export function ogMasterChamberUnlock(progressValue = {}, { arcadeLevel = null, arcadeBestMastery = null } = {}) {
   const progress = normalizeOgMasterProgress(progressValue);
   const verifiedArcadeLevel = Number.isFinite(Number(arcadeLevel)) ? Math.max(0, finiteInt(arcadeLevel)) : null;
+  const verifiedArcadeBestMastery = Number.isFinite(Number(arcadeBestMastery)) ? clamp(finiteInt(arcadeBestMastery), 0, 100) : null;
   const arcadeQualified = verifiedArcadeLevel !== null && verifiedArcadeLevel >= 5;
-  const masteryQualified = progress.bestMastery >= 70;
+  const masteryQualified = verifiedArcadeBestMastery !== null && verifiedArcadeBestMastery >= 70;
   return Object.freeze({
     unlocked: arcadeQualified || masteryQualified,
     arcadeLevel: verifiedArcadeLevel,
-    arcadeLevelConnected: verifiedArcadeLevel !== null,
+    arcadeBestMastery: verifiedArcadeBestMastery,
+    arcadeProgressionConnected: verifiedArcadeLevel !== null || verifiedArcadeBestMastery !== null,
     requiredArcadeLevel: 5,
-    bestMastery: progress.bestMastery,
     requiredBestMastery: 70,
-    qualifiedBy: arcadeQualified ? 'arcade_level' : masteryQualified ? 'verified_mastery' : null,
+    masterMissionBestScore: progress.bestMastery,
+    qualifiedBy: arcadeQualified ? 'arcade_level' : masteryQualified ? 'verified_arcade_mastery' : null,
     introMissionAvailable: true,
-    note: verifiedArcadeLevel === null ? 'Arcade-level bridge is not connected to this World persistence path yet; verified Mastery can unlock the chamber.' : null,
+    note: verifiedArcadeLevel === null && verifiedArcadeBestMastery === null ? 'Verified Trading Arcade progression is temporarily unavailable; the Academy introduction remains playable.' : null,
   });
 }
 
@@ -134,16 +136,16 @@ function missionAccess(mission, progress, unlock) {
   const available = intro || (unlock.unlocked && prerequisitesMet && (mission.repeatable || !completed));
   let reason = null;
   if (!available) {
-    if (!unlock.unlocked) reason = 'Complete the Academy introduction with 70+ verified Mastery or reach Trading Arcade Level 5.';
+    if (!unlock.unlocked) reason = 'Reach Trading Arcade Level 5 or 70+ verified Arcade Mastery to enter the Master Chamber.';
     else if (!prerequisitesMet) reason = 'Complete the required earlier OG MASTER mission first.';
     else if (completed && !mission.repeatable) reason = 'Mission already completed.';
   }
   return Object.freeze({ available, prerequisitesMet, completed, reason });
 }
 
-export function publicOgMasterState(progressValue = {}, { arcadeLevel = null } = {}) {
+export function publicOgMasterState(progressValue = {}, { arcadeLevel = null, arcadeBestMastery = null } = {}) {
   const progress = normalizeOgMasterProgress(progressValue);
-  const unlock = ogMasterChamberUnlock(progress, { arcadeLevel });
+  const unlock = ogMasterChamberUnlock(progress, { arcadeLevel, arcadeBestMastery });
   const missions = MISSION_DEFINITIONS.map((mission) => {
     const access = missionAccess(mission, progress, unlock);
     const record = progress.completed?.[mission.id] || null;
@@ -181,7 +183,7 @@ export function publicOgMasterState(progressValue = {}, { arcadeLevel = null } =
   });
 }
 
-export function applyOgMasterMissionAttempt(progressValue = {}, { missionId, answers, arcadeLevel = null, now = new Date() } = {}) {
+export function applyOgMasterMissionAttempt(progressValue = {}, { missionId, answers, arcadeLevel = null, arcadeBestMastery = null, now = new Date() } = {}) {
   const progress = normalizeOgMasterProgress(progressValue);
   const mission = getOgMasterMissionDefinition(missionId);
   if (!mission) {
@@ -189,7 +191,7 @@ export function applyOgMasterMissionAttempt(progressValue = {}, { missionId, ans
     error.statusCode = 400;
     throw error;
   }
-  const before = publicOgMasterState(progress, { arcadeLevel });
+  const before = publicOgMasterState(progress, { arcadeLevel, arcadeBestMastery });
   const access = before.missions.find((item) => item.id === mission.id);
   if (!access?.available) {
     const error = new Error(access?.reason || 'This OG MASTER mission is not available yet.');
@@ -227,7 +229,7 @@ export function applyOgMasterMissionAttempt(progressValue = {}, { missionId, ans
     grade,
     firstCompletion,
     awards: Object.freeze({ ...awards, badges: Object.freeze(awards.badges), titles: Object.freeze(awards.titles), trophies: Object.freeze(awards.trophies), advancedCoachModules: Object.freeze(awards.advancedCoachModules) }),
-    state: publicOgMasterState(progress, { arcadeLevel }),
+    state: publicOgMasterState(progress, { arcadeLevel, arcadeBestMastery }),
   });
 }
 
