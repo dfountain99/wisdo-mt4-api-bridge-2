@@ -1,5 +1,6 @@
-export const ARCADE_ALPHA3_BUILD='ARCADE-ALPHA3';
-export const ARCADE_ALPHA3_VERSION='3.0.1';
+export const ARCADE_RELEASE_BUILD='ARCADE-BUILD-112';
+export const ARCADE_ALPHA3_BUILD=ARCADE_RELEASE_BUILD;
+export const ARCADE_ALPHA3_VERSION='4.12.0';
 export const MAX_ARCADE_LEVEL=50;
 
 export const FLOOR_LEVELS=Object.freeze({rookie:1,structure:1,risk:2,execution:3,psychology:4,professional:7,championship:10});
@@ -13,6 +14,10 @@ export const ACHIEVEMENTS=Object.freeze([
   Object.freeze({id:'three-day-streak',name:'Three-Day Discipline',description:'Complete verified trading practice on three consecutive UTC days.',xp:160}),
   Object.freeze({id:'mastery-90',name:'Market Mastery',description:'Reach 90+ best mastery in any trading game.',xp:220}),
   Object.freeze({id:'level-10',name:'Championship Access',description:'Reach Trading Arcade Level 10.',xp:300}),
+  Object.freeze({id:'ten-games',name:'Ten-Market Operator',description:'Complete verified sessions in ten different trading games.',xp:240}),
+  Object.freeze({id:'twenty-five-games',name:'Cross-Market Specialist',description:'Complete verified sessions in twenty-five different trading games.',xp:420}),
+  Object.freeze({id:'fifty-games',name:'Complete Trading Lab',description:'Complete a verified session in all fifty trading games.',xp:800}),
+  Object.freeze({id:'level-25',name:'Senior Operator',description:'Reach Trading Arcade Level 25.',xp:500}),
 ]);
 
 export const DAILY_CHALLENGE_TEMPLATES=Object.freeze([
@@ -32,6 +37,8 @@ export function levelFromXp(totalXp){const xp=Math.max(0,Number(totalXp)||0);ret
 export function levelProgress(totalXp){const xp=Math.max(0,Math.trunc(Number(totalXp)||0)),level=levelFromXp(xp),floor=xpForLevel(level),ceiling=level>=MAX_ARCADE_LEVEL?floor:xpForLevel(level+1),span=Math.max(1,ceiling-floor);return Object.freeze({level,totalXp:xp,levelXp:Math.max(0,xp-floor),nextLevelXp:level>=MAX_ARCADE_LEVEL?0:Math.max(0,ceiling-xp),levelProgress:level>=MAX_ARCADE_LEVEL?1:clamp((xp-floor)/span,0,1)});}
 export function floorUnlockState(level){const lv=Math.max(1,Math.trunc(Number(level)||1));return Object.freeze(Object.fromEntries(Object.entries(FLOOR_LEVELS).map(([floor,requiredLevel])=>[floor,Object.freeze({floor,requiredLevel,unlocked:lv>=requiredLevel})])));}
 export function masteryTier(bestMastery){const score=clamp(bestMastery,0,100);if(score>=92)return'MASTER';if(score>=80)return'ELITE';if(score>=65)return'SKILLED';if(score>=50)return'APPRENTICE';return'ROOKIE';}
+export function masteryHeatmap(mastery=[]){return Object.freeze((Array.isArray(mastery)?mastery:[]).map((row)=>Object.freeze({gameId:String(row.gameId||row.game_id||''),score:Math.round(clamp(row.bestMastery??row.best_mastery,0,100)),tier:masteryTier(row.bestMastery??row.best_mastery),intensity:Math.round(clamp(row.bestMastery??row.best_mastery,0,100))/100})));}
+export function skillMatrixTier(score){return masteryTier(score);}
 
 export function computeRunXp({education={},verified={},cultureCoinAwarded=0}={}){
   const weighted=clamp(education.weighted,0,100),risk=clamp(education.riskDiscipline,0,100),completion=clamp(verified.completion,0,1),execution=clamp(education.execution,0,100);
@@ -46,5 +53,5 @@ export function utcDateKey(value=new Date()){const date=value instanceof Date?va
 export function seasonId(value=new Date()){return `S${utcDateKey(value).slice(0,7)}`;}
 export function dailyChallenges(value=new Date()){const key=utcDateKey(value),start=hashString(key)%DAILY_CHALLENGE_TEMPLATES.length,selected=[];for(let offset=0;selected.length<3;offset+=1){const challenge=DAILY_CHALLENGE_TEMPLATES[(start+offset*2)%DAILY_CHALLENGE_TEMPLATES.length];if(!selected.some((item)=>item.id===challenge.id))selected.push(challenge);}return Object.freeze(selected.map((challenge)=>Object.freeze({...challenge,date:key})));}
 export function challengeMetricDelta(challenge,{education={},verified={},gameId='',distinctGamesToday=[]}={}){switch(challenge.metric){case'sessions':return 1;case'mastery70':return Number(education.weighted||0)>=70?1:0;case'risk80':return Number(education.riskDiscipline||0)>=80?1:0;case'positiveR':return Number(verified.realizedR||0)>0?1:0;case'distinctGames':return new Set([...(distinctGamesToday||[]),String(gameId)]).size;case'cleanRuns':return Number(verified.riskViolations||0)===0&&Number(verified.chaseEntries||0)===0?1:0;default:return 0;}}
-export function achievementCandidates({finalized=0,distinctGames=0,streak=0,level=1,bestMastery=0,education={}}={}){const ids=[];if(finalized>=1)ids.push('first-run');if(Number(education.weighted||0)>=70)ids.push('student-70');if(Number(education.riskDiscipline||0)>=90)ids.push('risk-90');if(finalized>=5)ids.push('five-runs');if(distinctGames>=3)ids.push('three-games');if(streak>=3)ids.push('three-day-streak');if(Math.max(Number(bestMastery||0),Number(education.weighted||0))>=90)ids.push('mastery-90');if(level>=10)ids.push('level-10');return Object.freeze(ids);}
+export function achievementCandidates({finalized=0,distinctGames=0,streak=0,level=1,bestMastery=0,education={}}={}){const ids=[];if(finalized>=1)ids.push('first-run');if(Number(education.weighted||0)>=70)ids.push('student-70');if(Number(education.riskDiscipline||0)>=90)ids.push('risk-90');if(finalized>=5)ids.push('five-runs');if(distinctGames>=3)ids.push('three-games');if(streak>=3)ids.push('three-day-streak');if(Math.max(Number(bestMastery||0),Number(education.weighted||0))>=90)ids.push('mastery-90');if(level>=10)ids.push('level-10');if(distinctGames>=10)ids.push('ten-games');if(distinctGames>=25)ids.push('twenty-five-games');if(distinctGames>=50)ids.push('fifty-games');if(level>=25)ids.push('level-25');return Object.freeze(ids);}
 export function enrichCatalogForLevel(catalog=[],level=1){const floors=floorUnlockState(level);return catalog.map((game)=>{const gate=floors[game.floor]||Object.freeze({requiredLevel:1,unlocked:true}),baseStatus=game.status,locked=baseStatus==='playable'&&!gate.unlocked;return Object.freeze({...game,baseStatus,locked,requiredLevel:gate.requiredLevel,status:locked?'locked':baseStatus});});}
