@@ -18,6 +18,7 @@ if (params.get('debug') === '1') {
     function render() {
       const coreText = String(panel.textContent || '').split('\n--- RUNTIME ---')[0].trim();
       const operator = globalThis.WisdoOperatorDiagnostics || {};
+      const authored = globalThis.WisdoAuthoredAssets || {};
       const quality = globalThis.WisdoQualityDiagnostics || {};
       const renderState = globalThis.WisdoRenderDiagnostics || {};
       const renderContext = globalThis.WisdoRenderContextDiagnostics || {};
@@ -35,6 +36,13 @@ if (params.get('debug') === '1') {
       const visualV2Error = errors['visual-fidelity-v2'] || errors['visual-fidelity-v2-frame'] || null;
       const visualV3Error = errors['visual-fidelity-v3'] || errors['visual-fidelity-v3-frame'] || null;
       const componentErrors = Object.keys(arcade.componentErrors || {});
+      const failedAssets = [operator.failureReason, ...componentErrors.map((key) => arcade.componentErrors?.[key])].filter(Boolean);
+      const operatorAsset = authored.operator || {};
+      const activeAnimation = globalThis.WisdoOperatorAnimationState?.name || operator.activeAnimation || 'AUTO';
+      const playerModel = operator.assetUrl ? String(operator.assetUrl).split('/').pop() : 'PROCEDURAL_FALLBACK';
+      const playerLod = operator.lod || operatorAsset.lod || 'LOD0';
+      const skeleton = Number(operator.skinnedMeshCount || 0) > 0 ? 'ACTIVE' : (operator.active ? 'MISSING' : 'FALLBACK');
+      const arcadeModel = arcade.assetUrl ? String(arcade.assetUrl).split('/').pop() : 'PROCEDURAL / NOT REGISTERED';
       const coreRevision=globalThis.WisdoWorldClientRevision||'MISSING';
       const fidelityRevision=globalThis.WisdoFidelityClientRevision||'MISSING';
       const revisionsMatch=coreRevision===DEBUG_CLIENT_REVISION&&fidelityRevision===DEBUG_CLIENT_REVISION;
@@ -58,6 +66,13 @@ if (params.get('debug') === '1') {
         `CIN ERR ${shorten(cinematicError?.message || cinematic.recoveryCause || 'NONE', 96)}`,
         `ARC ERR ${shorten(arcadeError?.message || arcade.recoveryCause || 'NONE', 96)}`,
         `ARC PARTS ${componentErrors.length ? componentErrors.join(',') : 'NONE'}`,
+        '--- ASSET PIPELINE ---',
+        `PLAYER MODEL ${playerModel}`,
+        `PLAYER LOAD ${operator.active ? 'LOADED' : 'FALLBACK'} · LOD ${playerLod}`,
+        `SKELETON ${skeleton} · ANIMATION ${activeAnimation}`,
+        `TEXTURES ${operator.textureCount ?? 0}/${operator.textureCount ?? 0} · MATERIALS ${operator.materialCount ?? 0}`,
+        `ARCADE MODEL ${arcadeModel}`,
+        `FAILED ASSETS ${failedAssets.length}`,
         `OPERATOR ${operator.renderer || (cinematic.cinematicFallbackOperator ? 'CINEMATIC_FALLBACK' : 'PROCEDURAL_FALLBACK')}`,
         `OP STATUS ${operator.status || (cinematic.cinematicFallbackOperator ? 'CINEMATIC FALLBACK ACTIVE' : 'STARTING')}`,
         `ASSET ${shorten(operator.assetUrl || '-')}`,
