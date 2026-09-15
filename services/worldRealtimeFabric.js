@@ -120,10 +120,13 @@ export class WorldRealtimeFabric {
         this.logger?.warn?.('World realtime publish degraded to local delivery.', { message: error.message, topic: normalized.topic });
       }
     }
-    this.localEmitter.emit(normalized.topic, normalized);
+    // In Redis mode the local subscriber receives the same publication back through
+    // Redis. Emit directly only in single-process fallback mode to avoid duplicates.
+    const localPublished = !redisPublished;
+    if (localPublished) this.localEmitter.emit(normalized.topic, normalized);
     this.metrics.published += 1;
     this.metrics.lastEventAt = normalized.createdAt;
-    return { event: normalized, redisPublished, localPublished: true };
+    return { event: normalized, redisPublished, localPublished };
   }
 
   async subscribe(topic, handler) {
