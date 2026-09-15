@@ -9,15 +9,18 @@ import { WORLD_BUILD_ID, WORLD_RENDERER } from '../public/app/world/world-build.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 test('World entrypoint uses the runtime-recovery production renderer and one release cache identity', () => {
   const html = read('public/app/world/index.html');
-  assert.match(html, /world3d-production\.js\?v=2026\.09\.14\.runtime-recovery-v2/);
-  assert.match(html, /world-interior3d-v2\.js\?v=2026\.09\.14\.runtime-recovery-v2/);
-  assert.match(html, /market-billboard-manager-v2\.js\?v=2026\.09\.14\.runtime-recovery-v2/);
+  const cacheId = escapeRegex(WORLD_BUILD_ID);
+  assert.match(html, new RegExp(`world3d-production\\.js\\?v=${cacheId}`));
+  assert.match(html, new RegExp(`world-interior3d-v2\\.js\\?v=${cacheId}`));
+  assert.match(html, new RegExp(`market-billboard-manager-v2\\.js\\?v=${cacheId}`));
   assert.match(html, /PRODUCTION-CITY-V1/);
-  const versionTags = html.match(/v=2026\.09\.14\.runtime-recovery-v2/g) || [];
-  assert.ok(versionTags.length >= 10, 'all active World entry assets should share the release cache identity');
+  const versionTags = html.match(new RegExp(`v=${cacheId}`, 'g')) || [];
+  assert.ok(versionTags.length >= 10, 'all active World entry assets should share the current release cache identity');
+  assert.doesNotMatch(html, /runtime-recovery-v2/);
 });
 
 test('production fidelity uses resilient cinematic and Arcade installers without blocking on market refresh', () => {

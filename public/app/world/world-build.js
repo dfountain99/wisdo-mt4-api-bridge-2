@@ -1,5 +1,5 @@
-export const WORLD_VERSION = '3.0.1-runtime-recovery-alpha';
-export const WORLD_BUILD_ID = '2026.09.14.runtime-recovery-v2';
+export const WORLD_VERSION = '3.0.2-cache-coherence-alpha';
+export const WORLD_BUILD_ID = '2026.09.14.runtime-recovery-v3';
 export const WORLD_RENDERER = 'cinematic-city-v2-recovery';
 export const WORLD_CITY_ID = 'arcade-central-01';
 export const WORLD_OPERATOR_ASSET = 'wisdo-default-operator-v1';
