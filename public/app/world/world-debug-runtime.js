@@ -11,7 +11,7 @@ if (params.get('debug') === '1') {
       return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
     };
     let build = { ...WORLD_BUILD, commit: 'loading', environment: '-' };
-    fetch('/api/world/build', { credentials: 'same-origin', cache: 'no-store' }).then((response) => response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`))).then((payload) => { build = payload; render(); }).catch(() => { build = { ...WORLD_BUILD, commit: 'unavailable', environment: '-' }; });
+    fetch('/api/world/build', { credentials: 'same-origin', cache: 'no-store' }).then((response) => response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`))).then((payload) => { build = payload; render(); }).catch(() => { build = { ...WORLD_BUILD, commit: 'unavailable', environment: '-' }; render(); });
 
     function render() {
       const coreText = String(panel.textContent || '').split('\n--- RUNTIME ---')[0].trim();
@@ -21,8 +21,13 @@ if (params.get('debug') === '1') {
       const cinematic = globalThis.WisdoCinematicDiagnostics || {};
       const arcade = globalThis.WisdoArcadeWorldDiagnostics || {};
       const multiplayer = globalThis.WisdoMultiplayerDiagnostics || {};
+      const errors = globalThis.WisdoVisualRuntimeErrors || {};
+      const safety = globalThis.WisdoWorldSafetyDiagnostics || {};
       const caps = quality.capabilities || {};
       const registry = globalThis.WisdoWorldRegistry || {};
+      const cinematicError = errors['cinematic-primary'] || errors.cinematic || null;
+      const arcadeError = errors['arcade-primary'] || errors['arcade-plaza'] || null;
+      const componentErrors = Object.keys(arcade.componentErrors || {});
       const lines = [
         coreText,
         '--- RUNTIME ---',
@@ -30,8 +35,12 @@ if (params.get('debug') === '1') {
         `COMMIT ${String(build.commit || 'unknown').slice(0, 12)} · ENV ${String(build.environment || '-').toUpperCase()}`,
         `RENDERER ${build.renderer || WORLD_BUILD.renderer} · CITY ${build.city || WORLD_BUILD.city}`,
         `VISUAL ${cinematic.active ? cinematic.visualPass : 'CORE'} · ARCADE ${arcade.active ? 'ACTIVE' : 'DEGRADED'}`,
+        `RECOVERY cinematic=${cinematic.recoveryMode ? 'YES' : 'NO'} arcade=${arcade.recoveryMode ? 'YES' : 'NO'}`,
         `SCENE brew=${registry.businesses?.brew ? 'YES' : 'NO'} arcade=${registry.businesses?.arcade ? 'YES' : 'NO'} gym=${registry.businesses?.gym ? 'YES' : 'NO'} coach=${registry.landmarks?.coach ? 'YES' : 'NO'}`,
         `POP npc=${arcade.npcCount ?? 0} palms=${arcade.palmCount ?? 0} drones=${cinematic.ambientDrones ?? 0}`,
+        `CIN ERR ${shorten(cinematicError?.message || cinematic.recoveryCause || 'NONE', 96)}`,
+        `ARC ERR ${shorten(arcadeError?.message || arcade.recoveryCause || 'NONE', 96)}`,
+        `ARC PARTS ${componentErrors.length ? componentErrors.join(',') : 'NONE'}`,
         `OPERATOR ${operator.renderer || (cinematic.cinematicFallbackOperator ? 'CINEMATIC_FALLBACK' : 'PROCEDURAL_FALLBACK')}`,
         `OP STATUS ${operator.status || (cinematic.cinematicFallbackOperator ? 'CINEMATIC FALLBACK ACTIVE' : 'STARTING')}`,
         `ASSET ${shorten(operator.assetUrl || '-')}`,
@@ -44,7 +53,8 @@ if (params.get('debug') === '1') {
         `DPR ${renderState.dpr ?? '-'} · SHADOW ${renderState.shadows ? 'ON' : 'OFF'}`,
         `RENDER ${renderState.rendererWidth ?? '-'}×${renderState.rendererHeight ?? '-'}`,
         `MULTIPLAYER ${multiplayer.connected ? 'CONNECTED' : multiplayer.status || 'UNKNOWN'} · ONLINE ${multiplayer.online ?? '-'}`,
-        `EXECUTION FROM VISUALS ${cinematic.executionFromVisualLayer === false && arcade.executionFromWorldVisuals === false ? 'NO' : 'UNVERIFIED'}`,
+        `EXECUTION FROM VISUALS ${safety.executionFromVisuals === false ? 'NO' : 'UNVERIFIED'}`,
+        `EXEC AUTHORITY ${safety.authority || '-'}`,
         `QUALITY REASON ${quality.lastReason || '-'}`,
       ].filter(Boolean);
       panel.textContent = lines.join('\n');
@@ -56,5 +66,6 @@ if (params.get('debug') === '1') {
     window.addEventListener('wisdo:operator-diagnostics', render);
     window.addEventListener('wisdo:cinematic-ready', render);
     window.addEventListener('wisdo:arcade-world-ready', render);
+    window.addEventListener('wisdo:visual-runtime-error', render);
   }
 }
