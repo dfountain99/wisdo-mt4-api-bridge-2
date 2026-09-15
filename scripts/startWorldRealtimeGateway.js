@@ -113,7 +113,7 @@ function streamTopics(ticket) {
 }
 
 function rememberEvent(eventId) {
-  const id = clean(eventId, 160);
+  const id = clean(eventId, 220);
   if (!id) return false;
   const now = Date.now();
   if (recentEventIds.has(id)) return true;
@@ -163,7 +163,10 @@ app.get('/v1/world/stream', requireTicket('world:events:read'), async (req, res)
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
 
-  const stream = { userId: ticket.sub, instanceId: ticket.instanceId, openedAt: Date.now(), topics };
+  // streamId is deliberately unique per browser connection. This preserves
+  // de-duplication when one event is published to multiple subscribed topics,
+  // while ensuring a second tab for the same user still receives that event.
+  const stream = { streamId: crypto.randomUUID(), userId: ticket.sub, instanceId: ticket.instanceId, openedAt: Date.now(), topics };
   streams.add(stream);
   const initialPresence = await fabric.listPresence(ticket.instanceId).catch(() => []);
   sseWrite(res, 'ready', {
@@ -183,8 +186,9 @@ app.get('/v1/world/stream', requireTicket('world:events:read'), async (req, res)
         if (res.writableEnded || res.destroyed) return;
         const eventId = event?.eventId || event?.id || '';
         // The same normalized financial event can intentionally be addressed to
-        // both a private user topic and an instance topic. Deliver it once.
-        if (eventId && rememberEvent(`${ticket.sub}:${eventId}`)) return;
+        // both a private user topic and an instance topic. Deliver it once per
+        // connection, never once per user across all of their tabs/devices.
+        if (eventId && rememberEvent(`${stream.streamId}:${eventId}`)) return;
         sseWrite(res, event.type || 'world.event', event, eventId);
       });
       unsubscribers.push(unsubscribe);
