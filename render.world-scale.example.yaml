@@ -1,0 +1,66 @@
+# OPTIONAL blueprint fragment for the WISDO World scale layer.
+# This file is intentionally NOT the canonical root render.yaml and therefore
+# does not provision billable infrastructure automatically when merged.
+# Attach DATABASE_URL and REDIS_URL to the same durable stores used by WISDO.
+
+services:
+  - type: web
+    name: wisdo-world-realtime
+    runtime: node
+    plan: starter
+    buildCommand: npm ci --omit=dev --no-audit --no-fund
+    startCommand: npm run start:world-realtime
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: WISDO_DB_SSL
+        value: "true"
+      - key: REDIS_ENABLED
+        value: "true"
+      - key: REDIS_URL
+        sync: false
+      - key: REDIS_PREFIX
+        value: wisdo
+      - key: WISDO_WORLD_REQUIRE_REDIS
+        value: "true"
+      - key: WISDO_WORLD_REALTIME_TICKET_SECRET
+        generateValue: true
+      - key: WISDO_WORLD_SERVICE_SECRET
+        generateValue: true
+      - key: WISDO_WORLD_PRESENCE_TTL_SECONDS
+        value: "45"
+      - key: WISDO_WORLD_MAX_STREAMS
+        value: "500"
+
+  - type: worker
+    name: wisdo-world-events
+    runtime: node
+    plan: starter
+    buildCommand: npm ci --omit=dev --no-audit --no-fund
+    startCommand: npm run start:world-worker
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: WISDO_DB_SSL
+        value: "true"
+      - key: REDIS_ENABLED
+        value: "true"
+      - key: REDIS_URL
+        sync: false
+      - key: REDIS_PREFIX
+        value: wisdo
+      - key: WISDO_WORLD_REQUIRE_REDIS
+        value: "true"
+      - key: WISDO_WORLD_WORKER_POLL_MS
+        value: "500"
+      - key: WISDO_WORLD_WORKER_BATCH
+        value: "25"
+      - key: WISDO_WORLD_WORKER_LEASE_SECONDS
+        value: "30"
+      - key: WISDO_WORLD_EVENT_MAX_ATTEMPTS
+        value: "12"
