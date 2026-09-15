@@ -13,6 +13,11 @@
     "start:world-realtime": "node scripts/startWorldRealtimeGateway.js",
     "start:world-worker": "node scripts/startWorldWorker.js",
     "dev:world-realtime": "node --watch scripts/startWorldRealtimeGateway.js",
+    "blender:detect": "node tools/blender/detect_blender.mjs",
+    "blender:build": "node tools/blender/run_blender.mjs build",
+    "blender:bridge": "node tools/blender/bridge/agent.mjs",
+    "blender:bridge:once": "node tools/blender/bridge/agent.mjs --once",
+    "test:blender": "node --test tests/blenderBridge.test.js",
     "test": "node --test tests/*.test.js",
     "check": "node scripts/checkBuild.js && npm test",
     "lint": "node scripts/checkBuild.js",
@@ -35,7 +40,9 @@
     "test:adaptive": "node --test tests/adaptiveFabricContract.test.js",
     "audit:secrets": "node scripts/auditSecrets.js"
   },
-  "engines": { "node": "22.x" },
+  "engines": {
+    "node": "22.x"
+  },
   "dependencies": {
     "compression": "^1.8.1",
     "discord.js": "^14.27.0",
@@ -45,5 +52,10 @@
     "redis": "^5.8.2",
     "web-push": "^3.6.7"
   },
-  "overrides": { "ws": "8.21.1", "body-parser": "2.3.0", "qs": "6.15.3", "undici": "6.28.0" }
+  "overrides": {
+    "ws": "8.21.1",
+    "body-parser": "2.3.0",
+    "qs": "6.15.3",
+    "undici": "6.28.0"
+  }
 }

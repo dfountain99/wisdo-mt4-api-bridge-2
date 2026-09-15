@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WISDO Blender Bridge Job",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["assetId", "assetType", "source", "output"],
+  "properties": {
+    "assetId": {"type": "string", "minLength": 1, "maxLength": 80},
+    "name": {"type": "string", "maxLength": 80},
+    "assetType": {"enum": ["character", "arcade", "building", "vehicle", "vegetation", "prop"]},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repoPath": {"type": "string"},
+        "url": {"type": "string", "format": "uri"},
+        "filename": {"type": "string"}
+      },
+      "oneOf": [{"required": ["repoPath"]}, {"required": ["url"]}]
+    },
+    "output": {"type": "string", "pattern": "^public/world-assets/.+\\.glb$"},
+    "report": {"type": "string"},
+    "registerTarget": {"enum": ["none", "playerV2", "arcadeV2"]},
+    "targetHeight": {"type": "number", "exclusiveMinimum": 0, "maximum": 500},
+    "lodRatios": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 6,
+      "items": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}
+    },
+    "license": {"type": "string", "maxLength": 120},
+    "sourceNote": {"type": "string", "maxLength": 300},
+    "clips": {"type": "object"}
+  }
+}
