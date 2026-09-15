@@ -17,6 +17,7 @@ import { registerWorldCommandRoutes } from './worldCommandRoutes.js';
 import { registerWorldRealtimeRoutes } from './worldRealtimeRoutes.js';
 import { registerWorldBuildRoutes } from './worldBuildRoutes.js';
 import { registerArcadeRoutes } from './arcadeRoutes.js';
+import { registerOgMasterWisdoRoutes } from './ogMasterWisdoRoutes.js';
 
 /**
  * Registers the modern Wisdo Kernel services as one cohesive boundary.
@@ -120,6 +121,14 @@ export function registerWisdoKernelRoutes(app, {
     logger,
   });
 
+  // OG MASTER is an education/progression boundary. It consumes verified
+  // Arcade progression for access gates but receives no MT4 execution service.
+  const ogMasterWisdo = registerOgMasterWisdoRoutes(app, {
+    pool: commandBusService.pool,
+    arcadeProgression: arcade.progression,
+    logger,
+  });
+
   // Multiplayer is intentionally registered as a separate World-only boundary.
   // It owns ephemeral presence/movement only and never receives MT4 execution services.
   registerWorldRealtimeRoutes(app, { logger });
@@ -153,7 +162,7 @@ export function registerWisdoKernelRoutes(app, {
       res.status(ok ? 200 : 503).json({
         ok,
         service: 'wisdo-master-kernel',
-        version: '3.11.0',
+        version: '3.12.0-og-master-playable',
         command_bus: commandBus,
         workspaces: {
           registered: workspaces.registered.map(({ slug, route }) => ({ slug, route })),
@@ -166,6 +175,9 @@ export function registerWisdoKernelRoutes(app, {
           build: worldBuild.build,
           realtime_api: '/api/world/realtime',
           realtime_instance: 'central',
+          academy_master_api: '/api/world/academy/master',
+          academy_master_health: '/health/world/academy-master',
+          academy_master_execution: false,
           execution_from_world_enabled: world.executionFromWorldEnabled,
           event_stream: worldLivingSystems.eventStream,
           signal_api: worldLivingSystems.signalApi,
@@ -205,6 +217,7 @@ export function registerWisdoKernelRoutes(app, {
     world,
     worldBuild,
     arcade,
+    ogMasterWisdo,
     worldLivingSystems,
     worldMarkets,
     worldCommand,
