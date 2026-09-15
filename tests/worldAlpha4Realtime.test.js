@@ -70,6 +70,8 @@ test('durable bridge emits owner events and only publishes public signals to the
   assert.equal(published.length, 3);
   assert.deepEqual(published.slice(1).map((row) => row.options.topic).sort(), ['account.u1', 'instance.wisdo.central.1']);
   assert.equal(published[2].payload.personalAccountActionImplied, false);
+  assert.equal(Object.hasOwn(published[2].payload, 'lotSize'), false);
+  assert.equal(Object.hasOwn(published[2].payload, 'magic'), false);
 });
 
 test('realtime server exposes signed gateway migration without moving trading authority', async () => {
@@ -88,10 +90,13 @@ test('distributed gateway subscribes to instance plus private owner topics and r
   assert.match(source, /`user\.\$\{ticket\.sub\}`/);
   assert.match(source, /WISDO_WORLD_ALLOWED_ORIGINS/);
   assert.match(source, /Access-Control-Allow-Origin/);
+  assert.match(source, /streamId: crypto\.randomUUID\(\)/);
+  assert.match(source, /rememberEvent\(`\$\{stream\.streamId\}:\$\{eventId\}`\)/);
+  assert.doesNotMatch(source, /rememberEvent\(`\$\{ticket\.sub\}:\$\{eventId\}`\)/);
   assert.doesNotMatch(source, /mt4CommandService|brokerPassword|OrderSend/);
 });
 
-test('browser multiplayer runtime uses the shared realtime client rather than a second network stack', async () => {
+test('browser multiplayer runtime uses the shared realtime client and publishes diagnostics', async () => {
   const client = await fs.readFile(new URL('../public/app/world/world-realtime-client.js', import.meta.url), 'utf8');
   const multiplayer = await fs.readFile(new URL('../public/app/world/world-multiplayer-runtime.js', import.meta.url), 'utf8');
   assert.match(client, /\/api\/world\/realtime\/config/);
@@ -101,5 +106,19 @@ test('browser multiplayer runtime uses the shared realtime client rather than a 
   assert.match(client, /wisdo:world-realtime-event/);
   assert.match(multiplayer, /createWorldRealtimeClient/);
   assert.match(multiplayer, /wisdo:world-player-state/);
+  assert.match(multiplayer, /WisdoMultiplayerDiagnostics/);
+  assert.match(multiplayer, /wisdo:multiplayer-diagnostics/);
   assert.doesNotMatch(multiplayer, /new EventSource\(`/);
+});
+
+test('next-100-build program is status-labelled and preserves activation gates', async () => {
+  const source = await fs.readFile(new URL('../docs/WISDO_WORLD_ALPHA4_100_BUILD_MERGE.md', import.meta.url), 'utf8');
+  assert.match(source, /Builds 001–010/);
+  assert.match(source, /Builds 091–100/);
+  assert.match(source, /WIRED THIS PR/);
+  assert.match(source, /ACTIVATION GATE/);
+  assert.match(source, /FUTURE BUILD/);
+  assert.match(source, /WISDO CORE -> authorization -> command bus -> Reporter\/MT4 -> receipt/);
+  const numberedBuilds = source.match(/^\d{3}\./gm) || [];
+  assert.equal(numberedBuilds.length, 100);
 });
