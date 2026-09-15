@@ -43,6 +43,7 @@
         <nav class="top-actions" aria-label="World controls">
           <button id="meshBtn" class="chip">Reporter Mesh <span id="meshCount">0</span></button>
           <button id="mapBtn" class="chip">Map</button>
+          <button id="arcadeBtn" class="chip">Arcade</button>
           <button id="profileBtn" class="chip">Identity</button>
           <button id="settingsBtn" class="chip">Settings</button>
           <a class="chip" href="/member/command-center" data-nav data-world-external="fast-mode">Fast Mode</a>
@@ -67,7 +68,7 @@
         <div class="progress-track"><i id="xpBar"></i></div>
         <small id="syncLabel">Connecting to WISDO…</small>
         <small id="worldVersion" class="world-version">WISDO WORLD</small>
-        <small class="world-version" data-world-build="2026.09.15.visual-fidelity-v3">BUILD PRODUCTION-CITY-V1 · VISUAL-FIDELITY-V3</small>
+        <small class="world-version" data-world-build="2026.09.15.visual-fidelity-v3">BUILD PRODUCTION-CITY-V1 · VISUAL-FIDELITY-V3 · ARCADE-ALPHA1</small>
       </aside>
 
       <div id="proximity" class="proximity hud-panel" hidden>
@@ -79,6 +80,7 @@
       <footer class="dock hud-panel" aria-label="WISDO navigation">
         <button id="dockMap">◫ <span>MAP</span></button>
         <button id="dockMesh">⌁ <span>MESH</span></button>
+        <button id="dockArcade">◈ <span>ARCADE</span></button>
         <button id="dockAchievements">◇ <span>PROGRESS</span></button>
         <a href="/pricing" data-nav>▣ <span>MARKET</span></a>
         <a href="/member/command-center" data-nav data-world-external="fast-mode">⚙ <span>FAST</span></a>
@@ -115,5 +117,6 @@
   <script type="module" src="/app/world/world-minimap-runtime.js?v=2026.09.15.visual-fidelity-v3"></script>
   <script type="module" src="/app/world/world-living-runtime.js?v=2026.09.15.visual-fidelity-v3"></script>
   <script type="module" src="/app/world/world-debug-runtime.js?v=2026.09.15.visual-fidelity-v3"></script>
+  <script type="module" src="/app/world/arcade/arcade-runtime.js?v=2026.09.15.arcade-alpha1"></script>
 </body>
 </html>
