@@ -207,10 +207,10 @@ export class WorldRealtimeFabric {
         if (!this.connected) await this.connect();
         if (this.connected) {
           const rows = [];
-          let cursor = '0';
+          let cursor = 0;
           do {
             const result = await this.publisher.scan(cursor, { MATCH: this.presenceKey(instance, '*'), COUNT: 100 });
-            cursor = String(result.cursor);
+            cursor = Number(result.cursor || 0);
             const keys = result.keys || [];
             if (keys.length) {
               const values = await this.publisher.mGet(keys);
@@ -219,7 +219,7 @@ export class WorldRealtimeFabric {
                 if (parsed) rows.push(parsed);
               }
             }
-          } while (cursor !== '0' && rows.length < 1000);
+          } while (cursor !== 0 && rows.length < 1000);
           return rows.slice(0, 1000);
         }
       } catch (error) {
