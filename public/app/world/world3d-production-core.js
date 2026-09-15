@@ -1,6 +1,6 @@
-import { InputManager } from './input-manager.js';
-import { QUALITY_PRESETS, THREE_MODULE_URL, WORLD_CONFIG, WORLD_LOCATIONS, chooseAutoQuality } from './world-config.js';
-import { buildProductionCity } from './world-production-city.js';
+import { InputManager } from './input-manager.js?v=2026.09.14.runtime-recovery-v4';
+import { QUALITY_PRESETS, THREE_MODULE_URL, WORLD_CONFIG, WORLD_LOCATIONS, chooseAutoQuality } from './world-config.js?v=2026.09.14.runtime-recovery-v4';
+import { buildProductionCity } from './world-production-city.js?v=2026.09.14.runtime-recovery-v4';
 
 const DEG=Math.PI/180;
 const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
@@ -38,13 +38,14 @@ function animateFallback(operator,{speed=0,state='IDLE',grounded=true,dt=.016}={
 
 function playerState(grounded,speed,vy,sprint,magnitude){if(!grounded)return vy>.3?'JUMP':'FALL';if(speed<.09||magnitude<.04)return'IDLE';if(sprint&&speed>WORLD_CONFIG.player.runSpeed)return'SPRINT';if(speed>WORLD_CONFIG.player.walkSpeed*1.12)return'RUN';return'WALK';}
 
-export async function createWorldExperience({mount,destinations=[],preferences={},onInteract,onNearestChange,onReady,onPhase,onFatal,onTelemetry}={}){
+export async function createWorldExperience({mount,destinations=[],preferences={},onInteract,onNearestChange,onReady,onPhase,onFatal,onTelemetry,onRenderContext}={}){
   onPhase?.('Loading production renderer');const THREE=await import(THREE_MODULE_URL);const auto=chooseAutoQuality();let qualityName=preferences.quality&&preferences.quality!=='auto'?preferences.quality:auto;if(!QUALITY_PRESETS[qualityName])qualityName=auto;let quality=QUALITY_PRESETS[qualityName];
   const renderer=new THREE.WebGLRenderer({antialias:quality.antialias,powerPreference:'high-performance',alpha:false,stencil:false});renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.32;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.shadowMap.enabled=quality.shadows;renderer.setPixelRatio(Math.min(devicePixelRatio||1,quality.dpr));renderer.domElement.className='world-canvas';renderer.domElement.tabIndex=0;renderer.domElement.setAttribute('aria-label','Playable WISDO World production city');mount.replaceChildren(renderer.domElement);
   const scene=new THREE.Scene();const camera=new THREE.PerspectiveCamera(WORLD_CONFIG.camera.fieldOfView,1,.08,520);
   onPhase?.('Building WISDO city');const city=buildProductionCity({THREE,scene,renderer,destinations,quality:qualityName});const {colliders,occluders,groundMeshes}=city;
   onPhase?.('Preparing WISDO operator');const operator=createFallbackOperator(THREE);scene.add(operator);const pos=new THREE.Vector3(...WORLD_CONFIG.player.spawn);const velocity=new THREE.Vector3();operator.position.copy(pos);
   const input=new InputManager({canvas:renderer.domElement,sensitivity:Number(preferences.sensitivity||1)*WORLD_CONFIG.camera.sensitivity,invertY:Boolean(preferences.invertY)});input.bindTouch({joystick:document.getElementById('moveStick'),knob:document.getElementById('moveKnob'),lookZone:document.getElementById('lookZone'),jumpButton:document.getElementById('jumpBtn'),sprintButton:document.getElementById('sprintBtn'),interactButton:document.getElementById('interactBtn')});
+  try{onRenderContext?.({THREE,scene,camera,renderer,operator});}catch(error){console.warn('WISDO render-context observer degraded; core rendering continues.',error);}
 
   let yaw=0,pitch=11*DEG,cameraDistance=WORLD_CONFIG.camera.distance,grounded=true,lastGroundedAt=performance.now(),accumulator=0,lastTime=performance.now(),elapsed=0,destroyed=false,paused=false,nearest=null,lastInteractAt=0,fpsFrames=0,fpsWindow=performance.now(),lastPlayerEvent=0;
   const groundRay=new THREE.Raycaster(),cameraRay=new THREE.Raycaster(),rayOrigin=new THREE.Vector3(),down=new THREE.Vector3(0,-1,0),forward=new THREE.Vector3(),right=new THREE.Vector3(),wish=new THREE.Vector3(),target=new THREE.Vector3(),desiredCamera=new THREE.Vector3(),offset=new THREE.Vector3(),rayDirection=new THREE.Vector3(),playerLook=new THREE.Vector3(),normalMatrix=new THREE.Matrix3(),worldNormal=new THREE.Vector3();

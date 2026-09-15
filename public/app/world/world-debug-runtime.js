@@ -1,6 +1,6 @@
-import { WORLD_BUILD } from './world-build.js?v=2026.09.14.runtime-recovery-v3';
+import { WORLD_BUILD } from './world-build.js?v=2026.09.14.runtime-recovery-v4';
 
-const DEBUG_CLIENT_REVISION='2026.09.14.runtime-recovery-v3';
+const DEBUG_CLIENT_REVISION='2026.09.14.runtime-recovery-v4';
 globalThis.WisdoDebugClientRevision=DEBUG_CLIENT_REVISION;
 const params = new URLSearchParams(location.search);
 
@@ -20,6 +20,7 @@ if (params.get('debug') === '1') {
       const operator = globalThis.WisdoOperatorDiagnostics || {};
       const quality = globalThis.WisdoQualityDiagnostics || {};
       const renderState = globalThis.WisdoRenderDiagnostics || {};
+      const renderContext = globalThis.WisdoRenderContextDiagnostics || {};
       const cinematic = globalThis.WisdoCinematicDiagnostics || {};
       const arcade = globalThis.WisdoArcadeWorldDiagnostics || {};
       const multiplayer = globalThis.WisdoMultiplayerDiagnostics || {};
@@ -41,6 +42,7 @@ if (params.get('debug') === '1') {
         `RENDERER ${build.renderer || WORLD_BUILD.renderer} · CITY ${build.city || WORLD_BUILD.city}`,
         `CLIENT REV debug=${DEBUG_CLIENT_REVISION} core=${coreRevision} fidelity=${fidelityRevision}`,
         `CLIENT COHERENCE ${revisionsMatch ? 'VERIFIED' : 'MISMATCH'}`,
+        `RENDER CTX ${renderContext.status || 'UNKNOWN'} · ${shorten(renderContext.reason || renderContext.source || '-', 72)}`,
         `VISUAL ${cinematic.active ? cinematic.visualPass : 'CORE'} · ARCADE ${arcade.active ? 'ACTIVE' : 'DEGRADED'}`,
         `RECOVERY cinematic=${cinematic.recoveryMode ? 'YES' : 'NO'} arcade=${arcade.recoveryMode ? 'YES' : 'NO'}`,
         `SCENE brew=${registry.businesses?.brew ? 'YES' : 'NO'} arcade=${registry.businesses?.arcade ? 'YES' : 'NO'} gym=${registry.businesses?.gym ? 'YES' : 'NO'} coach=${registry.landmarks?.coach ? 'YES' : 'NO'}`,
@@ -71,6 +73,7 @@ if (params.get('debug') === '1') {
     render();
     window.addEventListener('pagehide', () => clearInterval(timer), { once: true });
     window.addEventListener('wisdo:operator-diagnostics', render);
+    window.addEventListener('wisdo:world-renderer-ready', render);
     window.addEventListener('wisdo:cinematic-ready', render);
     window.addEventListener('wisdo:arcade-world-ready', render);
     window.addEventListener('wisdo:visual-runtime-error', render);
