@@ -1,7 +1,7 @@
-export const WORLD_VERSION = '3.0.3-render-context-alpha';
-export const WORLD_BUILD_ID = '2026.09.14.runtime-recovery-v4';
-export const WORLD_RENDERER = 'cinematic-city-v2-recovery';
-export const WORLD_CITY_ID = 'arcade-central-01';
+export const WORLD_VERSION = '3.1.0-visual-fidelity-v2-alpha';
+export const WORLD_BUILD_ID = '2026.09.15.visual-fidelity-v2';
+export const WORLD_RENDERER = 'cinematic-city-v3-visual-fidelity-v2';
+export const WORLD_CITY_ID = 'arcade-central-02';
 export const WORLD_OPERATOR_ASSET = 'wisdo-default-operator-v1';
 
 export const WORLD_BUILD = Object.freeze({
