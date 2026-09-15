@@ -1,0 +1,9 @@
+{
+  "assetType": "character",
+  "targetHeightMeters": 1.82,
+  "lodRatios": [1.0, 0.62, 0.34, 0.16],
+  "runtimeUp": "+Y",
+  "runtimeForward": "+Z",
+  "collision": "runtime_capsule",
+  "animationMode": "in_place_preferred"
+}
