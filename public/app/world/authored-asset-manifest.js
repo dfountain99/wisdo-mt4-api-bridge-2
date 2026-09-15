@@ -1,4 +1,8 @@
-import { GENERATED_WORLD_ASSETS } from './generated-asset-registry.js';
+import {
+  GENERATED_WORLD_ASSETS,
+  getGeneratedPlayerV2,
+  getGeneratedArcadeV2,
+} from './generated-asset-registry.js';
 
 export const GLTF_LOADER_MODULE_URL = 'https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/loaders/GLTFLoader.js';
 
@@ -23,7 +27,7 @@ const FALLBACK_OPERATOR = Object.freeze({
   }),
 });
 
-const generatedPlayer=GENERATED_WORLD_ASSETS.playerV2;
+const generatedPlayer=getGeneratedPlayerV2();
 const DEFAULT_OPERATOR=generatedPlayer
   ? Object.freeze({
       ...FALLBACK_OPERATOR,
@@ -37,5 +41,6 @@ const DEFAULT_OPERATOR=generatedPlayer
 
 export const AUTHORED_WORLD_ASSETS = Object.freeze({
   defaultOperator: DEFAULT_OPERATOR,
-  arcadeV2: GENERATED_WORLD_ASSETS.arcadeV2,
+  arcadeV2: getGeneratedArcadeV2(),
+  generatedCatalog: GENERATED_WORLD_ASSETS,
 });

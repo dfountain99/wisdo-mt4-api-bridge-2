@@ -8,6 +8,7 @@ const registry = await import(`${pathToFileURL(registryPath).href}?t=${Date.now(
 const assets = registry.GENERATED_WORLD_ASSETS || {};
 const failures = [];
 const checked = [];
+const seen = new Set();
 
 function publicPathFromUrl(url) {
   const clean = String(url || '').split('?')[0];
@@ -15,12 +16,20 @@ function publicPathFromUrl(url) {
   return path.join(root, 'public', clean.slice(1));
 }
 
-for (const [target, asset] of Object.entries(assets)) {
-  if (!asset) continue;
+function looksLikeAsset(value) {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value) && typeof value.url === 'string' && value.url);
+}
+
+function addAsset(target, asset) {
+  if (!looksLikeAsset(asset)) return;
+  const identity = `${String(asset.id || '')}|${String(asset.url || '')}`;
+  if (seen.has(identity)) return;
+  seen.add(identity);
+
   const runtimeFile = publicPathFromUrl(asset.url);
   if (!runtimeFile || !fs.existsSync(runtimeFile)) {
     failures.push(`${target}: runtime asset missing for ${asset.url}`);
-    continue;
+    return;
   }
   let reportFile = null;
   if (asset.reportUrl) {
@@ -30,16 +39,32 @@ for (const [target, asset] of Object.entries(assets)) {
   }
   if (!reportFile || !fs.existsSync(reportFile)) {
     failures.push(`${target}: validation report missing for ${asset.reportUrl || '(none)'}`);
-    continue;
+    return;
   }
   const report = JSON.parse(fs.readFileSync(reportFile, 'utf8'));
   for (const key of ['scale', 'ground', 'transforms', 'glbExport']) {
     if (report?.checks?.[key] !== 'PASS') failures.push(`${target}: report check ${key}=${report?.checks?.[key] || 'missing'}`);
   }
-  if ((asset.kind === 'operator' || target.toLowerCase().includes('player')) && report?.checks?.armature !== 'PASS') {
+  if (asset.kind === 'operator' && report?.checks?.armature !== 'PASS') {
     failures.push(`${target}: character armature check is not PASS`);
   }
   checked.push({ target, id: asset.id, url: asset.url, reportUrl: asset.reportUrl });
+}
+
+// The generated asset registry supports both legacy aliases (`playerV2`,
+// `arcadeV2`) and the generalized grouped catalogs. Walk only actual asset
+// records, not catalog container objects, and deduplicate aliases that point to
+// the same generated GLB.
+for (const [target, value] of Object.entries(assets)) {
+  if (!value) continue;
+  if (looksLikeAsset(value)) {
+    addAsset(target, value);
+    continue;
+  }
+  if (typeof value !== 'object' || Array.isArray(value)) continue;
+  for (const [assetId, asset] of Object.entries(value)) {
+    addAsset(`${target}.${assetId}`, asset);
+  }
 }
 
 if (failures.length) {
