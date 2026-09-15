@@ -1,0 +1,8 @@
+{
+  "assetType": "vegetation",
+  "lodRatios": [1.0, 0.45, 0.18, 0.06],
+  "runtimeUp": "+Y",
+  "runtimeForward": "+Z",
+  "collision": "trunk_proxy",
+  "instanceFriendly": true
+}
