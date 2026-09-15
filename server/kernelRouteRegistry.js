@@ -16,6 +16,7 @@ import { registerWorldMarketRoutes } from './worldMarketRoutes.js';
 import { registerWorldCommandRoutes } from './worldCommandRoutes.js';
 import { registerWorldRealtimeRoutes } from './worldRealtimeRoutes.js';
 import { registerWorldBuildRoutes } from './worldBuildRoutes.js';
+import { registerArcadeRoutes } from './arcadeRoutes.js';
 
 /**
  * Registers the modern Wisdo Kernel services as one cohesive boundary.
@@ -112,6 +113,13 @@ export function registerWisdoKernelRoutes(app, {
 
   const worldBuild = registerWorldBuildRoutes(app);
 
+  // Arcade rewards share the kernel Postgres pool, remain isolated from MT4 execution,
+  // and independently verify gameplay before issuing Culture Coin ledger credits.
+  const arcade = registerArcadeRoutes(app, {
+    pool: commandBusService.pool,
+    logger,
+  });
+
   // Multiplayer is intentionally registered as a separate World-only boundary.
   // It owns ephemeral presence/movement only and never receives MT4 execution services.
   registerWorldRealtimeRoutes(app, { logger });
@@ -145,7 +153,7 @@ export function registerWisdoKernelRoutes(app, {
       res.status(ok ? 200 : 503).json({
         ok,
         service: 'wisdo-master-kernel',
-        version: '3.8.0',
+        version: '3.9.0',
         command_bus: commandBus,
         workspaces: {
           registered: workspaces.registered.map(({ slug, route }) => ({ slug, route })),
@@ -168,6 +176,13 @@ export function registerWisdoKernelRoutes(app, {
           execution_from_world_events_enabled: worldLivingSystems.executionFromWorldEventsEnabled,
           execution_from_world_markets_enabled: worldMarkets.executionFromWorldEnabled,
         },
+        arcade: {
+          build: 'ARCADE-ALPHA1',
+          api: '/api/arcade',
+          health: '/health/arcade',
+          catalog_games: arcade.catalog().length,
+          wagering: false,
+        },
       });
     } catch (error) {
       next(error);
@@ -184,6 +199,7 @@ export function registerWisdoKernelRoutes(app, {
     workspaces,
     world,
     worldBuild,
+    arcade,
     worldLivingSystems,
     worldMarkets,
     worldCommand,
