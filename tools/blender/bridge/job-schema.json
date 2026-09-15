@@ -14,9 +14,10 @@
       "properties": {
         "repoPath": {"type": "string"},
         "url": {"type": "string", "format": "uri"},
-        "filename": {"type": "string"}
+        "filename": {"type": "string"},
+        "recipe": {"type": "string"}
       },
-      "oneOf": [{"required": ["repoPath"]}, {"required": ["url"]}]
+      "oneOf": [{"required": ["repoPath"]}, {"required": ["url"]}, {"required": ["recipe"]}]
     },
     "output": {"type": "string", "pattern": "^public/world-assets/.+\\.glb$"},
     "report": {"type": "string", "pattern": "^(public/world-assets|tools/blender/reports)/.+\\.json$"},
