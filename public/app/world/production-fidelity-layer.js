@@ -1,9 +1,10 @@
-import { chooseAutoQuality, getWorldCapabilities } from './world-config.js?v=2026.09.14.runtime-recovery-v4';
-import { createMarketBillboardManager } from './markets/market-billboard-manager.js?v=2026.09.14.runtime-recovery-v4';
-import { installResilientCinematicWorldLayer } from './world-cinematic-recovery.js?v=2026.09.14.runtime-recovery-v4';
-import { installResilientArcadeCityVerticalSlice } from './world-arcade-recovery.js?v=2026.09.14.runtime-recovery-v4';
+import { chooseAutoQuality, getWorldCapabilities } from './world-config.js?v=2026.09.15.visual-fidelity-v2';
+import { createMarketBillboardManager } from './markets/market-billboard-manager.js?v=2026.09.15.visual-fidelity-v2';
+import { installResilientCinematicWorldLayer } from './world-cinematic-recovery.js?v=2026.09.15.visual-fidelity-v2';
+import { installResilientArcadeCityVerticalSlice } from './world-arcade-recovery.js?v=2026.09.15.visual-fidelity-v2';
+import { installWisdoVisualFidelityV2 } from './world-visual-fidelity-v2.js?v=2026.09.15.visual-fidelity-v2';
 
-const FIDELITY_CLIENT_REVISION='2026.09.14.runtime-recovery-v4';
+const FIDELITY_CLIENT_REVISION='2026.09.15.visual-fidelity-v2';
 globalThis.WisdoFidelityClientRevision=FIDELITY_CLIENT_REVISION;
 
 function resolveQuality(){
@@ -47,7 +48,7 @@ export async function installProductionFidelity({THREE,scene,camera,renderer,deb
   const quality=resolveQuality();
   globalThis.WisdoWorldSafetyDiagnostics=Object.freeze({executionFromVisuals:false,authority:'WISDO_COMMAND_API',verifiedAt:new Date().toISOString()});
 
-  let cinematic=null,arcadePlaza=null,marketManager=null;
+  let cinematic=null,arcadePlaza=null,visualV2=null,marketManager=null;
   try{
     cinematic=installResilientCinematicWorldLayer({THREE,scene,camera,renderer,quality,debug});
   }catch(error){
@@ -60,6 +61,12 @@ export async function installProductionFidelity({THREE,scene,camera,renderer,deb
     recordVisualError('arcade-plaza',error);
     console.warn('WISDO Arcade Plaza vertical slice degraded; core World remains active.',error);
   }
+  try{
+    visualV2=installWisdoVisualFidelityV2({THREE,scene,camera,renderer,quality,debug});
+  }catch(error){
+    recordVisualError('visual-fidelity-v2',error);
+    console.warn('WISDO Visual Fidelity V2 degraded; cinematic core remains active.',error);
+  }
 
   const publishDiagnostics=(patch={})=>{
     const previous=globalThis.WisdoWorldDiagnostics||{};
@@ -69,9 +76,11 @@ export async function installProductionFidelity({THREE,scene,camera,renderer,deb
       fidelityQuality:quality,
       clientRevision:FIDELITY_CLIENT_REVISION,
       fakeCandlesAllowed:false,
-      visualArchitecture:cinematic?.diagnostics?.visualPass||'production-city-core',
+      visualArchitecture:visualV2?.diagnostics?.artDirection||cinematic?.diagnostics?.visualPass||'production-city-core',
       cinematicActive:Boolean(cinematic?.diagnostics?.active),
       arcadePlazaActive:Boolean(arcadePlaza?.diagnostics?.active),
+      visualFidelityV2Active:Boolean(visualV2?.diagnostics?.active),
+      visualFidelityV2Objects:visualV2?.diagnostics?.objects||[],
       arcadeBusinesses:arcadePlaza?.diagnostics?.businesses||[],
       npcCount:arcadePlaza?.diagnostics?.npcCount||0,
       palmCount:arcadePlaza?.diagnostics?.palmCount||0,
@@ -109,7 +118,6 @@ export async function installProductionFidelity({THREE,scene,camera,renderer,deb
     }
   }
 
-  // Never block the visual bootstrap or authored Operator on a market-data request.
   void refreshMarkets();
   const timer=setInterval(()=>{void refreshMarkets();},5000);
   function frame(now){
@@ -117,6 +125,7 @@ export async function installProductionFidelity({THREE,scene,camera,renderer,deb
     frameId=requestAnimationFrame(frame);
     const dt=Math.min(.05,Math.max(.001,(now-last)/1000));last=now;elapsed+=dt;
     try{marketManager?.update?.(dt,elapsed);}catch(error){recordVisualError('market-billboard-frame',error);}
+    try{visualV2?.update?.(dt,elapsed);}catch(error){recordVisualError('visual-fidelity-v2-frame',error);}
   }
   frameId=requestAnimationFrame(frame);
 
@@ -125,12 +134,14 @@ export async function installProductionFidelity({THREE,scene,camera,renderer,deb
     clientRevision:FIDELITY_CLIENT_REVISION,
     cinematic:cinematic?.diagnostics||null,
     arcadePlaza:arcadePlaza?.diagnostics||null,
+    visualV2:visualV2?.diagnostics||null,
     diagnostics:globalThis.WisdoWorldDiagnostics,
     destroy(){
       destroyed=true;
       cancelAnimationFrame(frameId);
       clearInterval(timer);
       try{marketManager?.destroy?.();}catch{}
+      try{visualV2?.destroy?.();}catch{}
       try{arcadePlaza?.destroy?.();}catch{}
       try{cinematic?.destroy?.();}catch{}
     },
