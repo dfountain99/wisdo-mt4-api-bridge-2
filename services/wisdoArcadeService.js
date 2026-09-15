@@ -8,7 +8,7 @@ import {
   tradingGameCatalog,
   tradingGameIds,
   tradingSimulationCapabilities,
-} from '../public/app/world/arcade/trading-sim-core.js';
+} from '../public/app/world/arcade/trading-sim-release.js';
 import {arcadeBuildTrainSummary} from '../public/app/world/arcade/arcade-build-train.js';
 // Legacy imports exist only so already-started Alpha 1/2 sessions can still finalize after deploy.
 import {BULL_MAN_LESSONS,BULL_MAN_MAX_TICKS,BULL_MAN_TICK_MS,BULL_MAN_VERSION,replayBullMan} from '../public/app/world/arcade/bull-man-core.js';
@@ -61,7 +61,7 @@ export function scoreArcadeEducation(gameId,result={},answers=[]){
   const weighted=Math.round(knowledge*.30+execution*.30+riskDiscipline*.25+consistency*.15);
   return Object.freeze({knowledge,execution,riskDiscipline,consistency,weighted,correctAnswers:correct,totalQuestions:key.length});
 }
-export function scoreBullManEducation(result={},answers=[]){return scoreArcadeEducation('bull-man',result,answers);}
+export function scoreBullManEducation(result,answers,policy){return computeArcadeReward('bull-man',result,answers,policy);}
 
 export function arcadeEconomyPolicy(env=process.env){
   const centsRaw=Number(env.WISDO_CULTURE_COIN_USD_CENTS);
@@ -129,6 +129,13 @@ export class WisdoArcadeService{
     ]);
     return{cultureCoinBalance:Number(ledger.rows[0]?.balance||0),earnedToday:Number(ledger.rows[0]?.earned_today||0),sessions:Number(sessions.rows[0]?.sessions||0),finalized:Number(sessions.rows[0]?.finalized||0),bestArcadeScore:Number(sessions.rows[0]?.best_score||0),policy:this.policy()};
   }
-  async leaderboard(gameId='structure-trader',limit=20){await this.ensureSchema();const game=gameById(gameId);if(!game){const error=new Error('Trading game not found.');error.statusCode=404;throw error;}const result=await this.pool.query(`SELECT user_id,MAX((result->'verified'->>'score')::int)::int AS score,MAX((result->'education'->>'weighted')::int)::int AS mastery,COUNT(*)::int AS sessions FROM wisdo_arcade_sessions WHERE game_id=$1 AND status='finalized' GROUP BY user_id ORDER BY score DESC,mastery DESC LIMIT $2`,[game.id,integer(limit,1,100,20)]);return result.rows.map((row)=>({player:`OP-${crypto.createHash('sha256').update(String(row.user_id)).digest('hex').slice(0,8).toUpperCase()}`,score:Number(row.score||0),mastery:Number(row.mastery||0),sessions:Number(row.sessions||0)}));}
-  async health(){await this.ensureSchema();const result=await this.pool.query(`SELECT COUNT(*)::int AS sessions FROM wisdo_arcade_sessions`);return{ok:true,service:'wisdo-arcade',build:ARCADE_BUILD,tradingSimVersion:TRADING_SIM_VERSION,gameType:'trading_simulation',catalogGames:ARCADE_CATALOG.length,playableGames:ARCADE_CATALOG.filter((g)=>g.status==='playable').length,playableIds:tradingGameIds(),releaseTrain:arcadeBuildTrainSummary(),capabilities:tradingSimulationCapabilities(),liveExecutionAuthority:false,sessions:Number(result.rows[0]?.sessions||0),policy:this.policy()};}
+  async leaderboard(gameId='structure-trader',limit=20){
+    await this.ensureSchema();const game=gameById(gameId);if(!game){const error=new Error('Trading game not found.');error.statusCode=404;throw error;}
+    const result=await this.pool.query(`SELECT user_id,MAX((result->'verified'->>'score')::int)::int AS score,MAX((result->'education'->>'weighted')::int)::int AS mastery,COUNT(*)::int AS sessions FROM wisdo_arcade_sessions WHERE game_id=$1 AND status='finalized' GROUP BY user_id ORDER BY score DESC,mastery DESC LIMIT $2`,[game.id,integer(limit,1,100,20)]);
+    return result.rows.map((row)=>({player:`OP-${crypto.createHash('sha256').update(String(row.user_id)).digest('hex').slice(0,8).toUpperCase()}`,score:Number(row.score||0),mastery:Number(row.mastery||0),sessions:Number(row.sessions||0)}));
+  }
+  async health(){
+    await this.ensureSchema();const result=await this.pool.query(`SELECT COUNT(*)::int AS sessions FROM wisdo_arcade_sessions`);
+    return{ok:true,service:'wisdo-arcade',build:ARCADE_BUILD,tradingSimVersion:TRADING_SIM_VERSION,gameType:'trading_simulation',catalogGames:ARCADE_CATALOG.length,playableGames:ARCADE_CATALOG.filter((g)=>g.status==='playable').length,playableIds:tradingGameIds(),releaseTrain:arcadeBuildTrainSummary(),capabilities:tradingSimulationCapabilities(),liveExecutionAuthority:false,sessions:Number(result.rows[0]?.sessions||0),policy:this.policy()};
+  }
 }
