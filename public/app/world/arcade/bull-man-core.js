@@ -22,9 +22,9 @@ export const BULL_MAN_MAZE = Object.freeze([
 ]);
 
 export const BULL_MAN_LESSONS = Object.freeze([
-  Object.freeze({ id:'confirmation', prompt:'After price sweeps a level, what is the stronger next step?', choices:['Chase immediately','Wait for confirmation / reclaim','Double risk'], correct:1, lesson:'A sweep alone is not confirmation. Wait for structure, reclaim, or your defined trigger.' }),
-  Object.freeze({ id:'risk', prompt:'What should happen to position size when your stop distance becomes wider?', choices:['Usually reduce size','Always increase size','Ignore stop distance'], correct:0, lesson:'Risk is controlled by the relationship between position size and stop distance.' }),
-  Object.freeze({ id:'fomo', prompt:'A large candle already ran far from your planned entry. What is the disciplined response?', choices:['Enter because it is moving','Wait for a new valid setup','Remove the stop'], correct:1, lesson:'Missing a move is cheaper than chasing an invalid entry.' }),
+  Object.freeze({ id:'confirmation', prompt:'After price sweeps a level, what is the stronger next step?', choices:['Chase immediately','Wait for confirmation / reclaim','Double risk'], lesson:'A sweep alone is not confirmation. Wait for structure, reclaim, or your defined trigger.' }),
+  Object.freeze({ id:'risk', prompt:'What should happen to position size when your stop distance becomes wider?', choices:['Usually reduce size','Always increase size','Ignore stop distance'], lesson:'Risk is controlled by the relationship between position size and stop distance.' }),
+  Object.freeze({ id:'fomo', prompt:'A large candle already ran far from your planned entry. What is the disciplined response?', choices:['Enter because it is moving','Wait for a new valid setup','Remove the stop'], lesson:'Missing a move is cheaper than chasing an invalid entry.' }),
 ]);
 
 const DIRS = Object.freeze({
@@ -150,15 +150,4 @@ export function replayBullMan(seed,inputs=[]){
   const safe=Array.isArray(inputs)?inputs.slice(0,BULL_MAN_MAX_TICKS):[];
   for(const input of safe){tickBullMan(state,String(input||'none').toLowerCase());if(state.status!=='playing')break;}
   return summarizeBullMan(state);
-}
-
-export function scoreBullManEducation(result={},answers=[]){
-  const answerList=Array.isArray(answers)?answers:[];
-  const correct=BULL_MAN_LESSONS.reduce((sum,q,index)=>sum+(Number(answerList[index])===q.correct?1:0),0);
-  const knowledge=Math.round(correct/BULL_MAN_LESSONS.length*100);
-  const execution=Math.round(Math.max(0,Math.min(1,Number(result.completion||0)))*100);
-  const riskDiscipline=Math.max(0,Math.min(100,100-Number(result.hits||0)*28+(Number(result.lives||0)>=3?8:0)));
-  const consistency=Math.max(0,Math.min(100,Math.round((execution+riskDiscipline)/2)));
-  const weighted=Math.round(knowledge*.35+execution*.30+riskDiscipline*.25+consistency*.10);
-  return Object.freeze({knowledge,execution,riskDiscipline,consistency,weighted,correctAnswers:correct,totalQuestions:BULL_MAN_LESSONS.length});
 }
