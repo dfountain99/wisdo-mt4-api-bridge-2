@@ -108,11 +108,20 @@ test('server-only knowledge keys score the new trading simulators',()=>{
   assert.equal(scoreArcadeEducation('risk-manager',result,[0,0,0]).riskDiscipline,90);
 });
 
-test('Culture Coin reward is capped and uses trading-skill metrics',()=>{
-  const result={ticks:100,executionScore:95,riskScore:95,disciplineScore:95,realizedR:4,status:'complete'};
+test('Culture Coin reward is capped and requires demonstrated trading skill',()=>{
+  const result={ticks:100,trades:3,goodEntries:2,executionScore:95,riskScore:95,disciplineScore:95,realizedR:4,status:'complete'};
   const reward=computeArcadeReward('structure-trader',result,[0,0,0],{maxCoinsPerSession:9});
   assert.equal(reward.eligible,true);
+  assert.equal(reward.eligibility.demonstratedTradingSkill,true);
   assert.equal(reward.coins,9);
+});
+
+test('perfect quiz and patient holding cannot farm Culture Coin without an actual quality trade',()=>{
+  const noTrade={ticks:100,trades:0,goodEntries:0,executionScore:90,riskScore:100,disciplineScore:100,realizedR:0,status:'complete'};
+  const reward=computeArcadeReward('structure-trader',noTrade,[0,0,0],{maxCoinsPerSession:15});
+  assert.equal(reward.eligible,false);
+  assert.equal(reward.eligibility.demonstratedTradingSkill,false);
+  assert.equal(reward.coins,0);
 });
 
 test('Culture Coin policy remains server-authoritative, no-wager, and redemption opt-in',()=>{
