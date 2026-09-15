@@ -1,245 +1,165 @@
-export const TRADING_SIM_VERSION='3.0.0';
+export const TRADING_SIM_VERSION='4.12.0';
 export const TRADING_SIM_TICK_MS=850;
-export const TRADING_SIM_MAX_TICKS=180;
+export const TRADING_SIM_MAX_TICKS=220;
+export const TRADING_BUILD_RANGE=Object.freeze({from:4,to:112,count:109});
 
-export const TRADING_GAME_DEFS=Object.freeze({
-  'structure-trader':Object.freeze({
-    id:'structure-trader',name:'Market Structure Trader',floor:'rookie',skill:'structure',version:'3.0.0-structure',
-    objective:'Trade only after structure confirms direction. Use BUY, SELL, HOLD, and CLOSE on a live candle replay.',
-    lessons:Object.freeze([
-      Object.freeze({prompt:'What should a break of structure change?',choices:Object.freeze(['Your directional evidence','Your account leverage automatically','The spread to zero']),lesson:'Structure changes evidence, not risk rules.'}),
-      Object.freeze({prompt:'After a bullish break, what usually offers a better entry than chasing the breakout candle?',choices:Object.freeze(['A controlled pullback that holds structure','Buying every green candle','Removing the stop']),lesson:'A pullback can improve location while preserving invalidation.'}),
-      Object.freeze({prompt:'If structure does not confirm your idea, what is a valid action?',choices:Object.freeze(['Hold / no trade','Double size','Enter anyway to avoid missing it']),lesson:'No trade is a professional decision when evidence is incomplete.'}),
-    ]),
-  }),
-  'liquidity-sweep-trader':Object.freeze({
-    id:'liquidity-sweep-trader',name:'Liquidity Sweep Trader',floor:'structure',skill:'liquidity',version:'3.0.0-liquidity',
-    objective:'Read equal highs/lows, survive the sweep, then trade only after price reclaims and confirms.',
-    lessons:Object.freeze([
-      Object.freeze({prompt:'A wick sweeps an obvious low and immediately reclaims. What does that tell you first?',choices:Object.freeze(['Liquidity was taken; wait for confirmation','A buy is guaranteed','Stops no longer matter']),lesson:'A sweep is information. Confirmation determines whether it becomes an entry.'}),
-      Object.freeze({prompt:'What is usually dangerous?',choices:Object.freeze(['Entering during the sweep before reclaim','Waiting for the candle to close','Defining invalidation']),lesson:'The sweep itself can continue. Reclaim and acceptance matter.'}),
-      Object.freeze({prompt:'Where should invalidation be logically related?',choices:Object.freeze(['The structure that proves the idea wrong','A random fixed number only','Your desired profit']),lesson:'Stops should relate to the setup invalidation, then size should adapt to that distance.'}),
-    ]),
-  }),
-  'breakout-retest-trader':Object.freeze({
-    id:'breakout-retest-trader',name:'Breakout & Retest Trader',floor:'structure',skill:'breakouts',version:'3.0.0-breakout',
-    objective:'Separate true acceptance from a fake breakout, then execute the retest instead of chasing the first break.',
-    lessons:Object.freeze([
-      Object.freeze({prompt:'What makes a breakout stronger?',choices:Object.freeze(['Acceptance beyond the level','One wick through the level','More leverage']),lesson:'Acceptance beyond structure is stronger than a single penetration.'}),
-      Object.freeze({prompt:'Why wait for a retest?',choices:Object.freeze(['To see whether the broken level holds its new role','To guarantee profit','To eliminate spread']),lesson:'Retests test acceptance and improve location.'}),
-      Object.freeze({prompt:'Price breaks a level then closes back inside immediately. This is most consistent with…',choices:Object.freeze(['A failed breakout','Guaranteed continuation','A position-size signal']),lesson:'Failure to hold beyond the level is a major fakeout clue.'}),
-    ]),
-  }),
-  'risk-manager':Object.freeze({
-    id:'risk-manager',name:'Risk Manager',floor:'risk',skill:'risk',version:'3.0.0-risk',
-    objective:'Select risk before entering. Preserve simulated capital while still taking valid setups.',
-    lessons:Object.freeze([
-      Object.freeze({prompt:'If stop distance doubles and risk dollars stay fixed, position size should…',choices:Object.freeze(['Decrease','Increase','Stay identical']),lesson:'Position size must shrink as stop distance expands when risk is fixed.'}),
-      Object.freeze({prompt:'What should determine risk per trade?',choices:Object.freeze(['A predefined account-risk rule','How confident you feel after a win','How much money you lost previously']),lesson:'Risk should be defined before emotion enters the trade.'}),
-      Object.freeze({prompt:'What is the purpose of a risk cap?',choices:Object.freeze(['Prevent one idea from threatening the account','Guarantee every setup wins','Make drawdown impossible']),lesson:'Risk caps limit damage; they do not remove uncertainty.'}),
-    ]),
-  }),
-  'entry-discipline-trader':Object.freeze({
-    id:'entry-discipline-trader',name:'Entry Discipline Trader',floor:'psychology',skill:'entry-discipline',version:'3.0.0-discipline',
-    objective:'Do not chase extended candles. Wait for a new location, then execute only if structure still supports the trade.',
-    lessons:Object.freeze([
-      Object.freeze({prompt:'Price already expanded far beyond your planned entry. What is disciplined?',choices:Object.freeze(['Wait for a new setup or pass','Chase immediately','Increase size to compensate']),lesson:'Missing an entry is cheaper than changing the plan after price runs.'}),
-      Object.freeze({prompt:'What happens to reward-to-risk when you chase far from invalidation?',choices:Object.freeze(['It often worsens','It always improves','It becomes irrelevant']),lesson:'Late entry often increases distance to logical invalidation while reducing remaining target distance.'}),
-      Object.freeze({prompt:'If price never returns to your area?',choices:Object.freeze(['Accept no trade','Force an entry','Remove the stop']),lesson:'No trade is a valid outcome.'}),
-    ]),
-  }),
+export const TRADING_GAME_ROWS=Object.freeze([
+  Object.freeze(["structure-trader","Market Structure Trader","rookie","structure","structure","Trade a candle replay using structure confirmation, pullback location, stops, targets, and real simulated P/L."]),
+  Object.freeze(["trend-continuation-trader","Trend Continuation Trader","rookie","trend","trend","Read higher highs/higher lows or lower highs/lower lows and execute continuation only at valid locations."]),
+  Object.freeze(["liquidity-sweep-trader","Liquidity Sweep Trader","structure","liquidity","liquidity","Trade simulated liquidity sweeps only after reclaim/confirmation instead of entering inside the sweep."]),
+  Object.freeze(["breakout-retest-trader","Breakout & Retest Trader","structure","breakouts","breakout","Trade actual breakout/retest candle sequences and distinguish acceptance from failed breakout behavior."]),
+  Object.freeze(["candle-confirmation-trader","Candle Confirmation Trader","rookie","candles","candles","Use candle closes, wicks, engulfing behavior, and context to decide BUY, SELL, or PASS."]),
+  Object.freeze(["risk-manager","Risk Manager","risk","risk","risk","Choose risk before entering and preserve simulated equity through changing stop distances and setups."]),
+  Object.freeze(["spread-cost-trader","Spread Cost Trader","execution","costs","execution","Trade the same setup under changing spreads and decide when execution cost destroys the edge."]),
+  Object.freeze(["slippage-execution-trader","Slippage Execution Trader","execution","execution","execution","Choose market, limit, or pass while simulated volatility changes fills and slippage."]),
+  Object.freeze(["stop-placement-trader","Stop Placement Trader","risk","risk","risk","Place invalidation-based stops and size the position from the resulting stop distance."]),
+  Object.freeze(["margin-manager","Margin Manager","risk","margin","risk","Manage simulated position size while protecting free margin and preventing liquidation pressure."]),
+  Object.freeze(["bos-execution-trader","BOS Execution Trader","structure","bos","structure","Identify and trade legitimate Break of Structure events rather than every price penetration."]),
+  Object.freeze(["choch-reversal-trader","CHOCH Reversal Trader","structure","choch","reversal","Trade Change of Character only when reversal evidence matures."]),
+  Object.freeze(["fvg-entry-trader","FVG Entry Trader","structure","fvg","imbalance","Choose which fair value gap has valid structure, location, and directional context."]),
+  Object.freeze(["fvg-continuation-trader","FVG Continuation Trader","structure","fvg","imbalance","Manage continuation entries as price revisits and accepts a valid imbalance."]),
+  Object.freeze(["order-block-trader","Order Block Trader","structure","order-blocks","zones","Select contextual order blocks and execute only after reaction/confirmation."]),
+  Object.freeze(["liquidity-pool-trader","Liquidity Pool Trader","structure","liquidity","liquidity","Map equal highs/lows and choose which pool price is most likely to attack before a setup matures."]),
+  Object.freeze(["stop-hunt-reversal-trader","Stop Hunt Reversal Trader","structure","liquidity","reversal","Wait through a stop run and trade the confirmed reversal, not the first wick."]),
+  Object.freeze(["trend-strength-trader","Trend Strength Trader","structure","trend","trend","Use sequence, displacement, and pullback depth to decide continuation versus exhaustion."]),
+  Object.freeze(["pullback-entry-trader","Pullback Entry Trader","structure","pullbacks","trend","Wait for price to return to a planned location before entering a trend."]),
+  Object.freeze(["momentum-trader","Momentum Trader","execution","momentum","momentum","Trade acceleration and deceleration while avoiding entries after momentum exhaustion."]),
+  Object.freeze(["atr-stop-trader","ATR Stop Trader","risk","volatility","volatility","Adapt stop distance and size to changing ATR instead of using one fixed stop for every regime."]),
+  Object.freeze(["volatility-regime-trader","Volatility Regime Trader","risk","volatility","volatility","Change execution and risk behavior as the simulated market moves between compression and expansion."]),
+  Object.freeze(["news-risk-trader","News Risk Trader","execution","news","news","Manage or avoid trades around simulated high-impact releases and spread expansion."]),
+  Object.freeze(["economic-calendar-trader","Economic Calendar Trader","execution","news","news","Plan a full simulated session around event timing and decide when not to trade."]),
+  Object.freeze(["session-selection-trader","Session Selection Trader","execution","sessions","session","Choose the correct session for a setup based on liquidity, volatility, and instrument behavior."]),
+  Object.freeze(["london-open-trader","London Open Trader","structure","sessions","session","Trade post-Asia liquidity behavior around the London open using real candle scenarios."]),
+  Object.freeze(["new-york-reversal-trader","New York Reversal Trader","structure","sessions","session","Decide whether New York is continuing, sweeping, or reversing the London move."]),
+  Object.freeze(["support-resistance-trader","Support & Resistance Trader","rookie","levels","levels","Trade level reactions, breaks, retests, and role reversals from simulated candles."]),
+  Object.freeze(["trendline-break-trader","Trendline Break Trader","structure","channels","levels","Use trendline pressure plus structure confirmation instead of trading a line break by itself."]),
+  Object.freeze(["channel-trader","Channel Trader","structure","channels","levels","Trade channel boundaries, failed breaks, and accepted breaks with defined invalidation."]),
+  Object.freeze(["fibonacci-pullback-trader","Fibonacci Pullback Trader","structure","fibonacci","zones","Use Fibonacci as a location tool only when structure and invalidation support the entry."]),
+  Object.freeze(["golden-pocket-trader","Golden Pocket Trader","structure","fibonacci","zones","Evaluate whether the golden pocket has confluence before risking simulated capital."]),
+  Object.freeze(["r-multiple-planner","R-Multiple Planner","risk","expectancy","risk","Choose entries, stops, and targets to understand realized R and expectancy."]),
+  Object.freeze(["position-size-trader","Position Size Trader","risk","position-sizing","risk","Calculate size from balance, risk percentage, stop distance, and instrument value before entry."]),
+  Object.freeze(["lot-size-trader","Lot Size Trader","risk","position-sizing","risk","Translate risk dollars and stop distance into correct lot size across instruments."]),
+  Object.freeze(["compounding-manager","Compounding Manager","professional","compounding","professional","Run a simulated account across many campaigns while balancing compounding and capital protection."]),
+  Object.freeze(["drawdown-manager","Drawdown Manager","risk","drawdown","risk","Manage losing sequences and adapt risk without revenge-sizing the next trade."]),
+  Object.freeze(["equity-protection-trader","Equity Protection Trader","risk","profit-protection","risk","Protect account equity across open positions without choking every trade prematurely."]),
+  Object.freeze(["profit-protection-trader","Profit Protection Trader","risk","profit-protection","risk","Manage winners with structure-based protection so profitable trades do not become uncontrolled losses."]),
+  Object.freeze(["psychology-decision-trader","Psychology Decision Trader","psychology","psychology","psychology","Make actual trade/pass/size decisions while fear, greed, and recent outcomes pressure the plan."]),
+  Object.freeze(["entry-discipline-trader","Entry Discipline Trader","psychology","entry-discipline","psychology","Trade a real candle replay where chasing extended price is penalized and waiting for location is rewarded."]),
+  Object.freeze(["revenge-control-trader","Revenge Trade Control","psychology","revenge","psychology","Continue a simulated session after losses without increasing risk or forcing low-quality entries."]),
+  Object.freeze(["journal-review-challenge","Journal Review Challenge","professional","journaling","professional","Trade a full simulated day, then review mistakes, strengths, and next-session rules from the verified journal."]),
+  Object.freeze(["trade-autopsy-challenge","Trade Autopsy Challenge","professional","review","professional","Reconstruct entry, stop, target, context, execution, and outcome to diagnose why a trade failed."]),
+  Object.freeze(["chart-scenario-trader","Chart Scenario Trader","professional","probability","professional","Trade incomplete candle sequences by choosing the highest-quality scenario instead of predicting certainty."]),
+  Object.freeze(["multi-timeframe-trader","Multi-Timeframe Trader","professional","multi-timeframe","professional","Combine higher-timeframe context with lower-timeframe execution and avoid timeframe conflict."]),
+  Object.freeze(["correlation-risk-manager","Correlation Risk Manager","professional","portfolio-risk","professional","Manage simulated exposure while detecting duplicated currency, metal, index, or crypto risk."]),
+  Object.freeze(["hedge-risk-manager","Hedge Risk Manager","professional","hedging","professional","Use a simulated hedge only when it reduces portfolio risk after cost and correlation are considered."]),
+  Object.freeze(["liquidity-map-trader","Liquidity Map Trader","professional","liquidity","liquidity","Build the liquidity map first, then trade the sweep/reclaim/continuation sequence."]),
+  Object.freeze(["championship-simulation","WISDO Trading Championship","championship","mastery","championship","A multi-phase verified trading simulation combining structure, risk, execution, psychology, and review."])
+]);
+
+const INSTRUMENTS=Object.freeze([
+  Object.freeze({symbol:'XAUUSD',asset:'metal',spread:.08,slippage:.025,leverage:50}),
+  Object.freeze({symbol:'EURUSD',asset:'fx',spread:.018,slippage:.006,leverage:100}),
+  Object.freeze({symbol:'GBPUSD',asset:'fx',spread:.024,slippage:.009,leverage:100}),
+  Object.freeze({symbol:'NAS100',asset:'index',spread:.11,slippage:.035,leverage:50}),
+  Object.freeze({symbol:'US30',asset:'index',spread:.14,slippage:.045,leverage:50}),
+  Object.freeze({symbol:'BTCUSD',asset:'crypto',spread:.18,slippage:.060,leverage:20}),
+]);
+
+const GUIDES=Object.freeze({
+  structure:Object.freeze(['Wait for a confirmed structural change before committing direction.','Use the pullback to improve location without moving invalidation randomly.','Passing is correct when structure has not confirmed.']),
+  trend:Object.freeze(['Trade continuation only while the higher-high/higher-low or lower-high/lower-low sequence remains intact.','Prefer a controlled pullback over chasing displacement.','Exit or pass when trend evidence degrades.']),
+  liquidity:Object.freeze(['Treat a sweep as information, not an automatic reversal.','Require reclaim or acceptance before entering after a stop run.','Place invalidation beyond the structure that disproves the reclaim.']),
+  breakout:Object.freeze(['Acceptance beyond a level matters more than a wick through it.','Retests test whether the broken level has changed role.','A close back inside the range is evidence of failed breakout behavior.']),
+  candles:Object.freeze(['Read the close and wick in context instead of treating one candle pattern as a guarantee.','Engulfing behavior matters more when it aligns with structure and location.','PASS is valid when candle evidence conflicts with context.']),
+  risk:Object.freeze(['Define account risk before the entry.','Position size should fall as logical stop distance expands.','One setup must never be allowed to threaten the simulated account.']),
+  execution:Object.freeze(['Spread and slippage are part of the trade, not an afterthought.','Choose execution mode from liquidity and volatility conditions.','A valid setup can still be a bad trade when transaction cost destroys expectancy.']),
+  reversal:Object.freeze(['A reversal requires mature evidence, not the first countertrend candle.','A sweep plus reclaim is stronger than a blind fade.','Reduce aggression when reversal evidence remains incomplete.']),
+  imbalance:Object.freeze(['An imbalance is a location, not a standalone reason to enter.','Use structure and directional context to decide which FVG is valid.','A revisit must still hold invalidation before continuation is accepted.']),
+  zones:Object.freeze(['Zones need context, reaction, and invalidation.','Do not enter a level simply because a drawing tool marks it.','Risk is sized from the distance to logical invalidation.']),
+  momentum:Object.freeze(['Acceleration can confirm intent, but late acceleration can also signal exhaustion.','Avoid chasing after the move has already expanded away from invalidation.','Use deceleration to reassess continuation.']),
+  volatility:Object.freeze(['Stop distance and size must adapt when volatility changes.','Compression and expansion require different execution expectations.','Risk percentage stays governed even when ATR expands.']),
+  news:Object.freeze(['High-impact windows can widen spread and slippage before direction becomes clear.','Skipping a news spike is a valid risk decision.','Resume only when price and execution conditions normalize.']),
+  session:Object.freeze(['Liquidity and volatility change across Asia, London, and New York.','Trade the setup only in the session context that supports it.','A session transition can turn continuation into a sweep or reversal.']),
+  levels:Object.freeze(['A level can reject, break, retest, or change role.','Use structure confirmation instead of trading a line touch alone.','Invalidation belongs beyond the behavior that makes the level thesis wrong.']),
+  psychology:Object.freeze(['Do not increase risk because of a previous loss or missed move.','A missed trade does not justify chasing the next candle.','Following the process is scored even when the simulated outcome is a loss.']),
+  professional:Object.freeze(['Combine context, execution, risk, and review rather than optimizing one metric alone.','Conflicting timeframes or correlated exposure should reduce aggression.','Document the reason for entry, invalidation, and management after the run.']),
+  championship:Object.freeze(['Championship score combines execution, risk, discipline, context, and review.','No single profitable trade can replace consistency across phases.','Capital preservation remains part of mastery.']),
 });
 
+function rowObject(row,index){
+  const [id,name,floor,skill,archetype,description]=row,guide=GUIDES[archetype]||GUIDES.professional;
+  const lessons=Object.freeze([
+    Object.freeze({prompt:`What is the first priority in ${name}?`,choices:Object.freeze([guide[0],'Increase leverage until the outcome is certain','Enter immediately so the move cannot be missed']),lesson:guide[0]}),
+    Object.freeze({prompt:'What best protects execution quality in this scenario?',choices:Object.freeze([guide[1],'Ignore invalidation if the setup looks strong','Use the same stop and size in every market condition']),lesson:guide[1]}),
+    Object.freeze({prompt:'What is a professional response when evidence is incomplete?',choices:Object.freeze([guide[2],'Force a trade to keep activity high','Double risk after a missed setup']),lesson:guide[2]}),
+  ]);
+  return Object.freeze({id,name,floor,skill,archetype,description,objective:description,version:`4.12.${String(index+1).padStart(2,'0')}-${id}`,lessons});
+}
+
+export const TRADING_GAME_DEFS=Object.freeze(Object.fromEntries(TRADING_GAME_ROWS.map((row,index)=>{const def=rowObject(row,index);return[def.id,def];})));
 const GAME_IDS=Object.freeze(Object.keys(TRADING_GAME_DEFS));
-const ACTIONS=new Set(['hold','buy','sell','close','risk0.5','risk1','risk2','risk5']);
+const ACTIONS=new Set(['hold','buy','sell','close','risk0.25','risk0.5','risk1','risk1.5','risk2','risk3','risk5','stopTight','stopAtr','stopStructure','target1','target2','target3','modeMarket','modeLimit']);
+const RISK_VALUES=new Set([.25,.5,1,1.5,2,3,5]);
 
 function seedNumber(seed){let h=2166136261>>>0;for(const ch of String(seed)){h^=ch.charCodeAt(0);h=Math.imul(h,16777619)>>>0;}return h||1;}
 function rand(state){let t=(state.rng+=0x6D2B79F5)>>>0;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)/4294967296;}
 function clamp(n,min,max){return Math.max(min,Math.min(max,Number(n)||0));}
 function round(n,d=5){const p=10**d;return Math.round(Number(n)*p)/p;}
-function normalizeAction(input){const action=String(input||'hold').toLowerCase();return ACTIONS.has(action)?action:'hold';}
-
-function candle(open,delta,wickUp,wickDown){
-  const close=open+delta;
-  return Object.freeze({open:round(open),high:round(Math.max(open,close)+Math.abs(wickUp)),low:round(Math.min(open,close)-Math.abs(wickDown)),close:round(close)});
-}
-
-function baseNoise(state,scale=.45){return (rand(state)-.5)*scale;}
+function normalizeAction(input){const action=String(input||'hold').trim().toLowerCase();return ACTIONS.has(action)?action:'hold';}
+function candle(open,delta,wickUp,wickDown){const close=open+delta;return Object.freeze({open:round(open),high:round(Math.max(open,close)+Math.abs(wickUp)),low:round(Math.min(open,close)-Math.abs(wickDown)),close:round(close)});}
+function baseNoise(state,scale=.45){return(rand(state)-.5)*scale;}
 function pushCandle(series,state,delta,vol=.35){const open=series.length?series[series.length-1].close:100;series.push(candle(open,delta+baseNoise(state,vol*.35),vol*(.35+rand(state)*.5),vol*(.35+rand(state)*.5)));}
+function segment(series,state,count,drift,vol){for(let i=0;i<count;i+=1)pushCandle(series,state,drift,vol);}
+function signal(start,end,side,label){return Object.freeze({start,end,side,label});}
+function windowRange(start,end){return Object.freeze({start,end});}
 
-function generateStructure(state){
-  const series=[];
-  for(let i=0;i<24;i++)pushCandle(series,state,.18,.42);
-  for(let i=0;i<8;i++)pushCandle(series,state,-.16,.48);
-  for(let i=0;i<7;i++)pushCandle(series,state,.34,.52);
-  for(let i=0;i<5;i++)pushCandle(series,state,-.24,.44);
-  for(let i=0;i<18;i++)pushCandle(series,state,.27,.50);
-  for(let i=0;i<18;i++)pushCandle(series,state,-.05,.55);
-  return {series,signals:[{start:39,end:45,side:'buy',label:'bullish BOS + pullback'}],chase:[{start:35,end:38}]};
-}
-function generateLiquidity(state){
-  const series=[];
-  for(let i=0;i<22;i++)pushCandle(series,state,.03,.38);
-  for(let i=0;i<8;i++)pushCandle(series,state,-.03,.34);
-  const priorLow=series.at(-1).low;
-  for(let i=0;i<4;i++)pushCandle(series,state,-.10,.42);
-  const open=series.at(-1).close;series.push(Object.freeze({open:round(open),high:round(open+.32),low:round(priorLow-1.05),close:round(open+.45)}));
-  for(let i=0;i<5;i++)pushCandle(series,state,.28,.48);
-  for(let i=0;i<18;i++)pushCandle(series,state,.22,.48);
-  for(let i=0;i<18;i++)pushCandle(series,state,-.03,.55);
-  return {series,signals:[{start:35,end:40,side:'buy',label:'sell-side sweep + reclaim'}],chase:[{start:34,end:34}]};
-}
-function generateBreakout(state){
-  const series=[];
-  for(let i=0;i<26;i++)pushCandle(series,state,(i%4<2?.08:-.08),.32);
-  for(let i=0;i<6;i++)pushCandle(series,state,.36,.48);
-  for(let i=0;i<4;i++)pushCandle(series,state,-.30,.42);
-  for(let i=0;i<4;i++)pushCandle(series,state,.18,.38);
-  for(let i=0;i<18;i++)pushCandle(series,state,.25,.47);
-  for(let i=0;i<18;i++)pushCandle(series,state,-.04,.52);
-  return {series,signals:[{start:35,end:40,side:'buy',label:'breakout retest acceptance'}],chase:[{start:28,end:32}]};
-}
-function generateRisk(state){
-  const series=[];
-  for(let i=0;i<15;i++)pushCandle(series,state,.10,.40);
-  for(let i=0;i<8;i++)pushCandle(series,state,-.14,.45);
-  for(let i=0;i<16;i++)pushCandle(series,state,.20,.46);
-  for(let i=0;i<10;i++)pushCandle(series,state,-.24,.50);
-  for(let i=0;i<18;i++)pushCandle(series,state,.19,.45);
-  for(let i=0;i<13;i++)pushCandle(series,state,-.03,.50);
-  return {series,signals:[{start:23,end:28,side:'buy',label:'controlled continuation'},{start:47,end:52,side:'sell',label:'controlled reversal'}],chase:[]};
-}
-function generateDiscipline(state){
-  const series=[];
-  for(let i=0;i<22;i++)pushCandle(series,state,.05,.34);
-  for(let i=0;i<5;i++)pushCandle(series,state,.62,.62);
-  for(let i=0;i<6;i++)pushCandle(series,state,-.30,.43);
-  for(let i=0;i<18;i++)pushCandle(series,state,.24,.46);
-  for(let i=0;i<24;i++)pushCandle(series,state,-.02,.52);
-  return {series,signals:[{start:32,end:37,side:'buy',label:'post-expansion pullback'}],chase:[{start:24,end:29}]};
-}
+function generateTrend(state,label='trend pullback'){const series=[];segment(series,state,22,.18,.40);segment(series,state,8,-.16,.44);segment(series,state,8,.30,.50);segment(series,state,5,-.22,.43);segment(series,state,22,.24,.48);segment(series,state,14,-.05,.50);return{series,signals:[signal(38,44,'buy',label)],chase:[windowRange(33,37)],news:[]};}
+function generateStructure(state,label='BOS + pullback'){const series=[];segment(series,state,22,-.07,.38);segment(series,state,8,.04,.34);segment(series,state,7,.36,.50);segment(series,state,5,-.22,.40);segment(series,state,24,.23,.48);segment(series,state,13,-.04,.50);return{series,signals:[signal(37,43,'buy',label)],chase:[windowRange(31,35)],news:[]};}
+function generateLiquidity(state,label='liquidity sweep + reclaim'){const series=[];segment(series,state,25,.01,.34);segment(series,state,8,-.03,.32);const priorLow=series.at(-1).low;segment(series,state,3,-.08,.40);const open=series.at(-1).close;series.push(Object.freeze({open:round(open),high:round(open+.34),low:round(priorLow-1.12),close:round(open+.46)}));segment(series,state,7,.24,.46);segment(series,state,23,.20,.46);segment(series,state,12,-.04,.50);return{series,signals:[signal(37,44,'buy',label)],chase:[windowRange(34,36)],news:[]};}
+function generateBreakout(state,label='breakout retest acceptance'){const series=[];for(let i=0;i<28;i+=1)pushCandle(series,state,i%4<2?.08:-.08,.30);segment(series,state,6,.36,.48);segment(series,state,5,-.27,.40);segment(series,state,5,.18,.38);segment(series,state,22,.23,.46);segment(series,state,13,-.03,.50);return{series,signals:[signal(38,45,'buy',label)],chase:[windowRange(29,34)],news:[]};}
+function generateReversal(state,label='mature CHOCH reversal'){const series=[];segment(series,state,25,-.18,.42);segment(series,state,6,-.08,.48);segment(series,state,4,.05,.60);segment(series,state,6,.32,.50);segment(series,state,5,-.13,.42);segment(series,state,23,.25,.48);segment(series,state,12,-.04,.50);return{series,signals:[signal(41,47,'buy',label)],chase:[windowRange(32,36)],news:[]};}
+function generateImbalance(state,label='FVG revisit + acceptance'){const series=[];segment(series,state,22,.03,.34);segment(series,state,5,.70,.62);segment(series,state,8,-.32,.42);segment(series,state,5,.12,.36);segment(series,state,24,.24,.46);segment(series,state,16,-.03,.50);return{series,signals:[signal(34,41,'buy',label)],chase:[windowRange(23,29)],news:[]};}
+function generateZones(state,label='zone reaction + confirmation'){const series=[];segment(series,state,20,.14,.38);segment(series,state,12,-.20,.44);segment(series,state,6,.03,.34);segment(series,state,5,.28,.44);segment(series,state,22,.20,.44);segment(series,state,15,-.04,.50);return{series,signals:[signal(36,43,'buy',label)],chase:[windowRange(28,33)],news:[]};}
+function generateMomentum(state,label='momentum pullback continuation'){const series=[];segment(series,state,18,.08,.32);segment(series,state,8,.48,.56);segment(series,state,7,-.28,.42);segment(series,state,5,.12,.36);segment(series,state,20,.25,.45);segment(series,state,20,-.06,.55);return{series,signals:[signal(32,39,'buy',label)],chase:[windowRange(22,28)],news:[]};}
+function generateVolatility(state,label='regime expansion pullback'){const series=[];segment(series,state,26,.01,.18);segment(series,state,5,.58,.78);segment(series,state,7,-.31,.54);segment(series,state,6,.16,.45);segment(series,state,22,.24,.62);segment(series,state,14,-.04,.58);return{series,signals:[signal(36,43,'buy',label)],chase:[windowRange(27,32)],news:[]};}
+function generateNews(state,label='post-news normalization'){const series=[];segment(series,state,26,.02,.30);segment(series,state,3,.05,.40);const open=series.at(-1).close;series.push(Object.freeze({open:round(open),high:round(open+1.75),low:round(open-1.35),close:round(open+.68)}));segment(series,state,5,-.18,.86);segment(series,state,6,.20,.52);segment(series,state,22,.20,.48);segment(series,state,16,-.03,.52);return{series,signals:[signal(36,43,'buy',label)],chase:[windowRange(29,33)],news:[windowRange(28,34)]};}
+function generateSession(state,label='session transition setup'){const series=[];for(let i=0;i<24;i+=1)pushCandle(series,state,i%6<3?.04:-.04,.25);segment(series,state,4,-.28,.50);segment(series,state,6,.30,.50);segment(series,state,6,-.16,.42);segment(series,state,18,.24,.48);segment(series,state,6,.08,.50);segment(series,state,15,-.23,.52);return{series,signals:[signal(32,38,'buy',`${label} · London`),signal(62,69,'sell',`${label} · New York`)],chase:[windowRange(25,29)],news:[]};}
+function generateLevels(state,label='level retest + role change'){const series=[];for(let i=0;i<30;i+=1)pushCandle(series,state,i%5<3?.10:-.12,.34);segment(series,state,5,.40,.50);segment(series,state,6,-.30,.42);segment(series,state,5,.18,.38);segment(series,state,22,.22,.46);segment(series,state,12,-.03,.50);return{series,signals:[signal(39,46,'buy',label)],chase:[windowRange(30,35)],news:[]};}
+function generateRisk(state,label='risk-managed setup'){const series=[];segment(series,state,18,.10,.38);segment(series,state,8,-.15,.43);segment(series,state,17,.20,.46);segment(series,state,10,-.25,.55);segment(series,state,18,.18,.44);segment(series,state,12,-.04,.50);return{series,signals:[signal(25,31,'buy',`${label} · phase 1`),signal(45,52,'sell',`${label} · phase 2`)],chase:[],news:[]};}
+function generatePsychology(state,label='disciplined pullback'){const series=[];segment(series,state,22,.05,.34);segment(series,state,5,.62,.62);segment(series,state,6,-.30,.43);segment(series,state,18,.24,.46);segment(series,state,24,-.02,.52);return{series,signals:[signal(32,38,'buy',label)],chase:[windowRange(24,29)],news:[]};}
+function generateProfessional(state,label='multi-factor setup'){const series=[];segment(series,state,18,-.08,.36);segment(series,state,7,.03,.30);segment(series,state,6,.42,.52);segment(series,state,6,-.25,.42);segment(series,state,16,.23,.46);segment(series,state,8,.02,.35);segment(series,state,15,-.24,.50);segment(series,state,8,.03,.42);return{series,signals:[signal(36,42,'buy',`${label} · continuation`),signal(66,73,'sell',`${label} · reversal`)],chase:[windowRange(27,32)],news:[]};}
+function generateChampionship(state,label='championship phase'){const series=[];segment(series,state,16,.10,.34);segment(series,state,7,-.18,.42);segment(series,state,12,.23,.46);segment(series,state,8,-.22,.50);segment(series,state,14,.28,.52);segment(series,state,8,.01,.30);segment(series,state,14,-.30,.56);segment(series,state,10,.04,.42);return{series,signals:[signal(23,29,'buy',`${label} 1`),signal(42,48,'sell',`${label} 2`),signal(65,72,'sell',`${label} 3`)],chase:[windowRange(32,36),windowRange(55,60)],news:[windowRange(51,54)]};}
 
-function generateScenario(gameId,state){
-  if(gameId==='structure-trader')return generateStructure(state);
-  if(gameId==='liquidity-sweep-trader')return generateLiquidity(state);
-  if(gameId==='breakout-retest-trader')return generateBreakout(state);
-  if(gameId==='risk-manager')return generateRisk(state);
-  return generateDiscipline(state);
-}
+function scenarioFor(def,state){switch(def.archetype){case'structure':return generateStructure(state,def.name);case'trend':return generateTrend(state,def.name);case'liquidity':return generateLiquidity(state,def.name);case'breakout':return generateBreakout(state,def.name);case'candles':return generateStructure(state,def.name);case'reversal':return generateReversal(state,def.name);case'imbalance':return generateImbalance(state,def.name);case'zones':return generateZones(state,def.name);case'momentum':return generateMomentum(state,def.name);case'volatility':return generateVolatility(state,def.name);case'news':return generateNews(state,def.name);case'session':return generateSession(state,def.name);case'levels':return generateLevels(state,def.name);case'risk':return generateRisk(state,def.name);case'psychology':return generatePsychology(state,def.name);case'championship':return generateChampionship(state,def.name);case'execution':return generateTrend(state,def.name);default:return generateProfessional(state,def.name);}}
+function trueRange(item,previousClose){return Math.max(item.high-item.low,Math.abs(item.high-previousClose),Math.abs(item.low-previousClose));}
+function atrAt(series,index,period=10){const start=Math.max(1,index-period+1);let total=0,count=0;for(let i=start;i<=index;i+=1){total+=trueRange(series[i],series[i-1].close);count+=1;}return count?total/count:Math.max(.5,series[index].high-series[index].low);}
+function inWindow(windows,index){return(windows||[]).some((w)=>index>=w.start&&index<=w.end);}
+function signalAt(scenario,index){return(scenario.signals||[]).find((item)=>index>=item.start&&index<=item.end)||null;}
+function sessionAt(index){return index<24?'ASIA':index<52?'LONDON':'NEW_YORK';}
+function regimeAt(series,index){const range=series[index].high-series[index].low,atr=Math.max(.01,atrAt(series,index));if(range<atr*.72)return'COMPRESSION';if(range>atr*1.45)return'EXPANSION';return'NORMAL';}
+function gameIndex(gameId){return Math.max(0,GAME_IDS.indexOf(gameId));}
+function gameTuning(gameId){const i=gameIndex(gameId),def=TRADING_GAME_DEFS[gameId],instrument=INSTRUMENTS[i%INSTRUMENTS.length],tuning={instrument,spreadScale:1+(i%4)*.13,slippageScale:1+(i%3)*.15,commissionBps:.45+(i%3)*.10,stopAtr:1.15,targetR:2,correlationBase:.25+((i%6)*.10)};if(def?.skill==='costs'||gameId==='spread-cost-trader')tuning.spreadScale=2.1;if(gameId==='slippage-execution-trader')tuning.slippageScale=2.3;if(gameId==='atr-stop-trader')tuning.stopAtr=1.45;if(gameId==='r-multiple-planner'||gameId==='profit-protection-trader')tuning.targetR=3;if(gameId==='margin-manager'||gameId==='correlation-risk-manager'||gameId==='hedge-risk-manager')tuning.correlationBase=.78;return Object.freeze(tuning);}
+function decorateScenario(gameId,raw,state){const tuning=gameTuning(gameId),def=TRADING_GAME_DEFS[gameId],context=raw.series.map((item,index)=>{const session=sessionAt(index),regime=regimeAt(raw.series,index),event=inWindow(raw.news,index)?'HIGH_IMPACT':'NONE',regimeMultiplier=regime==='EXPANSION'?1.75:regime==='COMPRESSION'?.72:1,eventMultiplier=event==='HIGH_IMPACT'?3.2:1,spread=tuning.instrument.spread*tuning.spreadScale*regimeMultiplier*eventMultiplier,slippage=tuning.instrument.slippage*tuning.slippageScale*regimeMultiplier*eventMultiplier,htfBias=raw.signals.some((s)=>index<=s.end+8&&s.side==='sell')?'sell':'buy';return Object.freeze({session,regime,event,spread:round(spread,5),slippage:round(slippage,5),htfBias,correlationLoad:round(clamp(tuning.correlationBase+((index%9)-4)*.025,0,1),3)});});return Object.freeze({...raw,context,instrument:tuning.instrument,game:{id:def.id,name:def.name,skill:def.skill,archetype:def.archetype},tuning});}
 
-function trueRange(candle,previousClose){return Math.max(candle.high-candle.low,Math.abs(candle.high-previousClose),Math.abs(candle.low-previousClose));}
-function atrAt(series,index,period=10){
-  const start=Math.max(1,index-period+1);let total=0,count=0;
-  for(let i=start;i<=index;i++){total+=trueRange(series[i],series[i-1].close);count+=1;}
-  return count?total/count:Math.max(.5,series[index].high-series[index].low);
-}
-function signalAt(scenario,index){return scenario.signals.find((signal)=>index>=signal.start&&index<=signal.end)||null;}
-function chaseAt(scenario,index){return scenario.chase.some((window)=>index>=window.start&&index<=window.end);}
-
-export function createTradingState(gameId,seed='1'){
-  if(!GAME_IDS.includes(gameId))throw new Error('Unknown trading simulator.');
-  const state={
-    gameId,rng:seedNumber(seed),ticks:0,status:'playing',index:10,balance:10000,equity:10000,peakEquity:10000,maxDrawdownPct:0,
-    riskPct:1,openPosition:null,closedTrades:[],score:0,setupEntries:0,goodEntries:0,badEntries:0,chaseEntries:0,riskViolations:0,
-    holds:0,patientHolds:0,totalSignals:0,signalWindowsUsed:new Set(),lastAction:'hold',events:[],
-  };
-  state.scenario=generateScenario(gameId,state);
-  state.totalSignals=state.scenario.signals.length;
-  return state;
-}
-
-function markToMarket(state,price){
-  if(!state.openPosition){state.equity=state.balance;return;}
-  const p=state.openPosition,move=p.side==='buy'?price-p.entry:p.entry-price;
-  state.equity=state.balance+move*p.quantity;
-  state.peakEquity=Math.max(state.peakEquity,state.equity);
-  state.maxDrawdownPct=Math.max(state.maxDrawdownPct,(state.peakEquity-state.equity)/Math.max(1,state.peakEquity)*100);
-}
-function closePosition(state,price,reason='manual'){
-  const p=state.openPosition;if(!p)return;
-  const move=p.side==='buy'?price-p.entry:p.entry-price;
-  const pnl=move*p.quantity;const r=p.riskDollars>0?pnl/p.riskDollars:0;
-  state.balance+=pnl;state.equity=state.balance;
-  state.closedTrades.push(Object.freeze({side:p.side,entry:round(p.entry),exit:round(price),pnl:round(pnl,2),r:round(r,2),reason,entryIndex:p.entryIndex,exitIndex:state.index,riskPct:p.riskPct,setup:p.setup||null}));
-  state.score+=Math.round(r*90);state.openPosition=null;
-}
-function resolveStops(state,candle){
-  const p=state.openPosition;if(!p)return;
-  if(p.side==='buy'){
-    if(candle.low<=p.stop){closePosition(state,p.stop,'stop');return;}
-    if(candle.high>=p.target){closePosition(state,p.target,'target');return;}
-  }else{
-    if(candle.high>=p.stop){closePosition(state,p.stop,'stop');return;}
-    if(candle.low<=p.target){closePosition(state,p.target,'target');return;}
-  }
-}
-function openPosition(state,side,price){
-  if(state.openPosition)return;
-  const signal=signalAt(state.scenario,state.index),isGood=Boolean(signal&&signal.side===side),isChase=chaseAt(state.scenario,state.index);
-  const atr=Math.max(.2,atrAt(state.scenario.series,state.index));
-  const stopDistance=Math.max(.25,atr*1.15);const riskDollars=state.balance*(state.riskPct/100);const quantity=riskDollars/stopDistance;
-  const stop=side==='buy'?price-stopDistance:price+stopDistance;const target=side==='buy'?price+stopDistance*2:price-stopDistance*2;
-  state.openPosition={side,entry:price,stop,target,quantity,riskDollars,riskPct:state.riskPct,entryIndex:state.index,setup:signal?.label||null};
-  state.setupEntries+=1;
-  if(isGood){state.goodEntries+=1;state.score+=80;state.signalWindowsUsed.add(`${signal.start}:${signal.side}`);}else{state.badEntries+=1;state.score-=45;}
-  if(isChase){state.chaseEntries+=1;state.score-=100;}
-  if(state.riskPct>2){state.riskViolations+=1;state.score-=120;}
-}
-
-export function tickTradingGame(state,input='hold'){
-  if(!state||state.status!=='playing')return state;
-  const action=normalizeAction(input);state.lastAction=action;state.ticks+=1;
-  const candle=state.scenario.series[state.index];
-  if(!candle){state.status='complete';return state;}
-  resolveStops(state,candle);markToMarket(state,candle.close);
-
-  if(action.startsWith('risk')){
-    const risk=Number(action.replace('risk',''));if([.5,1,2,5].includes(risk))state.riskPct=risk;
-    if(risk>2)state.riskViolations+=1;
-  }else if(action==='buy'||action==='sell'){
-    if(state.openPosition)closePosition(state,candle.close,'reverse');
-    openPosition(state,action,candle.close);
-  }else if(action==='close')closePosition(state,candle.close,'manual');
-  else{
-    state.holds+=1;
-    const signal=signalAt(state.scenario,state.index);
-    if(!signal||chaseAt(state.scenario,state.index))state.patientHolds+=1;
-  }
-
-  markToMarket(state,candle.close);
-  state.index+=1;
-  if(state.index>=state.scenario.series.length){
-    const last=state.scenario.series.at(-1);if(state.openPosition)closePosition(state,last.close,'end');state.status='complete';
-  }
-  if(state.balance<=7000){if(state.openPosition)closePosition(state,candle.close,'risk-stop');state.status='failed';}
-  return state;
-}
-
-export function summarizeTradingState(state){
-  const trades=state.closedTrades||[];const realizedR=trades.reduce((sum,t)=>sum+Number(t.r||0),0);
-  const wins=trades.filter((t)=>t.pnl>0).length;const losses=trades.filter((t)=>t.pnl<0).length;
-  const setupAccuracy=state.setupEntries?state.goodEntries/state.setupEntries:0;
-  const patienceScore=state.holds?state.patientHolds/state.holds:1;
-  const signalCapture=state.totalSignals?state.signalWindowsUsed.size/state.totalSignals:0;
-  const completion=clamp((state.index-10)/Math.max(1,state.scenario.series.length-10),0,1);
-  const riskScore=clamp(100-state.maxDrawdownPct*12-state.riskViolations*18-state.chaseEntries*10,0,100);
-  const executionScore=clamp(setupAccuracy*55+signalCapture*30+Math.max(0,Math.min(15,realizedR*3)),0,100);
-  const disciplineScore=clamp(patienceScore*70+(state.chaseEntries===0?30:0),0,100);
-  const score=Math.max(0,Math.round(500+realizedR*120+executionScore*4+riskScore*3+disciplineScore*2-state.badEntries*45));
-  return Object.freeze({
-    gameId:state.gameId,status:state.status,ticks:state.ticks,score,completion:round(completion,4),balance:round(state.balance,2),equity:round(state.equity,2),
-    pnl:round(state.balance-10000,2),realizedR:round(realizedR,2),wins,losses,trades:trades.length,goodEntries:state.goodEntries,badEntries:state.badEntries,
-    chaseEntries:state.chaseEntries,riskViolations:state.riskViolations,maxDrawdownPct:round(state.maxDrawdownPct,2),setupAccuracy:round(setupAccuracy,4),
-    signalCapture:round(signalCapture,4),patienceScore:round(patienceScore,4),riskScore:Math.round(riskScore),executionScore:Math.round(executionScore),disciplineScore:Math.round(disciplineScore),
-    selectedRiskPct:state.riskPct,closedTrades:trades.slice(-12),
-  });
-}
-
-export function replayTradingGame(gameId,seed,inputs=[]){
-  const state=createTradingState(gameId,seed);const list=Array.isArray(inputs)?inputs.slice(0,TRADING_SIM_MAX_TICKS):[];
-  for(const input of list){if(state.status!=='playing')break;tickTradingGame(state,input);}
-  return summarizeTradingState(state);
-}
-
+export function createTradingState(gameId,seed='1'){if(!GAME_IDS.includes(gameId))throw new Error('Unknown trading simulator.');const state={gameId,seedKey:String(seed),rng:seedNumber(`${gameId}:${seed}`),ticks:0,status:'playing',index:10,balance:10000,equity:10000,peakEquity:10000,maxDrawdownPct:0,riskPct:1,stopMode:'atr',targetR:2,executionMode:'market',openPosition:null,closedTrades:[],score:0,setupEntries:0,goodEntries:0,badEntries:0,chaseEntries:0,riskViolations:0,eventEntries:0,overtradeEntries:0,missedLimitEntries:0,holds:0,patientHolds:0,totalSignals:0,signalWindowsUsed:new Set(),lastAction:'hold',events:[],totalCosts:0,spreadCosts:0,slippageCosts:0,commissionCosts:0,marginPeakPct:0};const raw=scenarioFor(TRADING_GAME_DEFS[gameId],state);state.scenario=decorateScenario(gameId,raw,state);state.totalSignals=state.scenario.signals.length;state.targetR=state.scenario.tuning.targetR;return state;}
+function markToMarket(state,candle){const p=state.openPosition;if(!p){state.equity=state.balance;return;}const move=p.side==='buy'?candle.close-p.entry:p.entry-candle.close;state.equity=state.balance+move*p.quantity;const favorable=p.side==='buy'?candle.high-p.entry:p.entry-candle.low,adverse=p.side==='buy'?p.entry-candle.low:candle.high-p.entry;p.mfeR=Math.max(p.mfeR||0,favorable/Math.max(.00001,p.stopDistance));p.maeR=Math.max(p.maeR||0,adverse/Math.max(.00001,p.stopDistance));if((p.mfeR||0)>=1)p.breakevenObserved=true;state.peakEquity=Math.max(state.peakEquity,state.equity);state.maxDrawdownPct=Math.max(state.maxDrawdownPct,(state.peakEquity-state.equity)/Math.max(1,state.peakEquity)*100);}
+function executionCost(state,price,context,mode='market'){const slip=mode==='limit'?context.slippage*.15:context.slippage*(.65+rand(state)*.70),spread=context.spread;return{spread,slippage:slip,commissionBps:state.scenario.tuning.commissionBps,price};}
+function commissionFor(quantity,price,bps){return Math.abs(quantity*price)*(Number(bps)||0)/10000;}
+function fillPrice(side,mid,cost,isEntry=true){const direction=side==='buy'?1:-1,adverse=isEntry?direction:-direction;return mid+adverse*(cost.spread*.5+cost.slippage);}
+function closePosition(state,mid,reason='manual',context=state.scenario.context[Math.max(0,Math.min(state.index,state.scenario.context.length-1))]){const p=state.openPosition;if(!p)return;const cost=executionCost(state,mid,context,p.executionMode),exit=fillPrice(p.side,mid,cost,false),move=p.side==='buy'?exit-p.entry:p.entry-exit,grossPnl=move*p.quantity,exitCommission=commissionFor(p.quantity,exit,cost.commissionBps),pnl=grossPnl-exitCommission,r=p.riskDollars>0?pnl/p.riskDollars:0,barsHeld=Math.max(0,state.index-p.entryIndex);state.balance+=pnl;state.equity=state.balance;state.totalCosts+=exitCommission+cost.spread*.5*p.quantity+cost.slippage*p.quantity;state.spreadCosts+=cost.spread*.5*p.quantity;state.slippageCosts+=cost.slippage*p.quantity;state.commissionCosts+=exitCommission;state.closedTrades.push(Object.freeze({side:p.side,entry:round(p.entry),exit:round(exit),pnl:round(pnl,2),grossPnl:round(grossPnl,2),r:round(r,3),reason,entryIndex:p.entryIndex,exitIndex:state.index,barsHeld,riskPct:p.riskPct,setup:p.setup||null,session:p.session,regime:p.regime,maeR:round(p.maeR||0,3),mfeR:round(p.mfeR||0,3),breakevenObserved:Boolean(p.breakevenObserved),costs:round(p.entryCosts+exitCommission+cost.spread*.5*p.quantity+cost.slippage*p.quantity,2)}));state.score+=Math.round(r*90);state.openPosition=null;}
+function resolveStops(state,candle,context){const p=state.openPosition;if(!p)return;if(p.side==='buy'){if(candle.low<=p.stop){closePosition(state,p.stop,'stop',context);return;}if(candle.high>=p.target){closePosition(state,p.target,'target',context);return;}}else{if(candle.high>=p.stop){closePosition(state,p.stop,'stop',context);return;}if(candle.low<=p.target){closePosition(state,p.target,'target',context);return;}}}
+function stopFactor(state){if(state.stopMode==='tight')return .78;if(state.stopMode==='structure')return 1.42;return state.scenario.tuning.stopAtr;}
+function openPosition(state,side,mid,context){if(state.openPosition)return;const setup=signalAt(state.scenario,state.index),isGood=Boolean(setup&&setup.side===side),isChase=inWindow(state.scenario.chase,state.index),isEvent=context.event==='HIGH_IMPACT';if(state.executionMode==='limit'&&context.regime==='EXPANSION'&&rand(state)<.34){state.missedLimitEntries+=1;state.events.push(Object.freeze({index:state.index,type:'limit-miss',side}));return;}const atr=Math.max(.2,atrAt(state.scenario.series,state.index)),stopDistance=Math.max(.20,atr*stopFactor(state)),riskDollars=state.balance*(state.riskPct/100),quantity=riskDollars/stopDistance,cost=executionCost(state,mid,context,state.executionMode),entry=fillPrice(side,mid,cost,true),entryCommission=commissionFor(quantity,entry,cost.commissionBps),targetR=clamp(state.targetR,1,3),stop=side==='buy'?entry-stopDistance:entry+stopDistance,target=side==='buy'?entry+stopDistance*targetR:entry-stopDistance*targetR,notional=Math.abs(quantity*entry),marginUsed=notional/Math.max(1,state.scenario.instrument.leverage),marginPct=marginUsed/Math.max(1,state.equity)*100;state.marginPeakPct=Math.max(state.marginPeakPct,marginPct);state.balance-=entryCommission;state.totalCosts+=entryCommission+cost.spread*.5*quantity+cost.slippage*quantity;state.spreadCosts+=cost.spread*.5*quantity;state.slippageCosts+=cost.slippage*quantity;state.commissionCosts+=entryCommission;state.openPosition={side,entry,stop,target,quantity,riskDollars,riskPct:state.riskPct,entryIndex:state.index,setup:setup?.label||null,stopDistance,targetR,stopMode:state.stopMode,executionMode:state.executionMode,session:context.session,regime:context.regime,mfeR:0,maeR:0,breakevenObserved:false,entryCosts:entryCommission+cost.spread*.5*quantity+cost.slippage*quantity};state.setupEntries+=1;if(isGood){state.goodEntries+=1;state.score+=80;state.signalWindowsUsed.add(`${setup.start}:${setup.side}`);}else{state.badEntries+=1;state.score-=45;}if(isChase){state.chaseEntries+=1;state.score-=100;}if(isEvent){state.eventEntries+=1;state.score-=90;}if(state.riskPct>2){state.riskViolations+=1;state.score-=120;}if(marginPct>55){state.riskViolations+=1;state.score-=80;}if(state.setupEntries>state.totalSignals+2){state.overtradeEntries+=1;state.score-=55;}}
+function setDecisionControl(state,action){if(action.startsWith('risk')){const risk=Number(action.replace('risk',''));if(RISK_VALUES.has(risk)){state.riskPct=risk;if(risk>2)state.riskViolations+=1;}return true;}if(action==='stopTight'){state.stopMode='tight';return true;}if(action==='stopAtr'){state.stopMode='atr';return true;}if(action==='stopStructure'){state.stopMode='structure';return true;}if(action.startsWith('target')){const r=Number(action.replace('target',''));if([1,2,3].includes(r))state.targetR=r;return true;}if(action==='modeMarket'){state.executionMode='market';return true;}if(action==='modeLimit'){state.executionMode='limit';return true;}return false;}
+export function tickTradingGame(state,input='hold'){if(!state||state.status!=='playing')return state;const action=normalizeAction(input);state.lastAction=action;state.ticks+=1;const candle=state.scenario.series[state.index],context=state.scenario.context[state.index];if(!candle){state.status='complete';return state;}resolveStops(state,candle,context);markToMarket(state,candle);if(setDecisionControl(state,action)){}else if(action==='buy'||action==='sell'){if(state.openPosition)closePosition(state,candle.close,'reverse',context);openPosition(state,action,candle.close,context);}else if(action==='close')closePosition(state,candle.close,'manual',context);else{state.holds+=1;const setup=signalAt(state.scenario,state.index);if(!setup||inWindow(state.scenario.chase,state.index)||context.event==='HIGH_IMPACT')state.patientHolds+=1;}markToMarket(state,candle);state.index+=1;if(state.index>=state.scenario.series.length){const last=state.scenario.series.at(-1),lastContext=state.scenario.context.at(-1);if(state.openPosition)closePosition(state,last.close,'end',lastContext);state.status='complete';}if(state.balance<=7000){if(state.openPosition)closePosition(state,candle.close,'risk-stop',context);state.status='failed';}return state;}
+function maxLossStreak(trades){let current=0,max=0;for(const trade of trades){if(Number(trade.pnl)<0){current+=1;max=Math.max(max,current);}else current=0;}return max;}
+function groupStats(trades,key){const out={};for(const trade of trades){const k=String(trade[key]||'UNKNOWN');if(!out[k])out[k]={trades:0,pnl:0,r:0,wins:0};out[k].trades+=1;out[k].pnl+=Number(trade.pnl||0);out[k].r+=Number(trade.r||0);if(Number(trade.pnl)>0)out[k].wins+=1;}return Object.freeze(Object.fromEntries(Object.entries(out).map(([k,v])=>[k,Object.freeze({...v,pnl:round(v.pnl,2),r:round(v.r,2),winRate:round(v.wins/Math.max(1,v.trades),4)})])));}
+function setupStats(trades){const out={};for(const trade of trades){const key=trade.setup||'UNPLANNED';if(!out[key])out[key]={trades:0,r:0,wins:0};out[key].trades+=1;out[key].r+=Number(trade.r||0);if(Number(trade.pnl)>0)out[key].wins+=1;}return Object.freeze(Object.fromEntries(Object.entries(out).map(([k,v])=>[k,Object.freeze({trades:v.trades,r:round(v.r,2),winRate:round(v.wins/Math.max(1,v.trades),4)})])));}
+function coaching(summary){const priorities=[];if(summary.riskViolations>0)priorities.push('Reduce risk violations before increasing size.');if(summary.chaseEntries>0)priorities.push('Stop chasing expansion; wait for the planned location.');if(summary.eventEntries>0)priorities.push('Avoid entries during high-impact execution windows.');if(summary.setupAccuracy<.6)priorities.push('Require the game-specific setup before pressing BUY or SELL.');if(summary.costRatioPct>8)priorities.push('Execution costs are consuming too much of the risk budget.');if(summary.overtradeEntries>0)priorities.push('Reduce repeated entries after the available setup windows are used.');if(!priorities.length)priorities.push('Maintain the same process and review exit efficiency next.');return Object.freeze(priorities.slice(0,4));}
+function fingerprint(state,trades){const h=seedNumber(`${state.gameId}|${state.seedKey}|${state.ticks}|${trades.map((t)=>`${t.side}:${t.entryIndex}:${t.exitIndex}:${t.r}`).join('|')}`);return h.toString(16).padStart(8,'0');}
+export function summarizeTradingState(state){const trades=state.closedTrades||[],realizedR=trades.reduce((sum,t)=>sum+Number(t.r||0),0),wins=trades.filter((t)=>t.pnl>0).length,losses=trades.filter((t)=>t.pnl<0).length,grossProfit=trades.filter((t)=>t.pnl>0).reduce((s,t)=>s+Number(t.pnl||0),0),grossLoss=Math.abs(trades.filter((t)=>t.pnl<0).reduce((s,t)=>s+Number(t.pnl||0),0)),setupAccuracy=state.setupEntries?state.goodEntries/state.setupEntries:0,patienceScore=state.holds?state.patientHolds/state.holds:1,signalCapture=state.totalSignals?state.signalWindowsUsed.size/state.totalSignals:0,completion=clamp((state.index-10)/Math.max(1,state.scenario.series.length-10),0,1),costRatioPct=state.totalCosts/Math.max(1,state.closedTrades.reduce((s,t)=>s+Math.abs(Number(t.grossPnl||0)),0)+state.totalCosts)*100,riskScore=clamp(100-state.maxDrawdownPct*10-state.riskViolations*15-state.chaseEntries*8-state.eventEntries*12-Math.max(0,state.marginPeakPct-45)*.6,0,100),costControl=clamp(100-costRatioPct*2-state.eventEntries*10,0,100),contextScore=clamp(setupAccuracy*60+signalCapture*25+(state.eventEntries===0?15:0),0,100),executionScore=clamp(setupAccuracy*45+signalCapture*25+costControl*.15+Math.max(0,Math.min(15,realizedR*3)),0,100),disciplineScore=clamp(patienceScore*55+(state.chaseEntries===0?20:0)+(state.overtradeEntries===0?15:0)+(state.eventEntries===0?10:0),0,100),score=Math.max(0,Math.round(500+realizedR*120+executionScore*4+riskScore*3+disciplineScore*2+contextScore-state.badEntries*45-state.overtradeEntries*35)),expectancy=trades.length?realizedR/trades.length:0,profitFactor=grossLoss>0?grossProfit/grossLoss:(grossProfit>0?99:0),avgHold=trades.length?trades.reduce((s,t)=>s+Number(t.barsHeld||0),0)/trades.length:0,mae=trades.length?trades.reduce((s,t)=>s+Number(t.maeR||0),0)/trades.length:0,mfe=trades.length?trades.reduce((s,t)=>s+Number(t.mfeR||0),0)/trades.length:0;const summary={gameId:state.gameId,status:state.status,ticks:state.ticks,score,completion:round(completion,4),instrument:state.scenario.instrument.symbol,balance:round(state.balance,2),equity:round(state.equity,2),pnl:round(state.balance-10000,2),realizedR:round(realizedR,3),expectancyR:round(expectancy,3),profitFactor:round(profitFactor,3),winRate:round(wins/Math.max(1,trades.length),4),averageR:round(expectancy,3),averageHoldBars:round(avgHold,2),averageMaeR:round(mae,3),averageMfeR:round(mfe,3),maxConsecutiveLosses:maxLossStreak(trades),wins,losses,trades:trades.length,goodEntries:state.goodEntries,badEntries:state.badEntries,chaseEntries:state.chaseEntries,eventEntries:state.eventEntries,overtradeEntries:state.overtradeEntries,missedLimitEntries:state.missedLimitEntries,riskViolations:state.riskViolations,maxDrawdownPct:round(state.maxDrawdownPct,2),marginPeakPct:round(state.marginPeakPct,2),setupAccuracy:round(setupAccuracy,4),signalCapture:round(signalCapture,4),patienceScore:round(patienceScore,4),noTradeDiscipline:round(patienceScore,4),riskScore:Math.round(riskScore),executionScore:Math.round(executionScore),disciplineScore:Math.round(disciplineScore),contextScore:Math.round(contextScore),costControlScore:Math.round(costControl),selectedRiskPct:state.riskPct,stopMode:state.stopMode,targetR:state.targetR,executionMode:state.executionMode,totalCosts:round(state.totalCosts,2),spreadCosts:round(state.spreadCosts,2),slippageCosts:round(state.slippageCosts,2),commissionCosts:round(state.commissionCosts,2),costRatioPct:round(costRatioPct,2),bySession:groupStats(trades,'session'),byRegime:groupStats(trades,'regime'),byDirection:groupStats(trades,'side'),bySetup:setupStats(trades),closedTrades:trades.slice(-20),replayFingerprint:fingerprint(state,trades)};summary.skillMatrix=Object.freeze({execution:summary.executionScore,risk:summary.riskScore,discipline:summary.disciplineScore,context:summary.contextScore,costControl:summary.costControlScore});summary.coachingPriorities=coaching(summary);summary.journal=Object.freeze({headline:`${state.gameId}: ${summary.trades} trades, ${summary.realizedR.toFixed(2)}R, ${summary.maxDrawdownPct.toFixed(2)}% max DD`,strengths:Object.freeze([summary.riskScore>=85?'risk control':null,summary.disciplineScore>=85?'discipline':null,summary.setupAccuracy>=.7?'setup selection':null].filter(Boolean)),mistakes:Object.freeze([summary.chaseEntries?'chasing':null,summary.eventEntries?'news-window entries':null,summary.riskViolations?'risk violations':null,summary.overtradeEntries?'overtrading':null].filter(Boolean)),next:Object.freeze(summary.coachingPriorities)});summary.tradeAutopsy=Object.freeze(trades.slice(-8).map((t)=>Object.freeze({side:t.side,setup:t.setup,entryIndex:t.entryIndex,exitIndex:t.exitIndex,r:t.r,maeR:t.maeR,mfeR:t.mfeR,reason:t.reason,costs:t.costs})));summary.championshipScore=Math.round(summary.executionScore*.25+summary.riskScore*.25+summary.disciplineScore*.20+summary.contextScore*.20+summary.costControlScore*.10);return Object.freeze(summary);}
+export function replayTradingGame(gameId,seed,inputs=[]){const state=createTradingState(gameId,seed),list=Array.isArray(inputs)?inputs.slice(0,TRADING_SIM_MAX_TICKS):[];for(const input of list){if(state.status!=='playing')break;tickTradingGame(state,input);}return summarizeTradingState(state);}
 export function getTradingGameDef(gameId){return TRADING_GAME_DEFS[String(gameId)]||null;}
-export function tradingGameIds(){return [...GAME_IDS];}
+export function tradingGameIds(){return[...GAME_IDS];}
+export function tradingGameCatalog(){return TRADING_GAME_ROWS.map((row,index)=>Object.freeze({id:row[0],name:row[1],floor:row[2],skill:row[3],archetype:row[4],description:row[5],number:index+1,status:'playable',rewardMode:'skill_verified',wagering:false,gameType:'trading_simulation'}));}
+export function tradingSimulationCapabilities(){return Object.freeze({buildRange:TRADING_BUILD_RANGE,instruments:INSTRUMENTS.map((item)=>item.symbol),actions:Object.freeze([...ACTIONS]),gameCount:GAME_IDS.length,marketRealism:Object.freeze(['variable-spread','slippage','commission','session','volatility-regime','news-window','liquidity-spike']),analytics:Object.freeze(['expectancy','profit-factor','win-rate','average-r','mae','mfe','holding-bars','loss-streak','cost-attribution','session-breakdown','regime-breakdown','direction-breakdown','setup-breakdown']),review:Object.freeze(['journal','trade-autopsy','coaching-priorities','skill-matrix','replay-fingerprint'])});}
