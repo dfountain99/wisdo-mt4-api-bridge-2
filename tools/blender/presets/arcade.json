@@ -1,0 +1,8 @@
+{
+  "assetType": "arcade",
+  "lodRatios": [1.0, 0.58, 0.30, 0.12],
+  "runtimeUp": "+Y",
+  "runtimeForward": "+Z",
+  "collision": "simplified_static",
+  "requiredObjectPrefixes": ["ARCADE_STRUCTURE", "ARCADE_GLASS", "ARCADE_DOOR", "ARCADE_WISDO_SIGN", "ARCADE_MARKET_SCREEN", "ARCADE_INTERIOR", "ARCADE_COLLISION"]
+}

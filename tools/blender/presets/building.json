@@ -1,0 +1,8 @@
+{
+  "assetType": "building",
+  "lodRatios": [1.0, 0.60, 0.32, 0.14],
+  "runtimeUp": "+Y",
+  "runtimeForward": "+Z",
+  "collision": "simplified_static",
+  "maxMaterialSlotsPreferred": 12
+}

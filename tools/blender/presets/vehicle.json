@@ -1,0 +1,8 @@
+{
+  "assetType": "vehicle",
+  "lodRatios": [1.0, 0.55, 0.25, 0.10],
+  "runtimeUp": "+Y",
+  "runtimeForward": "+Z",
+  "collision": "simplified_static",
+  "requiredObjectPrefixes": ["BODY", "WINDOWS", "WHEEL_FL", "WHEEL_FR", "WHEEL_RL", "WHEEL_RR", "HEADLIGHT_L", "HEADLIGHT_R", "TAILLIGHT_L", "TAILLIGHT_R"]
+}
