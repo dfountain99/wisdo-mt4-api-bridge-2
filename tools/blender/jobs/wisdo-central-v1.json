@@ -1,0 +1,14 @@
+{
+  "assetId": "wisdo-central-v1",
+  "name": "WISDO_CENTRAL_V1",
+  "assetType": "building",
+  "source": {
+    "recipe": "tools/blender/recipes/wisdo_central_v1.py"
+  },
+  "output": "public/world-assets/interiors/wisdo-central-v1/wisdo_central_v1.glb",
+  "report": "public/world-assets/interiors/wisdo-central-v1/wisdo_central_v1.report.json",
+  "registerTarget": "interior",
+  "lodRatios": [1.0, 0.62, 0.36, 0.18],
+  "license": "WISDO_ORIGINAL",
+  "sourceNote": "Original WISDO Central production atrium authored by a checked-in Blender recipe with semantic interaction, screen, spawn and collision node names."
+}

@@ -27,9 +27,6 @@ const TARGET_ASSET_TYPES = Object.freeze({
   building: Object.freeze(['building']),
   prop: Object.freeze(['prop']),
   vehicle: Object.freeze(['vehicle']),
-  // Interiors are a runtime catalog classification. The checked-in Blender
-  // pipeline intentionally processes them with the existing building asset
-  // pipeline so we do not advertise a CLI type the Python pipeline cannot run.
   interior: Object.freeze(['building']),
   vegetation: Object.freeze(['vegetation']),
   worldObject: Object.freeze(['prop','building','vegetation']),
@@ -113,8 +110,12 @@ export function validateJob(input, {allowedHosts=DEFAULT_ALLOWED_HOSTS}={}) {
     const ext=path.posix.extname(url.pathname).toLowerCase();
     if(!['.fbx','.glb','.gltf','.obj','.blend'].includes(ext)) throw new Error(`Unsupported source extension: ${ext||'(none)'}`);
     source={kind:'url',url:url.href,filename:slug(input.source.filename||path.posix.basename(url.pathname),'source.glb')};
+  } else if(input.source?.recipe) {
+    const recipe=assertRelativePath(input.source.recipe,'source.recipe',['tools/blender/recipes']);
+    if(!recipe.toLowerCase().endsWith('.py')) throw new Error('source.recipe must be a Python file under tools/blender/recipes.');
+    source={kind:'recipe',recipe};
   } else {
-    throw new Error('source.repoPath or source.url is required.');
+    throw new Error('source.repoPath, source.url, or source.recipe is required.');
   }
 
   const targetHeight=input.targetHeight==null?null:Number(input.targetHeight);

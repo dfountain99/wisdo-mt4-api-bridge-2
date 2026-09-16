@@ -14,6 +14,7 @@ const map={
   animations:'tools/blender/scripts/process_animations.py',
   collision:'tools/blender/scripts/build_collision.py',
   export:'tools/blender/scripts/export_glb.py',
+  recipe:'tools/blender/scripts/run_recipe.py',
 };
 if(!map[command])throw new Error(`Unknown Blender command: ${command}`);
 const blender=findBlender();

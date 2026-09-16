@@ -1,0 +1,22 @@
+{
+  "assetId": "wisdo-operator-v1",
+  "name": "WISDO_OPERATOR_V1",
+  "assetType": "character",
+  "source": {
+    "url": "https://cdn.jsdelivr.net/gh/kunalkushwaha/vsim@3f97faf85e46d2f9a122b0a8b8d3ccc0af598f91/packages/assets/library/suited.glb",
+    "filename": "wisdo_operator_source.glb"
+  },
+  "output": "public/world-assets/characters/player/wisdo_operator_v1.glb",
+  "report": "public/world-assets/characters/player/wisdo_operator_v1.report.json",
+  "registerTarget": "playerV2",
+  "targetHeight": 1.82,
+  "lodRatios": [1.0, 0.62, 0.36, 0.18],
+  "license": "CC0-1.0",
+  "sourceNote": "CC0 humanoid base processed through the WISDO Blender pipeline; WISDO runtime applies brand materials, identity marks and blended locomotion.",
+  "clips": {
+    "IDLE": ["idle", "Idle"],
+    "WALK_FORWARD": ["walk", "Walk"],
+    "RUN": ["run", "Run"],
+    "INTERACT": ["wave", "Wave"]
+  }
+}
