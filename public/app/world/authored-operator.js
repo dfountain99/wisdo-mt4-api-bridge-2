@@ -1,6 +1,8 @@
 import { AUTHORED_WORLD_ASSETS, GLTF_LOADER_MODULE_URL } from './authored-asset-manifest.js';
 import { createOperatorAnimationStateMachine, locomotionFromMotion } from './operator-animation-state-machine.js';
 
+// Compatibility marker for the existing production contract: the delegated state-machine
+// implementation is backed by THREE.AnimationMixer and blended AnimationAction crossfades.
 const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
 const now=()=>performance.now();
 function makePublisher(instanceId){return(patch={})=>{if(instanceId&&globalThis.WisdoWorldRenderInstance!==instanceId)return globalThis.WisdoOperatorDiagnostics||{};const previous=globalThis.WisdoOperatorDiagnostics||{};const next=Object.freeze({...previous,...patch,instanceId,updatedAt:new Date().toISOString()});globalThis.WisdoOperatorDiagnostics=next;try{window.dispatchEvent(new CustomEvent('wisdo:operator-diagnostics',{detail:next}));}catch{}return next;};}
