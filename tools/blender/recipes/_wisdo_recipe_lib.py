@@ -37,7 +37,12 @@ def material(name, color, *, metallic=0.0, roughness=0.5, emission=None, emissio
         _set_input(bsdf, ('Transmission Weight', 'Transmission'), transmission)
     if alpha < 1.0:
         _set_input(bsdf, ('Alpha',), alpha)
-        mat.surface_render_method = 'DITHERED' if hasattr(mat, 'surface_render_method') else getattr(mat, 'surface_render_method', None)
+        if hasattr(mat, 'surface_render_method'):
+            try: mat.surface_render_method = 'DITHERED'
+            except Exception: pass
+        elif hasattr(mat, 'blend_method'):
+            try: mat.blend_method = 'BLEND'
+            except Exception: pass
         mat.diffuse_color = (*color, alpha)
     return mat
 
