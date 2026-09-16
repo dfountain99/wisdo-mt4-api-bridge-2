@@ -1,0 +1,14 @@
+{
+  "assetId": "wisdo-terminal-v1",
+  "name": "WISDO_TERMINAL_V1",
+  "assetType": "prop",
+  "source": {
+    "recipe": "tools/blender/recipes/wisdo_terminal_v1.py"
+  },
+  "output": "public/world-assets/props/wisdo-terminal-v1/wisdo_terminal_v1.glb",
+  "report": "public/world-assets/props/wisdo-terminal-v1/wisdo_terminal_v1.report.json",
+  "registerTarget": "prop",
+  "lodRatios": [1.0, 0.58, 0.32],
+  "license": "WISDO_ORIGINAL",
+  "sourceNote": "Original WISDO interactive terminal authored by a checked-in Blender recipe with screen and interaction semantics."
+}
