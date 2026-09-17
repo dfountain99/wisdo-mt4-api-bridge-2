@@ -1,6 +1,6 @@
-import { WORLD_BUILD } from './world-build.js?v=2026.09.15.visual-fidelity-v3';
+import { WORLD_BUILD } from './world-build.js?v=2026.09.17.visual-fidelity-v4';
 
-const DEBUG_CLIENT_REVISION='2026.09.15.visual-fidelity-v3';
+const DEBUG_CLIENT_REVISION='2026.09.17.visual-fidelity-v4';
 globalThis.WisdoDebugClientRevision=DEBUG_CLIENT_REVISION;
 const params = new URLSearchParams(location.search);
 
@@ -26,6 +26,8 @@ if (params.get('debug') === '1') {
       const arcade = globalThis.WisdoArcadeWorldDiagnostics || {};
       const visualV2 = globalThis.WisdoVisualFidelityV2Diagnostics || {};
       const visualV3 = globalThis.WisdoVisualFidelityV3Diagnostics || {};
+      const visualV4 = globalThis.WisdoVisualFidelityV4Diagnostics || {};
+      const visualAcceptance = globalThis.WisdoVisualAcceptance || {};
       const multiplayer = globalThis.WisdoMultiplayerDiagnostics || {};
       const errors = globalThis.WisdoVisualRuntimeErrors || {};
       const safety = globalThis.WisdoWorldSafetyDiagnostics || {};
@@ -35,6 +37,7 @@ if (params.get('debug') === '1') {
       const arcadeError = errors['arcade-primary'] || errors['arcade-plaza'] || null;
       const visualV2Error = errors['visual-fidelity-v2'] || errors['visual-fidelity-v2-frame'] || null;
       const visualV3Error = errors['visual-fidelity-v3'] || errors['visual-fidelity-v3-frame'] || null;
+      const visualV4Error = errors['visual-fidelity-v4'] || errors['visual-fidelity-v4-frame'] || null;
       const componentErrors = Object.keys(arcade.componentErrors || {});
       const failedAssets = [operator.failureReason, ...componentErrors.map((key) => arcade.componentErrors?.[key])].filter(Boolean);
       const operatorAsset = authored.operator || {};
@@ -58,8 +61,11 @@ if (params.get('debug') === '1') {
         `VISUAL ${cinematic.active ? cinematic.visualPass : 'CORE'} · ARCADE ${arcade.active ? 'ACTIVE' : 'DEGRADED'}`,
         `VISUAL V2 ${visualV2.active ? 'ACTIVE' : 'DEGRADED'} · ${visualV2.touchLike ? 'MOBILE' : 'DESKTOP'} · OBJECTS ${visualV2.objectCount ?? 0}`,
         `VISUAL V3 ${visualV3.active ? 'ACTIVE' : 'DEGRADED'} · CROWD ${visualV3.crowdCount ?? 0} · BRAND ${visualV3.operatorBrandingIntegrated ? 'INTEGRATED' : 'PENDING'}`,
+        `VISUAL V4 ${visualV4.active ? 'ACTIVE' : 'DEGRADED'} · PBR ${visualV4.environmentPbr ? 'ON' : 'OFF'} · HERO ${visualV4.target?.academyEntrance ? 'ACADEMY' : 'PENDING'}`,
+        `VISUAL SCORE ${visualAcceptance.total ?? '-'} / ${visualAcceptance.threshold ?? 80} · RUNTIME ${visualAcceptance.runtimeReady ? 'READY' : 'PENDING'} · RELEASE ${visualAcceptance.releaseReady ? 'APPROVED' : 'PENDING REVIEW'}`,
         `V2 ERR ${shorten(visualV2Error?.message || 'NONE', 96)}`,
         `V3 ERR ${shorten(visualV3Error?.message || 'NONE', 96)}`,
+        `V4 ERR ${shorten(visualV4Error?.message || 'NONE', 96)}`,
         `RECOVERY cinematic=${cinematic.recoveryMode ? 'YES' : 'NO'} arcade=${arcade.recoveryMode ? 'YES' : 'NO'}`,
         `SCENE brew=${registry.businesses?.brew ? 'YES' : 'NO'} arcade=${registry.businesses?.arcade ? 'YES' : 'NO'} gym=${registry.businesses?.gym ? 'YES' : 'NO'} coach=${registry.landmarks?.coach ? 'YES' : 'NO'}`,
         `POP npc=${arcade.npcCount ?? 0} palms=${arcade.palmCount ?? 0} drones=${cinematic.ambientDrones ?? 0} crowd=${visualV3.crowdCount ?? 0}`,
@@ -80,7 +86,7 @@ if (params.get('debug') === '1') {
         `CLIPS ${Array.isArray(operator.clips) && operator.clips.length ? operator.clips.join(', ') : '-'}`,
         `MODEL mesh=${operator.meshCount ?? '-'} skin=${operator.skinnedMeshCount ?? '-'} mat=${operator.materialCount ?? '-'} tex=${operator.textureCount ?? '-'} tri=${Number(operator.triangles || 0).toLocaleString()}`,
         `FAIL ${shorten(operator.failureReason || 'NONE', 96)}`,
-        `QUALITY ${(quality.activeQuality || renderState.qualityDecision || '-').toUpperCase()} · AUTO ${quality.adaptive ? 'ON' : 'OFF'} · TARGET ${visualV3.targetMobileFps ?? 30}FPS`,
+        `QUALITY ${(quality.activeQuality || renderState.qualityDecision || '-').toUpperCase()} · AUTO ${quality.adaptive ? 'ON' : 'OFF'} · TARGET ${visualV4.performanceBudget?.mobileTargetFps ?? visualV3.targetMobileFps ?? 30}FPS`,
         `DEVICE touch=${caps.touchLike ? 'YES' : 'NO'} webgl2=${caps.webgl2 ? 'YES' : 'NO'} cores=${caps.cores ?? '-'} memory=${caps.memoryGb ?? 'UNKNOWN'}GB`,
         `DPR ${renderState.dpr ?? '-'} · SHADOW ${renderState.shadows ? 'ON' : 'OFF'}`,
         `RENDER ${renderState.rendererWidth ?? '-'}×${renderState.rendererHeight ?? '-'}`,
@@ -101,6 +107,7 @@ if (params.get('debug') === '1') {
     window.addEventListener('wisdo:arcade-world-ready', render);
     window.addEventListener('wisdo:visual-v2-ready', render);
     window.addEventListener('wisdo:visual-v3-ready', render);
+    window.addEventListener('wisdo:visual-fidelity-benchmark', render);
     window.addEventListener('wisdo:visual-runtime-error', render);
   }
 }

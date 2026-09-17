@@ -69,12 +69,12 @@ test('Three compatibility layer prevents a missing CapsuleGeometry from killing 
 
 test('authored Operator starts before optional fidelity work and publishes the asset URL before loading', () => {
   const production = read('public/app/world/world3d-production.js');
-  const operatorStart = production.indexOf('installAuthoredOperator({THREE,scene:capturedScene');
-  const fidelityStart = production.indexOf('fidelity=await installProductionFidelity');
+  const operatorStart = production.indexOf('installAuthoredOperatorV4({THREE,scene,renderer,camera');
+  const fidelityStart = production.indexOf('fidelity=await installProductionFidelityV4');
   assert.ok(operatorStart >= 0 && fidelityStart >= 0 && operatorStart < fidelityStart, 'Operator must start before optional fidelity initialization');
-  assert.match(production, /status:'QUEUED'/);
+  assert.match(production, /status:'V4_QUEUED'/);
   assert.match(production, /assetUrl:asset\.url/);
-  assert.match(production, /status:'FALLBACK_ACTIVE'/);
+  assert.match(production, /status:'V4_FALLBACK'|status:'PROCEDURAL_FALLBACK_ACTIVE'/);
   const fallback = read('public/app/world/world-operator-fallback.js');
   assert.match(fallback, /WISDOEmergencyOperatorV2/);
   assert.doesNotMatch(fallback, /mt4CommandService|executeTrade|placeOrder/);
