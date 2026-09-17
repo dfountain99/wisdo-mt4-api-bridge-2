@@ -1,4 +1,4 @@
-import { createWorldExperience as createProductionWorldExperience } from './world3d-production-v4.js?v=2026.09.17.visual-fidelity-v4';
+import { createWorldExperience as createProductionWorldExperience } from './world3d-production.js?v=2026.09.17.visual-fidelity-v4';
 import { installWorldNpcVisuals } from './world-npc-visual-runtime.js';
 import { installOgMasterAcademyRuntime } from './og-master-academy-runtime.js';
 import { installVisualFidelityBenchmarkRuntime } from './visual-fidelity-benchmark-runtime.js?v=2026.09.17.visual-fidelity-v4';
