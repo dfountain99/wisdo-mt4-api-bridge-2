@@ -4,6 +4,7 @@ import fs from 'node:fs';
 
 import { animationTimeScale, normalizeLocomotionState, OPERATOR_ANIMATION_STATES } from '../public/app/world/operator-animation-graph.js';
 import { WISDO_VISUAL_FIDELITY_V4_REVISION } from '../public/app/world/world-visual-fidelity-v4.js';
+import { evaluateVisualFidelityRuntime, VISUAL_FIDELITY_ACCEPTANCE_THRESHOLD } from '../public/app/world/visual-fidelity-benchmark.js';
 
 const read=(path)=>fs.readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 
@@ -30,6 +31,7 @@ test('Production World selects V4 renderer while retaining fallbacks',()=>{
   const world=read('public/app/world/world3d.js');
   const production=read('public/app/world/world3d-production-v4.js');
   assert.match(world,/world3d-production-v4\.js/);
+  assert.match(world,/installVisualFidelityBenchmarkRuntime/);
   assert.match(production,/installAuthoredOperatorV4/);
   assert.match(production,/installLegacyAuthoredOperator/);
   assert.match(production,/installProductionFidelityV4/);
@@ -43,4 +45,17 @@ test('Operator V4 responds to real player state and semantic actions',()=>{
   assert.match(source,/createOperatorAnimationGraph/);
   assert.match(source,/lookAt:true/);
   assert.doesNotMatch(source,/mt4CommandService|CLOSE_ALL|broker.*password/i);
+});
+
+test('Visual acceptance benchmark reports readiness without pretending to replace human review',()=>{
+  const result=evaluateVisualFidelityRuntime({
+    operator:{active:true,renderer:'AUTHORED_GLTF_V4',animationGraph:true,secondaryMotion:true,lookAt:true},
+    v4:{active:true,touchLike:false,environmentPbr:true,target:{academyEntrance:true,masterChamberPortal:true,reflectiveCourt:true},objects:['WisdoV4AtmosphereParticles']},
+    render:{fps:60,player:{state:'IDLE'}},
+    safety:{executionFromVisuals:false},
+  });
+  assert.equal(VISUAL_FIDELITY_ACCEPTANCE_THRESHOLD,80);
+  assert.equal(result.runtimeReady,true);
+  assert.equal(result.total,100);
+  assert.match(result.note,/not a substitute for human screenshot\/animation review/i);
 });
