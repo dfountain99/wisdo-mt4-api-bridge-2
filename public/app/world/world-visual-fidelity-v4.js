@@ -1,5 +1,6 @@
 export const WISDO_VISUAL_FIDELITY_V4_REVISION='2026.09.17.visual-fidelity-v4';
 const clamp=(value,min,max)=>Math.max(min,Math.min(max,Number(value)||0));
+const damp=(current,target,lambda,dt)=>current+(target-current)*(1-Math.exp(-Math.max(0,lambda)*Math.max(0,dt)));
 function keep(list,item){if(item)list.push(item);return item;}
 function glow(THREE,color,opacity=1){return new THREE.MeshBasicMaterial({color,transparent:opacity<1,opacity,depthWrite:false,toneMapped:false,blending:THREE.AdditiveBlending});}
 function physical(THREE,color,options={}){return new THREE.MeshPhysicalMaterial({color,roughness:.28,metalness:.35,envMapIntensity:1.2,...options});}
