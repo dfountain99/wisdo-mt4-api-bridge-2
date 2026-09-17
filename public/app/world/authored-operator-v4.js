@@ -113,7 +113,8 @@ export async function installAuthoredOperatorV4({THREE,scene,renderer,camera,deb
   }
   frameId=requestAnimationFrame(frame);
 
-  const diagnostics=publish(instanceId,{status:'V4_ACTIVE',active:true,renderer:'AUTHORED_GLTF_V4',assetId:asset.id,bytesLoaded:bytes,loadMs,scale,clips:animation.clips,resolvedClips:animation.resolvedClips,bones:Object.freeze(Object.fromEntries(Object.entries(bones).map(([k,v])=>[k,v?.name||null]))),secondaryMotion:true,lookAt:true,animationGraph:true});
+  const productionAsset=String(asset.id||'')!=='wisdo-default-operator-v1';
+  const diagnostics=publish(instanceId,{status:'V4_ACTIVE',active:true,renderer:'AUTHORED_GLTF_V4',assetId:asset.id,bytesLoaded:bytes,loadMs,scale,clips:animation.clips,resolvedClips:animation.resolvedClips,fallbackStates:animation.fallbackStates,missingStates:animation.missingStates,coreAnimationCoverage:animation.coreAnimationCoverage,productionAsset,bones:Object.freeze(Object.fromEntries(Object.entries(bones).map(([k,v])=>[k,v?.name||null]))),secondaryMotion:true,lookAt:true,animationGraph:true});
   if(debug)console.debug('[WISDO OPERATOR V4]',diagnostics);
 
   return Object.freeze({active:true,assetId:asset.id,diagnostics,animation,destroy(){if(destroyed)return;destroyed=true;cancelAnimationFrame(frameId);window.removeEventListener('wisdo:world-player-state',onPlayer);window.removeEventListener('wisdo:operator-action',onAction);animation.destroy();physicsRoot.remove(mount);mount.traverse((object)=>{object.geometry?.dispose?.();const mats=Array.isArray(object.material)?object.material:[object.material];for(const material of mats){if(!material)continue;for(const value of Object.values(material))if(value?.isTexture)value.dispose?.();material.dispose?.();}});for(const[child,visible]of previousVisibility)child.visible=visible;publish(instanceId,{status:'V4_DESTROYED',active:false});}});
