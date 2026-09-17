@@ -11,7 +11,7 @@ export const VISUAL_FIDELITY_DIMENSIONS=Object.freeze({
   integration:5,
 });
 
-const yes=(value)=>value===true?1:0;
+const yes=(value)=>Boolean(value)?1:0;
 const clamp=(value,min,max)=>Math.max(min,Math.min(max,Number(value)||0));
 const average=(values=[])=>values.length?values.reduce((sum,value)=>sum+Number(value||0),0)/values.length:0;
 
