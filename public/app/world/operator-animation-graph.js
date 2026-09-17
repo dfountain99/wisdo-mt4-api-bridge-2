@@ -90,6 +90,7 @@ export function createOperatorAnimationGraph({THREE,root,animations=[],asset={},
   }
 
   let locomotion='IDLE';
+  let locomotionSpeed=0;
   let current=null;
   let override=null;
   let destroyed=false;
@@ -119,8 +120,9 @@ export function createOperatorAnimationGraph({THREE,root,animations=[],asset={},
 
   function setLocomotion(state,{speed=0}={}){
     locomotion=normalizeLocomotionState(state);
+    locomotionSpeed=Math.max(0,Number(speed)||0);
     if(override) return locomotion;
-    transition(locomotion,{timeScale:animationTimeScale(locomotion,speed)});
+    transition(locomotion,{timeScale:animationTimeScale(locomotion,locomotionSpeed)});
     return locomotion;
   }
 
@@ -135,7 +137,7 @@ export function createOperatorAnimationGraph({THREE,root,animations=[],asset={},
   const onFinished=(event)=>{
     if(!override||event?.action!==actions[override]) return;
     override=null;
-    transition(locomotion,{fade:.16,timeScale:animationTimeScale(locomotion,0),reset:false});
+    transition(locomotion,{fade:.16,timeScale:animationTimeScale(locomotion,locomotionSpeed),reset:false});
   };
   mixer.addEventListener?.('finished',onFinished);
   transition('IDLE',{fade:0,reset:true});
