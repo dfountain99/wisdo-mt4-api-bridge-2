@@ -1,6 +1,6 @@
-export const WORLD_VERSION = '3.2.0-visual-fidelity-v3-alpha';
-export const WORLD_BUILD_ID = '2026.09.15.visual-fidelity-v3';
-export const WORLD_RENDERER = 'cinematic-city-v4-visual-fidelity-v3';
+export const WORLD_VERSION = '3.3.0-visual-fidelity-v4-alpha';
+export const WORLD_BUILD_ID = '2026.09.17.visual-fidelity-v4';
+export const WORLD_RENDERER = 'academy-cinematic-v5-visual-fidelity-v4';
 export const WORLD_CITY_ID = 'arcade-central-03';
 export const WORLD_OPERATOR_ASSET = 'wisdo-default-operator-v1';
 
