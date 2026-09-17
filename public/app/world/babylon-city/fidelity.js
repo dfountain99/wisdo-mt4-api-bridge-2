@@ -13,7 +13,7 @@ function install({B,scene,engine,camera,low=false}={}){
   if(!B||!scene||!engine||!camera)throw new TypeError('WISDO Babylon fidelity requires engine, scene and camera.');
   let pipeline=null,ssao=null,environment=null,destroyed=false;
   const baseFov=camera.fov||0.8;
-  scene.environmentIntensity=low?.72:1.05;
+  scene.environmentIntensity=low ? .72:1.05;
   try{
     if(!scene.environmentTexture&&B.CubeTexture?.CreateFromPrefilteredData){
       environment=B.CubeTexture.CreateFromPrefilteredData('https://assets.babylonjs.com/environments/environmentSpecular.env',scene);
@@ -26,8 +26,8 @@ function install({B,scene,engine,camera,low=false}={}){
       pipeline.fxaaEnabled=true;
       pipeline.samples=low?1:4;
       pipeline.bloomEnabled=true;
-      pipeline.bloomThreshold=low?.88:.72;
-      pipeline.bloomWeight=low?.18:.28;
+      pipeline.bloomThreshold=low ? .88:.72;
+      pipeline.bloomWeight=low ? .18:.28;
       pipeline.bloomKernel=low?32:64;
       pipeline.bloomScale=.5;
       pipeline.sharpenEnabled=!low;
@@ -64,10 +64,10 @@ function install({B,scene,engine,camera,low=false}={}){
   return Object.freeze({
     update({dt=.016,speed=0,sprinting=false}={}){
       if(destroyed)return;
-      const target=baseFov+(sprinting?.085:speed>3?.035:0);
+      const target=baseFov+(sprinting ? .085:speed>3 ? .035:0);
       camera.fov=damp(camera.fov||baseFov,target,sprinting?6.5:8.5,dt);
       if(scene.environmentIntensity!==undefined){
-        const desired=sprinting?1.1:(low?.72:1.05);
+        const desired=sprinting?1.1:(low ? .72:1.05);
         scene.environmentIntensity=damp(scene.environmentIntensity,desired,2.5,dt);
       }
     },
