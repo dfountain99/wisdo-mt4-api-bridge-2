@@ -1,6 +1,7 @@
 const DEFAULT_FADE = Object.freeze({ IDLE: 0.22, WALK: 0.18, RUN: 0.16, SPRINT: 0.14, JUMP: 0.10, FALL: 0.10, LAND: 0.16 });
 const LOCOMOTION = Object.freeze(['IDLE','WALK','RUN','SPRINT','JUMP','FALL','LAND']);
 const SEMANTIC = Object.freeze(['GREET','WAVE','POINT','SPEAK','THINK','INTERACT']);
+const ONE_SHOT = new Set([...SEMANTIC,'LAND']);
 
 const clamp = (value,min,max)=>Math.max(min,Math.min(max,Number(value)||0));
 const names = (value)=>Array.isArray(value)?value:[value].filter(Boolean);
@@ -27,23 +28,39 @@ function clipByNames(clips, candidates=[]) {
   return null;
 }
 
+function resolveClip(clips,{primary=[],fallback=[]}={}) {
+  const exact=clipByNames(clips,primary);
+  if(exact) return {clip:exact,fallback:false};
+  const substitute=clipByNames(clips,fallback);
+  return substitute?{clip:substitute,fallback:true}:null;
+}
+
 function candidateMap(asset={}) {
   const clips=asset.clips||{};
   return Object.freeze({
-    IDLE:[...names(clips.idle),'IDLE','Idle','idle'],
-    WALK:[...names(clips.walk),'WALK_FORWARD','WALK','Walk','walk'],
-    RUN:[...names(clips.run),'RUN','Run','run'],
-    SPRINT:[...names(clips.sprint),'SPRINT','Sprint','sprint','RUN','Run'],
-    JUMP:[...names(clips.jump),'JUMP','Jump','jump'],
-    FALL:[...names(clips.fall),'FALL','Fall','fall','JUMP','Jump'],
-    LAND:[...names(clips.land),'LAND','Land','land','IDLE','Idle'],
-    GREET:[...names(clips.greet),'GREET','Wave','wave'],
-    WAVE:[...names(clips.wave),'WAVE','Wave','wave'],
-    POINT:[...names(clips.point),'POINT','Point','point'],
-    SPEAK:[...names(clips.speak),'SPEAK','Talk','talk','Idle'],
-    THINK:[...names(clips.think),'THINK','Think','think','Idle'],
-    INTERACT:[...names(clips.interact),'INTERACT','Interact','interact','Wave'],
+    IDLE:{primary:[...names(clips.idle),'IDLE','Idle','idle'],fallback:[]},
+    WALK:{primary:[...names(clips.walk),'WALK_FORWARD','WALK','Walk','walk'],fallback:[]},
+    RUN:{primary:[...names(clips.run),'RUN','Run','run'],fallback:[...names(clips.walk),'WALK','Walk']},
+    SPRINT:{primary:[...names(clips.sprint),'SPRINT','Sprint','sprint'],fallback:[...names(clips.run),'RUN','Run']},
+    JUMP:{primary:[...names(clips.jump),'JUMP','Jump','jump'],fallback:[...names(clips.idle),'IDLE','Idle']},
+    FALL:{primary:[...names(clips.fall),'FALL','Fall','fall'],fallback:[...names(clips.jump),'JUMP','Jump',...names(clips.idle),'IDLE','Idle']},
+    LAND:{primary:[...names(clips.land),'LAND','Land','land'],fallback:[...names(clips.idle),'IDLE','Idle']},
+    GREET:{primary:[...names(clips.greet),'GREET','Greet','greet'],fallback:[...names(clips.wave),'WAVE','Wave','wave']},
+    WAVE:{primary:[...names(clips.wave),'WAVE','Wave','wave'],fallback:[...names(clips.idle),'IDLE','Idle']},
+    POINT:{primary:[...names(clips.point),'POINT','Point','point'],fallback:[...names(clips.idle),'IDLE','Idle']},
+    SPEAK:{primary:[...names(clips.speak),'SPEAK','Talk','talk'],fallback:[...names(clips.idle),'IDLE','Idle']},
+    THINK:{primary:[...names(clips.think),'THINK','Think','think'],fallback:[...names(clips.idle),'IDLE','Idle']},
+    INTERACT:{primary:[...names(clips.interact),'INTERACT','Interact','interact'],fallback:[...names(clips.wave),'WAVE','Wave',...names(clips.idle),'IDLE','Idle']},
   });
+}
+
+function uniqueActionClip(clip,state,claimed) {
+  const key=clip?.uuid||clip?.name||state;
+  if(!claimed.has(key)){claimed.add(key);return clip;}
+  if(typeof clip?.clone!=='function')return clip;
+  const copy=clip.clone();
+  copy.name=`${clip.name||'clip'}__WISDO_${state}`;
+  return copy;
 }
 
 export function createOperatorAnimationGraph({THREE,root,animations=[],asset={},debug=false}={}) {
@@ -53,15 +70,23 @@ export function createOperatorAnimationGraph({THREE,root,animations=[],asset={},
   const candidates=candidateMap(asset);
   const actions={};
   const resolvedClips={};
+  const fallbackStates={};
+  const missingStates=[];
+  const claimedClipKeys=new Set();
+
   for(const state of [...LOCOMOTION,...SEMANTIC]){
-    const clip=clipByNames(clips,candidates[state]);
-    if(!clip) continue;
-    const action=mixer.clipAction(clip);
+    const resolved=resolveClip(clips,candidates[state]);
+    if(!resolved){missingStates.push(state);continue;}
+    const sourceClip=resolved.clip;
+    const actionClip=uniqueActionClip(sourceClip,state,claimedClipKeys);
+    const action=mixer.clipAction(actionClip);
+    const oneShot=ONE_SHOT.has(state);
     action.enabled=true;
-    action.clampWhenFinished=SEMANTIC.includes(state)||state==='LAND';
-    action.setLoop(action.clampWhenFinished?THREE.LoopOnce:THREE.LoopRepeat,action.clampWhenFinished?1:Infinity);
+    action.clampWhenFinished=oneShot;
+    action.setLoop(oneShot?THREE.LoopOnce:THREE.LoopRepeat,oneShot?1:Infinity);
     actions[state]=action;
-    resolvedClips[state]=clip.name;
+    resolvedClips[state]=sourceClip.name;
+    if(resolved.fallback)fallbackStates[state]=sourceClip.name;
   }
 
   let locomotion='IDLE';
@@ -110,15 +135,21 @@ export function createOperatorAnimationGraph({THREE,root,animations=[],asset={},
   const onFinished=(event)=>{
     if(!override||event?.action!==actions[override]) return;
     override=null;
-    transition(locomotion,{fade:.16,timeScale:1,reset:false});
+    transition(locomotion,{fade:.16,timeScale:animationTimeScale(locomotion,0),reset:false});
   };
   mixer.addEventListener?.('finished',onFinished);
   transition('IDLE',{fade:0,reset:true});
+
+  const exactLocomotion=LOCOMOTION.filter((state)=>actions[state]&&!fallbackStates[state]).length;
+  const coreAnimationCoverage=LOCOMOTION.length?exactLocomotion/LOCOMOTION.length:0;
 
   return Object.freeze({
     mixer,
     clips:Object.freeze(clips.map((clip)=>clip.name)),
     resolvedClips:Object.freeze({...resolvedClips}),
+    fallbackStates:Object.freeze({...fallbackStates}),
+    missingStates:Object.freeze([...missingStates]),
+    coreAnimationCoverage,
     get state(){return locomotion;},
     get override(){return override;},
     setLocomotion,
