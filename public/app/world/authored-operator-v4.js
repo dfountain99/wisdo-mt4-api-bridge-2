@@ -63,7 +63,8 @@ async function loadAsset(GLTFLoader,url){
   try{
     const response=await fetch(url,{mode:'cors',credentials:'omit',cache:'force-cache',signal:controller.signal});
     if(!response.ok)throw new Error(`Operator V4 GLB HTTP ${response.status}`);
-    const buffer=await response.arrayBuffer();const loader=new GLTFLoader();const basePath=new URL('.',url).href;
+    const buffer=await response.arrayBuffer();const loader=new GLTFLoader();
+    const absoluteUrl=new URL(url,globalThis.location?.href||'http://localhost/');const basePath=new URL('.',absoluteUrl).href;
     const gltf=loader.parseAsync?await loader.parseAsync(buffer,basePath):await new Promise((resolve,reject)=>loader.parse(buffer,basePath,resolve,reject));
     return{gltf,bytes:buffer.byteLength,loadMs:Math.round(now()-started)};
   }finally{clearTimeout(timer);}
@@ -82,11 +83,11 @@ export async function installAuthoredOperatorV4({THREE,scene,renderer,camera,deb
   const previousVisibility=new Map();for(const child of physicsRoot.children){if(child===mount)continue;previousVisibility.set(child,child.visible);child.visible=false;}
 
   const animation=createOperatorAnimationGraph({THREE,root:model,animations:gltf.animations,asset,debug});const bones=collectBones(model);
-  let state='IDLE',speed=0,grounded=true,verticalSpeed=0,targetLean=0,currentLean=0,lastYaw=physicsRoot.rotation.y,last=now(),destroyed=false,frameId=0;
+  let state='IDLE',speed=0,grounded=true,targetLean=0,currentLean=0,lastYaw=physicsRoot.rotation.y,last=now(),destroyed=false,frameId=0;
   const baseRotations={head:bones.head?.rotation.clone(),neck:bones.neck?.rotation.clone(),spine:bones.spine?.rotation.clone()};
 
   const onPlayer=(event)=>{
-    const detail=event?.detail||{};state=normalizeLocomotionState(detail.state);speed=Math.max(0,Number(detail.speed)||0);grounded=detail.grounded!==false;verticalSpeed=Number(detail.verticalSpeed)||0;
+    const detail=event?.detail||{};state=normalizeLocomotionState(detail.state);speed=Math.max(0,Number(detail.speed)||0);grounded=detail.grounded!==false;
     animation.setLocomotion(state,{speed});
   };
   const onAction=(event)=>{
@@ -98,6 +99,7 @@ export async function installAuthoredOperatorV4({THREE,scene,renderer,camera,deb
   const lookTarget=new THREE.Vector3();const headWorld=new THREE.Vector3();
   function frame(t){
     if(destroyed)return;frameId=requestAnimationFrame(frame);const dt=Math.min(.05,Math.max(.001,(t-last)/1000));last=t;
+    animation.update(dt);
     const yaw=physicsRoot.rotation.y;const yawDelta=Math.atan2(Math.sin(yaw-lastYaw),Math.cos(yaw-lastYaw));lastYaw=yaw;
     targetLean=clamp(-yawDelta/Math.max(dt,.001)*.018,-.12,.12);if(!grounded)targetLean*=.35;currentLean=damp(currentLean,targetLean,8,dt);
     mount.rotation.z=damp(mount.rotation.z,currentLean,9,dt);mount.rotation.x=damp(mount.rotation.x,state==='SPRINT'?.055:state==='RUN'?.028:0,8,dt);
@@ -108,7 +110,6 @@ export async function installAuthoredOperatorV4({THREE,scene,renderer,camera,deb
       if(bones.head&&baseRotations.head)bones.head.rotation.y=damp(bones.head.rotation.y,baseRotations.head.y,5,dt);
       if(bones.neck&&baseRotations.neck)bones.neck.rotation.y=damp(bones.neck.rotation.y,baseRotations.neck.y,5,dt);
     }
-    animation.update(dt);
   }
   frameId=requestAnimationFrame(frame);
 
