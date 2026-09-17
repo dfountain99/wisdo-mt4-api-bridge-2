@@ -2,6 +2,7 @@ import { installProductionFidelity } from './production-fidelity-layer.js?v=2026
 import { installWisdoVisualFidelityV4, WISDO_VISUAL_FIDELITY_V4_REVISION } from './world-visual-fidelity-v4.js?v=2026.09.17.visual-fidelity-v4';
 
 export async function installProductionFidelityV4(options={}) {
+  globalThis.WisdoFidelityClientRevision=WISDO_VISUAL_FIDELITY_V4_REVISION;
   const base=await installProductionFidelity(options);
   let v4=null;
   try {
