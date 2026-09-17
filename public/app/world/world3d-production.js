@@ -31,7 +31,7 @@ export async function createWorldExperience(options={}){
     try{options.onRenderContext?.(context);}catch(error){console.warn('External WISDO render observer degraded.',error);}
   };
   const telemetry=(data={})=>{
-    const enriched={...data,dpr:renderer?.getPixelRatio?.()??null,shadows:Boolean(renderer?.shadowMap?.enabled),operatorStatus:globalThis.WisdoOperatorDiagnostics?.status||'STARTING',operatorRenderer:globalThis.WisdoOperatorDiagnostics?.renderer||'FALLBACK',visualArchitecture:globalThis.WisdoVisualFidelityV4Diagnostics?.artDirection||globalThis.WisdoWorldDiagnostics?.visualArchitecture||'production-city-core',clientRevision:WORLD_CLIENT_REVISION};
+    const enriched={...data,dpr:renderer?.getPixelRatio?.()??null,shadows:Boolean(renderer?.shadowMap?.enabled),rendererWidth:renderer?.domElement?.width||null,rendererHeight:renderer?.domElement?.height||null,operatorStatus:globalThis.WisdoOperatorDiagnostics?.status||'STARTING',operatorRenderer:globalThis.WisdoOperatorDiagnostics?.renderer||'FALLBACK',visualArchitecture:globalThis.WisdoVisualFidelityV4Diagnostics?.artDirection||globalThis.WisdoWorldDiagnostics?.visualArchitecture||'production-city-core',clientRevision:WORLD_CLIENT_REVISION};
     if(isCurrent())globalThis.WisdoRenderDiagnostics=Object.freeze(enriched);
     adaptive?.sample(enriched);options.onTelemetry?.(enriched);
   };
@@ -47,14 +47,15 @@ export async function createWorldExperience(options={}){
   try{window.dispatchEvent(new CustomEvent('wisdo:world-renderer-ready',{detail:{instanceId,scene:'central',clientRevision:WORLD_CLIENT_REVISION}}));}catch{}
 
   const debug=new URLSearchParams(globalThis.location?.search||'').get('debug')==='1';const asset=AUTHORED_WORLD_ASSETS.defaultOperator;
+  document.documentElement.dataset.wisdoOperator='loading-authored-glb';
   publish('WisdoOperatorDiagnostics',instanceId,{status:'V4_QUEUED',active:false,renderer:'PROCEDURAL_FALLBACK',assetId:asset.id,assetUrl:asset.url});
   const operatorTask=installAuthoredOperatorV4({THREE,scene,renderer,camera,debug,instanceId}).catch(async(error)=>{
     if(destroyed||!isCurrent())return null;
     console.warn('Operator V4 unavailable; trying proven authored Operator fallback.',error);
     publish('WisdoOperatorDiagnostics',instanceId,{status:'V4_FALLBACK',failureReason:error?.message||String(error)});
     try{return await installLegacyAuthoredOperator({THREE,scene,debug,instanceId});}
-    catch(legacyError){console.warn('Authored Operator fallback unavailable; built-in humanoid remains active.',legacyError);publish('WisdoOperatorDiagnostics',instanceId,{status:'PROCEDURAL_FALLBACK_ACTIVE',active:false,renderer:'WISDO_HUMANOID_FALLBACK',failureReason:legacyError?.message||String(legacyError)});return null;}
-  }).then((runtime)=>{if(destroyed){runtime?.destroy?.();return null;}operatorRuntime=runtime;return runtime;});
+    catch(legacyError){console.warn('Authored Operator fallback unavailable; built-in humanoid remains active.',legacyError);document.documentElement.dataset.wisdoOperator='wisdo-humanoid-fallback';publish('WisdoOperatorDiagnostics',instanceId,{status:'PROCEDURAL_FALLBACK_ACTIVE',active:false,renderer:'WISDO_HUMANOID_FALLBACK',failureReason:legacyError?.message||String(legacyError)});return null;}
+  }).then((runtime)=>{if(destroyed){runtime?.destroy?.();return null;}operatorRuntime=runtime;if(isCurrent()&&runtime?.active)document.documentElement.dataset.wisdoOperator=runtime?.diagnostics?.renderer==='AUTHORED_GLTF_V4'?'authored-glb-v4':'authored-glb';return runtime;});
 
   try{
     fidelity=await installProductionFidelityV4({THREE,scene,camera,renderer,destinations:options.destinations||[],quality:activeQuality,debug});
@@ -87,6 +88,7 @@ export async function createWorldExperience(options={}){
       operatorTask.catch(()=>{});baseDestroy?.();
       if(isCurrent()){
         delete document.documentElement.dataset.wisdoFidelity;
+        delete document.documentElement.dataset.wisdoOperator;
         delete globalThis.WisdoWorldScene;delete globalThis.WisdoWorldSceneInstance;delete globalThis.WisdoWorldRenderInstance;
       }
     },
