@@ -9,6 +9,7 @@ export function installVisualFidelityBenchmarkRuntime({intervalMs=2000}={}){
       v4:globalThis.WisdoVisualFidelityV4Diagnostics||{},
       render:globalThis.WisdoRenderDiagnostics||{},
       safety:globalThis.WisdoWorldSafetyDiagnostics||{},
+      review:globalThis.WisdoVisualReviewDiagnostics||{},
     });
     globalThis.WisdoVisualAcceptance=Object.freeze({...result,sampledAt:new Date().toISOString()});
     try{window.dispatchEvent(new CustomEvent('wisdo:visual-fidelity-benchmark',{detail:globalThis.WisdoVisualAcceptance}));}catch{}
