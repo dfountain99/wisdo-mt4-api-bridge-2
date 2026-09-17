@@ -46,13 +46,13 @@ test('production fidelity owns V3 lifecycle and preserves visual execution isola
   assert.match(fidelity,/executionFromVisualLayer:false/);
 });
 
-test('V3 release identity is coherent across build, renderer and HTML entrypoint',()=>{
+test('V3 remains composed under the coherent V4 release identity',()=>{
   const build=read('public/app/world/world-build.js');
   const html=read('public/app/world/index.html');
-  assert.match(build,/3\.2\.0-visual-fidelity-v3-alpha/);
-  assert.match(build,/2026\.09\.15\.visual-fidelity-v3/);
-  assert.match(build,/cinematic-city-v4-visual-fidelity-v3/);
+  assert.match(build,/3\.3\.0-visual-fidelity-v4-alpha/);
+  assert.match(build,/2026\.09\.17\.visual-fidelity-v4/);
+  assert.match(build,/academy-cinematic-v5-visual-fidelity-v4/);
   assert.match(build,/arcade-central-03/);
-  assert.match(html,/visual-fidelity-v3\.css\?v=2026\.09\.15\.visual-fidelity-v3/);
-  assert.match(html,/data-world-build="2026\.09\.15\.visual-fidelity-v3"/);
+  assert.match(html,/visual-fidelity-v3\.css\?v=2026\.09\.17\.visual-fidelity-v4/);
+  assert.match(html,/data-world-build="2026\.09\.17\.visual-fidelity-v4"/);
 });
