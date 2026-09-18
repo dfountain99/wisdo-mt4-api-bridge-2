@@ -50,10 +50,51 @@ node tools/blender/bridge/agent.mjs --once
 if ($LASTEXITCODE -ne 0) { throw "Bridge self-check failed." }
 
 if (-not $NoStartupTask) {
-  $node=(Get-Command node).Source
-  $repo=(Get-Location).Path
-  $arg="/c cd /d `"$repo`" && `"$node`" tools\blender\bridge\agent.mjs"
-  schtasks /Create /TN "WISDO Blender Bridge" /SC ONLOGON /RL LIMITED /TR "cmd.exe $arg" /F | Out-Null
-  Write-Host "Installed startup task: WISDO Blender Bridge" -ForegroundColor Green
+  $taskName = "WISDO Blender Bridge"
+  $node = (Get-Command node).Source
+  $repo = (Resolve-Path (Get-Location)).Path
+
+  try {
+    if (-not (Get-Command Register-ScheduledTask -ErrorAction SilentlyContinue)) {
+      throw "Windows ScheduledTasks PowerShell module is unavailable."
+    }
+
+    # Avoid schtasks.exe nested-quote parsing bugs when Node lives under
+    # a path such as C:\Program Files\nodejs\node.exe. ScheduledTasks keeps
+    # executable, arguments, and working directory as separate fields.
+    $action = New-ScheduledTaskAction `
+      -Execute $node `
+      -Argument "tools\blender\bridge\agent.mjs" `
+      -WorkingDirectory $repo
+    $trigger = New-ScheduledTaskTrigger -AtLogOn
+    $principal = New-ScheduledTaskPrincipal `
+      -UserId "$env:USERDOMAIN\$env:USERNAME" `
+      -LogonType Interactive `
+      -RunLevel Limited
+    $settings = New-ScheduledTaskSettingsSet `
+      -AllowStartIfOnBatteries `
+      -DontStopIfGoingOnBatteries `
+      -ExecutionTimeLimit (New-TimeSpan -Days 3650)
+
+    Register-ScheduledTask `
+      -TaskName $taskName `
+      -Action $action `
+      -Trigger $trigger `
+      -Principal $principal `
+      -Settings $settings `
+      -Description "Runs the trusted WISDO Blender Bridge agent at user logon." `
+      -Force | Out-Null
+
+    $installed = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+    if (-not $installed) { throw "Scheduled task verification failed." }
+
+    Write-Host "Installed startup task: $taskName" -ForegroundColor Green
+  } catch {
+    Write-Host "Startup task installation failed: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "The bridge itself passed its self-check. You can run it manually with:" -ForegroundColor Yellow
+    Write-Host "  node tools/blender/bridge/agent.mjs" -ForegroundColor Yellow
+    Write-Host "Or rerun this bootstrap with -NoStartupTask to skip auto-start registration." -ForegroundColor Yellow
+    throw
+  }
 }
 Write-Host "WISDO Blender Bridge is ready. Blender work can now be queued from GitHub issues." -ForegroundColor Green
