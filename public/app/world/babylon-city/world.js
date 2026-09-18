@@ -16,7 +16,7 @@ const hemi=new B.HemisphericLight('sky',new B.Vector3(.15,1,.1),scene);hemi.inte
 const moon=new B.DirectionalLight('moon',new B.Vector3(-.35,-1,.28),scene);moon.position=new B.Vector3(250,420,-180);moon.intensity=1.35;moon.diffuse=new B.Color3(.62,.73,1);
 const shadow=new B.ShadowGenerator(low?1024:2048,moon);shadow.usePercentageCloserFiltering=true;shadow.bias=.0005;
 const glow=new B.GlowLayer('cityGlow',scene,{blurKernelSize:low?24:48});glow.intensity=.72;
-const world=new B.TransformNode('WISDO_CITY',scene), interactables=[], npcs=[], vehicles=[], districtNodes=[]; let ogMasterNode=null;
+const world=new B.TransformNode('WISDO_WORLD',scene), interactables=[], npcs=[], vehicles=[], districtNodes=[]; let ogMasterNode=null;
 function box(n,w,h,d,x,y,z,m,parent=world){let o=B.MeshBuilder.CreateBox(n,{width:w,height:h,depth:d},scene);o.position.set(x,y,z);o.material=m;o.parent=parent;o.receiveShadows=true;o.freezeWorldMatrix();return o}
 function cyl(n,diam,h,x,y,z,m,parent=world){let o=B.MeshBuilder.CreateCylinder(n,{diameter:diam,height:h,tessellation:low?12:20},scene);o.position.set(x,y,z);o.material=m;o.parent=parent;o.freezeWorldMatrix();return o}
 function textPlane(text,x,y,z,w=18,h=3,parent=world){let p=B.MeshBuilder.CreatePlane('sign_'+text,{width:w,height:h},scene);p.position.set(x,y,z);let dt=new B.DynamicTexture('dt_'+text,{width:1024,height:192},scene,false);dt.hasAlpha=true;dt.drawText(text,null,132,'bold 74px Arial','#f4d66d','transparent',true);let mm=new B.StandardMaterial('sm_'+text,scene);mm.diffuseTexture=dt;mm.opacityTexture=dt;mm.emissiveTexture=dt;mm.disableLighting=true;p.material=mm;p.parent=parent;return p}
@@ -95,8 +95,8 @@ const keys={};addEventListener('keydown',e=>{keys[e.code]=true;if(e.code==='KeyE
 let map=false;function toggleMap(){map=!map;if(map){camera.radius=95;camera.beta=.18}else{camera.radius=12;camera.beta=1.13}}
 function flash(msg){let p=document.getElementById('prompt');p.textContent=msg;p.style.display='block';clearTimeout(flash.t);flash.t=setTimeout(()=>{p.style.display='none'},2600)}
 function interact(){let best=null,bd=12;for(let q of interactables){let d=B.Vector3.Distance(player.position,q.mesh.getAbsolutePosition());if(d<bd){best=q;bd=d}}if(best)best.action()}
-const districts=[['CENTRAL PLAZA',0,0,115],['WISDO ACADEMY',-185,-120,105],['MASTER CHAMBER',-185,-205,80],['TRADING DISTRICT',205,-125,140],['WISDO TOWER',0,210,105],['CREATOR ROW',-140,185,80],['MARKETPLACE',140,185,85],['WEST RESIDENCES',-260,175,145],['EAST COMMERCE',260,175,145]];
-function districtUpdate(){let best=['WISDO CITY',1e9];for(let d of districts){let dist=Math.hypot(player.position.x-d[1],player.position.z-d[2]);if(dist<d[3]&&dist<best[1])best=[d[0],dist]}document.getElementById('district').textContent=best[0]}
+const districts=[['THE COMMONS',0,0,115],['WISDO ACADEMY',-185,-120,105],['MASTER CHAMBER',-185,-205,80],['TRADING DISTRICT',205,-125,140],['WISDO TOWER',0,210,105],['CREATOR ROW',-140,185,80],['MARKETPLACE',140,185,85],['WEST RESIDENCES',-260,175,145],['EAST COMMERCE',260,175,145]];
+function districtUpdate(){let best=['WISDO WORLD',1e9];for(let d of districts){let dist=Math.hypot(player.position.x-d[1],player.position.z-d[2]);if(dist<d[3]&&dist<best[1])best=[d[0],dist]}document.getElementById('district').textContent=best[0]}
 async function hydrate(){for(let u of ['/api/me/accounts','/api/dashboard','/api/mt4/accounts'])try{let r=await fetch(u,{credentials:'include'});if(!r.ok)continue;let j=await r.json();let a=j.accounts?.[0]||j.account||j.data?.accounts?.[0];if(a){document.getElementById('account').textContent=a.accountId||a.login||a.name||'LINKED';let eq=Number(a.equity||a.balance);if(Number.isFinite(eq))document.getElementById('equity').textContent='$'+eq.toLocaleString(undefined,{maximumFractionDigits:2});break}}catch{}}
 let lastD=0;scene.onBeforeRenderObservable.add(()=>{let dt=Math.min(.04,engine.getDeltaTime()/1000),forward=(keys.KeyW||keys.ArrowUp?1:0)-(keys.KeyS||keys.ArrowDown?1:0),side=(keys.KeyD||keys.ArrowRight?1:0)-(keys.KeyA||keys.ArrowLeft?1:0);
 let frameSpeed=0,sprinting=Boolean(keys.ShiftLeft||keys.ShiftRight);
@@ -109,6 +109,6 @@ fidelityRuntime?.update?.({dt,speed:frameSpeed,sprinting});
 if(t-lastD>.35){districtUpdate();lastD=t}});
 scene.executeWhenReady(()=>{document.getElementById('loading').style.display='none';hydrate();
 globalThis.WisdoBabylonDiagnostics=Object.freeze({build:'BABYLON-FULL-CITY-V2',engine:'babylonjs',scope:'full-city',fidelity:true,animationGraph:true,generatedAssetRuntime:true,tradingAuthority:'server',executionFromVisuals:false,updatedAt:new Date().toISOString()});
-globalThis.WISDOBabylonVisualAcceptance?.snapshot?.();flash('WELCOME TO WISDO CITY • FIDELITY V2')});
+globalThis.WISDOBabylonVisualAcceptance?.snapshot?.();flash('WELCOME TO WISDO WORLD • FIDELITY V2')});
 engine.runRenderLoop(()=>scene.render());addEventListener('resize',()=>engine.resize());
 })();
