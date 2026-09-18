@@ -7,11 +7,13 @@ const root = process.cwd();
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
 test('production fidelity keeps the existing World route and uses the rebuilt production renderer entrypoint', () => {
-  const index = read('public/app/world/index.html');
+  const primary = read('public/app/world/index.html');
+  const index = read('public/app/world/legacy.html');
   const entry = read('public/app/world/world3d.js');
   const wrapper = read('public/app/world/world3d-production.js');
   const core = read('public/app/world/world3d-production-core.js');
   const city = read('public/app/world/world-production-city.js');
+  assert.match(primary, /\/app\/world\/babylon-city\/\?entry=production-v1/);
   assert.match(index, /world-v2\.js/);
   assert.match(index, /world-living-runtime\.js/);
   assert.match(index, /production-world\.css/);

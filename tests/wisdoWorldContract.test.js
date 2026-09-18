@@ -46,7 +46,8 @@ test('Smart Home-first World bundle stays playable, preserves production Central
     assert.equal(fs.existsSync(path.join(worldRoot, file)), true, `${file} must exist`);
   }
 
-  const html = source('index.html');
+  const primary = source('index.html');
+  const html = source('legacy.html');
   const app = source('world-v2.js');
   const home = source('home3d.js');
   const runtime = source('world-data-runtime.js');
@@ -58,6 +59,9 @@ test('Smart Home-first World bundle stays playable, preserves production Central
   const manifest = source('authored-asset-manifest.js');
   const licenses = source('ASSET_LICENSES.md');
   const input = source('input-manager.js');
+
+  assert.match(primary, /\/app\/world\/babylon-city\/\?entry=production-v1/);
+  assert.match(primary, /\/app\/world\/legacy\.html/);
 
   assert.match(html, /\/app\/world\/world\.css/);
   assert.match(html, /\/app\/world\/home\.css/);

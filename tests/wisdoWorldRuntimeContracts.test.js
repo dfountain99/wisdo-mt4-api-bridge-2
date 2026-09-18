@@ -26,7 +26,8 @@ test('authored Operator exposes diagnosable resilient loading with a real humano
   const production = world('world3d-production.js');
   const productionCore = world('world3d-production-core.js');
   const debug = world('world-debug-runtime.js');
-  const html = world('index.html');
+  const primary = world('index.html');
+  const html = world('legacy.html');
 
   assert.match(authored, /WisdoOperatorDiagnostics/);
   assert.match(authored, /FETCHING/);
@@ -43,6 +44,7 @@ test('authored Operator exposes diagnosable resilient loading with a real humano
   assert.match(productionCore, /leftLeg/);
   assert.match(debug, /AUTHORED_GLTF|PROCEDURAL_FALLBACK|WISDO_HUMANOID_FALLBACK/);
   assert.match(debug, /failureReason/);
+  assert.match(primary, /\/app\/world\/babylon-city\/\?entry=production-v1/);
   assert.match(html, /world-debug-runtime\.js/);
 });
 

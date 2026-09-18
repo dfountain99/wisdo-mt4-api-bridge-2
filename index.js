@@ -38,6 +38,7 @@ import { extractWisdoWakeCommand as extractConfiguredWakeCommand, extractSpokenN
 import { createRuntimeLifecycle } from './services/runtimeLifecycle.js';
 import { AccountSelectionService } from './services/accountSelectionService.js';
 import { CemNeuralCommandService } from './services/cemNeuralCommandService.js';
+import { classifyWisdoKnowledgeIntent, extractCourseSeed, isExplicitMt4Mutation } from './services/wisdoDiscordIntentGuard.js';
 
 // Production source of truth: Render runs `npm start`, which runs this root
 // entrypoint. Keep runtime imports on root config/commands/services plus
@@ -448,6 +449,7 @@ client.on(Events.MessageCreate, async (message) => {
   service,
   registry,
   botRegistryService,
+  neuralCommandService,
 });
 
     if (response) {
@@ -574,6 +576,8 @@ function scoreIntent(input, rules) {
 
 function detectWisdoIntent(ask) {
   const input = normalizeVoiceInput(ask);
+  const knowledgeIntent = classifyWisdoKnowledgeIntent(input);
+  if (knowledgeIntent) return knowledgeIntent;
 
   const intentScores = [
     {
@@ -1284,7 +1288,7 @@ function detectWisdoIntent(ask) {
     };
   }
 
-  if (/\b(protect|guard|walk away|take over)\b/.test(input) && /\b(account|trade|trading|mt4|drawdown)\b/.test(input)) {
+  if (/\b(protect|guard|walk away|take over)\b/.test(input) && /\b(account|trade|trading|mt4|drawdown)\b/.test(input) && isExplicitMt4Mutation(input, 'mt4_guard_mode')) {
     return {
       intent: 'mt4_guard_mode',
       confidence: 100,
@@ -1325,6 +1329,10 @@ function detectWisdoIntent(ask) {
   }
 
   const second = intentScores[1];
+
+  if (top.intent.startsWith('mt4_') && !['mt4_status', 'mt4_connect'].includes(top.intent) && !isExplicitMt4Mutation(input, top.intent)) {
+    return { intent: 'knowledge_conversation', confidence: 90, secondIntent: top.intent, secondScore: top.score, input, executionAllowed: false };
+  }
 
   return {
     intent: top.intent,
@@ -1914,6 +1922,7 @@ async function buildWisdoVoiceResponse({
   service,
   registry,
   botRegistryService,
+  neuralCommandService,
 }) {
   const botNicknameCloseResponse = await buildBotNicknameCloseVoiceResponse({
     ask,
@@ -1928,6 +1937,52 @@ async function buildWisdoVoiceResponse({
 
   const detected = detectWisdoIntent(ask);
   const intent = detected.intent;
+
+  if (intent === 'course_forge') {
+    const seed = extractCourseSeed(ask);
+    const draft = neuralCommandService?.presenceLearningService?.createCourseDraft?.({
+      ownerId: message.author.id,
+      guildId: message.guildId,
+      title: seed.title,
+      outcome: `Understand and apply ${seed.topic} with disciplined practice`,
+      audience: 'CEM Culture learners',
+      source: `Discord coaching request: ${ask}`,
+    });
+    if (draft) {
+      await neuralCommandService.presenceLearningService.persist({
+        id: draft.courseId, discordUserId: message.author.id, username: message.author.username,
+        channelId: message.channelId, date: draft.createdAt.slice(0, 10), timestamp: draft.createdAt,
+        logType: 'course-draft', courseId: draft.courseId, title: draft.title, outcome: draft.outcome,
+        audience: draft.audience, source: draft.source,
+      }).catch(() => undefined);
+    }
+    const modules = draft?.modules?.map((module) => `**${module.number}. ${module.title}** — ${module.objective}`).join('\n') || '';
+    return {
+      content: [
+        '🎓 **WISDO Course Forge opened. No trading command was sent.**',
+        '',
+        `**Draft:** ${draft?.title || seed.title}`,
+        `**Outcome:** ${draft?.outcome || `Understand and apply ${seed.topic}`}`,
+        '', modules,
+        '',
+        'Use `/wisdo-help` → **BUILD A COURSE** to add the audience, exact outcome, and source material, then a Coach/Admin can create the channels.',
+      ].filter(Boolean).join('\n'),
+      components: neuralCommandService?.buildHelpControls?.(service?.isStaff?.(message.member)) || [],
+      speechText: `I opened Course Forge for ${seed.topic}. No trading command was sent. Use Build a Course to finish the audience, outcome, and source material.`,
+    };
+  }
+
+  if (intent === 'knowledge_conversation') {
+    return {
+      content: [
+        '🧠 **WISDO understood this as learning or planning—not account control.**',
+        '', `> ${ask}`, '',
+        'No MT4 command was queued. Tell me whether you want a course, explanation, screen-guided procedure, event, or promotion plan.',
+      ].join('\n'),
+      components: neuralCommandService?.buildHelpControls?.(service?.isStaff?.(message.member)) || [],
+      speechText: 'I understood this as learning or planning, not account control. No MT4 command was queued.',
+    };
+  }
 
   if (intent === 'help') {
     return {

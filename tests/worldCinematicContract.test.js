@@ -12,8 +12,10 @@ const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 test('World entrypoint uses the runtime-recovery production renderer and one release cache identity', () => {
-  const html = read('public/app/world/index.html');
+  const primary = read('public/app/world/index.html');
+  const html = read('public/app/world/legacy.html');
   const cacheId = escapeRegex(WORLD_BUILD_ID);
+  assert.match(primary, /\/app\/world\/babylon-city\/\?entry=production-v1/);
   assert.match(html, new RegExp(`world3d-production\\.js\\?v=${cacheId}`));
   assert.match(html, new RegExp(`world-interior3d-v2\\.js\\?v=${cacheId}`));
   assert.match(html, new RegExp(`market-billboard-manager-v2\\.js\\?v=${cacheId}`));

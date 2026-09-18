@@ -6,7 +6,10 @@ const read=(path)=>fs.readFileSync(new URL(`../${path}`,import.meta.url),'utf8')
 const REVISION='2026.09.17.visual-fidelity-v4';
 
 test('World entry rotates production-facing assets to the visual fidelity V4 revision',()=>{
-  const html=read('public/app/world/index.html');
+  const primary=read('public/app/world/index.html');
+  const html=read('public/app/world/legacy.html');
+  assert.match(primary,/\/app\/world\/babylon-city\/\?entry=production-v1/);
+  assert.match(primary,/\/app\/world\/legacy\.html/);
   assert.match(html,new RegExp(`data-world-build=\"${REVISION.replaceAll('.','\\.')}\"`));
   assert.match(html,/world3d-production\.js\?v=2026\.09\.17\.visual-fidelity-v4/);
   assert.match(html,/world-debug-runtime\.js\?v=2026\.09\.17\.visual-fidelity-v4/);

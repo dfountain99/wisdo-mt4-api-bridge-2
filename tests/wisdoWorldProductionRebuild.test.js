@@ -5,7 +5,9 @@ import fs from 'node:fs';
 const read=(path)=>fs.readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 
 test('production World entry removes HUD-first holographic skin and loads production presentation',()=>{
-  const html=read('public/app/world/index.html');
+  const primary=read('public/app/world/index.html');
+  const html=read('public/app/world/legacy.html');
+  assert.match(primary,/\/app\/world\/babylon-city\/\?entry=production-v1/);
   assert.match(html,/production-world\.css/);
   assert.match(html,/world-minimap-runtime\.js/);
   assert.match(html,/PRODUCTION-CITY-V1/);
@@ -49,7 +51,7 @@ test('production player fallback is humanoid architecture instead of capsule/sph
 
 test('production Central preserves destination interaction and mobile input architecture',()=>{
   const core=read('public/app/world/world3d-production-core.js');
-  const html=read('public/app/world/index.html');
+  const html=read('public/app/world/legacy.html');
   assert.match(core,/WORLD_LOCATIONS/);
   assert.match(core,/onInteract/);
   assert.match(core,/InputManager/);

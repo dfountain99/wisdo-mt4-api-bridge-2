@@ -16,7 +16,7 @@ test('Babylon full city is present inside the production world tree', () => {
   const html = fs.readFileSync(path.join(root, 'public/app/world/babylon-city/index.html'), 'utf8');
   const runtime = fs.readFileSync(path.join(root, 'public/app/world/babylon-city/world.js'), 'utf8');
   assert.match(html, /babylonjs/i);
-  assert.match(runtime, /WISDO_CITY/);
+  assert.match(runtime, /WISDO_WORLD/);
   assert.match(runtime, /WISDO ACADEMY/);
   assert.match(runtime, /MASTER CHAMBER/);
   assert.match(runtime, /TRADING HALL/);

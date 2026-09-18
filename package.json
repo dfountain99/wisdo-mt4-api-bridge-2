@@ -6,6 +6,7 @@
   "private": true,
   "scripts": {
     "start": "node scripts/runtimeMemoryBootstrap.js",
+    "build": "node scripts/checkBuild.js",
     "dev": "node --watch index.js",
     "register-commands": "node scripts/registerCommands.js",
     "start:web": "node scripts/startWebOnly.js",
