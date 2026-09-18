@@ -37,6 +37,7 @@ import { startApiServer } from './server/apiServer.js';
 import { extractWisdoWakeCommand as extractConfiguredWakeCommand, extractSpokenNumber } from './services/wisdoIntentService.js';
 import { createRuntimeLifecycle } from './services/runtimeLifecycle.js';
 import { AccountSelectionService } from './services/accountSelectionService.js';
+import { CemNeuralCommandService } from './services/cemNeuralCommandService.js';
 
 // Production source of truth: Render runs `npm start`, which runs this root
 // entrypoint. Keep runtime imports on root config/commands/services plus
@@ -162,6 +163,12 @@ const deskDashboardService = new DeskDashboardService({
   logger,
 });
 const accountSelectionService = new AccountSelectionService({ repository: mt4SyncService.repository, memoryService: wisdoMemoryService });
+const neuralCommandService = new CemNeuralCommandService({
+  config,
+  operatorDeskService: service,
+  mt4SyncService,
+  logger,
+});
 
 const registry = createCommandRegistry({
   service,
@@ -178,6 +185,7 @@ const registry = createCommandRegistry({
   botRegistryService,
   wisdoMemoryService,
   accountSelectionService,
+  neuralCommandService,
   logger,
 });
 
@@ -265,6 +273,11 @@ client.once(Events.ClientReady, async (readyClient) => {
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
+    if ((interaction.isButton?.() || interaction.isModalSubmit?.()) && String(interaction.customId || '').startsWith('cem_neural:')) {
+      await neuralCommandService.handleInteraction(interaction);
+      return;
+    }
+
     if (interaction.isChatInputCommand()) {
       const command = registry.commandMap.get(interaction.commandName);
 

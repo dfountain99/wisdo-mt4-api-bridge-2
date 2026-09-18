@@ -44,7 +44,7 @@ function statusLine(json) {
 }
 
 
-export function buildWisdoCommandCenterCommands({ config }) {
+export function buildWisdoCommandCenterCommands({ config, service, neuralCommandService }) {
   const commands = [
     {
       data: new SlashCommandBuilder()
@@ -183,6 +183,7 @@ Waiting for MT4 reporter completion.` : `🔒 **Wisdo blocked:** ${json.error ||
       async execute(interaction) {
         await interaction.reply({ ephemeral: true, content: [
           '🤖 **Wisdo Website + Discord Command Center**',
+          '**Open the interactive Neural Command Deck below, or use the canonical commands:**',
           '`/pair generate` — create Discord pairing code',
           '`/pair connect code:<code>` — connect website-generated code',
           '`/pair status` — view sync state',
@@ -192,7 +193,7 @@ Waiting for MT4 reporter completion.` : `🔒 **Wisdo blocked:** ${json.error ||
           '`/reporter status` — Reporter access status',
           '`/wisdo-coach command:<text>` — wake-word trading command',
           '`/wisdo-notifications` — recent synced alerts',
-        ].join('\n') });
+        ].join('\n'), components: neuralCommandService?.buildHelpControls?.(service?.isStaff?.(interaction.member)) || [] });
       },
     },
   ];
