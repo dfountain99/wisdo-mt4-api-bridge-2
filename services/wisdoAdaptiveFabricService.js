@@ -1,8 +1,9 @@
 import crypto from 'node:crypto';
+import { WisdoBehaviorCompilerService } from './wisdoBehaviorCompilerService.js';
 
 const FINANCIAL_ACTIONS = new Set(['close_all','close_full_basket','protect_profit_full_basket','close_profitable','close_losing','modify_stop','set_profit_target','change_risk','trail_stop']);
 const IMMUTABLE_BLOCKS = new Set(['disable_authentication','disable_audit','bypass_risk_governor','expose_broker_password','remove_emergency_stop']);
-const BUILTIN_ACTIONS = new Set(['close_full_basket','protect_profit_full_basket','pause_entries','resume_entries','trail_stop','speak_summary','activate_experience','play_music']);
+const BUILTIN_ACTIONS = new Set(['close_full_basket','protect_profit_full_basket','pause_entries','resume_entries','guard_mode','notify','trail_stop','speak_summary','activate_experience','play_music']);
 const scopeRank = { platform:0, user:10, lane:20, account:30, bot_family:40, symbol:50, timeframe:60, instance:70, temporary:80 };
 const CURRENCY_CODES = new Set(['USD','EUR','GBP','JPY','CHF','AUD','NZD','CAD','SGD','HKD','NOK','SEK','DKK','PLN','TRY','ZAR','MXN','CNH','CNY','RUB','BRL']);
 
@@ -12,7 +13,7 @@ function lower(v='') { return clean(v).toLowerCase(); }
 function json(v,f={}) { return v && typeof v === 'object' ? v : f; }
 
 export class WisdoAdaptiveFabricService {
-  constructor({ pool, logger }={}) { if (!pool) throw new Error('PostgreSQL pool is required.'); this.pool=pool; this.logger=logger||console; }
+  constructor({ pool, logger, behaviorCompiler=null }={}) { if (!pool) throw new Error('PostgreSQL pool is required.'); this.pool=pool; this.logger=logger||console;this.behaviorCompiler=behaviorCompiler||new WisdoBehaviorCompilerService(); }
 
   async registerCapability(owner, input={}) {
     const key=clean(input.key); if(!key) throw new Error('Capability key is required.');
@@ -61,6 +62,11 @@ export class WisdoAdaptiveFabricService {
     return { behavior_id:id('behavior'), name:options.name||this.titleFor(r), purpose:options.purpose||r.raw||r.rawText, scope, trigger, conditions:options.conditions||[], actions, verification:{required:true,receipt:'mt4_reporter',success:'all_target_tickets_closed'}, failure_plan:{retry:'bounded',max_attempts:3,on_exhausted:'notify_and_disarm'}, exceptions:options.exceptions||['emergency_stop','identity_not_verified','permission_denied'], safety:{approval_required:actions.some(a=>FINANCIAL_ACTIONS.has(a.type)),shadow_first:actions.some(a=>FINANCIAL_ACTIONS.has(a.type)),reversible:true}, lifecycle:{state:'draft',temporary:Boolean(options.temporary),expires_at:options.expires_at||null,rollback:'restore_inherited_policy'}, success_metrics:options.success_metrics||[], source:{type:'voice',spoken_text:r.raw||r.rawText,confidence:r.confidence} };
   }
 
+  compileNaturalBehavior(text,context={},options={}) {
+    const compiled=this.behaviorCompiler.compile(text,context);
+    return {...compiled,behavior_id:id('behavior'),scope:{...compiled.scope,owner_user_id:options.owner_user_id||context.owner_user_id,account_id:options.account_id||compiled.scope.account_id||compiled.scope.account_ref||null,bot_family:options.bot_family||compiled.scope.bot_family||compiled.scope.bot_ref||null},lifecycle:{state:'draft',mode:compiled.mode,temporary:Boolean(options.temporary),expires_at:options.expires_at||null,rollback:'restore_inherited_policy'},safety:{approval_required:compiled.actions.some((action)=>FINANCIAL_ACTIONS.has(action.type)||['pause_entries','resume_entries','guard_mode'].includes(action.type)),shadow_first:compiled.mode==='shadow',reversible:true},source:{type:'voice',spoken_text:String(text),confidence:compiled.source.confidence}};
+  }
+
   titleFor(r){ return ({RESETTABLE_ENTRY_TIMER:'Resettable Entry Protection Timer',resettable_entry_timer:'Resettable Entry Protection Timer',trail_stop:'Profit Trail Overlay',set_profit_target:'Scoped Profit Take',create_profit_wake_promise:'Profit Wake Promise',analyze_weakest_symbol:'Weakness Analysis'})[r.intent]||'Custom Wisdo Behavior'; }
 
   validateBehavior(behavior, capabilities=[]) {
@@ -84,6 +90,25 @@ export class WisdoAdaptiveFabricService {
     const r=await this.pool.query(`UPDATE wisdo_behaviors SET status='active',approved_by=$3,approved_at=NOW(),updated_at=NOW() WHERE owner_user_id=$1 AND behavior_id=$2 AND status='draft' RETURNING *`,[owner,behaviorId,approvedBy]);
     return r.rows[0]||null;
   }
+
+  async listBehaviors(owner,{status=null,limit=50}={}) {const r=await this.pool.query(`SELECT * FROM wisdo_behaviors WHERE owner_user_id=$1 AND ($2::text IS NULL OR status=$2) ORDER BY updated_at DESC LIMIT $3`,[owner,status,Math.max(1,Math.min(200,Number(limit)||50))]);return r.rows;}
+
+  async behavior(owner,behaviorId) {const r=await this.pool.query(`SELECT * FROM wisdo_behaviors WHERE owner_user_id=$1 AND behavior_id=$2`,[owner,behaviorId]);return r.rows[0]||null;}
+
+  async conflicts(owner,candidate) {const active=await this.listBehaviors(owner,{limit:200}),proposed=candidate?.definition||candidate;return this.behaviorCompiler.conflicts(proposed,active.filter((row)=>['active','shadow'].includes(row.status)&&row.behavior_id!==candidate?.behavior_id));}
+
+  async transitionBehavior(owner,behaviorId,target,actor=owner) {
+    const next=clean(target).toLowerCase(),allowed=new Set(['active','shadow','paused','cancelled']);if(!allowed.has(next))throw new Error('Invalid behavior lifecycle state.');
+    const current=await this.behavior(owner,behaviorId);if(!current)return null;const transitions={draft:['active','shadow','cancelled'],active:['paused','cancelled'],shadow:['paused','active','cancelled'],paused:['active','shadow','cancelled'],cancelled:[]};if(!transitions[current.status]?.includes(next))throw new Error(`Behavior cannot move from ${current.status} to ${next}.`);
+    const r=await this.pool.query(`UPDATE wisdo_behaviors SET status=$3,approved_by=CASE WHEN $3 IN ('active','shadow') THEN $4 ELSE approved_by END,approved_at=CASE WHEN $3 IN ('active','shadow') THEN NOW() ELSE approved_at END,updated_at=NOW() WHERE owner_user_id=$1 AND behavior_id=$2 RETURNING *`,[owner,behaviorId,next,actor]);return r.rows[0]||null;
+  }
+
+  async updateBehavior(owner,behaviorId,text,context={},actor=owner) {
+    const current=await this.behavior(owner,behaviorId);if(!current)return null;const definition=this.compileNaturalBehavior(text,context,{owner_user_id:owner,account_id:current.scope?.account_id});if(!definition.validation.valid)throw new Error(definition.validation.errors.join(' '));const version=Number(current.current_version||1)+1;
+    await this.pool.query(`INSERT INTO wisdo_behavior_versions(behavior_id,version,definition,change_summary,created_by) VALUES($1,$2,$3::jsonb,$4,$5)`,[behaviorId,version,JSON.stringify(definition),'Natural-language behavior revision',actor]);const r=await this.pool.query(`UPDATE wisdo_behaviors SET name=$3,purpose=$4,scope_level=$5,scope=$6::jsonb,definition=$7::jsonb,status='draft',current_version=$8,source_text=$4,risk_level=$9,approval_required=$10,approved_by=NULL,approved_at=NULL,updated_at=NOW() WHERE owner_user_id=$1 AND behavior_id=$2 RETURNING *`,[owner,behaviorId,definition.name,definition.purpose,definition.scope.level,JSON.stringify(definition.scope),JSON.stringify(definition),version,definition.safety.approval_required?'high':'low',definition.safety.approval_required]);return r.rows[0]||null;
+  }
+
+  simulateBehavior(behavior,snapshot={},event={}) {return this.behaviorCompiler.evaluate(behavior,snapshot,event);}
 
   async resolveEffectiveBehaviors(owner, context={}) {
     const r=await this.pool.query(`SELECT * FROM wisdo_behaviors WHERE owner_user_id=$1 AND status='active'`,[owner]);

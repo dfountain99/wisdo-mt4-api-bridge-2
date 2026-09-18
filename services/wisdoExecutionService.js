@@ -18,6 +18,13 @@ export class WisdoExecutionService {
     const r=await this.pool.query(`INSERT INTO wisdo_command_receipts(receipt_id,command_id,owner_user_id,account_id,plan_id,lifecycle_status,result,failure_reason) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8) RETURNING *`,[randomUUID(),commandId,userId,accountId,planId,lifecycle,JSON.stringify(result||{}),failureReason]);return r.rows[0];
   }
 
-  async status(userId,commandId){const command=await this.mt4CommandService.getCommandStatus(userId,commandId);const r=await this.pool.query(`SELECT * FROM wisdo_command_receipts WHERE owner_user_id=$1 AND command_id=$2 ORDER BY received_at`,[userId,commandId]);return {command,receipts:r.rows,verified:command?.status==='completed'};}
+  verification(command,receipts=[]) {
+    if(String(command?.status||'').toLowerCase()!=='completed')return {verified:false,reason:'command_not_completed'};
+    const targets=(command?.payload?.targetTickets||command?.targetTickets||[]).map(String);if(!targets.length)return {verified:true,reason:'reporter_completed'};
+    const receipt=[...receipts].reverse().find((row)=>String(row.lifecycle_status||'').toUpperCase()==='COMPLETED'),result=receipt?.result||command?.result||{};const rawClosed=result.closedTickets||result.closedTicketIds||result.ticketsClosed||[];const closed=(Array.isArray(rawClosed)?rawClosed:[]).map((ticket)=>String(ticket?.ticket??ticket?.id??ticket));const remaining=(Array.isArray(result.remainingTickets)?result.remainingTickets:[]).map(String);const missing=targets.filter((ticket)=>!closed.includes(ticket));const closedCount=Number(result.closedCount??closed.length);const exact=(missing.length===0||closedCount>=targets.length)&&remaining.length===0;
+    return {verified:exact,reason:exact?'all_target_tickets_closed':'target_ticket_evidence_incomplete',targetTickets:targets,closedTickets:closed,missingTickets:missing,remainingTickets:remaining};
+  }
+
+  async status(userId,commandId){const command=await this.mt4CommandService.getCommandStatus(userId,commandId);const r=await this.pool.query(`SELECT * FROM wisdo_command_receipts WHERE owner_user_id=$1 AND command_id=$2 ORDER BY received_at`,[userId,commandId]);const verification=this.verification(command,r.rows);return {command,receipts:r.rows,verified:verification.verified,verification};}
   responseFor(command){const status=String(command?.status||'pending').toLowerCase();if(status==='completed')return `Completed. ${command.result?.message||'MT4 verified the command.'} What else can I help you with today?`;if(status==='failed')return `The command failed. ${command.errorMessage||command.result?.message||'The trading service did not complete it.'}`;if(status==='delivered')return 'The command was delivered to MT4 and is awaiting a verified completion receipt.';return `Confirmed. The ${String(command?.command||'command').toLowerCase().replaceAll('_',' ')} command has been queued.`;}
 }

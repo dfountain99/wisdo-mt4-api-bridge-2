@@ -63,7 +63,7 @@ function command(intent, commandName, parameters = {}, confidence = 0.95, extra 
 export function validateStructuredIntent(value) {
   if (!value || typeof value !== 'object') return { ok: false, errors: ['intent_object_required'] };
   const errors = [];
-  if (!['ACTION', 'BEHAVIOR', 'QUERY', 'PLAN', 'CONVERSATION', 'CONFIRMATION', 'CANCEL', 'GOODBYE', 'CLARIFICATION'].includes(value.type)) errors.push('invalid_type');
+  if (!['ACTION', 'BEHAVIOR', 'BEHAVIOR_CONTROL', 'QUERY', 'PLAN', 'CONVERSATION', 'CONFIRMATION', 'CANCEL', 'GOODBYE', 'CLARIFICATION'].includes(value.type)) errors.push('invalid_type');
   if (!value.intent || typeof value.intent !== 'string') errors.push('intent_required');
   const confidence = Number(value.confidence);
   if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) errors.push('invalid_confidence');
@@ -92,6 +92,9 @@ export class WisdoIntentService {
     if (/review|show|read back/.test(ask) && /plan/.test(ask)) return { ...base, type: 'PLAN', intent: 'REVIEW_PLAN', confidence: 0.95 };
     if (/how close|plan progress|goal progress|active plan status/.test(ask)) return { ...base, type: 'QUERY', intent: 'PLAN_PROGRESS', confidence: 0.95 };
     if (/change that|set that|leave .* runners? instead|apply that|remove the .* restriction/.test(ask)) return { ...base, type: 'PLAN', intent: 'MODIFY_PLAN', confidence: context.activePlanId ? 0.9 : 0.45, parameters: { value: extractSpokenNumber(ask) } };
+    if (/^(?:show|list|review|what are) (?:my )?(?:active )?(?:trading )?(?:behaviors|automations|rules)/.test(ask)) return { ...base, type: 'BEHAVIOR_CONTROL', intent: 'LIST_BEHAVIORS', confidence: 0.98 };
+    const behaviorControl=ask.match(/\b(pause|resume|cancel|delete|stop)\s+(?:the\s+)?(?:behavior|automation|rule)(?:\s+(.+))?$/);
+    if(behaviorControl)return {...base,type:'BEHAVIOR_CONTROL',intent:`${behaviorControl[1]==='resume'?'RESUME':behaviorControl[1]==='pause'?'PAUSE':'CANCEL'}_BEHAVIOR`,confidence:behaviorControl[2]?0.97:0.82,parameters:{reference:behaviorControl[2]||null}};
     if (/(every|each) new entr(y|ies).*(reset|restart).*(timer|clock)|(?:reset|restart).*(timer|clock).*(every|each) new entr(y|ies)/.test(ask)) {
       const duration = ask.match(/(\d+(?:\.\d+)?)\s*(second|minute|hour)s?/);
       const unit = duration?.[2] || 'minute';
@@ -111,6 +114,7 @@ export class WisdoIntentService {
         rawText: raw,
       };
     }
+    if (/\b(if|when|unless|until|every)\b/.test(ask)&&/\b(close|flatten|protect|lock|pause|stop|resume|guard|notify|alert|message|wake)\b/.test(ask)) return {...base,type:'BEHAVIOR',intent:'GENERAL_CONDITIONAL_BEHAVIOR',confidence:0.94,parameters:{naturalLanguage:raw},rawText:raw};
     const planSignals = /daily profit|drawdown|runner|trail|account|allow buys|allow sells|stop trading|copier|risk/.test(ask);
     if (context.planMode && planSignals) return { ...base, type: 'PLAN', intent: 'ADD_PLAN_DETAILS', confidence: 0.9, parameters: this.extractPlanFields(raw) };
 
