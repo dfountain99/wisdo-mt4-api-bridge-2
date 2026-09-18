@@ -54,10 +54,10 @@ function sessionCountdown(now = new Date()) {
 
 function mainButtons() {
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`${PREFIX}:capsule`).setLabel('ENTER CAPSULE').setEmoji('◉').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`${PREFIX}:mission`).setLabel('BEGIN MISSION').setEmoji('◎').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`${PREFIX}:wisdo`).setLabel('CONSULT WISDO').setEmoji('◈').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`${PREFIX}:pulse`).setLabel('CULTURE PULSE').setEmoji('◌').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`${PREFIX}:capsule`).setLabel('ENTER CAPSULE').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`${PREFIX}:mission`).setLabel('BEGIN MISSION').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`${PREFIX}:wisdo`).setLabel('CONSULT WISDO').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`${PREFIX}:pulse`).setLabel('CULTURE PULSE').setStyle(ButtonStyle.Secondary),
   );
 }
 
