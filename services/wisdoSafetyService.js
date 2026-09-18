@@ -1,5 +1,5 @@
 const DANGEROUS = new Set(['CLOSE_ALL_TRADES','CLOSE_LOSING_TRADES','EMERGENCY_STOP','INCREASE_RISK','SET_FIXED_LOT','SET_MAX_OPEN_TRADES','RAISE_TRADE_LIMIT','ACTIVATE_LIVE_PLAN','MULTI_ACCOUNT_ACTION']);
-const CONTROLLED = new Set(['STOP_NEW_ENTRIES','RESUME_TRADING','PAUSE_COPIER','RESUME_COPIER','BUY_ONLY','SELL_ONLY','BOTH_DIRECTIONS','SET_RISK_PERCENT','SET_EQUITY_FLOOR','CLOSE_PROFITABLE_TRADES']);
+const CONTROLLED = new Set(['GUARD_MODE','SET_CONTROL_MODE','STOP_NEW_ENTRIES','RESUME_TRADING','PAUSE_COPIER','RESUME_COPIER','BUY_ONLY','SELL_ONLY','BOTH_DIRECTIONS','SET_RISK_PERCENT','SET_EQUITY_FLOOR','CLOSE_PROFITABLE_TRADES']);
 
 export function voiceExecutionMode(value=process.env.WISDO_VOICE_EXECUTION_MODE){return String(value||'DISABLED').trim().toUpperCase();}
 export function isProvenDemoAccount(account={}){const values=[account.environment,account.accountType,account.account_type,account.type,account.brokerServer,account.broker_server,account.server,account.metadata?.environment,account.metadata?.accountType].map((v)=>String(v||'').toLowerCase());return values.some((value)=>/demo|practice|paper|sandbox|test/.test(value))&&!values.some((value)=>/\blive\b|\breal\b/.test(value));}

@@ -4,9 +4,11 @@ function stable(value) { if (Array.isArray(value)) return value.map(stable); if 
 export function confirmationActionHash(action) { return createHash('sha256').update(JSON.stringify(stable(action))).digest('hex'); }
 
 export class WisdoConfirmationService {
-  constructor({ pool, ttlMs = Number(process.env.WISDO_CONFIRMATION_TTL_MS || 120000) } = {}) { this.pool = pool; this.ttlMs = ttlMs; }
+  constructor({ pool, ttlMs = Number(process.env.WISDO_CONFIRMATION_TTL_MS || 60000) } = {}) { this.pool = pool; this.ttlMs = ttlMs; }
 
   async create({ userId, sessionId, deviceId = null, actionType, accountIds = [], botId = null, planId = null, parameters = {}, safetyLevel }) {
+    const existing=await this.pending(userId,sessionId);
+    if(existing)throw Object.assign(new Error('A trading confirmation is already pending for this session. Confirm or cancel it before creating another instruction.'),{code:'confirmation_pending',statusCode:409});
     const confirmationId = randomUUID();
     const action = { actionType, accountIds: [...accountIds].map(String).sort(), botId, planId, parameters };
     const r = await this.pool.query(`INSERT INTO wisdo_pending_confirmations(confirmation_id,owner_user_id,session_id,device_id,action_type,action_hash,account_ids,bot_id,plan_id,parameters,safety_level,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12) RETURNING *`, [confirmationId,userId,sessionId,deviceId,actionType,confirmationActionHash(action),action.accountIds,botId,planId,JSON.stringify(parameters),safetyLevel,new Date(Date.now()+this.ttlMs)]);

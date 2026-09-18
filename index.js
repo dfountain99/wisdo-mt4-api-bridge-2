@@ -391,9 +391,13 @@ client.on(Events.MessageCreate, async (message) => {
       });
       const useConversational = conversational.responded && (
         conversational.intent?.intent !== 'GENERAL_CONVERSATION' ||
-        !extractWisdoWakeCommand(raw)
+        !extractWisdoWakeCommand(raw) ||
+        isExplicitMt4Mutation(raw)
       );
       if (useConversational) {
+        if (conversational.intent?.intent === 'GENERAL_CONVERSATION' && isExplicitMt4Mutation(raw)) {
+          conversational.text = 'I recognized this as a trading-control request, but it did not compile into a registered Commander capability. No MT4 command was queued.';
+        }
         await replyWithWisdoTextAndSpeech({
           message,
           wisdoSpeechService,

@@ -8,7 +8,7 @@ const DEFAULT_WAKE_PHRASES = Object.freeze([
 const NUMBER_WORDS = Object.freeze({ zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twenty: 20, twentyfive: 25, fifty: 50, hundred: 100 });
 
 export const INTENT_SCHEMA_VERSION = '1.0';
-const MODEL_COMMAND_ALLOWLIST = new Set(['CLOSE_ALL_TRADES','CLOSE_ALL_WINNERS','CLOSE_ALL_LOSERS','EMERGENCY_STOP','PAUSE_COPIER','RESUME_COPIER','STOP_ENTRIES','START_ENTRIES','SET_EQUITY_FLOOR','WISDO_PRESERVE_RUNNER','WISDO_TRAIL_RUNNER','WISDO_STOP_AFTER_NEXT','WISDO_STOP_AFTER_CURRENT','WISDO_SET_NEWS_AVOIDANCE','WISDO_LADDER_ACTION','WISDO_EXPLAIN_TRADE']);
+const MODEL_COMMAND_ALLOWLIST = new Set(['CLOSE_ALL_TRADES','CLOSE_ALL_WINNERS','CLOSE_ALL_LOSERS','EMERGENCY_STOP','SET_CONTROL_MODE','PAUSE_COPIER','RESUME_COPIER','STOP_ENTRIES','START_ENTRIES','SET_EQUITY_FLOOR','WISDO_PRESERVE_RUNNER','WISDO_TRAIL_RUNNER','WISDO_STOP_AFTER_NEXT','WISDO_STOP_AFTER_CURRENT','WISDO_SET_NEWS_AVOIDANCE','WISDO_LADDER_ACTION','WISDO_EXPLAIN_TRADE']);
 
 export function configuredWakePhrases(value = process.env.WISDO_WAKE_PHRASES) {
   const custom = String(value || '').split(/[;,]/).map((v) => v.trim().toLowerCase()).filter(Boolean);
@@ -63,7 +63,7 @@ function command(intent, commandName, parameters = {}, confidence = 0.95, extra 
 export function validateStructuredIntent(value) {
   if (!value || typeof value !== 'object') return { ok: false, errors: ['intent_object_required'] };
   const errors = [];
-  if (!['ACTION', 'QUERY', 'PLAN', 'CONVERSATION', 'CONFIRMATION', 'CANCEL', 'GOODBYE', 'CLARIFICATION'].includes(value.type)) errors.push('invalid_type');
+  if (!['ACTION', 'BEHAVIOR', 'QUERY', 'PLAN', 'CONVERSATION', 'CONFIRMATION', 'CANCEL', 'GOODBYE', 'CLARIFICATION'].includes(value.type)) errors.push('invalid_type');
   if (!value.intent || typeof value.intent !== 'string') errors.push('intent_required');
   const confidence = Number(value.confidence);
   if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) errors.push('invalid_confidence');
@@ -92,9 +92,29 @@ export class WisdoIntentService {
     if (/review|show|read back/.test(ask) && /plan/.test(ask)) return { ...base, type: 'PLAN', intent: 'REVIEW_PLAN', confidence: 0.95 };
     if (/how close|plan progress|goal progress|active plan status/.test(ask)) return { ...base, type: 'QUERY', intent: 'PLAN_PROGRESS', confidence: 0.95 };
     if (/change that|set that|leave .* runners? instead|apply that|remove the .* restriction/.test(ask)) return { ...base, type: 'PLAN', intent: 'MODIFY_PLAN', confidence: context.activePlanId ? 0.9 : 0.45, parameters: { value: extractSpokenNumber(ask) } };
+    if (/(every|each) new entr(y|ies).*(reset|restart).*(timer|clock)|(?:reset|restart).*(timer|clock).*(every|each) new entr(y|ies)/.test(ask)) {
+      const duration = ask.match(/(\d+(?:\.\d+)?)\s*(second|minute|hour)s?/);
+      const unit = duration?.[2] || 'minute';
+      const multiplier = unit === 'second' ? 1 : unit === 'hour' ? 3600 : 60;
+      const timeoutSeconds = duration ? Math.round(Number(duration[1]) * multiplier) : null;
+      return {
+        ...base,
+        type: 'BEHAVIOR',
+        intent: 'RESETTABLE_ENTRY_TIMER',
+        confidence: timeoutSeconds ? 0.98 : 0.55,
+        parameters: {
+          timeoutSeconds,
+          resetOn: 'NEW_ENTRY',
+          onTimeout: /protect (?:my )?profit|lock (?:in )?profit|close (?:the )?(?:full |whole )?basket/.test(ask) ? 'PROTECT_PROFIT_FULL_BASKET' : null,
+          fullBasketOnly: true,
+        },
+        rawText: raw,
+      };
+    }
     const planSignals = /daily profit|drawdown|runner|trail|account|allow buys|allow sells|stop trading|copier|risk/.test(ask);
     if (context.planMode && planSignals) return { ...base, type: 'PLAN', intent: 'ADD_PLAN_DETAILS', confidence: 0.9, parameters: this.extractPlanFields(raw) };
 
+    if (/guard mode|safe mode|defensive mode/.test(ask)) return command('GUARD_MODE', 'SET_CONTROL_MODE', { mode: 'GUARD', allowNewTrades: false, guardMode: true, maxTrades: 1, riskPercent: 0.25 }, 0.98, { rawText: raw });
     if (/close (all|everything)( trades)?/.test(ask)) return command('CLOSE_ALL_TRADES', 'CLOSE_ALL_TRADES', {}, 0.99, { rawText: raw });
     if (/close (profitable|winning)|take winners|harvest/.test(ask)) return command('CLOSE_PROFITABLE_TRADES', 'CLOSE_ALL_WINNERS', { percent: extractSpokenNumber(ask) ?? 100 }, 0.97, { rawText: raw });
     if (/close (losing|losers)|cut losses/.test(ask)) return command('CLOSE_LOSING_TRADES', 'CLOSE_ALL_LOSERS', { percent: extractSpokenNumber(ask) ?? 100 }, 0.97, { rawText: raw });

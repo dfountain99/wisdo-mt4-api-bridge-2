@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
 
-const FINANCIAL_ACTIONS = new Set(['close_all','close_profitable','close_losing','modify_stop','set_profit_target','change_risk','trail_stop']);
+const FINANCIAL_ACTIONS = new Set(['close_all','close_full_basket','protect_profit_full_basket','close_profitable','close_losing','modify_stop','set_profit_target','change_risk','trail_stop']);
 const IMMUTABLE_BLOCKS = new Set(['disable_authentication','disable_audit','bypass_risk_governor','expose_broker_password','remove_emergency_stop']);
+const BUILTIN_ACTIONS = new Set(['close_full_basket','protect_profit_full_basket','pause_entries','resume_entries','trail_stop','speak_summary','activate_experience','play_music']);
 const scopeRank = { platform:0, user:10, lane:20, account:30, bot_family:40, symbol:50, timeframe:60, instance:70, temporary:80 };
 const CURRENCY_CODES = new Set(['USD','EUR','GBP','JPY','CHF','AUD','NZD','CAD','SGD','HKD','NOK','SEK','DKK','PLN','TRY','ZAR','MXN','CNH','CNY','RUB','BRL']);
 
@@ -50,20 +51,21 @@ export class WisdoAdaptiveFabricService {
 
   compileBehavior(intentResult, options={}) {
     const r=intentResult, p=r.parameters||{}, ref=r.references||{};
-    const scope={ level: ref.instance_id?'instance':ref.symbol?'symbol':ref.bot_family?'bot_family':'user', owner_user_id:options.owner_user_id, bot_family:ref.bot_family||options.bot_family||null, account_id:ref.account_id||null, symbol:ref.symbol||null, timeframe:options.timeframe||null, instance_id:ref.instance_id||null };
+    const scope={ level: ref.instance_id?'instance':ref.symbol?'symbol':ref.bot_family?'bot_family':ref.account_id?'account':'user', owner_user_id:options.owner_user_id, bot_family:ref.bot_family||options.bot_family||null, account_id:ref.account_id||null, symbol:ref.symbol||null, timeframe:options.timeframe||null, instance_id:ref.instance_id||null };
     let trigger={type:'manual'}, actions=[];
-    if(r.intent==='trail_stop'){ trigger={type:'metric_threshold',metric:'profit_percent',operator:'>=',value:p.start_profit_percent??20}; actions=[{type:'trail_stop',method:options.trail_method||'volatility_adjusted',distance_percent:options.distance_percent??5}]; }
+    if(r.intent==='RESETTABLE_ENTRY_TIMER'||r.intent==='resettable_entry_timer') { trigger={type:'resettable_inactivity_timer',event:'new_entry',timeout_seconds:p.timeoutSeconds}; actions=[{type:'protect_profit_full_basket',require_positive_basket:true,atomic:true}]; }
+    else if(r.intent==='trail_stop'){ trigger={type:'metric_threshold',metric:'profit_percent',operator:'>=',value:p.start_profit_percent??20}; actions=[{type:'trail_stop',method:options.trail_method||'volatility_adjusted',distance_percent:options.distance_percent??5}]; }
     else if(r.intent==='set_profit_target'){ trigger={type:'metric_threshold',metric:'basket_profit_money',operator:'>=',value:p.money??options.target_money??100}; actions=[{type:'close_full_basket',only_profitable:true}]; }
     else if(r.intent==='create_profit_wake_promise'){ trigger={type:'metric_threshold',metric:'portfolio_profit_money',operator:'>=',value:p.money??3500}; actions=[{type:'play_music',query:options.music||'James Brown'},{type:'speak_summary'},{type:'activate_experience',experience:'victory'}]; }
     else actions=[{type:r.intent,parameters:p}];
-    return { behavior_id:id('behavior'), name:options.name||this.titleFor(r), purpose:options.purpose||r.raw, scope, trigger, conditions:options.conditions||[], actions, exceptions:options.exceptions||['emergency_stop','identity_not_verified','permission_denied'], safety:{approval_required:actions.some(a=>FINANCIAL_ACTIONS.has(a.type)),shadow_first:actions.some(a=>FINANCIAL_ACTIONS.has(a.type)),reversible:true}, lifecycle:{state:'draft',temporary:Boolean(options.temporary),expires_at:options.expires_at||null,rollback:'restore_inherited_policy'}, success_metrics:options.success_metrics||[], source:{type:'voice',spoken_text:r.raw,confidence:r.confidence} };
+    return { behavior_id:id('behavior'), name:options.name||this.titleFor(r), purpose:options.purpose||r.raw||r.rawText, scope, trigger, conditions:options.conditions||[], actions, verification:{required:true,receipt:'mt4_reporter',success:'all_target_tickets_closed'}, failure_plan:{retry:'bounded',max_attempts:3,on_exhausted:'notify_and_disarm'}, exceptions:options.exceptions||['emergency_stop','identity_not_verified','permission_denied'], safety:{approval_required:actions.some(a=>FINANCIAL_ACTIONS.has(a.type)),shadow_first:actions.some(a=>FINANCIAL_ACTIONS.has(a.type)),reversible:true}, lifecycle:{state:'draft',temporary:Boolean(options.temporary),expires_at:options.expires_at||null,rollback:'restore_inherited_policy'}, success_metrics:options.success_metrics||[], source:{type:'voice',spoken_text:r.raw||r.rawText,confidence:r.confidence} };
   }
 
-  titleFor(r){ return ({trail_stop:'Profit Trail Overlay',set_profit_target:'Scoped Profit Take',create_profit_wake_promise:'Profit Wake Promise',analyze_weakest_symbol:'Weakness Analysis'})[r.intent]||'Custom Wisdo Behavior'; }
+  titleFor(r){ return ({RESETTABLE_ENTRY_TIMER:'Resettable Entry Protection Timer',resettable_entry_timer:'Resettable Entry Protection Timer',trail_stop:'Profit Trail Overlay',set_profit_target:'Scoped Profit Take',create_profit_wake_promise:'Profit Wake Promise',analyze_weakest_symbol:'Weakness Analysis'})[r.intent]||'Custom Wisdo Behavior'; }
 
   validateBehavior(behavior, capabilities=[]) {
     const errors=[], warnings=[]; const actions=behavior.actions||[]; const keys=new Set(capabilities.map(c=>c.capability_key));
-    for(const a of actions){ if(IMMUTABLE_BLOCKS.has(a.type)) errors.push(`Action ${a.type} violates the safety constitution.`); if(!keys.has(a.type) && !['speak_summary','activate_experience','play_music','close_full_basket'].includes(a.type)) warnings.push(`Capability ${a.type} is not currently registered.`); }
+    for(const a of actions){ if(IMMUTABLE_BLOCKS.has(a.type)) errors.push(`Action ${a.type} violates the safety constitution.`); if(!keys.has(a.type) && !BUILTIN_ACTIONS.has(a.type)) errors.push(`Capability ${a.type} is not registered.`); }
     if(!behavior.scope?.owner_user_id) errors.push('Behavior owner is required.');
     if(behavior.source?.confidence<0.75) errors.push('Conversational reference confidence is too low; clarification is required.');
     if(actions.some(a=>FINANCIAL_ACTIONS.has(a.type)) && behavior.safety?.approval_required!==true) errors.push('Financial behaviors require explicit approval.');
@@ -76,6 +78,11 @@ export class WisdoAdaptiveFabricService {
       VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,'draft',$8,$9,$10,$11,$12) RETURNING *`,[behavior.behavior_id,owner,behavior.name,behavior.purpose,behavior.scope.level,JSON.stringify(behavior.scope),JSON.stringify(behavior),version,behavior.source.type,behavior.source.spoken_text,validation.risk_level,behavior.safety.approval_required]);
     await this.pool.query(`INSERT INTO wisdo_behavior_versions(behavior_id,version,definition,change_summary,created_by) VALUES($1,1,$2::jsonb,'Initial compiled behavior',$3)`,[behavior.behavior_id,JSON.stringify(behavior),owner]);
     return r.rows[0];
+  }
+
+  async activateBehavior(owner, behaviorId, approvedBy=owner) {
+    const r=await this.pool.query(`UPDATE wisdo_behaviors SET status='active',approved_by=$3,approved_at=NOW(),updated_at=NOW() WHERE owner_user_id=$1 AND behavior_id=$2 AND status='draft' RETURNING *`,[owner,behaviorId,approvedBy]);
+    return r.rows[0]||null;
   }
 
   async resolveEffectiveBehaviors(owner, context={}) {

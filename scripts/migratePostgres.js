@@ -213,6 +213,15 @@ try {
     );
     CREATE INDEX IF NOT EXISTS idx_wisdo_behaviors_scope ON wisdo_behaviors(owner_user_id,status,scope_level);
 
+    CREATE TABLE IF NOT EXISTS wisdo_behavior_runtime_state (
+      behavior_id TEXT NOT NULL REFERENCES wisdo_behaviors(behavior_id) ON DELETE CASCADE,
+      owner_user_id TEXT NOT NULL, account_id TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'ARMED',
+      open_tickets JSONB NOT NULL DEFAULT '[]'::jsonb, last_entry_at TIMESTAMPTZ, deadline_at TIMESTAMPTZ,
+      last_checked_at TIMESTAMPTZ, last_triggered_at TIMESTAMPTZ, metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(behavior_id,account_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_wisdo_behavior_runtime_due ON wisdo_behavior_runtime_state(state,deadline_at,account_id);
+
     CREATE TABLE IF NOT EXISTS wisdo_behavior_versions (
       id BIGSERIAL PRIMARY KEY, behavior_id TEXT NOT NULL REFERENCES wisdo_behaviors(behavior_id) ON DELETE CASCADE, version INTEGER NOT NULL,
       definition JSONB NOT NULL, change_summary TEXT, created_by TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(behavior_id,version)
