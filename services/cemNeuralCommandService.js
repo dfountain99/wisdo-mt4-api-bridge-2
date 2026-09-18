@@ -10,6 +10,7 @@ import {
   TextInputStyle,
 } from 'discord.js';
 import { randomUUID } from 'node:crypto';
+import { WisdoPresenceLearningService, WISDO_PRESENCE_MODES } from './wisdoPresenceLearningService.js';
 
 const COLORS = Object.freeze({ gold: 0xD6B65A, cyan: 0x39D6D6, purple: 0x9B6DFF, red: 0xE05252, graphite: 0x11151C });
 const PREFIX = 'cem_neural';
@@ -19,7 +20,8 @@ const NETWORK_LAYOUT = Object.freeze([
   { category: '◈ TRADING FLOOR', channels: [['live-market', 'Live market conversation and session presence.'], ['trade-ideas', 'Educational trade ideas and structured reasoning.'], ['wins-and-lessons', 'Documented wins, losses, and lessons without hype.'], ['risk-management', 'Account protection and discipline.']], voice: ['live-trading-floor'] },
   { category: '◈ WISDO CORE', channels: [['wisdo-core', 'Speak naturally with WISDO and inspect operator context.'], ['market-intelligence', 'Market conditions, alerts, and system observations.']] },
   { category: '◈ CULTURE PULSE', channels: [['culture-pulse', 'Network activity, milestones, and collective discipline.'], ['member-wins', 'Recognized operator growth and accomplishments.']] },
-  { category: '◈ ACADEMY', channels: [['courses', 'CEM Culture education and guided pathways.'], ['resources', 'Approved reference material.'], ['questions', 'Structured learning questions and Coach responses.']] },
+  { category: '◈ ACADEMY', channels: [['courses', 'CEM Culture education and guided pathways.'], ['resources', 'Approved reference material.'], ['questions', 'Structured learning questions and Coach responses.'], ['course-proposals', 'Voice-built curricula awaiting Coach approval.'], ['student-wins', 'Approved learning milestones and transformations.']], voice: ['live-classroom', 'office-hours'] },
+  { category: '◈ CREATOR STUDIO', channels: [['creator-studio', 'Turn approved conversations into courses, procedures, and campaigns.'], ['promotion-review', 'Review announcements, events, highlights, and campaign drafts before publishing.'], ['session-recaps', 'Consent-led recaps, decisions, assignments, and next steps.']], voice: ['wisdo-coaching-room', 'content-lab'] },
   { category: '◈ BOT CHAMBER', channels: [['cem-bot', 'Bot identities, capabilities, versions, and deployment guidance.'], ['bot-commands', 'Bot setup and control guidance.'], ['system-status', 'Reporter, bridge, and platform health.']] },
 ]);
 
@@ -69,6 +71,14 @@ function secondaryButtons() {
   );
 }
 
+function presenceButtons() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`${PREFIX}:presence`).setLabel('VOICE PRESENCE').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`${PREFIX}:course`).setLabel('BUILD A COURSE').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`${PREFIX}:screen`).setLabel('SCREEN GUIDE').setStyle(ButtonStyle.Secondary),
+  );
+}
+
 function adminButtons() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`${PREFIX}:admin`).setLabel('NEURAL ADMIN').setEmoji('⚙️').setStyle(ButtonStyle.Danger),
@@ -76,11 +86,12 @@ function adminButtons() {
 }
 
 export class CemNeuralCommandService {
-  constructor({ config, operatorDeskService, mt4SyncService, logger = console } = {}) {
+  constructor({ config, operatorDeskService, mt4SyncService, presenceLearningService, logger = console } = {}) {
     this.config = config || {};
     this.operatorDeskService = operatorDeskService;
     this.mt4SyncService = mt4SyncService;
     this.logger = logger;
+    this.presenceLearningService = presenceLearningService || new WisdoPresenceLearningService({ repository: operatorDeskService?.repository, logger });
   }
 
   buildGatewayPayload(guild) {
@@ -107,11 +118,11 @@ export class CemNeuralCommandService {
       )
       .setFooter({ text: 'CEM CULTURE • TRADE • DEVELOP • BELONG' })
       .setTimestamp();
-    return { embeds: [embed], components: [mainButtons()] };
+    return { embeds: [embed], components: [mainButtons(), presenceButtons()] };
   }
 
   buildHelpControls(isStaff = false) {
-    return isStaff ? [mainButtons(), adminButtons()] : [mainButtons()];
+    return isStaff ? [mainButtons(), presenceButtons(), adminButtons()] : [mainButtons(), presenceButtons()];
   }
 
   async operatorState(userId) {
@@ -182,6 +193,59 @@ export class CemNeuralCommandService {
       );
   }
 
+  courseModal() {
+    return new ModalBuilder().setCustomId(`${PREFIX}:course_submit`).setTitle('VOICE-TO-COURSE FORGE').addComponents(
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('title').setLabel('COURSE TITLE OR TOPIC').setPlaceholder('Risk Mastery for Beginners').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(100)),
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('outcome').setLabel('WHAT WILL THE STUDENT BE ABLE TO DO?').setPlaceholder('Control risk and calculate position size').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(500)),
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('audience').setLabel('WHO IS THIS FOR?').setPlaceholder('New CEM Culture operators').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(160)),
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('source').setLabel('SOURCE OR SESSION CONTEXT').setPlaceholder('Tonight\'s coaching conversation, uploaded notes, or original instruction').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(500)),
+    );
+  }
+
+  async saveCourseDraft(interaction) {
+    const draft = this.presenceLearningService.createCourseDraft({
+      ownerId: interaction.user.id, guildId: interaction.guildId,
+      title: interaction.fields.getTextInputValue('title'), outcome: interaction.fields.getTextInputValue('outcome'),
+      audience: interaction.fields.getTextInputValue('audience'), source: interaction.fields.getTextInputValue('source'),
+    });
+    await this.presenceLearningService.persist({ id: draft.courseId, discordUserId: interaction.user.id, username: interaction.user.username, channelId: interaction.channelId, date: draft.createdAt.slice(0, 10), timestamp: draft.createdAt, logType: 'course-draft', courseId: draft.courseId, title: draft.title, outcome: draft.outcome, audience: draft.audience, source: draft.source });
+    const lines = draft.modules.map((module) => `**${module.number}. ${module.title}** — ${module.objective}`).join('\n');
+    const staff = this.operatorDeskService?.isStaff?.(interaction.member);
+    const components = staff ? [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`${PREFIX}:publish_course:${draft.courseId}`).setLabel('CREATE COURSE CHANNELS').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`${PREFIX}:cancel`).setLabel('KEEP AS DRAFT').setStyle(ButtonStyle.Secondary),
+    )] : [];
+    await interaction.reply({ ephemeral: true, embeds: [new EmbedBuilder().setColor(COLORS.purple).setTitle(`COURSE FORGE // ${draft.title.toUpperCase()}`).setDescription(lines).addFields(
+      { name: 'OUTCOME', value: draft.outcome }, { name: 'AUDIENCE', value: draft.audience, inline: true },
+      { name: 'PLACEMENT PLAN', value: `${draft.channels.length} text channels • ${draft.voiceChannels.length} voice rooms`, inline: true },
+      { name: 'PROMOTION', value: `Approval required • ${draft.promotion.sequence.length} planned transmissions` },
+      { name: 'STATUS', value: staff ? '**Ready for staff publication.**' : '**Draft saved. A Coach/Admin must approve channel creation and promotion.**' },
+    ).setFooter({ text: `Course ID • ${draft.courseId}` }).setTimestamp()], components });
+  }
+
+  async publishCourse(interaction, courseId) {
+    if (!this.operatorDeskService?.isStaff?.(interaction.member)) throw new Error('Coach/Admin authority required to publish a course.');
+    const draft = this.presenceLearningService.drafts.get(courseId);
+    if (!draft) throw new Error('This course draft expired from active memory. Rebuild it from the Course Forge.');
+    const me = interaction.guild.members.me || await interaction.guild.members.fetchMe();
+    if (!me.permissions.has(PermissionFlagsBits.ManageChannels)) throw new Error('WISDO needs Manage Channels to publish the course.');
+    await interaction.guild.channels.fetch();
+    const categoryName = `ACADEMY • ${draft.title}`.slice(0, 100);
+    let category = interaction.guild.channels.cache.find((channel) => channel.type === ChannelType.GuildCategory && channel.name === categoryName);
+    if (!category) category = await interaction.guild.channels.create({ name: categoryName, type: ChannelType.GuildCategory, reason: `WISDO course ${draft.courseId}` });
+    const created = [];
+    for (const [name, topic] of draft.channels) {
+      let channel = interaction.guild.channels.cache.find((item) => item.parentId === category.id && item.name === name);
+      if (!channel) { channel = await interaction.guild.channels.create({ name, topic, parent: category.id, type: ChannelType.GuildText, reason: `WISDO course ${draft.courseId}` }); created.push(channel.id); }
+      if (name === 'curriculum') await channel.send({ embeds: [new EmbedBuilder().setColor(COLORS.gold).setTitle(draft.title).setDescription(draft.modules.map((module) => `**${module.number}. ${module.title}**\n${module.objective}`).join('\n\n')).addFields({ name: 'COURSE OUTCOME', value: draft.outcome }, { name: 'SOURCE', value: draft.source }).setFooter({ text: 'WISDO Course Forge • Sources retained • Instructor review required' })] }).catch(() => null);
+    }
+    for (const name of draft.voiceChannels) {
+      if (!interaction.guild.channels.cache.some((item) => item.parentId === category.id && item.name === name)) { const channel = await interaction.guild.channels.create({ name, parent: category.id, type: ChannelType.GuildVoice, reason: `WISDO course ${draft.courseId}` }); created.push(channel.id); }
+    }
+    draft.status = 'published'; draft.categoryId = category.id; draft.publishedAt = new Date().toISOString();
+    await interaction.update({ content: `Course published in <#${category.id}>. Created **${created.length}** channels. Promotion remains a draft until separately approved.`, embeds: [], components: [] });
+  }
+
   async saveMission(interaction) {
     const now = new Date();
     const record = {
@@ -224,6 +288,24 @@ export class CemNeuralCommandService {
     const action = interaction.customId.split(':')[1];
     if (action === 'mission') { await interaction.showModal(this.missionModal()); return true; }
     if (action === 'mission_submit') { await this.saveMission(interaction); return true; }
+    if (action === 'course') { await interaction.showModal(this.courseModal()); return true; }
+    if (action === 'course_submit') { await this.saveCourseDraft(interaction); return true; }
+    if (action === 'publish_course') { await this.publishCourse(interaction, interaction.customId.split(':')[2]); return true; }
+    if (action === 'presence') {
+      const modes = Object.values(WISDO_PRESENCE_MODES).map((mode) => `**${mode.label}** — ${mode.outputs.join(', ')}`).join('\n');
+      await interaction.reply({ ephemeral: true, embeds: [new EmbedBuilder().setColor(COLORS.cyan).setTitle('WISDO IN THE ROOM // PRESENCE MODES').setDescription(modes).addFields(
+        { name: 'VOICE SESSION FLOW', value: 'Choose mode → announce listening state → collect consent → coach or observe → create approved recap and next actions.' },
+        { name: 'TRADING AUTHORITY', value: 'Explanation and simulation are immediate. Financial actions remain scoped, confirmed, and verified by an execution receipt.' },
+      ).setFooter({ text: 'Recording is OFF by default • Stop listening is always available' })] }); return true;
+    }
+    if (action === 'screen') {
+      const contract = this.presenceLearningService.screenCompanionContract({ ownerId: interaction.user.id });
+      await interaction.reply({ ephemeral: true, embeds: [new EmbedBuilder().setColor(COLORS.cyan).setTitle('SCREEN GUIDE // EXPLICIT SHARE REQUIRED').setDescription('Discord does not hand a normal bot the pixels from another member\'s stream. WISDO prepares a companion session for a user-selected window or deliberate screenshots.').addFields(
+        { name: 'AVAILABLE OUTPUTS', value: 'Step-by-step coaching • procedure capture • course chapters • approved screenshots • automation proposal' },
+        { name: 'PRIVACY CONTROLS', value: contract.controls.join(' • ') },
+        { name: 'STATE', value: `**${contract.state.toUpperCase()}**\nNo background capture. No credential storage.` },
+      )] }); return true;
+    }
     if (action === 'pulse') { await this.culturePulse(interaction); return true; }
     if (action === 'admin') {
       if (!this.operatorDeskService?.isStaff?.(interaction.member)) {
