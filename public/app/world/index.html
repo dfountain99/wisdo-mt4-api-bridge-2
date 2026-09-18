@@ -1,122 +1,21 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
-  <meta name="theme-color" content="#02050d">
-  <meta name="description" content="WISDO World — a playable third-person financial-tech city for the WISDO ecosystem.">
-  <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
-  <title>WISDO World</title>
-  <link rel="stylesheet" href="/app/world/world.css?v=2026.09.17.visual-fidelity-v4">
-  <link rel="stylesheet" href="/app/world/home.css?v=2026.09.17.visual-fidelity-v4">
-  <link rel="stylesheet" href="/app/world/living.css?v=2026.09.17.visual-fidelity-v4">
-  <link rel="stylesheet" href="/app/world/fidelity.css?v=2026.09.17.visual-fidelity-v4">
-  <link rel="stylesheet" href="/app/world/production-world.css?v=2026.09.17.visual-fidelity-v4">
-  <link rel="stylesheet" href="/app/world/visual-fidelity-v2.css?v=2026.09.17.visual-fidelity-v4">
-  <link rel="stylesheet" href="/app/world/visual-fidelity-v3.css?v=2026.09.17.visual-fidelity-v4">
-  <script type="importmap">
-    {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.min.js","/app/world/world3d.js":"/app/world/world3d-production.js?v=2026.09.17.visual-fidelity-v4","/app/world/world-interior3d.js":"/app/world/world-interior3d-v2.js?v=2026.09.17.visual-fidelity-v4","/app/world/markets/market-billboard-manager.js":"/app/world/markets/market-billboard-manager-v2.js?v=2026.09.17.visual-fidelity-v4"}}
-  </script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#02040a">
+<meta name="description" content="WISDO World — the playable financial-tech world for the WISDO ecosystem.">
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
+<title>WISDO World</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02040a}
+#worldFrame{position:fixed;inset:0;width:100%;height:100%;border:0;background:#02040a}
+#legacy{position:fixed;right:12px;bottom:12px;z-index:20;font:600 10px system-ui;color:#9aa7b8;text-decoration:none;background:#07101ccc;border:1px solid #ffffff18;border-radius:999px;padding:7px 10px;opacity:.5}
+#legacy:hover{opacity:1}
+</style>
 </head>
 <body>
-  <div id="loadingScreen" class="loading-screen" role="status" aria-live="polite">
-    <div class="loading-brand">W</div>
-    <p class="loading-eyebrow">CEM CULTURE</p>
-    <h1>ENTERING WISDO</h1>
-    <p id="loadingPhase">Building cinematic world</p>
-    <div class="loading-track"><i id="loadingBar"></i></div>
-    <small>CONNECT. COPY. CONTROL.</small>
-  </div>
-
-  <div id="app" class="world-shell" data-ready="false">
-    <main id="worldStage" class="world-stage" aria-label="WISDO World playable environment">
-      <div id="canvasMount" class="canvas-mount" aria-label="WISDO World 3D canvas"></div>
-      <div id="liteMount" class="lite-mount" hidden></div>
-      <div class="cinema-vignette" aria-hidden="true"></div>
-      <div class="reticle" aria-hidden="true"><i></i></div>
-
-      <header class="topbar hud-panel">
-        <a class="brand" href="/member/command-center" data-nav aria-label="Open WISDO Command inside World">
-          <span class="brand-mark">W</span>
-          <span><b>WISDO</b><small>WORLD</small></span>
-        </a>
-        <nav class="top-actions" aria-label="World controls">
-          <button id="meshBtn" class="chip">Reporter Mesh <span id="meshCount">0</span></button>
-          <button id="mapBtn" class="chip">Map</button>
-          <button id="arcadeBtn" class="chip">Trading Arcade</button>
-          <button id="profileBtn" class="chip">Identity</button>
-          <button id="settingsBtn" class="chip">Settings</button>
-          <a class="chip" href="/member/command-center" data-nav data-world-external="fast-mode">Fast Mode</a>
-        </nav>
-        <div class="identity">
-          <span id="tierBadge" class="tier">MEMBER</span>
-          <div><strong id="callsign">Operator</strong><small><span id="xp">0</span> XP · LV <span id="level">1</span></small></div>
-        </div>
-      </header>
-
-      <section id="firstRunHelp" class="first-run hud-panel" aria-label="World controls">
-        <span>YOUR WISDO SMART HOME</span>
-        <strong>WASD MOVE · MOUSE LOOK · SHIFT SPRINT · SPACE JUMP · E INTERACT</strong>
-        <small>Click the world to engage camera control. Esc releases the mouse.</small>
-      </section>
-
-      <aside class="status-panel hud-panel">
-        <div class="status-heading"><span>WORLD STATUS</span><i id="connectionDot" class="connection-dot"></i></div>
-        <div class="status-row"><span>LINKED ACCOUNTS</span><strong id="accountCount">0</strong></div>
-        <div class="status-row"><span>REPORTERS ONLINE</span><strong id="onlineCount">0</strong></div>
-        <div class="status-row"><span>WORLD ACCESS</span><strong id="accessLabel">MEMBER</strong></div>
-        <div class="progress-track"><i id="xpBar"></i></div>
-        <small id="syncLabel">Connecting to WISDO…</small>
-        <small id="worldVersion" class="world-version">WISDO WORLD</small>
-        <small class="world-version" data-world-build="2026.09.17.visual-fidelity-v4">BUILD PRODUCTION-CITY-V1 · VISUAL-FIDELITY-V4 · ARCADE-ALPHA3</small>
-      </aside>
-
-      <div id="proximity" class="proximity hud-panel" hidden>
-        <span id="nearKicker">SYSTEM</span>
-        <strong id="nearName">Smart Home</strong>
-        <em id="nearHint">[E] INTERACT</em>
-      </div>
-
-      <footer class="dock hud-panel" aria-label="WISDO navigation">
-        <button id="dockMap">◫ <span>MAP</span></button>
-        <button id="dockMesh">⌁ <span>MESH</span></button>
-        <button id="dockArcade">◈ <span>TRADING</span></button>
-        <button id="dockAchievements">◇ <span>PROGRESS</span></button>
-        <a href="/pricing" data-nav>▣ <span>MARKET</span></a>
-        <a href="/member/command-center" data-nav data-world-external="fast-mode">⚙ <span>FAST</span></a>
-      </footer>
-
-      <div id="mobileControls" class="mobile-controls" aria-label="Touch game controls">
-        <div id="moveStick" class="move-stick" aria-label="Movement joystick"><i id="moveKnob"></i></div>
-        <div id="lookZone" class="look-zone" aria-label="Camera look area"></div>
-        <div class="mobile-actions">
-          <button id="sprintBtn" aria-label="Sprint">SPRINT</button>
-          <button id="jumpBtn" aria-label="Jump">JUMP</button>
-          <button id="interactBtn" class="interact" aria-label="Interact" hidden>USE</button>
-        </div>
-      </div>
-
-      <aside id="debugPanel" class="debug-panel" hidden></aside>
-    </main>
-  </div>
-
-  <div id="modal" class="modal" hidden>
-    <button id="modalBackdrop" class="modal-backdrop" aria-label="Close modal"></button>
-    <section class="modal-card hud-panel" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-      <button id="modalClose" class="modal-close" aria-label="Close">×</button>
-      <div id="modalBody"></div>
-    </section>
-  </div>
-
-  <div id="toast" class="toast hud-panel" hidden></div>
-  <noscript>WISDO World requires JavaScript. Use WISDO Fast Mode to continue.</noscript>
-  <script type="module" src="/app/world/markets/tradingview-market-terminal-v1.js?v=2026.09.17.visual-fidelity-v4"></script>
-  <script type="module" src="/app/world/world-v2.js?v=2026.09.17.visual-fidelity-v4"></script>
-  <script type="module" src="/app/world/world-multiplayer-runtime.js?v=2026.09.17.visual-fidelity-v4"></script>
-  <script type="module" src="/app/world/world-merged-runtime-v3.js?v=2026.09.17.visual-fidelity-v4"></script>
-  <script type="module" src="/app/world/world-minimap-runtime.js?v=2026.09.17.visual-fidelity-v4"></script>
-  <script type="module" src="/app/world/world-living-runtime.js?v=2026.09.17.visual-fidelity-v4"></script>
-  <script type="module" src="/app/world/world-debug-runtime.js?v=2026.09.17.visual-fidelity-v4"></script>
-  <script type="module" src="/app/world/arcade/arcade-alpha3-runtime.js?v=2026.09.15.arcade-alpha3-trading-sim"></script>
+<iframe id="worldFrame" title="WISDO World" src="/app/world/babylon-city/?entry=production-v1" allow="fullscreen; autoplay; gamepad" referrerpolicy="same-origin"></iframe>
+<a id="legacy" href="/app/world/legacy.html">LEGACY WORLD</a>
 </body>
 </html>
