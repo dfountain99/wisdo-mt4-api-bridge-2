@@ -1197,7 +1197,7 @@ function shell({ title, body, active = '/', mode = 'public', membership = null }
   const authActions = loggedIn
     ? `${portalStatus}<a class="btn primary" href="/app/dashboard" data-launch>Dashboard</a><a class="btn" href="/logout">Logout</a>`
     : `${portalStatus}<a class="btn" href="/login">Login</a><a class="btn primary" href="/app/dashboard" data-launch>Command Center</a>`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} | Culture Coin / Deadshot</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=JetBrains+Mono:wght@600;800&family=Sora:wght@700;800&display=swap" rel="stylesheet">${baseCss()}${worldClockCss()}</head><body>${launchMarkup()}<header class="nav"><div class="container nav-inner"><a class="brand" href="/"><span class="brand-mark"></span><span>Wisdo <b style="color:var(--green2)">Connect</b><small>Connect. Copy. Control.</small></span></a><nav class="nav-links">${!portal ? navHtml : ''}</nav><div class="nav-cta actions" style="margin:0">${authActions}</div></div></header>${worldClockMarkup()}${portal ? `<div class="app-shell"><aside class="side">${navHtml}</aside><main class="main">${body}</main></div>` : body}<footer class="footer"><div class="container"><div class="grid2"><div><strong>Culture Coin / Wisdo Trading Command Center</strong><p>Premium bot control, MT4/MT5 bridge, Culture Coin Reporter, Discord commands, and subscription-gated trade copying.</p><div class="trust-strip"><a class="chip" href="/pricing">Plans</a><a class="chip" href="/faq">Risk FAQ</a><a class="chip" href="/contact">Support</a><a class="chip" href="/app/reporter">Reporter</a></div></div><div><p><strong>Risk disclosure:</strong> Trading involves substantial risk. This software does not guarantee profits, prevent losses, or provide financial advice. Copier access is blocked unless membership checks pass on the backend.</p><p class="muted">Reporter access can stay visible, but trade copying requires active membership, copier enabled, confirmation for dangerous commands, and a connected trading account.</p></div></div></div></footer>${siteScript()}${portal ? presenceAwarenessClient() : ''}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} | Culture Coin / Deadshot</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=JetBrains+Mono:wght@600;800&family=Sora:wght@700;800&display=swap" rel="stylesheet">${baseCss()}${worldClockCss()}<link rel="stylesheet" href="/app/performance-replay.css"></head><body>${launchMarkup()}<header class="nav"><div class="container nav-inner"><a class="brand" href="/"><span class="brand-mark"></span><span>Wisdo <b style="color:var(--green2)">Connect</b><small>Connect. Copy. Control.</small></span></a><nav class="nav-links">${!portal ? navHtml : ''}</nav><div class="nav-cta actions" style="margin:0">${authActions}</div></div></header>${worldClockMarkup()}${portal ? `<div class="app-shell"><aside class="side">${navHtml}</aside><main class="main">${body}</main></div>` : body}<footer class="footer"><div class="container"><div class="grid2"><div><strong>Culture Coin / Wisdo Trading Command Center</strong><p>Premium bot control, MT4/MT5 bridge, Culture Coin Reporter, Discord commands, and subscription-gated trade copying.</p><div class="trust-strip"><a class="chip" href="/pricing">Plans</a><a class="chip" href="/faq">Risk FAQ</a><a class="chip" href="/contact">Support</a><a class="chip" href="/app/reporter">Reporter</a></div></div><div><p><strong>Risk disclosure:</strong> Trading involves substantial risk. This software does not guarantee profits, prevent losses, or provide financial advice. Copier access is blocked unless membership checks pass on the backend.</p><p class="muted">Reporter access can stay visible, but trade copying requires active membership, copier enabled, confirmation for dangerous commands, and a connected trading account.</p></div></div></div></footer>${siteScript()}${portal ? presenceAwarenessClient() : ''}<script src="/js/performance-replay.js" defer></script></body></html>`;
 }
 
 function sectionHead(eyebrow, title, copy) {
@@ -1619,7 +1619,17 @@ function appDashboardProductPage(liveData, membership, state, accountConfig = {}
   const margin = Number(metrics.marginLevel || 0);
   const strongest = symbols[0];
   const weakest = symbols.slice().reverse()[0];
+  const replayJson = JSON.stringify(buildPerformanceReplayPayload(liveData, membership, state)).replaceAll('<', '\\u003c');
   return `${appAccountRail(state, membership, liveData.accountId)}
+  <section class="wisdo-replay" data-wisdo-performance-replay>
+    <script type="application/json" data-replay-payload>${replayJson}</script>
+    <section class="app-panel"><div class="replay-day-head"><div><span class="eyebrow">HIGHTOWER Trading Day Replay</span><h2 data-selected-date>Selected trading day</h2><p class="muted">Actual stored Reporter entries and closes drive the market path and flow heat map. No demo trades are inserted.</p></div><div class="replay-pnl positive" data-selected-pnl>$0.00</div></div>
+      <div class="replay-chart" data-market-path></div>
+      <div class="replay-stats" style="margin-top:12px"><div class="replay-stat"><span>Net P&L</span><strong data-stat="net">$0.00</strong></div><div class="replay-stat"><span>Trades</span><strong data-stat="trades">0</strong></div><div class="replay-stat"><span>Win rate</span><strong data-stat="winrate">0%</strong></div><div class="replay-stat"><span>Wins</span><strong data-stat="wins">0</strong></div><div class="replay-stat"><span>Losses</span><strong data-stat="losses">0</strong></div><div class="replay-stat"><span>Lots</span><strong data-stat="lots">0.00</strong></div></div>
+    </section>
+    <section class="app-panel"><span class="eyebrow">Flow Heat Map</span><h3>Entry • close • P&L flow</h3><p class="muted">24-hour flow view. Green intensity tracks BUY entries, red tracks SELL entries, gold tracks closes, and P&L flow shows where realized results landed.</p><div class="flow-heat" data-flow-heat></div></section>
+    <section class="app-panel"><div class="pnl-calendar-head"><button type="button" data-cal-prev>←</button><div><span class="eyebrow">P&L Calendar</span><h3 data-calendar-title>Month</h3></div><button type="button" data-cal-next>→</button></div><div class="pnl-calendar-grid" data-calendar-grid></div></section>
+  </section>
   <section class="app-hero-card"><div><div class="app-hero-top"><span class="eyebrow">Wisdo Command Center</span>${appLiveBadge(liveData)}</div><h2>Live account command deck</h2><p class="muted">Premium member dashboard for account switching, instant MT4 controls, health gauges, pair controls, and command completion feedback.</p><div class="app-command-row"><button class="btn danger ${membership.canCopyTrades ? '' : 'locked'}" data-copy-action="close_all">Close All Selected</button><button class="btn gold ${membership.canCopyTrades ? '' : 'locked'}" data-copy-action="close_profitable">Close Profits</button><button class="btn ${membership.canCopyTrades ? '' : 'locked'}" data-copy-action="pause_copier">Pause Relay</button><a class="btn primary" href="/app/copier-engine${liveData.accountId ? `?accountId=${encodeURIComponent(liveData.accountId)}` : ''}">Build Relay</a><a class="btn gold" href="/app/live-desk${liveData.accountId ? `?accountId=${encodeURIComponent(liveData.accountId)}` : ''}">Start Live Desk</a></div><div id="commandConfirmBox" class="command-confirm">Ready. Dangerous commands will request phrase confirmation before MT4 queue.</div></div><div class="app-health-orb health-${health.key}"><div class="health-ring" style="--ringValue:${pct(health.ring)}%;--ringColor:${health.color}"><strong>${Math.round(pct(health.ring))}%</strong></div><h3>${esc(health.label)}</h3><p>${esc(health.detail)}</p></div></section>
   <section class="app-stat-grid">${appMoneyMetric('Balance', money(balance))}${appMoneyMetric('Equity', money(equity), equity >= balance ? 'green' : 'gold')}${appMoneyMetric('Floating P/L', fmtSignedMoney(floating), floating >= 0 ? 'green' : 'red')}${appMoneyMetric('Margin Level', `${margin.toFixed(0)}%`, margin >= 500 ? 'green' : margin >= 300 ? 'gold' : 'red')}${appMoneyMetric('Open Trades', String(openCount))}${appMoneyMetric('Daily Goal', `${Math.round(progress)}%`, progress >= 100 ? 'gold' : 'green')}</section>
   <section class="grid2 app-panel-row"><div class="app-panel"><div class="terminal-top"><div><span class="eyebrow">Pair Command Grid</span><h3>Control open pairs from desktop or mobile</h3></div><span class="tag">${symbols.length} pairs</span></div>${renderPairControlGrid(liveData, membership)}</div><div class="app-panel"><span class="eyebrow">Performance Pulse</span><h3>Strongest / weakest map</h3><div class="app-mini-stack">${appMoneyMetric('Strongest Pair', `${strongest?.symbol || '--'} ${strongest ? fmtSignedMoney(strongest.totalPL) : ''}`, 'green')}${appMoneyMetric('Weakest Pair', `${weakest?.symbol || '--'} ${weakest ? fmtSignedMoney(weakest.totalPL) : ''}`, 'red')}${appMoneyMetric('Snapshot Source', liveData.source || 'none')}${appMoneyMetric('Last Sync', liveData.lastSyncAt || 'waiting')}</div>${appProgress(progress, progress >= 100 ? 'gold' : 'green')}</div></section>
@@ -1642,6 +1652,54 @@ function appCopierProductPage(page, membership, state, selectedAccountId = '') {
   <section class="app-panel" id="risk-dial"><span class="eyebrow">Risk Dial</span><h3>Fast copier sizing calculator</h3><div class="copy-engine-form app-form-grid"><label>Calculator Type<select id="appCalcType"><option value="percent">Percent Bridge</option><option value="lot">Lot Bridge</option></select></label><label>Lead Risk %<input id="appLeadRisk" type="number" step="0.01" value="1"></label><label>Receiver Risk %<input id="appReceiverRisk" type="number" step="0.01" value="1"></label><label>Lead Lot<input id="appLeadLot" type="number" step="0.01" value="0.01"></label><label>Receiver Lot<input id="appReceiverLot" type="number" step="0.01" value="0.01"></label><button class="btn gold" data-apply-risk-dial type="button">Apply Risk Dial</button></div><p id="appRiskDialText" class="muted">Choose percent or lot bridge, then apply to the lane form above.</p></section>
   <section class="app-card-grid">${accountCards || '<div class="app-copy-card"><h3>No reporter accounts yet</h3><p class="muted">Pair MT4 Reporter from Account Connection.</p></div>'}</section>
   <section class="app-panel"><h3>Active Culture Lanes</h3><table class="table app-table"><thead><tr><th>Lead</th><th>Receiver</th><th>Status</th><th>Risk</th><th></th></tr></thead><tbody>${routeRows || '<tr><td colspan="5">No Culture Lanes yet.</td></tr>'}</tbody></table></section>`;
+}
+
+
+function buildPerformanceReplayPayload(liveData, membership, state) {
+  const ids = userLookupIds(membership);
+  const accountId = String(liveData?.accountId || '');
+  const records = Object.values(readMt4LiveState(state).snapshotHistory || {})
+    .filter((record) => ids.includes(String(record.discordUserId || record.userId || '')))
+    .filter((record) => !accountId || !record.accountId || String(record.accountId) === accountId)
+    .slice(-240);
+  const tradeMap = new Map();
+  const ingest = (trade = {}) => {
+    const closeTime = trade.closeTime || trade.closedAt || trade.time || '';
+    if (!closeTime) return;
+    const date = String(closeTime).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    const pnl = Number(trade.profit || 0) + Number(trade.swap || 0) + Number(trade.commission || 0);
+    const row = {
+      ticket: String(trade.ticket || trade.orderId || ''),
+      symbol: String(trade.symbol || ''),
+      type: String(trade.type || trade.side || ''),
+      lots: Number(trade.lots || trade.volume || 0),
+      openTime: trade.openTime || trade.openedAt || '',
+      closeTime,
+      openPrice: Number(trade.openPrice ?? trade.entryPrice),
+      closePrice: Number(trade.closePrice ?? trade.exitPrice),
+      pnl,
+      magic: String(trade.magicNumber || trade.magic || ''),
+      coreType: String(trade.coreType || trade.entryClass || trade.comment || ''),
+    };
+    const key = row.ticket ? row.ticket + '|' + closeTime : [date,row.symbol,row.openTime,row.closeTime,row.pnl].join('|');
+    tradeMap.set(key, { date, ...row });
+  };
+  for (const record of records) {
+    const snap = normalizeLiveSnapshot(record.snapshot || record.metrics || record);
+    for (const trade of snap.closedTradesToday || []) ingest(trade);
+  }
+  for (const trade of liveData?.metrics?.closedTradesToday || []) ingest(trade);
+  const grouped = new Map();
+  for (const trade of tradeMap.values()) {
+    if (!grouped.has(trade.date)) grouped.set(trade.date, []);
+    grouped.get(trade.date).push(trade);
+  }
+  const days = [...grouped.entries()].sort(([a],[b]) => a.localeCompare(b)).map(([date, trades]) => ({
+    date,
+    trades: trades.sort((a,b) => String(a.closeTime).localeCompare(String(b.closeTime))),
+  }));
+  return { selectedDate: days.at(-1)?.date || new Date().toISOString().slice(0,10), accountId, days };
 }
 
 function appPerformanceProductPage(liveData, membership, state, accountConfig = {}) {
