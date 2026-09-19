@@ -890,6 +890,51 @@ ${result.secret}`)}catch(error){status.className='form-status error';status.text
     });
   }
 
+  async function drawCalendar() {
+    const accountId = selectedAccountId();
+    const query = accountId ? `?account_id=${encodeURIComponent(accountId)}` : '';
+    const result = await api(`/api/v2/trades${query}`);
+    const trades = (result.trades || []).filter((trade) => trade.status === 'closed' && (trade.closed_at || trade.updated_at || trade.opened_at));
+    const byDay = {};
+    trades.forEach((trade) => {
+      const stamp = trade.closed_at || trade.updated_at || trade.opened_at;
+      const date = String(stamp || '').slice(0, 10);
+      if (!date) return;
+      const day = byDay[date] ||= { date, trades: [], pnl: 0, wins: 0, losses: 0, buys: 0, sells: 0 };
+      const pnl = Number(trade.pnl || 0); day.trades.push(trade); day.pnl += pnl;
+      if (pnl > 0) day.wins += 1; else if (pnl < 0) day.losses += 1;
+      if (String(trade.side || '').toLowerCase().includes('sell')) day.sells += 1; else day.buys += 1;
+    });
+    const dates = Object.keys(byDay).sort();
+    const latest = dates.at(-1) || new Date().toISOString().slice(0, 10);
+    let cursor = new Date(latest + 'T12:00:00');
+    root().innerHTML = `<div class="workspace-heading"><div><span class="eyebrow">Forensic trading laboratory</span><h1>Calendar</h1><p class="muted">Scan realized performance by day. Tap a trading day to reveal its price path, entries, closes, result and stored trade context.</p></div><div class="live-chip">${trades.length} closed trades loaded</div></div>${accountMetrics(selectedAccount())}
+      <div class="calendar-workspace"><section class="card calendar-main"><div class="card-head"><div><span class="eyebrow">P&L heat calendar</span><h3 id="calendar-month"></h3></div><div class="actions"><button class="btn ghost" id="calendar-prev">←</button><button class="btn ghost" id="calendar-next">→</button></div></div><div class="calendar-grid" id="calendar-grid"></div></section><aside class="card calendar-legend"><span class="eyebrow">Heat meaning</span><h3>Read the day</h3><p><i class="heat-key profit"></i> Profit flow</p><p><i class="heat-key loss"></i> Loss flow</p><p><strong>↑ ↓ ↕</strong> dominant direction</p><p><strong>Glow</strong> = result intensity</p><p class="muted">The forensic chart stays hidden until you select a trading day.</p></aside></div><section class="card forensic-day" id="forensic-day" hidden></section>`;
+    const drawMonth = () => {
+      const y=cursor.getFullYear(),m=cursor.getMonth(),first=new Date(y,m,1),last=new Date(y,m+1,0);
+      document.querySelector('#calendar-month').textContent=first.toLocaleDateString(undefined,{month:'long',year:'numeric'});
+      const grid=document.querySelector('#calendar-grid');let out=['SUN','MON','TUE','WED','THU','FRI','SAT'].map(d=>`<div class="calendar-dow">${d}</div>`).join('');
+      for(let i=0;i<first.getDay();i++)out+='<div></div>';
+      for(let n=1;n<=last.getDate();n++){const key=`${y}-${String(m+1).padStart(2,'0')}-${String(n).padStart(2,'0')}`,d=byDay[key],direction=d?(d.buys>d.sells?'↑':d.sells>d.buys?'↓':'↕'):'';out+=`<button class="calendar-day ${d?(d.pnl>=0?'profit':'loss'):'empty'}" data-date="${key}" ${d?'':'disabled'}><span>${n}</span>${d?`<strong>${money(d.pnl)}</strong><small>${d.trades.length} trades · ${direction}</small>`:''}</button>`;}grid.innerHTML=out;
+      grid.querySelectorAll('[data-date]:not([disabled])').forEach(btn=>btn.onclick=()=>drawDay(btn.dataset.date));
+    };
+    const drawDay = (date) => {
+      const d=byDay[date],panel=document.querySelector('#forensic-day'); if(!d)return; panel.hidden=false;
+      const points=[];d.trades.forEach((trade,i)=>{const open=Number(trade.open_price),close=Number(trade.close_price);if(Number.isFinite(open)&&open)points.push({i,kind:'entry',p:open,t:new Date(trade.opened_at||trade.updated_at).getTime(),trade});if(Number.isFinite(close)&&close)points.push({i,kind:'close',p:close,t:new Date(trade.closed_at||trade.updated_at).getTime(),trade});});points.sort((a,b)=>a.t-b.t);
+      let chart='<div class="setup-note"><strong>Price structure unavailable</strong><p>The ledger has the trades, but this day does not contain enough stored entry/close prices to reconstruct the path.</p></div>';
+      if(points.length){const minT=Math.min(...points.map(p=>p.t)),maxT=Math.max(...points.map(p=>p.t)),minP=Math.min(...points.map(p=>p.p)),maxP=Math.max(...points.map(p=>p.p)),dx=Math.max(1,maxT-minT),dp=Math.max(.00001,maxP-minP),xy=q=>[45+(q.t-minT)/dx*910,270-(q.p-minP)/dp*220];let lines='',marks='';for(let i=1;i<points.length;i++){const a=points[i-1],b=points[i],A=xy(a),B=xy(b),up=b.p>=a.p;lines+=`<line class="forensic-price ${up?'up':'down'}" x1="${A[0]}" y1="${A[1]}" x2="${B[0]}" y2="${B[1]}"/>`;}points.forEach((q,i)=>{const P=xy(q),win=Number(q.trade.pnl||0)>=0,side=String(q.trade.side||'').toLowerCase().includes('sell')?'sell':'buy';marks+=q.kind==='entry'?`<g class="forensic-marker" data-point="${i}"><polygon class="entry ${side}" points="${P[0]},${P[1]-9} ${P[0]-8},${P[1]+7} ${P[0]+8},${P[1]+7}"/><text x="${P[0]+10}" y="${P[1]-8}">ENTRY</text></g>`:`<g class="forensic-marker" data-point="${i}"><circle class="close ${win?'win':'loss'}" cx="${P[0]}" cy="${P[1]}" r="7"/><text x="${P[0]+10}" y="${P[1]-8}">CLOSE ${win?'W':'L'}</text></g>`;});chart=`<div class="price-heat-chart"><svg viewBox="0 0 1000 310" preserveAspectRatio="none">${lines}${marks}</svg></div>`;}
+      panel.innerHTML=`<div class="card-head"><div><span class="eyebrow">Price · Entry · Path · Close</span><h3>${new Date(date+'T12:00:00').toLocaleDateString(undefined,{month:'long',day:'numeric',year:'numeric'})}</h3></div><strong class="${d.pnl>=0?'green':'red'}">${money(d.pnl)}</strong></div><div class="forensic-modes"><span class="active">FLOW</span><span>RISK</span><span>ENTRY QUALITY</span><span>EXPOSURE</span><span>DRAWDOWN</span><span>STRUCTURE</span></div>${chart}<div class="trade-explain" id="trade-explain"><strong>Tap an ENTRY or CLOSE marker.</strong><span>WISDO will show the trade result and the decision context stored with the ledger.</span></div>`;
+      panel.querySelectorAll('[data-point]').forEach(node=>node.onclick=()=>{const q=points[Number(node.dataset.point)],t=q.trade,pnl=Number(t.pnl||0),reason=t.entry_reason||t.signal_reason||t.reason||t.comment||t.strategy||'No entry reason was stored with this ledger record.';document.querySelector('#trade-explain').innerHTML=`<strong class="${pnl>=0?'green':'red'}">${pnl>0?'WIN':pnl<0?'LOSS':'FLAT'} · ${html(String(t.side||'trade').toUpperCase())} · ${html(t.symbol||'')}</strong><span><b>${q.kind==='entry'?'Why entry':'Close'}:</b> ${html(q.kind==='entry'?reason:`Closed at ${t.close_price||'—'}`)} · Entry ${html(t.open_price||'—')} · Close ${html(t.close_price||'—')} · P/L ${money(pnl)}</span>`;});panel.scrollIntoView({behavior:'smooth',block:'start'});
+    };
+    document.querySelector('#calendar-prev').onclick=()=>{cursor=new Date(cursor.getFullYear(),cursor.getMonth()-1,1);drawMonth();};document.querySelector('#calendar-next').onclick=()=>{cursor=new Date(cursor.getFullYear(),cursor.getMonth()+1,1);drawMonth();};drawMonth();
+  }
+
+  async function drawServices() {
+    const active=selectedAccount(),fresh=active&&(active.reporter_connected||reporterFresh(active));
+    const nodes=[['MT4 Reporter',fresh?'LIVE':'WAITING',active?.last_sync_at||'Waiting for sync'],['WISDO Kernel','READY','Intent → permission → execution'],['Copier Engine','READY','Culture Lane command authority'],['Discord','READY','Community + command surface'],['Voice / Pi','AVAILABLE','Natural-language operating surface'],['Automation','READY','Rules, schedules and protection']];
+    root().innerHTML=`<div class="workspace-heading"><div><span class="eyebrow">WISDO operating services</span><h1>Services</h1><p class="muted">One cockpit for the systems connected to your WISDO desk.</p></div><div class="live-chip">${fresh?'System live':'Reporter waiting'}</div></div>${accountMetrics(active)}<div class="service-tabs"><span class="active">Overview</span><span>Trading</span><span>Copier</span><span>Voice</span><span>Discord</span><span>Automation</span><span>Devices</span><span>Health</span></div><div class="services-workspace"><section class="card"><span class="eyebrow">Live system map</span><h3>Connected WISDO services</h3><div class="service-node-grid">${nodes.map(([name,status,detail],i)=>`<article class="service-node ${['LIVE','READY'].includes(status)?'online':''}"><i></i><small>SERVICE 0${i+1}</small><h3>${name}</h3><strong>${status}</strong><p>${html(detail)}</p></article>`).join('')}</div></section><aside class="card"><span class="eyebrow">WISDO Activity</span><h3>System pulse</h3><div class="service-event"><b>Reporter</b><span>${html(active?.last_sync_at||'Waiting')}</span></div><div class="service-event"><b>Account</b><span>${html(active?.account_number||'No account selected')}</span></div><div class="service-event"><b>Trade state</b><span>${Number(active?.open_trades||0)} open · ${money(active?.floating_pl||0)} floating</span></div><div class="service-event"><b>Command security</b><span>Permission and confirmation gates active</span></div></aside></div>`;
+  }
+
   async function drawAnalyzer() {
     const accountId = selectedAccountId();
     const accountQuery = accountId ? `&account_id=${encodeURIComponent(accountId)}` : '';
@@ -988,6 +1033,8 @@ ${result.secret}`)}catch(error){status.className='form-status error';status.text
     else if (currentPage === 'lane-intelligence') await drawLaneIntelligence();
     else if (currentPage === 'compound-tracker') await drawCompoundTracker();
     else if (currentPage === 'trades') await drawTrades();
+    else if (currentPage === 'calendar') await drawCalendar();
+    else if (currentPage === 'services') await drawServices();
     else if (currentPage === 'analyzer') await drawAnalyzer();
     else if (currentPage === 'alerts') await drawAlerts();
     else if (currentPage === 'affiliate') await drawAffiliate();
@@ -1021,7 +1068,7 @@ ${result.secret}`)}catch(error){status.className='form-status error';status.text
       accountPoll = setInterval(async () => {
         if (document.querySelector('dialog[open]') || document.visibilityState !== 'visible') return;
         const previous = JSON.stringify(accounts.map((a) => [a.id, a.status, a.equity, a.last_sync_at]));
-        try { await refreshAccounts(true, true); const next = JSON.stringify(accounts.map((a) => [a.id, a.status, a.equity, a.last_sync_at])); if (next !== previous && ['command-center', 'dashboard', 'analyzer', 'trades', 'compound-tracker'].includes(currentPage)) await renderCurrentPage(); } catch {}
+        try { await refreshAccounts(true, true); const next = JSON.stringify(accounts.map((a) => [a.id, a.status, a.equity, a.last_sync_at])); if (next !== previous && ['command-center', 'dashboard', 'analyzer', 'trades', 'calendar', 'services', 'compound-tracker'].includes(currentPage)) await renderCurrentPage(); } catch {}
       }, 45000);
     } catch (error) {
       await finishDashboardBoot(false, 'Workspace recovery mode');
