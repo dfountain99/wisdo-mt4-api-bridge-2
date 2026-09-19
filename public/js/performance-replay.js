@@ -1,46 +1,17 @@
 (() => {
-  const root=document.querySelector('[data-wisdo-performance-replay]'); if(!root) return;
-  let payload={days:[]}; try{payload=JSON.parse(root.querySelector('[data-replay-payload]')?.textContent||'{"days":[]}')}catch{}
-  const days=Array.isArray(payload.days)?payload.days:[]; const byDate=new Map(days.map(d=>[d.date,d]));
-  let selected=payload.selectedDate||days.at(-1)?.date||new Date().toISOString().slice(0,10);
-  let cursor=new Date((selected||new Date().toISOString().slice(0,10))+'T12:00:00');
-  const money=n=>{n=Number(n||0);return (n<0?'-$':'+$')+Math.abs(n).toLocaleString('en-US',{maximumFractionDigits:2})};
-  const time=v=>{const d=new Date(v);return Number.isFinite(d.getTime())?d:null};
-  function dayTrades(d){return Array.isArray(d?.trades)?d.trades:[]}
-  function summary(d){const t=dayTrades(d), pnl=t.reduce((s,x)=>s+Number(x.pnl||0),0), wins=t.filter(x=>Number(x.pnl||0)>0).length, loss=t.filter(x=>Number(x.pnl||0)<0).length;return{pnl,count:t.length,wins,loss,winRate:t.length?Math.round(wins/t.length*100):0,lots:t.reduce((s,x)=>s+Number(x.lots||0),0)}}
-  function drawChart(d){
-    const el=root.querySelector('[data-market-path]'), t=dayTrades(d); if(!t.length){el.innerHTML='<div class="replay-empty"><div><strong>No trade path stored for this day.</strong><br>Reporter history will populate entries and closes automatically.</div></div>';return}
-    const pts=[]; t.forEach(x=>{const a=time(x.openTime),b=time(x.closeTime); if(a&&Number.isFinite(Number(x.openPrice)))pts.push({t:a.getTime(),p:Number(x.openPrice)});if(b&&Number.isFinite(Number(x.closePrice)))pts.push({t:b.getTime(),p:Number(x.closePrice)})}); pts.sort((a,b)=>a.t-b.t);
-    if(!pts.length){el.innerHTML='<div class="replay-empty">Trade records exist, but entry/close prices are not available yet.</div>';return}
-    const minT=Math.min(...pts.map(x=>x.t)),maxT=Math.max(...pts.map(x=>x.t)),minP=Math.min(...pts.map(x=>x.p)),maxP=Math.max(...pts.map(x=>x.p)),dx=Math.max(1,maxT-minT),dp=Math.max(.0001,maxP-minP);
-    const xy=(tt,pp)=>[40+(tt-minT)/dx*920,285-(pp-minP)/dp*245];
-    const path=pts.map((q,i)=>{const [x,y]=xy(q.t,q.p);return (i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)}).join(' ');
-    let trades='';t.forEach(x=>{const a=time(x.openTime),b=time(x.closeTime),op=Number(x.openPrice),cp=Number(x.closePrice);if(!a||!b||!Number.isFinite(op)||!Number.isFinite(cp))return;const [x1,y1]=xy(a.getTime(),op),[x2,y2]=xy(b.getTime(),cp),side=String(x.type||'').toLowerCase().includes('sell')?'sell':'buy';trades+='<line class="replay-trade-line '+side+'" x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'"/><circle class="replay-entry '+side+'" cx="'+x1+'" cy="'+y1+'" r="5"/><circle class="replay-exit" cx="'+x2+'" cy="'+y2+'" r="5"/>'});
-    const grid=[1,2,3,4].map(i=>'<line class="replay-grid-line" x1="0" y1="'+i*60+'" x2="1000" y2="'+i*60+'"/>').join('');
-    el.innerHTML='<svg viewBox="0 0 1000 320" preserveAspectRatio="none">'+grid+'<path class="replay-path" d="'+path+'"/>'+trades+'</svg>';
-  }
-  function heat(d){
-    const t=dayTrades(d), bins=Array.from({length:24},()=>({buy:0,sell:0,close:0,pnl:0}));
-    t.forEach(x=>{const o=time(x.openTime),c=time(x.closeTime),side=String(x.type||'').toLowerCase();if(o){const h=o.getHours();bins[h][side.includes('sell')?'sell':'buy']++}if(c){const h=c.getHours();bins[h].close++;bins[h].pnl+=Number(x.pnl||0)}});
-    const max=k=>Math.max(1,...bins.map(x=>x[k]||0)); const cell=(v,m,cls='')=>'<span class="flow-cell '+cls+'" data-level="'+(v?Math.max(1,Math.ceil(v/m*4)):'')+'"></span>';
-    const rows=[['BUY HEAT','buy',''],['SELL HEAT','sell','sell'],['CLOSE','close','close']];
-    let html=rows.map(([label,k,cl])=>'<div class="flow-row '+cl+'"><strong>'+label+'</strong><div class="flow-cells">'+bins.map(x=>cell(x[k],max(k))).join('')+'</div></div>').join('');
-    html+='<div class="flow-row pnl"><strong>P&L FLOW</strong><div class="flow-cells">'+bins.map(x=>'<span class="flow-cell '+(x.pnl>0?'positive':x.pnl<0?'negative':'')+'"></span>').join('')+'</div></div>';
-    root.querySelector('[data-flow-heat]').innerHTML=html;
-  }
-  function renderDay(){
-    const d=byDate.get(selected)||{date:selected,trades:[]}; const s=summary(d), title=new Date(selected+'T12:00:00').toLocaleDateString(undefined,{month:'long',day:'numeric',year:'numeric'});
-    root.querySelector('[data-selected-date]').textContent=title; const p=root.querySelector('[data-selected-pnl]');p.textContent=s.count?money(s.pnl):'$0.00';p.className='replay-pnl '+(s.pnl<0?'negative':'positive');
-    const vals={trades:s.count,winrate:s.winRate+'%',lots:s.lots.toFixed(2),wins:s.wins,losses:s.loss,net:s.count?money(s.pnl):'$0.00'};Object.entries(vals).forEach(([k,v])=>{const e=root.querySelector('[data-stat="'+k+'"]');if(e)e.textContent=v});
-    drawChart(d);heat(d);renderCalendar();
-  }
-  function renderCalendar(){
-    const y=cursor.getFullYear(),m=cursor.getMonth(),first=new Date(y,m,1),last=new Date(y,m+1,0),grid=root.querySelector('[data-calendar-grid]');root.querySelector('[data-calendar-title]').textContent=first.toLocaleDateString(undefined,{month:'long',year:'numeric'});
-    let h=['SUN','MON','TUE','WED','THU','FRI','SAT'].map(x=>'<div class="pnl-dow">'+x+'</div>').join(''); for(let i=0;i<first.getDay();i++)h+='<div></div>';
-    for(let n=1;n<=last.getDate();n++){const key=y+'-'+String(m+1).padStart(2,'0')+'-'+String(n).padStart(2,'0'),d=byDate.get(key),s=summary(d),cls=d?(s.pnl<0?'loss':'profit'):'empty';h+='<button class="pnl-day '+cls+(key===selected?' selected':'')+'" data-day="'+key+'" '+(!d?'disabled':'')+'><span class="date">'+n+'</span>'+(d?'<span class="amount">'+money(s.pnl)+'</span><small>'+s.count+' trades</small>':'')+'</button>'}
-    grid.innerHTML=h;grid.querySelectorAll('[data-day]:not([disabled])').forEach(b=>b.onclick=()=>{selected=b.dataset.day;cursor=new Date(selected+'T12:00:00');renderDay()});
-  }
-  root.querySelector('[data-cal-prev]').onclick=()=>{cursor=new Date(cursor.getFullYear(),cursor.getMonth()-1,1);renderCalendar()};
-  root.querySelector('[data-cal-next]').onclick=()=>{cursor=new Date(cursor.getFullYear(),cursor.getMonth()+1,1);renderCalendar()};
-  renderDay();
+ const root=document.querySelector('[data-wisdo-performance-replay]'); if(!root)return;
+ let payload={days:[]};try{payload=JSON.parse(root.querySelector('[data-replay-payload]')?.textContent||'{"days":[]}')}catch{}
+ const days=Array.isArray(payload.days)?payload.days:[],byDate=new Map(days.map(d=>[d.date,d]));let selected='',cursor=new Date((payload.selectedDate||new Date().toISOString().slice(0,10))+'T12:00:00');
+ const money=n=>{n=Number(n||0);return(n<0?'-$':'+$')+Math.abs(n).toLocaleString('en-US',{maximumFractionDigits:2})},dt=v=>{const d=new Date(v);return Number.isFinite(d.getTime())?d:null},trades=d=>Array.isArray(d?.trades)?d.trades:[];
+ const summary=d=>{const t=trades(d),p=t.reduce((s,x)=>s+Number(x.pnl||0),0),w=t.filter(x=>Number(x.pnl||0)>0).length,l=t.filter(x=>Number(x.pnl||0)<0).length;return{t,p,w,l,wr:t.length?Math.round(w/t.length*100):0,lots:t.reduce((s,x)=>s+Number(x.lots||0),0)}};
+ const reason=x=>String(x.entryReason||x.signalReason||x.signal||x.coreType||x.comment||'Reporter did not store an entry reason for this trade.');
+ function explain(x,phase){const box=root.querySelector('[data-trade-explanation]');if(!box)return;const pnl=Number(x.pnl||0),result=pnl>0?'WIN':pnl<0?'LOSS':'FLAT';box.className='trade-explanation '+(pnl>=0?'win':'loss');box.innerHTML='<strong>'+result+' • '+String(x.type||'TRADE').toUpperCase()+' • Ticket '+(x.ticket||'--')+'</strong><span><b>'+phase+':</b> '+(phase==='ENTRY'?reason(x):'Closed at '+(x.closePrice||'--')+'.')+' &nbsp; <b>Entry:</b> '+(x.openPrice||'--')+' &nbsp; <b>Close:</b> '+(x.closePrice||'--')+' &nbsp; <b>P&L:</b> '+money(pnl)+'</span>'}
+ function chart(d){const el=root.querySelector('[data-market-path]'),t=trades(d),pts=[];t.forEach((x,i)=>{const a=dt(x.openTime),b=dt(x.closeTime);if(a&&Number.isFinite(+x.openPrice))pts.push({t:+a,p:+x.openPrice,kind:'entry',x,i});if(b&&Number.isFinite(+x.closePrice))pts.push({t:+b,p:+x.closePrice,kind:'close',x,i})});pts.sort((a,b)=>a.t-b.t);if(!pts.length){el.innerHTML='<div class="replay-empty">This day has trades, but the Reporter has not stored enough entry/close price structure to draw the replay.</div>';return}
+ const minT=Math.min(...pts.map(q=>q.t)),maxT=Math.max(...pts.map(q=>q.t)),minP=Math.min(...pts.map(q=>q.p)),maxP=Math.max(...pts.map(q=>q.p)),dx=Math.max(1,maxT-minT),dp=Math.max(.0001,maxP-minP),xy=(t,p)=>[45+(t-minT)/dx*910,280-(p-minP)/dp*235];
+ let seg='';for(let i=1;i<pts.length;i++){const a=pts[i-1],b=pts[i],A=xy(a.t,a.p),B=xy(b.t,b.p),dir=b.p>a.p?'up':b.p<a.p?'down':'flat';seg+='<line class="price-segment '+dir+'" x1="'+A[0]+'" y1="'+A[1]+'" x2="'+B[0]+'" y2="'+B[1]+'"/>'}
+ let marks='';pts.forEach((q,n)=>{const P=xy(q.t,q.p),side=String(q.x.type||'').toLowerCase().includes('sell')?'sell':'buy',result=Number(q.x.pnl||0)>=0?'win':'loss';marks+=q.kind==='entry'?'<g class="trade-marker" data-trade="'+q.i+'" data-phase="ENTRY"><polygon class="entry-arrow '+side+'" points="'+P[0]+','+(P[1]-9)+' '+(P[0]-8)+','+(P[1]+7)+' '+(P[0]+8)+','+(P[1]+7)+'"/><text x="'+(P[0]+10)+'" y="'+(P[1]-8)+'">ENTRY</text></g>':'<g class="trade-marker" data-trade="'+q.i+'" data-phase="CLOSE"><circle class="close-dot '+result+'" cx="'+P[0]+'" cy="'+P[1]+'" r="7"/><text x="'+(P[0]+10)+'" y="'+(P[1]-8)+'">CLOSE '+(result==='win'?'W':'L')+'</text></g>'});
+ el.innerHTML='<svg viewBox="0 0 1000 320" preserveAspectRatio="none"><g class="price-structure">'+seg+'</g>'+marks+'</svg>';el.querySelectorAll('[data-trade]').forEach(m=>m.addEventListener('click',()=>explain(t[+m.dataset.trade],m.dataset.phase)))}
+ function renderDay(){if(!selected)return;const d=byDate.get(selected)||{trades:[]},s=summary(d),drill=root.querySelector('[data-day-drilldown]');if(drill)drill.hidden=false;root.querySelector('[data-selected-date]').textContent=new Date(selected+'T12:00:00').toLocaleDateString(undefined,{month:'long',day:'numeric',year:'numeric'});const p=root.querySelector('[data-selected-pnl]');p.textContent=s.t.length?money(s.p):'$0.00';p.className='replay-pnl '+(s.p<0?'negative':'positive');Object.entries({net:s.t.length?money(s.p):'$0.00',trades:s.t.length,winrate:s.wr+'%',wins:s.w,losses:s.l,lots:s.lots.toFixed(2)}).forEach(([k,v])=>{const e=root.querySelector('[data-stat="'+k+'"]');if(e)e.textContent=v});chart(d);const box=root.querySelector('[data-trade-explanation]');if(box){box.className='trade-explanation';box.innerHTML='<strong>Tap an ENTRY or CLOSE marker.</strong><span>WISDO will explain the stored reason and whether that trade won or lost.</span>'}renderCalendar()}
+ function renderCalendar(){const y=cursor.getFullYear(),m=cursor.getMonth(),first=new Date(y,m,1),last=new Date(y,m+1,0),grid=root.querySelector('[data-calendar-grid]');root.querySelector('[data-calendar-title]').textContent=first.toLocaleDateString(undefined,{month:'long',year:'numeric'});let h=['SUN','MON','TUE','WED','THU','FRI','SAT'].map(x=>'<div class="pnl-dow">'+x+'</div>').join('');for(let i=0;i<first.getDay();i++)h+='<div></div>';for(let n=1;n<=last.getDate();n++){const key=y+'-'+String(m+1).padStart(2,'0')+'-'+String(n).padStart(2,'0'),d=byDate.get(key),s=summary(d),cls=d?(s.p<0?'loss':'profit'):'empty';h+='<button class="pnl-day '+cls+(key===selected?' selected':'')+'" data-day="'+key+'" '+(!d?'disabled':'')+'><span class="date">'+n+'</span>'+(d?'<span class="amount">'+money(s.p)+'</span><small>'+s.t.length+' trades</small>':'')+'</button>'}grid.innerHTML=h;grid.querySelectorAll('[data-day]:not([disabled])').forEach(b=>b.onclick=()=>{selected=b.dataset.day;cursor=new Date(selected+'T12:00:00');renderDay();root.querySelector('[data-day-drilldown]')?.scrollIntoView({behavior:'smooth',block:'start'})})}
+ root.querySelector('[data-cal-prev]')?.addEventListener('click',()=>{cursor=new Date(cursor.getFullYear(),cursor.getMonth()-1,1);renderCalendar()});root.querySelector('[data-cal-next]')?.addEventListener('click',()=>{cursor=new Date(cursor.getFullYear(),cursor.getMonth()+1,1);renderCalendar()});renderCalendar();
 })();
