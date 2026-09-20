@@ -35,3 +35,23 @@
 .mission-footer{position:relative;z-index:2;margin-top:11px;display:flex;align-items:center;justify-content:center;gap:4px;padding:6px;border:1px solid rgba(93,185,209,.12);border-radius:14px;background:rgba(3,11,18,.7);backdrop-filter:blur(14px)}.mission-footer span,.mission-footer button{padding:8px 11px;border:0;border-radius:8px;background:transparent;color:#617d89;font:700 8px Inter,sans-serif}.mission-footer .active{color:#e6fbff;background:rgba(53,181,207,.09);box-shadow:inset 0 -1px #48e9ff}.mission-footer button{margin-left:auto;color:#061014;background:linear-gradient(90deg,#3df5c1,#5ddfff);font-weight:900}
 @media(max-width:1180px){.mission-grid{grid-template-columns:minmax(230px,.8fr) minmax(390px,1.5fr);grid-template-areas:"cal theater" "right right" "selected why" "core core"}.right-stack{grid-template-columns:repeat(3,1fr);grid-template-rows:auto}.mission-instruments{grid-template-columns:repeat(4,1fr)}}
 @media(max-width:760px){.mission-calendar{margin:-8px;padding:9px;border-radius:16px;min-height:100vh}.mission-instruments{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;padding:7px}.mi{min-width:112px;scroll-snap-align:start}.mission-titlebar{margin-top:9px}.deck-status{display:none}.mission-grid{display:flex;flex-direction:column}.mc-calendar{order:1}.market-theater{order:2;min-height:390px}.right-stack{order:3;display:grid;grid-template-columns:1fr 1fr}.right-stack .context-panel{grid-column:1/-1}.selected-trade{order:4}.wisdo-core{order:5}.why-entry{order:6}.calendar-day{min-height:43px;padding:4px}.calendar-day small{font-size:6px}.calendar-key{gap:7px}.mission-chart{height:300px}.mission-footer{justify-content:flex-start;overflow-x:auto;position:sticky;bottom:6px}.mission-footer span{white-space:nowrap}.mission-footer button{white-space:nowrap}.earth{width:390px;height:390px;right:-230px;top:230px;opacity:.72}}
+
+
+/* CALENDAR FIT PATCH v3.1 — prevent desktop canvas from being clipped by the portal shell */
+body:has(.mission-calendar) .main{min-width:0;overflow:visible;padding:14px 16px 28px}
+body:has(.mission-calendar) .app-shell{grid-template-columns:minmax(190px,220px) minmax(0,1fr);max-width:none;width:100%}
+body:has(.mission-calendar) .mission-calendar{width:100%;max-width:100%;box-sizing:border-box;overflow:hidden}
+body:has(.mission-calendar) .mission-instruments{grid-template-columns:repeat(8,minmax(0,1fr))}
+body:has(.mission-calendar) .mi{min-width:0}
+body:has(.mission-calendar) .mission-grid{grid-template-columns:minmax(210px,.82fr) minmax(0,1.85fr) minmax(190px,.72fr)}
+body:has(.mission-calendar) .mc-calendar,
+body:has(.mission-calendar) .market-theater,
+body:has(.mission-calendar) .right-stack,
+body:has(.mission-calendar) .selected-trade,
+body:has(.mission-calendar) .why-entry{min-width:0}
+body:has(.mission-calendar) .market-theater{overflow:hidden}
+body:has(.mission-calendar) .mission-chart{width:100%;min-width:0}
+body:has(.mission-calendar) .mission-chart svg{max-width:100%}
+@media(max-width:1350px){body:has(.mission-calendar) .app-shell{grid-template-columns:190px minmax(0,1fr)}body:has(.mission-calendar) .mission-grid{grid-template-columns:minmax(205px,.78fr) minmax(0,1.6fr) minmax(180px,.66fr)}body:has(.mission-calendar) .mi{padding:7px 6px}.mission-calendar{padding:12px}.mission-chart{height:300px}}
+@media(max-width:1050px){body:has(.mission-calendar) .mission-grid{grid-template-columns:minmax(205px,.72fr) minmax(0,1.5fr);grid-template-areas:"cal theater" "right right" "selected why" "core core"}body:has(.mission-calendar) .right-stack{grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:auto}}
+@media(max-width:760px){body:has(.mission-calendar) .app-shell{display:block;width:100%}body:has(.mission-calendar) .side{display:none}body:has(.mission-calendar) .main{padding:8px}body:has(.mission-calendar) .mission-calendar{margin:0;width:100%;border-radius:14px}body:has(.mission-calendar) .mission-instruments{display:flex}.mission-titlebar strong{font-size:17px}}
