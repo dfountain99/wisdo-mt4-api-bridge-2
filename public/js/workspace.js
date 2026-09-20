@@ -23,6 +23,73 @@
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  // WISDO MySpace Soundtrack — one persistent soundtrack identity across every workspace tab.
+  const WISDO_MUSIC_KEY = 'wisdo.soundstage.v1';
+  const WISDO_MUSIC_CHANNEL = 'wisdo-soundstage';
+  const musicChannel = 'BroadcastChannel' in window ? new BroadcastChannel(WISDO_MUSIC_CHANNEL) : null;
+  let globalMusicAudio = null;
+  let globalMusicObjectUrl = '';
+  function musicState() {
+    try { return JSON.parse(localStorage.getItem(WISDO_MUSIC_KEY) || '{}') || {}; } catch { return {}; }
+  }
+  function saveMusicState(patch = {}, broadcast = true) {
+    const next = { ...musicState(), ...patch, updatedAt: Date.now() };
+    localStorage.setItem(WISDO_MUSIC_KEY, JSON.stringify(next));
+    if (broadcast) musicChannel?.postMessage(next);
+    window.dispatchEvent(new CustomEvent('wisdo:music-state', { detail: next }));
+    return next;
+  }
+  function stopGlobalMusic({ clear = false, broadcast = true } = {}) {
+    globalMusicAudio?.pause?.();
+    if (globalMusicObjectUrl) URL.revokeObjectURL(globalMusicObjectUrl);
+    globalMusicAudio = null; globalMusicObjectUrl = ''; window.__wisdoBackgroundAudio = null;
+    saveMusicState(clear ? { prompt: '', playing: false, startedAt: 0 } : { playing: false }, broadcast);
+  }
+  async function composeGlobalMusic(prompt, { autoplay = true, broadcast = true } = {}) {
+    prompt = String(prompt || '').trim(); if (!prompt) return null;
+    const response = await fetch('/api/wisdo/music/compose', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'audio/mpeg' }, body: JSON.stringify({ prompt, music_length_ms: 60000, instrumental: true }) });
+    if (!response.ok) { let detail=''; try { const body=await response.json(); detail=body.error||body.detail||body.code||''; } catch { detail=await response.text().catch(()=> ''); } throw new Error(detail || ('MUSIC HTTP '+response.status)); }
+    const blob = await response.blob(); if (!blob.size) throw new Error('EMPTY SOUNDTRACK');
+    globalMusicAudio?.pause?.(); if (globalMusicObjectUrl) URL.revokeObjectURL(globalMusicObjectUrl);
+    globalMusicObjectUrl = URL.createObjectURL(blob);
+    const audio = new Audio(globalMusicObjectUrl); audio.loop = true; audio.preload = 'auto';
+    audio.volume = Number(window.__wisdoAudioMix?.music ?? musicState().volume ?? .28);
+    globalMusicAudio = audio; window.__wisdoBackgroundAudio = audio;
+    audio.onplay = () => saveMusicState({ prompt, playing: true, volume: audio.volume, startedAt: Date.now() }, broadcast);
+    audio.onpause = () => { if (!audio.ended) saveMusicState({ playing: false }, broadcast); };
+    if (autoplay) await audio.play();
+    return audio;
+  }
+  async function resumeGlobalMusicFromPreference() {
+    const state = musicState();
+    if (!state.prompt || !state.playing || globalMusicAudio) return;
+    try { await composeGlobalMusic(state.prompt, { autoplay: true, broadcast: false }); }
+    catch (error) { console.warn('WISDO soundtrack resume requires user interaction or regeneration', error); }
+  }
+  window.WISDO_SOUNDSTAGE = { play: (prompt) => composeGlobalMusic(prompt), stop: () => stopGlobalMusic(), clear: () => stopGlobalMusic({ clear: true }), state: musicState };
+  function handleWisdoMusicCommand(text) {
+    const raw=String(text||'').trim(), normalized=raw.toLowerCase().replace(/[^a-z0-9\s'-]/g,' ').replace(/\s+/g,' ').trim();
+    if (!normalized) return false;
+    if (/\b(stop|pause|mute|turn off|kill)\b.*\b(music|soundtrack|song)\b|\b(music|soundtrack|song)\b.*\b(stop|pause|off)\b/.test(normalized)) {
+      stopGlobalMusic(); toast('WISDO stopped your soundtrack.'); return true;
+    }
+    const m=normalized.match(/(?:play|put on|start|set)(?: me)?\s+(.+?)(?:\s+(?:music|soundtrack))?$/);
+    if (m && /\b(play|put on|start|set)\b/.test(normalized)) {
+      const prompt=m[1].replace(/^(some|the)\s+/,'').trim();
+      if (prompt && prompt.length>2) { composeGlobalMusic(prompt).then(()=>toast('WISDO soundtrack is playing across your workspace.')).catch(e=>toast('Music failed: '+e.message,'warn')); return true; }
+    }
+    return false;
+  }
+  window.addEventListener('wisdo:voice-command', e => handleWisdoMusicCommand(e.detail?.text || e.detail?.transcript || e.detail?.command));
+  musicChannel?.addEventListener('message', ({ data }) => {
+    if (!data) return;
+    if (!data.playing) { if (globalMusicAudio && !globalMusicAudio.paused) { globalMusicAudio.pause(); } return; }
+    if (data.prompt && data.prompt !== musicState().prompt) localStorage.setItem(WISDO_MUSIC_KEY, JSON.stringify(data));
+  });
+  window.addEventListener('storage', (event) => { if (event.key === WISDO_MUSIC_KEY) { const st=musicState(); if (!st.playing && globalMusicAudio && !globalMusicAudio.paused) globalMusicAudio.pause(); } });
+  document.addEventListener('click', () => { resumeGlobalMusicFromPreference(); }, { once: true, capture: true });
+
+
   function bootNode(selector) { return document.querySelector(selector); }
   function setDashboardBootStage(message, percent, stage = '') {
     const overlay = bootNode('#wisdo-boot');
@@ -925,7 +992,7 @@ ${result.secret}`)}catch(error){status.className='form-status error';status.text
       </main>
       <footer class="nexus-dock"><span>Overview</span><span class="active">Calendar</span><span>Replay</span><span>Performance</span><span>Patterns</span><span>Insights</span><button>✦ Analyze with WISDO</button></footer>
     </div>`;
-    const mediaDeck=document.querySelector('#wisdo-media-deck'),musicVolume=document.querySelector('#music-volume'),voiceVolume=document.querySelector('#voice-volume'),ambienceVolume=document.querySelector('#ambience-volume'),sfxVolume=document.querySelector('#sfx-volume'),mediaTitle=document.querySelector('#media-title'),mediaStatus=document.querySelector('#media-status'),mediaPlay=document.querySelector('#media-play'),mediaPrompt=document.querySelector('#media-prompt');window.__wisdoAudioMix={music:Number(musicVolume?.value||28)/100,voice:Number(voiceVolume?.value||100)/100,ambience:Number(ambienceVolume?.value||18)/100,sfx:Number(sfxVolume?.value||30)/100,ducked:false};mediaDeck?.addEventListener('click',e=>{if(e.target.closest('input,button,form,label'))return;mediaDeck.classList.toggle('open');});const updateMix=()=>{const mix=window.__wisdoAudioMix;mix.music=Number(musicVolume?.value||0)/100;mix.voice=Number(voiceVolume?.value||0)/100;mix.ambience=Number(ambienceVolume?.value||0)/100;mix.sfx=Number(sfxVolume?.value||0)/100;if(window.__wisdoNarrationAudio)window.__wisdoNarrationAudio.volume=mix.voice;if(window.__wisdoBackgroundAudio)window.__wisdoBackgroundAudio.volume=mix.music*(mix.ducked?.22:1);};[musicVolume,voiceVolume,ambienceVolume,sfxVolume].forEach(n=>n?.addEventListener('input',updateMix));const duckMusic=on=>{window.__wisdoAudioMix.ducked=!!on;updateMix();mediaDeck?.classList.toggle('voice-duck',!!on);};mediaPlay?.addEventListener('click',()=>{const a=window.__wisdoBackgroundAudio;if(!a){mediaStatus.textContent='ASK WISDO FOR MUSIC OR CONNECT A PLAYBACK SOURCE';return;}if(a.paused){a.play().catch(()=>{});mediaPlay.textContent='Ⅱ';}else{a.pause();mediaPlay.textContent='▶';}});mediaPrompt?.addEventListener('submit',async e=>{e.preventDefault();const prompt=String(document.querySelector('#media-prompt-input')?.value||'').trim();if(!prompt)return;window.dispatchEvent(new CustomEvent('wisdo:media-request',{detail:{prompt,mix:{...window.__wisdoAudioMix}}}));mediaTitle.textContent=prompt;mediaStatus.textContent='WISDO IS COMPOSING YOUR SOUNDTRACK';mediaDeck?.classList.add('request-pulse');if(mediaPlay){mediaPlay.disabled=true;mediaPlay.textContent='…';}try{const response=await fetch('/api/wisdo/music/compose',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'audio/mpeg'},body:JSON.stringify({prompt,music_length_ms:60000,instrumental:true})});if(!response.ok){let detail='';try{const body=await response.json();detail=body.error||body.detail||body.code||'';}catch{detail=await response.text().catch(()=>'');}throw new Error(detail||('MUSIC HTTP '+response.status));}const blob=await response.blob();if(!blob.size)throw new Error('EMPTY SOUNDTRACK');const url=URL.createObjectURL(blob);const previous=window.__wisdoBackgroundAudio;if(previous){previous.pause?.();if(previous.__wisdoObjectUrl)URL.revokeObjectURL(previous.__wisdoObjectUrl);}const audio=new Audio(url);audio.__wisdoObjectUrl=url;audio.loop=true;audio.preload='auto';audio.volume=Number(window.__wisdoAudioMix?.music??.28);window.__wisdoBackgroundAudio=audio;audio.onplay=()=>{if(mediaPlay)mediaPlay.textContent='Ⅱ';mediaStatus.textContent='SOUNDTRACK PLAYING · WISDO AUTO-DUCK ACTIVE';};audio.onpause=()=>{if(mediaPlay)mediaPlay.textContent='▶';};audio.onerror=()=>{mediaStatus.textContent='SOUNDTRACK PLAYBACK FAILED';};await audio.play();}catch(error){console.warn('WISDO Soundstage music failed',error);mediaStatus.textContent='MUSIC FAILED · '+String(error?.message||error).slice(0,90);if(mediaPlay)mediaPlay.textContent='▶';}finally{if(mediaPlay)mediaPlay.disabled=false;mediaDeck?.classList.remove('request-pulse');}});
+    const mediaDeck=document.querySelector('#wisdo-media-deck'),musicVolume=document.querySelector('#music-volume'),voiceVolume=document.querySelector('#voice-volume'),ambienceVolume=document.querySelector('#ambience-volume'),sfxVolume=document.querySelector('#sfx-volume'),mediaTitle=document.querySelector('#media-title'),mediaStatus=document.querySelector('#media-status'),mediaPlay=document.querySelector('#media-play'),mediaPrompt=document.querySelector('#media-prompt');window.__wisdoAudioMix={music:Number(musicVolume?.value||28)/100,voice:Number(voiceVolume?.value||100)/100,ambience:Number(ambienceVolume?.value||18)/100,sfx:Number(sfxVolume?.value||30)/100,ducked:false};mediaDeck?.addEventListener('click',e=>{if(e.target.closest('input,button,form,label'))return;mediaDeck.classList.toggle('open');});const updateMix=()=>{const mix=window.__wisdoAudioMix;mix.music=Number(musicVolume?.value||0)/100;saveMusicState({volume:mix.music},false);mix.voice=Number(voiceVolume?.value||0)/100;mix.ambience=Number(ambienceVolume?.value||0)/100;mix.sfx=Number(sfxVolume?.value||0)/100;if(window.__wisdoNarrationAudio)window.__wisdoNarrationAudio.volume=mix.voice;if(window.__wisdoBackgroundAudio)window.__wisdoBackgroundAudio.volume=mix.music*(mix.ducked?.22:1);};[musicVolume,voiceVolume,ambienceVolume,sfxVolume].forEach(n=>n?.addEventListener('input',updateMix));const duckMusic=on=>{window.__wisdoAudioMix.ducked=!!on;updateMix();mediaDeck?.classList.toggle('voice-duck',!!on);};mediaPlay?.addEventListener('click',()=>{const a=window.__wisdoBackgroundAudio;if(!a){mediaStatus.textContent='ASK WISDO FOR MUSIC OR CONNECT A PLAYBACK SOURCE';return;}if(a.paused){a.play().catch(()=>{});saveMusicState({playing:true});mediaPlay.textContent='Ⅱ';}else{stopGlobalMusic();mediaPlay.textContent='▶';mediaStatus.textContent='SOUNDTRACK PAUSED · YOUR MUSIC IS SAVED';}});mediaPrompt?.addEventListener('submit',async e=>{e.preventDefault();const prompt=String(document.querySelector('#media-prompt-input')?.value||'').trim();if(!prompt)return;window.dispatchEvent(new CustomEvent('wisdo:media-request',{detail:{prompt,mix:{...window.__wisdoAudioMix}}}));mediaTitle.textContent=prompt;mediaStatus.textContent='WISDO IS COMPOSING YOUR SOUNDTRACK';mediaDeck?.classList.add('request-pulse');if(mediaPlay){mediaPlay.disabled=true;mediaPlay.textContent='…';}try{const audio=await composeGlobalMusic(prompt);audio.onplay=()=>{saveMusicState({prompt,playing:true,volume:audio.volume});if(mediaPlay)mediaPlay.textContent='Ⅱ';mediaStatus.textContent='SOUNDTRACK PLAYING · WISDO AUTO-DUCK ACTIVE';};audio.onpause=()=>{if(mediaPlay)mediaPlay.textContent='▶';};audio.onerror=()=>{mediaStatus.textContent='SOUNDTRACK PLAYBACK FAILED';};}catch(error){console.warn('WISDO Soundstage music failed',error);mediaStatus.textContent='MUSIC FAILED · '+String(error?.message||error).slice(0,90);if(mediaPlay)mediaPlay.textContent='▶';}finally{if(mediaPlay)mediaPlay.disabled=false;mediaDeck?.classList.remove('request-pulse');}});
     const drawMonth=()=>{const y=cursor.getFullYear(),m=cursor.getMonth(),first=new Date(y,m,1),last=new Date(y,m+1,0),monthDays=Object.values(byDay).filter(d=>{const z=new Date(d.date+'T12:00:00');return z.getFullYear()===y&&z.getMonth()===m}),wins=monthDays.filter(d=>d.pnl>0).length,loss=monthDays.filter(d=>d.pnl<0).length,wr=monthDays.length?Math.round(wins/monthDays.length*100):0,net=monthDays.reduce((a,d)=>a+d.pnl,0);document.querySelector('#calendar-month').textContent=first.toLocaleDateString(undefined,{month:'long',year:'numeric'});document.querySelector('#month-stats').innerHTML=`<b>${wins}<small>Profit Days</small></b><b>${loss}<small>Loss Days</small></b><b>${wr}%<small>Win Rate</small></b><b class="${net>=0?'green':'red'}">${money(net)}<small>Monthly P/L</small></b>`;let out=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(x=>`<div class="calendar-dow">${x}</div>`).join('');for(let i=0;i<first.getDay();i++)out+='<div></div>';for(let n=1;n<=last.getDate();n++){const key=`${y}-${String(m+1).padStart(2,'0')}-${String(n).padStart(2,'0')}`,d=byDay[key];out+=`<button class="calendar-day ${d?(d.pnl>0?'profit':d.pnl<0?'loss':'flat'):'empty'}" data-date="${key}" ${d?'':'disabled'}><span>${n}</span>${d?`<i></i><small>${money(d.pnl)}</small>`:''}</button>`;}const grid=document.querySelector('#calendar-grid');grid.innerHTML=out;grid.querySelectorAll('[data-date]:not([disabled])').forEach(x=>x.onclick=()=>drawDay(x.dataset.date));};
     const drawDay=date=>{const d=byDay[date];if(!d)return;document.querySelectorAll('.calendar-day').forEach(x=>x.classList.toggle('selected',x.dataset.date===date));const wr=d.trades.length?Math.round(d.wins/d.trades.length*100):0;document.querySelector('#trade-stats').innerHTML=`<small>TRADE STATS · ${html(date)}</small><h2 class="${d.pnl>=0?'green':'red'}">${money(d.pnl)}</h2><span>DAY P/L</span><div class="stat-quad"><b>${d.trades.length}<small>Trades</small></b><b>${wr}%<small>Win Rate</small></b><b>${d.lots.toFixed(2)}<small>Net Lots</small></b><b>${d.buys>d.sells?'BUY':d.sells>d.buys?'SELL':'MIX'}<small>Flow</small></b></div>`;document.querySelector('#theater-subtitle').textContent=new Date(date+'T12:00:00').toLocaleDateString(undefined,{month:'long',day:'numeric',year:'numeric'});
       const sorted=[...d.trades].sort((a,b)=>new Date(a.opened_at||a.updated_at)-new Date(b.opened_at||b.updated_at)),first=sorted[0],last=sorted.at(-1),best=sorted.reduce((a,t)=>Number(t.pnl||0)>Number(a?.pnl||-Infinity)?t:a,null),worst=sorted.reduce((a,t)=>Number(t.pnl||0)<Number(a?.pnl||Infinity)?t:a,null),dominant=d.buys>d.sells?'buyers':d.sells>d.buys?'sellers':'both sides',mood=d.pnl>0?'green':d.pnl<0?'red':'flat';
