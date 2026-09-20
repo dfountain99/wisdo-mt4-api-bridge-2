@@ -124,6 +124,37 @@
   window.addEventListener('wisdo:voice-command',e=>handleWisdoAtmosphereCommand(e.detail?.text||e.detail?.transcript||e.detail?.command));
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',restoreAtmosphere,{once:true});else restoreAtmosphere();
 
+
+  // WISDO Vibes — one command orchestrates soundtrack, visual atmosphere and remembered identity.
+  const WISDO_VIBE_KEY='wisdo.vibe.v1';
+  const VIBE_PRESETS={
+    'night trader':{music:'dark cinematic late-night trading instrumental, soft piano, upright bass, restrained drums',video:'rainy futuristic financial district at night, gold reflections, slow cinematic camera drift'},
+    'kingdom':{music:'majestic cinematic instrumental, warm strings, deep restrained percussion, hopeful atmosphere',video:'grand luminous city above the clouds at sunrise, gold architecture, slow majestic camera movement'},
+    'wall street':{music:'confident modern finance instrumental, crisp percussion, subtle bass, cinematic tension',video:'premium Manhattan trading district at blue hour, glass towers, flowing lights, cinematic slow motion'},
+    'rain room':{music:'ambient rain focus instrumental, warm keys, deep soft texture, no vocals',video:'luxury dark office window covered in rain, city bokeh outside, slow camera drift'},
+    'space station':{music:'deep futuristic ambient focus soundtrack, spacious synths, restrained pulse, no vocals',video:'luxury orbital command deck overlooking Earth, holographic displays, slow cinematic movement'},
+    'luxury office':{music:'elegant late-night instrumental, warm piano, soft bass, premium lounge atmosphere',video:'dark luxury executive office above a glowing city, subtle gold lighting, slow cinematic camera'}
+  };
+  function vibeState(){try{return JSON.parse(localStorage.getItem(WISDO_VIBE_KEY)||'{}')||{};}catch{return {};}}
+  function saveVibe(v={}){const next={...vibeState(),...v,updatedAt:Date.now()};localStorage.setItem(WISDO_VIBE_KEY,JSON.stringify(next));window.dispatchEvent(new CustomEvent('wisdo:vibe-state',{detail:next}));return next;}
+  async function activateVibe(nameOrPrompt){
+    const key=String(nameOrPrompt||'').toLowerCase().trim(),preset=VIBE_PRESETS[key]||{music:key+' cinematic instrumental soundtrack, no vocals',video:key+' cinematic living environment, seamless slow movement'};
+    saveVibe({name:key,musicPrompt:preset.music,videoPrompt:preset.video,active:true});
+    const jobs=[composeGlobalMusic(preset.music).catch(e=>{console.warn('Vibe music failed',e);return null;}),generateAtmosphere(preset.video).catch(e=>{console.warn('Vibe video request failed',e);return null;})];
+    await Promise.all(jobs);toast('WISDO Vibe · '+key.toUpperCase()+' activated');return preset;
+  }
+  function stopVibe(){stopGlobalMusic();applyAtmosphereVideo('');saveVibe({active:false});toast('WISDO Vibe stopped.');}
+  function handleWisdoVibeCommand(text){
+    const n=String(text||'').toLowerCase().replace(/[^a-z0-9\s'-]/g,' ').replace(/\s+/g,' ').trim();if(!n)return false;
+    if (/\b(stop|clear|turn off|end)\b.*\b(vibe|atmosphere|environment)\b/.test(n)){stopVibe();return true;}
+    const named=Object.keys(VIBE_PRESETS).find(k=>n.includes(k));
+    if(named&&/\b(vibe|atmosphere|environment|mode|give me|set|activate)\b/.test(n)){activateVibe(named);return true;}
+    const m=n.match(/(?:give me|set|create|activate|make)(?: a| the| my)?\s+(.+?)\s+(?:vibe|atmosphere|environment|mode)$/);
+    if(m?.[1]){activateVibe(m[1]);return true;}return false;
+  }
+  window.WISDO_VIBES={presets:VIBE_PRESETS,activate:activateVibe,stop:stopVibe,state:vibeState};
+  window.addEventListener('wisdo:voice-command',e=>handleWisdoVibeCommand(e.detail?.text||e.detail?.transcript||e.detail?.command));
+
   function bootNode(selector) { return document.querySelector(selector); }
   function setDashboardBootStage(message, percent, stage = '') {
     const overlay = bootNode('#wisdo-boot');
