@@ -2400,12 +2400,40 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
     return res.status(Number(result?.status || 400)).json({ ok: false, code: result?.code || 'live_desk_error', error: result?.error || 'Live Desk request failed.' });
   }
 
+  const wisdoVoiceConfig = () => ({
+    apiKey: String(process.env.ELEVENLABS_API_KEY || '').trim(),
+    voiceId: String(process.env.WISDO_VOICE_ID || '').trim(),
+    modelId: String(process.env.WISDO_VOICE_MODEL || 'eleven_multilingual_v2').trim(),
+  });
+  const wisdoVoiceHeaders = apiKey => ({ 'xi-api-key': apiKey, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' });
+  const wisdoVoiceError = async response => {
+    const detail = await response.text().catch(() => '');
+    return { providerStatus: response.status, providerDetail: detail.slice(0, 600) };
+  };
+
+  // Public deployment probe: contains no secrets and proves this exact runtime has the voice routes.
+  app.get('/api/wisdo/voice/health', (_req, res) => {
+    const { apiKey, voiceId, modelId } = wisdoVoiceConfig();
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({
+      ok: true,
+      service: 'wisdo-cinematic-voice',
+      routeVersion: 2,
+      configured: Boolean(apiKey && voiceId),
+      keyConfigured: Boolean(apiKey),
+      voiceConfigured: Boolean(voiceId),
+      voiceIdSuffix: voiceId ? voiceId.slice(-4) : '',
+      modelId,
+      generationRoute: '/api/wisdo/voice/speak',
+      legacyRoute: '/api/wisdo/narration',
+    });
+  });
+
   app.get('/api/wisdo/narration/status', async (req, res) => {
     const user = getSessionUser(req);
-    if (!user?.id) return res.status(401).json({ ok: false, error: 'Login required.' });
-    const apiKey = String(process.env.ELEVENLABS_API_KEY || '').trim();
-    const voiceId = String(process.env.WISDO_VOICE_ID || '').trim();
-    const status = { ok: false, configured: Boolean(apiKey && voiceId), voiceIdSuffix: voiceId ? voiceId.slice(-4) : '', provider: 'elevenlabs' };
+    if (!user?.id) return res.status(401).json({ ok: false, code: 'login_required', error: 'Login required.' });
+    const { apiKey, voiceId, modelId } = wisdoVoiceConfig();
+    const status = { ok: false, configured: Boolean(apiKey && voiceId), voiceIdSuffix: voiceId ? voiceId.slice(-4) : '', provider: 'elevenlabs', modelId, routeVersion: 2 };
     if (!apiKey || !voiceId) return res.status(503).json({ ...status, code: 'wisdo_voice_not_configured' });
     try {
       const response = await fetch(`https://api.elevenlabs.io/v1/voices/${encodeURIComponent(voiceId)}`, { headers: { 'xi-api-key': apiKey, 'Accept': 'application/json' } });
@@ -2418,39 +2446,45 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
     }
   });
 
-  app.post('/api/wisdo/narration', async (req, res) => {
+  const generateWisdoVoice = async (req, res) => {
     const user = getSessionUser(req);
-    if (!user?.id) return res.status(401).json({ ok: false, error: 'Login required.' });
+    if (!user?.id) return res.status(401).json({ ok: false, code: 'login_required', error: 'Login required.' });
     const text = String(req.body?.text || '').trim().slice(0, 5000);
-    if (!text) return res.status(400).json({ ok: false, error: 'Narration text is required.' });
-    const apiKey = String(process.env.ELEVENLABS_API_KEY || '').trim();
-    const voiceId = String(process.env.WISDO_VOICE_ID || '').trim();
+    if (!text) return res.status(400).json({ ok: false, code: 'narration_text_required', error: 'Narration text is required.' });
+    const { apiKey, voiceId, modelId } = wisdoVoiceConfig();
     if (!apiKey || !voiceId) return res.status(503).json({ ok: false, code: 'wisdo_voice_not_configured', error: 'WISDO cinematic voice is not configured.' });
     try {
       const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, {
         method: 'POST',
-        headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
+        headers: wisdoVoiceHeaders(apiKey),
         body: JSON.stringify({
           text,
-          model_id: process.env.WISDO_VOICE_MODEL || 'eleven_multilingual_v2',
-          voice_settings: { stability: 0.42, similarity_boost: 0.72, style: 0.28, use_speaker_boost: true, speed: 0.86 }
+          model_id: modelId,
+          voice_settings: { stability: 0.48, similarity_boost: 0.82, style: 0.34, use_speaker_boost: true, speed: 0.88 }
         })
       });
       if (!response.ok) {
-        const detail = await response.text().catch(() => '');
-        logger?.warn?.('WISDO narration provider failed', { status: response.status, detail: detail.slice(0, 300) });
-        return res.status(502).json({ ok: false, code: 'wisdo_voice_failed', error: 'Cinematic narration provider failed.' });
+        const provider = await wisdoVoiceError(response);
+        logger?.warn?.('WISDO cinematic voice provider failed', { status: provider.providerStatus, detail: provider.providerDetail.slice(0, 300) });
+        return res.status(502).json({ ok: false, code: 'wisdo_voice_failed', error: 'Cinematic narration provider failed.', ...provider });
       }
       const audio = Buffer.from(await response.arrayBuffer());
+      if (!audio.length) return res.status(502).json({ ok: false, code: 'empty_voice_audio', error: 'Voice provider returned empty audio.' });
       res.setHeader('Content-Type', response.headers.get('content-type') || 'audio/mpeg');
-      res.setHeader('Cache-Control', 'private, max-age=3600');
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.setHeader('X-Wisdo-Voice', 'elevenlabs');
+      res.setHeader('X-Wisdo-Voice-Id', voiceId.slice(-4));
+      res.setHeader('X-Wisdo-Voice-Model', modelId);
       res.setHeader('Content-Length', String(audio.length));
       return res.send(audio);
     } catch (error) {
       logger?.warn?.('WISDO narration request failed', { message: error.message });
-      return res.status(502).json({ ok: false, code: 'wisdo_voice_failed', error: 'Cinematic narration is temporarily unavailable.' });
+      return res.status(502).json({ ok: false, code: 'wisdo_voice_failed', error: 'Cinematic narration is temporarily unavailable.', detail: String(error.message || error).slice(0, 300) });
     }
-  });
+  };
+
+  app.post('/api/wisdo/voice/speak', generateWisdoVoice);
+  app.post('/api/wisdo/narration', generateWisdoVoice);
 
   app.use(['/api/live-desk', '/live'], (_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store, max-age=0');
