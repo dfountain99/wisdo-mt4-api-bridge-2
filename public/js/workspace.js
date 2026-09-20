@@ -90,6 +90,40 @@
   document.addEventListener('click', () => { resumeGlobalMusicFromPreference(); }, { once: true, capture: true });
 
 
+
+  // Living Atmosphere: persistent visual companion to the global WISDO soundtrack.
+  const WISDO_ATMOSPHERE_KEY='wisdo.atmosphere.v1';
+  function atmosphereState(){try{return JSON.parse(localStorage.getItem(WISDO_ATMOSPHERE_KEY)||'{}')||{};}catch{return {};}}
+  function saveAtmosphereState(patch={}){const next={...atmosphereState(),...patch,updatedAt:Date.now()};localStorage.setItem(WISDO_ATMOSPHERE_KEY,JSON.stringify(next));return next;}
+  function ensureAtmosphereLayer(){
+    let layer=document.querySelector('#wisdo-living-atmosphere');if(layer)return layer;
+    layer=document.createElement('div');layer.id='wisdo-living-atmosphere';layer.innerHTML='<video id="wisdo-atmosphere-video" muted loop playsinline preload="metadata"></video><div class="wisdo-atmosphere-tint"></div>';
+    document.body.prepend(layer);return layer;
+  }
+  function applyAtmosphereVideo(url,prompt=''){
+    const layer=ensureAtmosphereLayer(),video=layer.querySelector('video');if(!url){video.pause();video.removeAttribute('src');video.load();layer.classList.remove('active');saveAtmosphereState({videoUrl:'',prompt:'',playing:false});return;}
+    if(video.src!==url)video.src=url;layer.classList.add('active');video.play().catch(()=>{});saveAtmosphereState({videoUrl:url,prompt,playing:true});
+  }
+  function restoreAtmosphere(){const st=atmosphereState();if(st.videoUrl&&st.playing)applyAtmosphereVideo(st.videoUrl,st.prompt);}
+  async function generateAtmosphere(prompt){
+    prompt=String(prompt||'').trim();if(!prompt)return;
+    saveAtmosphereState({prompt,status:'requested'});
+    window.dispatchEvent(new CustomEvent('wisdo:video-request',{detail:{prompt,purpose:'workspace-atmosphere',loop:true,muted:true}}));
+    toast('WISDO is shaping your visual atmosphere…');
+    // Provider adapters can answer this event or set a generated URL without coupling the UI to one vendor.
+    return {prompt,pending:true};
+  }
+  function handleWisdoAtmosphereCommand(text){
+    const n=String(text||'').toLowerCase().replace(/[^a-z0-9\s'-]/g,' ').replace(/\s+/g,' ').trim();if(!n)return false;
+    if (/\b(stop|remove|clear|turn off)\b.*\b(video|background|atmosphere|vibe)\b/.test(n)){applyAtmosphereVideo('');toast('WISDO cleared your visual atmosphere.');return true;}
+    const m=n.match(/(?:make|create|generate|set|give me)(?: my| the)?\s+(?:workspace\s+)?(?:a\s+)?(.+?)\s+(?:atmosphere|vibe|background|video)$/);
+    if(m?.[1]){generateAtmosphere(m[1]);return true;}return false;
+  }
+  window.WISDO_ATMOSPHERE={generate:generateAtmosphere,setVideo:applyAtmosphereVideo,clear:()=>applyAtmosphereVideo(''),state:atmosphereState};
+  window.addEventListener('wisdo:video-ready',e=>{const d=e.detail||{};if(d.url)applyAtmosphereVideo(d.url,d.prompt||atmosphereState().prompt);});
+  window.addEventListener('wisdo:voice-command',e=>handleWisdoAtmosphereCommand(e.detail?.text||e.detail?.transcript||e.detail?.command));
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',restoreAtmosphere,{once:true});else restoreAtmosphere();
+
   function bootNode(selector) { return document.querySelector(selector); }
   function setDashboardBootStage(message, percent, stage = '') {
     const overlay = bootNode('#wisdo-boot');
