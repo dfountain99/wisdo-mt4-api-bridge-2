@@ -2484,6 +2484,30 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
     }
   };
 
+  app.get('/api/wisdo/voice/provider-status', async (req, res) => {
+    const user = getSessionUser(req);
+    if (!user?.id) return res.status(401).json({ ok: false, code: 'login_required' });
+    const { apiKey, voiceId, modelId } = wisdoVoiceConfig();
+    if (!apiKey || !voiceId) return res.status(503).json({ ok: false, code: 'wisdo_voice_not_configured' });
+    try {
+      const voiceResponse = await fetch(`https://api.elevenlabs.io/v1/voices/${encodeURIComponent(voiceId)}`, { headers: { 'xi-api-key': apiKey, 'Accept': 'application/json' } });
+      const voiceText = await voiceResponse.text().catch(() => '');
+      let providerCode = '';
+      try { const parsed = JSON.parse(voiceText || '{}'); providerCode = parsed?.detail?.status || parsed?.detail?.code || parsed?.status || parsed?.code || ''; } catch {}
+      return res.status(voiceResponse.ok ? 200 : 502).json({
+        ok: voiceResponse.ok,
+        provider: 'elevenlabs',
+        providerStatus: voiceResponse.status,
+        providerCode: String(providerCode || ''),
+        voiceIdSuffix: voiceId.slice(-4),
+        modelId,
+        hint: voiceResponse.status === 401 ? 'Check ELEVENLABS_API_KEY.' : voiceResponse.status === 403 ? 'Check API-key Text to Speech permissions or IP restrictions.' : voiceResponse.status === 404 ? 'Check WISDO_VOICE_ID.' : voiceResponse.status === 402 ? 'Check ElevenLabs credits/quota.' : voiceResponse.ok ? 'Voice connection is valid.' : 'Check ElevenLabs provider response.'
+      });
+    } catch (error) {
+      return res.status(502).json({ ok: false, code: 'provider_unreachable', detail: String(error.message || error).slice(0, 200) });
+    }
+  });
+
   app.post('/api/wisdo/voice/speak', generateWisdoVoice);
   app.post('/api/wisdo/narration', generateWisdoVoice);
 
