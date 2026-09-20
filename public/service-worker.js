@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wisdo-static-v7.0.9-launch-hardening';
+const CACHE_NAME = 'wisdo-static-v7.0.10-calendar-cinematic';
 const STATIC_ASSETS = [
   '/js/workspace.js',
   '/js/wisdo-recognition.js',
@@ -33,15 +33,12 @@ self.addEventListener('fetch', (event) => {
   // API, MT4, app/member/admin HTML, navigations, and the service worker itself are
   // always network-owned. A stale shell must never answer a trading bridge request.
   if (!isCacheableStatic(url, request) || url.pathname === '/service-worker.js') return;
-  event.respondWith(caches.match(request).then((cached) => {
-    const network = fetch(request).then((response) => {
-      if (response.ok && response.type === 'basic') {
-        caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone())).catch(() => {});
-      }
-      return response;
-    });
-    return cached || network;
-  }));
+  event.respondWith(fetch(request).then((response) => {
+    if (response.ok && response.type === 'basic') {
+      caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone())).catch(() => {});
+    }
+    return response;
+  }).catch(() => caches.match(request)));
 });
 
 self.addEventListener('push', (event) => {
