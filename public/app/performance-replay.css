@@ -107,3 +107,16 @@ body:has(.calendar-nexus) .main{min-width:0;padding:12px 14px 28px;overflow:visi
 /* WISDO NARRATION MODE */
 .narration-toggle{display:flex;align-items:center;gap:6px;margin-left:2px;padding:4px 7px;border:1px solid rgba(100,217,239,.12);border-radius:999px;background:#031019aa;cursor:pointer;user-select:none}.narration-toggle input{position:absolute;opacity:0;pointer-events:none}.narration-toggle i{position:relative;width:24px;height:12px;border-radius:999px;background:#102731;box-shadow:inset 0 0 0 1px rgba(102,177,194,.16);transition:.25s}.narration-toggle i:after{content:"";position:absolute;width:8px;height:8px;left:2px;top:2px;border-radius:50%;background:#66828d;transition:.25s}.narration-toggle input:checked+i{background:rgba(43,218,165,.22);box-shadow:inset 0 0 0 1px rgba(77,255,198,.3),0 0 15px rgba(70,255,194,.08)}.narration-toggle input:checked+i:after{left:14px;background:#54ffc3;box-shadow:0 0 9px #54ffc3}.narration-toggle span{color:#6e929f;font:800 6px JetBrains Mono,monospace;letter-spacing:.06em}.narration-toggle input:checked~span{color:#78ffd1}
 @media(max-width:760px){.narration-toggle{flex:0 0 auto}.replay-rail{align-items:center}}
+
+/* CINEMATIC CAMERA V2 — visible date-triggered market journey */
+.calendar-nexus .mission-chart{overflow:hidden;isolation:isolate;perspective:1100px;transform-style:preserve-3d}
+.calendar-nexus .mission-chart svg{will-change:transform,filter;transform-box:fill-box;transform-origin:var(--focus-x,50%) var(--focus-y,50%);transition:transform 1.35s cubic-bezier(.16,.82,.18,1),filter .8s ease,transform-origin .9s ease}
+.calendar-nexus .mission-chart svg.story-riding{transform:scale(2.15) rotateX(7deg) rotateZ(-.35deg)!important;filter:drop-shadow(0 0 14px rgba(91,236,255,.32)) brightness(1.12)}
+.calendar-nexus .mission-chart.story-live:before{content:"";position:absolute;inset:-25%;z-index:7;pointer-events:none;background:radial-gradient(circle at var(--focus-x,50%) var(--focus-y,50%),var(--story-glow,rgba(62,226,255,.18)),transparent 28%),linear-gradient(110deg,transparent 30%,rgba(79,226,255,.06) 49%,transparent 68%);mix-blend-mode:screen;animation:cinemaSweep 2.8s ease-in-out infinite}
+@keyframes cinemaSweep{0%,100%{transform:translate3d(-3%,1%,0) scale(1);opacity:.45}50%{transform:translate3d(4%,-2%,0) scale(1.08);opacity:1}}
+.calendar-nexus .mission-chart.story-live .chart-scan{animation:cinemaScan 2.2s linear infinite;opacity:.9}@keyframes cinemaScan{from{transform:translateY(-130%)}to{transform:translateY(450%)}}
+.calendar-nexus .story-caption{transition:transform .55s ease,box-shadow .55s ease,border-color .55s ease}
+.calendar-nexus .mission-chart.story-live~.story-caption,.calendar-nexus .nexus-replay:has(.mission-chart.story-live) .story-caption{transform:translateY(-5px);border-color:rgba(91,240,210,.25);box-shadow:0 18px 50px #000b,0 0 28px rgba(58,232,205,.12)}
+.calendar-nexus .trade-marker.story-focus circle{transform-box:fill-box;transform-origin:center;transform:scale(1.85);filter:drop-shadow(0 0 8px currentColor)}
+@media(max-width:760px){.calendar-nexus .mission-chart svg.story-riding{transform:scale(1.82) rotateX(5deg)!important}}
+@media(prefers-reduced-motion:reduce){.calendar-nexus .mission-chart svg{transition:transform .35s ease}.calendar-nexus .mission-chart.story-live:before{animation:none}}
