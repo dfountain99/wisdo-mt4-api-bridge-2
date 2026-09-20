@@ -169,3 +169,12 @@ body:has(.calendar-nexus) .main{min-width:0;padding:12px 14px 28px;overflow:visi
 .calendar-nexus .story-caption{max-width:520px!important;padding:16px 18px!important;border-radius:16px!important;background:linear-gradient(135deg,rgba(3,15,23,.88),rgba(6,31,39,.72))!important;box-shadow:0 22px 65px #0008,0 0 38px rgba(54,220,255,.08)!important}.calendar-nexus .story-caption small{font-size:7px!important;letter-spacing:.18em!important}.calendar-nexus .story-caption strong{font-size:16px!important;line-height:1.2!important}.calendar-nexus .story-caption p{font-size:10px!important;line-height:1.72!important;color:#a8c2ca!important}
 .calendar-nexus .nexus-replay{min-height:520px}.calendar-nexus .mission-chart{min-height:390px}.calendar-nexus .replay-rail{opacity:.72}.calendar-nexus .chapter-stage{backdrop-filter:blur(8px)}
 @media(max-width:760px){.wisdo-media-deck{right:14px;bottom:76px}.wisdo-media-deck:after{display:none}.wisdo-media-deck.open{right:12px;bottom:72px;width:calc(100vw - 24px)}.calendar-nexus .story-caption{left:12px!important;right:12px!important;bottom:58px!important;padding:13px!important}.calendar-nexus .story-caption strong{font-size:14px!important}.calendar-nexus .story-caption p{font-size:9px!important}.calendar-nexus .nexus-replay{min-height:470px}}
+
+
+/* WISDO Living Atmosphere — persistent generated-video environment */
+#wisdo-living-atmosphere{position:fixed;inset:0;z-index:-3;overflow:hidden;pointer-events:none;opacity:0;transition:opacity 1.2s ease;background:#03060c}
+#wisdo-living-atmosphere.active{opacity:1}
+#wisdo-living-atmosphere video{width:100%;height:100%;object-fit:cover;transform:scale(1.035);filter:saturate(.82) contrast(1.06) brightness(.48)}
+#wisdo-living-atmosphere .wisdo-atmosphere-tint{position:absolute;inset:0;background:radial-gradient(circle at 50% 42%,transparent 0 28%,rgba(2,5,12,.2) 55%,rgba(2,5,12,.72) 100%),linear-gradient(180deg,rgba(2,5,12,.18),rgba(2,5,12,.52))}
+html:has(#wisdo-living-atmosphere.active) body{background:transparent}
+@media (prefers-reduced-motion:reduce){#wisdo-living-atmosphere video{transform:none}}
