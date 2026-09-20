@@ -193,7 +193,8 @@ function decodeSession(value) {
 }
 
 function getSessionUser(req) {
-  return decodeSession(parseCookies(req)[SESSION_COOKIE] || '');
+  const cookies = parseCookies(req);
+  return decodeSession(cookies[SESSION_COOKIE] || cookies.wisdo_user || '');
 }
 
 function normalizeEmail(value = '') {
