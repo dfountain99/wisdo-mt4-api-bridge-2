@@ -2400,6 +2400,24 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
     return res.status(Number(result?.status || 400)).json({ ok: false, code: result?.code || 'live_desk_error', error: result?.error || 'Live Desk request failed.' });
   }
 
+  app.get('/api/wisdo/narration/status', async (req, res) => {
+    const user = getSessionUser(req);
+    if (!user?.id) return res.status(401).json({ ok: false, error: 'Login required.' });
+    const apiKey = String(process.env.ELEVENLABS_API_KEY || '').trim();
+    const voiceId = String(process.env.WISDO_VOICE_ID || '').trim();
+    const status = { ok: false, configured: Boolean(apiKey && voiceId), voiceIdSuffix: voiceId ? voiceId.slice(-4) : '', provider: 'elevenlabs' };
+    if (!apiKey || !voiceId) return res.status(503).json({ ...status, code: 'wisdo_voice_not_configured' });
+    try {
+      const response = await fetch(`https://api.elevenlabs.io/v1/voices/${encodeURIComponent(voiceId)}`, { headers: { 'xi-api-key': apiKey, 'Accept': 'application/json' } });
+      const detail = await response.text().catch(() => '');
+      if (!response.ok) return res.status(502).json({ ...status, code: 'voice_probe_failed', providerStatus: response.status, providerDetail: detail.slice(0, 500) });
+      const voice = JSON.parse(detail || '{}');
+      return res.json({ ...status, ok: true, voiceName: voice.name || 'WISDO', providerStatus: response.status });
+    } catch (error) {
+      return res.status(502).json({ ...status, code: 'voice_probe_failed', providerDetail: String(error.message || error).slice(0, 500) });
+    }
+  });
+
   app.post('/api/wisdo/narration', async (req, res) => {
     const user = getSessionUser(req);
     if (!user?.id) return res.status(401).json({ ok: false, error: 'Login required.' });
