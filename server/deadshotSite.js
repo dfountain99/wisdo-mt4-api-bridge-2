@@ -2400,6 +2400,40 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
     return res.status(Number(result?.status || 400)).json({ ok: false, code: result?.code || 'live_desk_error', error: result?.error || 'Live Desk request failed.' });
   }
 
+  app.post('/api/wisdo/narration', async (req, res) => {
+    const user = getSessionUser(req);
+    if (!user?.id) return res.status(401).json({ ok: false, error: 'Login required.' });
+    const text = String(req.body?.text || '').trim().slice(0, 5000);
+    if (!text) return res.status(400).json({ ok: false, error: 'Narration text is required.' });
+    const apiKey = String(process.env.ELEVENLABS_API_KEY || '').trim();
+    const voiceId = String(process.env.WISDO_VOICE_ID || '').trim();
+    if (!apiKey || !voiceId) return res.status(503).json({ ok: false, code: 'wisdo_voice_not_configured', error: 'WISDO cinematic voice is not configured.' });
+    try {
+      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, {
+        method: 'POST',
+        headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
+        body: JSON.stringify({
+          text,
+          model_id: process.env.WISDO_VOICE_MODEL || 'eleven_multilingual_v2',
+          voice_settings: { stability: 0.42, similarity_boost: 0.72, style: 0.28, use_speaker_boost: true, speed: 0.86 }
+        })
+      });
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        logger?.warn?.('WISDO narration provider failed', { status: response.status, detail: detail.slice(0, 300) });
+        return res.status(502).json({ ok: false, code: 'wisdo_voice_failed', error: 'Cinematic narration provider failed.' });
+      }
+      const audio = Buffer.from(await response.arrayBuffer());
+      res.setHeader('Content-Type', response.headers.get('content-type') || 'audio/mpeg');
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      res.setHeader('Content-Length', String(audio.length));
+      return res.send(audio);
+    } catch (error) {
+      logger?.warn?.('WISDO narration request failed', { message: error.message });
+      return res.status(502).json({ ok: false, code: 'wisdo_voice_failed', error: 'Cinematic narration is temporarily unavailable.' });
+    }
+  });
+
   app.use(['/api/live-desk', '/live'], (_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store, max-age=0');
     res.setHeader('Referrer-Policy', 'no-referrer');
