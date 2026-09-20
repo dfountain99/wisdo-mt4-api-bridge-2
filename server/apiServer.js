@@ -4422,6 +4422,53 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     },
   }));
 
+  // WISDO Soundstage: server-side ElevenLabs Music proxy. Never expose the API key to the browser.
+  app.get('/api/wisdo/music/health', (_req, res) => {
+    const configured = Boolean(String(process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || '').trim());
+    res.status(configured ? 200 : 503).json({ ok: configured, configured, provider: 'elevenlabs', model: process.env.WISDO_MUSIC_MODEL || 'music_v2_5' });
+  });
+
+  app.post('/api/wisdo/music/compose', async (req, res) => {
+    const apiKey = String(process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || '').trim();
+    if (!apiKey) return res.status(503).json({ ok: false, code: 'WISDO_MUSIC_NOT_CONFIGURED', error: 'ElevenLabs music is not configured on this server.' });
+    const rawPrompt = String(req.body?.prompt || '').trim();
+    if (!rawPrompt) return res.status(400).json({ ok: false, code: 'WISDO_MUSIC_PROMPT_REQUIRED', error: 'A music prompt is required.' });
+    const prompt = rawPrompt.slice(0, 4000);
+    const requestedLength = Number(req.body?.music_length_ms || req.body?.durationMs || 60000);
+    const musicLengthMs = Math.max(3000, Math.min(600000, Number.isFinite(requestedLength) ? Math.round(requestedLength) : 60000));
+    const modelId = String(process.env.WISDO_MUSIC_MODEL || 'music_v2_5');
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), Number(process.env.WISDO_MUSIC_TIMEOUT_MS || 180000));
+      let upstream;
+      try {
+        upstream = await fetch('https://api.elevenlabs.io/v1/music?output_format=mp3_44100_128', {
+          method: 'POST',
+          headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
+          body: JSON.stringify({ prompt, music_length_ms: musicLengthMs, model_id: modelId, force_instrumental: req.body?.instrumental !== false }),
+          signal: controller.signal,
+        });
+      } finally { clearTimeout(timeout); }
+      if (!upstream.ok) {
+        const detail = (await upstream.text().catch(() => '')).slice(0, 1200);
+        logger?.warn?.('WISDO music provider rejected request.', { status: upstream.status, detail });
+        return res.status(upstream.status >= 400 && upstream.status < 500 ? upstream.status : 502).json({ ok: false, code: 'WISDO_MUSIC_PROVIDER_FAILED', error: 'ElevenLabs could not generate this soundtrack.', providerStatus: upstream.status, detail });
+      }
+      const bytes = Buffer.from(await upstream.arrayBuffer());
+      if (!bytes.length) return res.status(502).json({ ok: false, code: 'WISDO_MUSIC_EMPTY', error: 'ElevenLabs returned an empty soundtrack.' });
+      res.setHeader('Content-Type', upstream.headers.get('content-type') || 'audio/mpeg');
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      res.setHeader('X-WISDO-Music-Model', modelId);
+      const songId = upstream.headers.get('song-id');
+      if (songId) res.setHeader('X-WISDO-Song-Id', songId);
+      return res.status(200).send(bytes);
+    } catch (error) {
+      const timedOut = error?.name === 'AbortError';
+      logger?.warn?.('WISDO music generation failed.', { message: error?.message, timedOut });
+      return res.status(timedOut ? 504 : 502).json({ ok: false, code: timedOut ? 'WISDO_MUSIC_TIMEOUT' : 'WISDO_MUSIC_FAILED', error: timedOut ? 'Music generation timed out.' : 'Music generation failed.' });
+    }
+  });
+
   app.get('/health/performance', async (_req, res) => {
     const commands = await mt4CommandService?.getQueueMetrics?.().catch(() => null) || { total: 0, active: 0, history: 0, historyLimit: mt4CommandService?.commandHistoryLimit || null };
     const copyCommands = await copyTradingService?.getQueueMetrics?.().catch(() => null) || null;
