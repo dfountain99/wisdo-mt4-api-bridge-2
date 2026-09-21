@@ -4469,6 +4469,107 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     }
   });
 
+  // WISDO Creation Engine — provider-backed media routes used by Studio.
+  // Audio programs are returned as a chapter plan so long-form speech can be rendered
+  // progressively instead of holding a 30–60 minute audio buffer in server memory.
+  app.get('/api/wisdo/media/health', (_req, res) => {
+    const elevenKey = String(process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || '').trim();
+    const videoEndpoint = String(process.env.WISDO_VIDEO_PROVIDER_URL || '').trim();
+    res.json({
+      ok: true,
+      audio_program: { configured: Boolean(elevenKey), provider: elevenKey ? 'elevenlabs' : null },
+      video: { configured: Boolean(videoEndpoint), provider: videoEndpoint ? (process.env.WISDO_VIDEO_PROVIDER_NAME || 'configured-adapter') : null },
+      music: { configured: Boolean(elevenKey), provider: 'elevenlabs' },
+    });
+  });
+
+  app.post('/api/wisdo/media/audio-program', async (req, res) => {
+    const apiKey = String(process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || '').trim();
+    if (!apiKey) return res.status(503).json({ ok:false, code:'WISDO_AUDIO_NOT_CONFIGURED', error:'ElevenLabs is not configured for WISDO audio programs.' });
+    const prompt = String(req.body?.prompt || '').trim().slice(0, 6000);
+    if (!prompt) return res.status(400).json({ ok:false, code:'WISDO_AUDIO_PROMPT_REQUIRED', error:'An audio program prompt is required.' });
+    const minutes = Math.max(5, Math.min(60, Number(req.body?.minutes) || 15));
+    const format = String(req.body?.format || 'Teaching').slice(0, 80);
+    const background = String(req.body?.background || '').slice(0, 120);
+    const chapterMinutes = Math.min(5, minutes);
+    const chapterCount = Math.ceil(minutes / chapterMinutes);
+    const wordsPerMinute = 125;
+    const chapters = Array.from({ length: chapterCount }, (_, index) => ({
+      index,
+      title: `Part ${index + 1} of ${chapterCount}`,
+      minutes: index === chapterCount - 1 ? minutes - chapterMinutes * index : chapterMinutes,
+      targetWords: Math.max(250, Math.round((index === chapterCount - 1 ? minutes - chapterMinutes * index : chapterMinutes) * wordsPerMinute)),
+    }));
+    const jobId = `audio_${Date.now().toString(36)}_${crypto.randomBytes(3).toString('hex')}`;
+    return res.status(202).json({
+      ok:true, jobId, status:'planned', provider:'elevenlabs', prompt, minutes, format, background,
+      chapters,
+      message:`Audio program planned as ${chapterCount} chapter${chapterCount === 1 ? '' : 's'}. Render each chapter from the Studio player to avoid memory pressure.`,
+      renderEndpoint:'/api/wisdo/media/audio-program/render',
+    });
+  });
+
+  app.post('/api/wisdo/media/audio-program/render', async (req, res) => {
+    const apiKey = String(process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || '').trim();
+    if (!apiKey) return res.status(503).json({ ok:false, code:'WISDO_AUDIO_NOT_CONFIGURED', error:'ElevenLabs is not configured.' });
+    const text = String(req.body?.text || '').trim();
+    if (!text) return res.status(400).json({ ok:false, code:'WISDO_AUDIO_TEXT_REQUIRED', error:'Chapter text is required.' });
+    if (text.length > 12000) return res.status(413).json({ ok:false, code:'WISDO_AUDIO_CHAPTER_TOO_LONG', error:'Render chapters in smaller sections.' });
+    const voiceId = String(req.body?.voiceId || process.env.ELEVENLABS_VOICE_ID || '').trim();
+    if (!voiceId) return res.status(503).json({ ok:false, code:'WISDO_AUDIO_VOICE_REQUIRED', error:'Set ELEVENLABS_VOICE_ID for long-form narration.' });
+    const modelId = String(process.env.WISDO_ELEVENLABS_TTS_MODEL || 'eleven_multilingual_v2');
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), Number(process.env.WISDO_AUDIO_TIMEOUT_MS || 120000));
+      let upstream;
+      try {
+        upstream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, {
+          method:'POST',
+          headers:{ 'xi-api-key':apiKey, 'Content-Type':'application/json', Accept:'audio/mpeg' },
+          body:JSON.stringify({ text, model_id:modelId, voice_settings:{ stability:0.55, similarity_boost:0.78, style:0.18, use_speaker_boost:true } }),
+          signal:controller.signal,
+        });
+      } finally { clearTimeout(timeout); }
+      if (!upstream.ok) {
+        const detail=(await upstream.text().catch(()=>'' )).slice(0,1000);
+        return res.status(upstream.status >= 400 && upstream.status < 500 ? upstream.status : 502).json({ok:false,code:'WISDO_AUDIO_PROVIDER_FAILED',error:'ElevenLabs could not render this chapter.',providerStatus:upstream.status,detail});
+      }
+      const bytes=Buffer.from(await upstream.arrayBuffer());
+      if(!bytes.length)return res.status(502).json({ok:false,code:'WISDO_AUDIO_EMPTY',error:'ElevenLabs returned empty audio.'});
+      res.setHeader('Content-Type',upstream.headers.get('content-type')||'audio/mpeg');
+      res.setHeader('Cache-Control','private, max-age=3600');
+      res.setHeader('X-WISDO-Audio-Model',modelId);
+      return res.status(200).send(bytes);
+    } catch(error) {
+      const timedOut=error?.name==='AbortError';
+      logger?.warn?.('WISDO audio chapter generation failed.',{message:error?.message,timedOut});
+      return res.status(timedOut?504:502).json({ok:false,code:timedOut?'WISDO_AUDIO_TIMEOUT':'WISDO_AUDIO_FAILED',error:timedOut?'Audio generation timed out.':'Audio generation failed.'});
+    }
+  });
+
+  app.post('/api/wisdo/media/video', async (req, res) => {
+    const endpoint=String(process.env.WISDO_VIDEO_PROVIDER_URL||'').trim();
+    const token=String(process.env.WISDO_VIDEO_PROVIDER_TOKEN||'').trim();
+    const prompt=String(req.body?.prompt||'').trim().slice(0,6000);
+    if(!prompt)return res.status(400).json({ok:false,code:'WISDO_VIDEO_PROMPT_REQUIRED',error:'A video prompt is required.'});
+    if(!endpoint)return res.status(503).json({ok:false,code:'WISDO_VIDEO_NOT_CONFIGURED',error:'No video generation provider is configured. Set WISDO_VIDEO_PROVIDER_URL.'});
+    try {
+      const controller=new AbortController();
+      const timeout=setTimeout(()=>controller.abort(),Number(process.env.WISDO_VIDEO_TIMEOUT_MS||30000));
+      let upstream;
+      try {
+        upstream=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},body:JSON.stringify({prompt,purpose:req.body?.purpose||'standalone',motion:req.body?.motion||'',loop:req.body?.loop!==false,callback_url:req.body?.callbackUrl||undefined}),signal:controller.signal});
+      } finally {clearTimeout(timeout);}
+      const raw=await upstream.text(); let payload={}; try{payload=raw?JSON.parse(raw):{};}catch{payload={detail:raw.slice(0,1000)}}
+      if(!upstream.ok)return res.status(upstream.status>=400&&upstream.status<500?upstream.status:502).json({ok:false,code:'WISDO_VIDEO_PROVIDER_FAILED',error:'Video provider rejected the generation request.',providerStatus:upstream.status,detail:payload.detail||payload.error||''});
+      const jobId=String(payload.jobId||payload.id||payload.request_id||`video_${Date.now().toString(36)}`);
+      return res.status(202).json({ok:true,jobId,status:payload.status||'queued',provider:process.env.WISDO_VIDEO_PROVIDER_NAME||'configured-adapter',resultUrl:payload.resultUrl||payload.url||null,statusUrl:payload.statusUrl||payload.status_url||null,message:'Video generation queued.'});
+    } catch(error) {
+      const timedOut=error?.name==='AbortError';
+      return res.status(timedOut?504:502).json({ok:false,code:timedOut?'WISDO_VIDEO_TIMEOUT':'WISDO_VIDEO_FAILED',error:timedOut?'Video provider timed out.':'Video generation request failed.'});
+    }
+  });
+
   app.get('/health/performance', async (_req, res) => {
     const commands = await mt4CommandService?.getQueueMetrics?.().catch(() => null) || { total: 0, active: 0, history: 0, historyLimit: mt4CommandService?.commandHistoryLimit || null };
     const copyCommands = await copyTradingService?.getQueueMetrics?.().catch(() => null) || null;
