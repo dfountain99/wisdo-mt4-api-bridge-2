@@ -1238,4 +1238,5 @@ ${result.secret}`)}catch(error){status.className='form-status error';status.text
   window.bootWorkspace = boot;
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js').catch(() => {});
   boot();
+  const mediaBubbleScript=document.createElement('script');mediaBubbleScript.src='/js/wisdo-media-bubble.js';mediaBubbleScript.defer=true;document.head.appendChild(mediaBubbleScript);
 })();
