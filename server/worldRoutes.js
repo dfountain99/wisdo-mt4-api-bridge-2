@@ -9,6 +9,7 @@ import { compileWorldPrompt } from '../services/worldArchitectService.js';
 import { applyMutation, undoWorldMutation, redoWorldMutation } from '../services/worldMutationService.js';
 import { createWorldBlueprint, reviseBlueprint, branchBlueprint, simulateBlueprint, approveBlueprint, blueprintManifest } from '../services/worldBlueprintService.js';
 import { compileApprovedBlueprint } from '../services/worldCompilerService.js';
+import { compileHolographicPreview } from '../services/holographicBlueprintService.js';
 
 const WORLD_VERSION = '2.0.0-smart-home';
 const HOME_SCHEMA_VERSION = 1;
@@ -483,6 +484,8 @@ export function registerWisdoWorldRoutes(app, {
   });
 
   // Personal Planet / World Forge API. World DNA is renderer-neutral and can feed Babylon today or Unreal later.
+  app.post('/api/world/blueprint/preview', requireWorldUser, (req,res)=>{const prompt=clean(req.body?.prompt,1200);if(!prompt)return res.status(400).json({ok:false,error:'prompt is required.'});res.json({ok:true,preview:compileHolographicPreview(prompt,req.body?.context||{})});});
+
   app.get('/api/world/blueprint', requireWorldUser, (req, res) => {
     const uid=String(req.worldUser.id); let bp=worldBlueprintByUserId.get(uid); if(!bp){bp=createWorldBlueprint(uid);worldBlueprintByUserId.set(uid,bp)}
     res.json({ok:true,blueprint:bp,manifest:blueprintManifest(bp)});
