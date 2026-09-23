@@ -15,7 +15,10 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02040a}
 </style>
 </head>
 <body>
-<iframe id="worldFrame" title="WISDO World" src="/app/world/babylon-city/?entry=production-v1" allow="fullscreen; autoplay; gamepad" referrerpolicy="same-origin"></iframe>
+<iframe id="worldFrame" title="WISDO World" src="about:blank" allow="fullscreen; autoplay; gamepad" referrerpolicy="same-origin"></iframe>
+<script>
+(()=>{const p=new URLSearchParams(location.search);const scene=(p.get('scene')||'central').toLowerCase();const entry=scene==='genesis'?'genesis':scene==='personal'?'personal':'production-v1';document.getElementById('worldFrame').src='/app/world/babylon-city/?entry='+encodeURIComponent(entry)})();
+</script>
 <a id="legacy" href="/app/world/legacy.html">LEGACY WORLD</a>
 </body>
 </html>
