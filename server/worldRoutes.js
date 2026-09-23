@@ -412,7 +412,15 @@ export function registerWisdoWorldRoutes(app, {
   const worldRoot = path.join(publicRoot, 'app', 'world');
   const indexFile = path.join(worldRoot, 'index.html');
 
-  app.get('/world', (_req, res) => res.redirect(302, '/world/'));
+  // Canonical live WISDO World routes. Keep /app/world as the permanent browser entry.
+  app.get('/app/world', (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('X-Wisdo-Workspace', 'world');
+    res.sendFile(indexFile);
+  });
+  app.use('/app/world', express.static(worldRoot, { index: 'index.html', redirect: false, fallthrough: true, maxAge: '5m' }));
+
+  app.get('/world', (_req, res) => res.redirect(302, '/app/world'));
   app.get('/wisdo-world.html', (_req, res) => res.redirect(302, '/world/'));
   app.get('/world/', (_req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -422,6 +430,16 @@ export function registerWisdoWorldRoutes(app, {
   app.use('/world/assets', express.static(worldRoot, { index: false, redirect: false, fallthrough: true, maxAge: '1h' }));
 
   app.get('/api/world/catalog', (_req, res) => res.json(worldCatalog()));
+  app.get('/api/world/build-info', (_req, res) => res.json({
+    ok: true,
+    service: 'wisdo-world',
+    version: WORLD_VERSION,
+    release: 'world-forge-live-route-v1',
+    gitSha: process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || process.env.COMMIT_SHA || null,
+    canonicalUrl: '/app/world',
+    genesisUrl: '/app/world?scene=genesis',
+    centralUrl: '/app/world?scene=central',
+  }));
 
   const sendMemberState = async (req, res, next) => {
     try {
@@ -644,7 +662,7 @@ export function registerWisdoWorldRoutes(app, {
   });
 
   return {
-    route: '/world/',
+    route: '/app/world',
     api: '/api/world',
     defaultSpawn: 'home',
     architecture: 'persistent-smart-home-civilization',

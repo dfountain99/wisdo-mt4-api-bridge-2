@@ -10,6 +10,7 @@ import { registerMajorUpgradeRoutes } from './majorUpgradeRoutes.js';
 import { registerExtendedProductRoutes } from './extendedProductRoutes.js';
 import { registerPresenceIdentityRoutes } from './presenceIdentityRoutes.js';
 import { registerLivingOperatingSystemRoutes } from './livingOperatingSystemRoutes.js';
+import { registerWisdoWorldRoutes } from './worldRoutes.js';
 import { registerWisdoKernelRoutes } from './kernelRouteRegistry.js';
 import { encodeSignedSession, decodeSignedSession } from './security.js';
 import {
@@ -4977,6 +4978,15 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     auditAdminAction(state, userId, command.requiresConfirmation || command.confirmationRequired ? 'dangerous_mt4_command_requested' : 'mt4_command_created', 'MT4Command', command.id, { command: mapped.command, accountId });
     await saveEcosystemState(state);
     res.json({ ok: true, command, mapped });
+  });
+
+  // Register WISDO World before the broad portal aliases so /app/world and
+  // /api/world/* resolve to the renderer-neutral World Forge runtime.
+  registerWisdoWorldRoutes(app, {
+    config,
+    logger,
+    mt4SyncService,
+    publicRoot: path.join(__dirname, '..', 'public'),
   });
 
   registerDeadshotCommandCenterRoutes(app, {
