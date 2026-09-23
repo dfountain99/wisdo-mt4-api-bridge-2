@@ -13,12 +13,13 @@ html,body,#renderCanvas{width:100%;height:100%;margin:0;overflow:hidden;backgrou
 #loading{position:fixed;inset:0;background:#02040a;display:grid;place-items:center;z-index:5;color:#f1d36b;letter-spacing:.2em;font-weight:800}
 @media(max-width:700px){.stats{display:none}.bottom{width:92%;justify-content:center;flex-wrap:wrap}.district{bottom:88px}.top{left:10px;right:10px;top:10px}}
 .forge{position:absolute;left:50%;bottom:34px;transform:translateX(-50%) translateY(24px);width:min(760px,92vw);opacity:0;transition:.7s;pointer-events:auto}.forge.show{opacity:1;transform:translateX(-50%) translateY(0)}.architect{font-size:16px;line-height:1.45;margin-bottom:10px}.forgeRow{display:flex;gap:8px}.forge input{flex:1;background:#030711e8;color:white;border:1px solid #d4af3766;border-radius:14px;padding:15px 17px;font-size:16px;outline:none}.forge button,.mini{background:#d4af37;color:#080808;border:0;border-radius:12px;padding:0 18px;font-weight:900;cursor:pointer}.genesisTools{position:absolute;right:18px;bottom:18px;display:flex;gap:7px;pointer-events:auto}.mini{padding:9px 12px;background:#080d18dd;color:#f1d36b;border:1px solid #d4af3744}.selection{position:absolute;right:18px;top:92px;font-size:10px;letter-spacing:.12em;opacity:.7}
+.ideaCloud{position:absolute;left:50%;top:105px;transform:translateX(-50%);display:flex;gap:7px;flex-wrap:wrap;justify-content:center;max-width:80vw}.ideaCloud span{font-size:10px;letter-spacing:.12em;padding:7px 10px;border:1px solid #42a5ff66;background:#061426cc;border-radius:999px;color:#9ed2ff;box-shadow:0 0 18px #168cff33}.genesisState{position:absolute;left:18px;top:92px;font-size:10px;letter-spacing:.12em;color:#7fc8ff}
 </style>
 </head>
 <body>
 <div id="loading">ENTERING WISDO</div><canvas id="renderCanvas"></canvas>
 <div class="hud">
- <div id="selection" class="selection">GENESIS • NO OBJECT SELECTED</div>
+ <div class="genesisState">BLUE HOLOGRAM = PROPOSED • GOLD = APPROVED • PHYSICAL = FORGED</div><div id="ideaCloud" class="ideaCloud"></div><div id="selection" class="selection">GENESIS • NO OBJECT SELECTED</div>
  <div class="top"><div class="panel"><div class="brand">WISDO</div><div class="sub">CONNECT • COPY • CONTROL</div></div>
  <div class="panel stats"><span>ACCOUNT<b id="account">LINKING</b></span><span>EQUITY<b id="equity">—</b></span><span>WORLD<b id="worldState">LIVE</b></span></div></div>
  <div class="panel district"><div class="brand" id="district">THE COMMONS</div><div class="sub" id="districtSub">LIVE WISDO ECOSYSTEM</div></div>
@@ -33,6 +34,6 @@ html,body,#renderCanvas{width:100%;height:100%;margin:0;overflow:hidden;backgrou
 <script src="/app/world/babylon-city/character-runtime.js?v=2026.09.17.2"></script>
 <script src="/app/world/babylon-city/visual-acceptance.js?v=2026.09.17.2"></script>
 <script>
-(async()=>{const entry=(new URLSearchParams(location.search).get('entry')||'').toLowerCase();const forceGenesis=entry==='genesis';try{const r=await fetch('/api/world/dna',{credentials:'include'});if(r.ok){const j=await r.json();if(forceGenesis||(j.dna&&!j.dna.architect?.onboardingComplete)){const s=document.createElement('script');s.src='/app/world/babylon-city/genesis.js?v=2026.09.22.3';document.body.appendChild(s);return}}}catch{}if(forceGenesis){document.getElementById('loading').textContent='WORLD DNA UNAVAILABLE';return}const s=document.createElement('script');s.src='/app/world/babylon-city/world.js?v=2026.09.17.2';document.body.appendChild(s)})();
+(async()=>{const entry=(new URLSearchParams(location.search).get('entry')||'').toLowerCase();const forceGenesis=entry==='genesis';try{const r=await fetch('/api/world/dna',{credentials:'include'});if(r.ok){const j=await r.json();if(forceGenesis||(j.dna&&!j.dna.architect?.onboardingComplete)){const s=document.createElement('script');s.src='/app/world/babylon-city/genesis.js?v=2026.09.22.4';document.body.appendChild(s);return}}}catch{}if(forceGenesis){document.getElementById('loading').textContent='WORLD DNA UNAVAILABLE';return}const s=document.createElement('script');s.src='/app/world/babylon-city/world.js?v=2026.09.17.2';document.body.appendChild(s)})();
 </script>
 </body></html>
