@@ -17,7 +17,7 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02040a}
 <body>
 <iframe id="worldFrame" title="WISDO World" src="about:blank" allow="fullscreen; autoplay; gamepad" referrerpolicy="same-origin"></iframe>
 <script>
-(()=>{const p=new URLSearchParams(location.search);const scene=(p.get('scene')||'central').toLowerCase();if(scene==='genesis'){document.getElementById('worldFrame').src='/app/world/babylon-city/genesis-v3.html';return}const entry=scene==='personal'?'personal':'production-v1';document.getElementById('worldFrame').src='/app/world/babylon-city/?entry='+encodeURIComponent(entry)})();
+(()=>{const p=new URLSearchParams(location.search);const scene=(p.get('scene')||'central').toLowerCase();if(scene==='genesis'){document.getElementById('worldFrame').src='/app/world/babylon-city/genesis-v4.html';return}if(scene==='personal'){document.getElementById('worldFrame').src='/app/world/babylon-city/personal-world-v1.html';return}document.getElementById('worldFrame').src='/app/world/babylon-city/?entry=production-v1'})();
 </script>
 <a id="legacy" href="/app/world/legacy.html">LEGACY WORLD</a>
 </body>

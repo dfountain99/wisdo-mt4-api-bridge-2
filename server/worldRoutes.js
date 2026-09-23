@@ -109,6 +109,8 @@ function ensureWorldState(state = {}) {
   next.worldEntitlementsByUserId ||= {};
   next.worldAuditLogsById ||= {};
   next.worldDNAByUserId ||= {};
+  next.worldDraftsByUserId ||= {};
+  next.personalWorldsByUserId ||= {};
   return next;
 }
 
@@ -437,11 +439,11 @@ export function registerWisdoWorldRoutes(app, {
     ok: true,
     service: 'wisdo-world',
     version: WORLD_VERSION,
-    release: 'genesis-holographic-chamber-v3',
+    release: 'genesis-v4-world-foundry',
     gitSha: process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || process.env.COMMIT_SHA || null,
     canonicalUrl: '/app/world',
     genesisUrl: '/app/world?scene=genesis',
-    genesisRuntime: '/app/world/babylon-city/genesis-v3.html',
+    genesisRuntime: '/app/world/babylon-city/genesis-v4.html',
     centralUrl: '/app/world?scene=central',
   }));
 
@@ -483,6 +485,13 @@ export function registerWisdoWorldRoutes(app, {
       next(error);
     }
   });
+
+  // Genesis V4 World Foundry: durable draft -> approval -> forge. Creation never routes to Commons.
+  app.get('/api/world/foundry', requireWorldUser, async (req,res,next)=>{try{let draft,world;await repository.updateState(raw=>{const state=ensureWorldState(raw);const uid=String(req.worldUser.id);draft=state.worldDraftsByUserId[uid]||null;world=state.personalWorldsByUserId[uid]||null;return state});res.json({ok:true,draft,world});}catch(e){next(e)}});
+  app.post('/api/world/foundry/draft', requireWorldUser, async (req,res,next)=>{try{const prompt=clean(req.body?.prompt,1200);if(!prompt)return res.status(400).json({ok:false,error:'prompt is required.'});let draft;await repository.updateState(raw=>{const state=ensureWorldState(raw),uid=String(req.worldUser.id),preview=compileHolographicPreview(prompt,req.body?.context||{}),prior=state.worldDraftsByUserId[uid];draft={draftId:prior?.draftId||`draft:${uid}`,ownerId:uid,name:clean(req.body?.name||prior?.name||prompt.split(/[,.]/)[0],72)||'My World',description:prompt,stage:'visualize',approved:false,revision:Number(prior?.revision||0)+1,preview,permissions:{visibility:req.body?.visibility||prior?.permissions?.visibility||'private',invitedUsers:prior?.permissions?.invitedUsers||[]},updatedAt:nowIso(),createdAt:prior?.createdAt||nowIso()};state.worldDraftsByUserId[uid]=draft;addWorldAudit(state,uid,'world.foundry.draft',{draftId:draft.draftId,revision:draft.revision});return state});res.json({ok:true,draft});}catch(e){next(e)}});
+  app.post('/api/world/foundry/approve', requireWorldUser, async (req,res,next)=>{try{let draft;await repository.updateState(raw=>{const state=ensureWorldState(raw),uid=String(req.worldUser.id);draft=state.worldDraftsByUserId[uid];if(!draft)throw new Error('world_draft_required');draft={...draft,stage:'approved',approved:true,approvedAt:nowIso(),updatedAt:nowIso()};state.worldDraftsByUserId[uid]=draft;return state});res.json({ok:true,draft,summary:{worldName:draft.name,estimatedZones:4,startingResources:['wood','stone','energy'],firstBuilding:'Personal Home',visibility:draft.permissions.visibility,invitedUsers:draft.permissions.invitedUsers,forgeStatus:'ready'}});}catch(e){res.status(400).json({ok:false,error:e.message})}});
+  app.post('/api/world/foundry/forge', requireWorldUser, async (req,res,next)=>{try{let world;await repository.updateState(raw=>{const state=ensureWorldState(raw),uid=String(req.worldUser.id),d=state.worldDraftsByUserId[uid];if(!d?.approved)throw new Error('approved_blueprint_required');const old=state.personalWorldsByUserId[uid];world={worldId:old?.worldId||`world:${uid}`,ownerId:uid,name:d.name,description:d.description,theme:d.preview?.theme||'custom',terrain:{type:'spawn-island'},buildings:[{id:'home',type:'personal-home'},{id:'tower',type:'tower'},{id:'craft',type:'crafting-station'},{id:'telescope',type:'telescope'},{id:'portal',type:'portal-gate'}],zones:[{id:'spawn',type:'spawn-island',walkable:true}],objects:[],portals:[{id:'portal',status:'inactive',destination:null}],permissions:d.permissions,progression:{level:1,resources:{wood:25,stone:25,energy:10}},buildStatus:'forged',spawn:{x:0,y:1,z:6},updatedAt:nowIso(),createdAt:old?.createdAt||nowIso()};state.personalWorldsByUserId[uid]=world;state.worldDraftsByUserId[uid]={...d,stage:'forged',forgedWorldId:world.worldId,updatedAt:nowIso()};addWorldAudit(state,uid,'world.foundry.forged',{worldId:world.worldId});return state});res.json({ok:true,status:'WORLD FORGED',world,enterUrl:'/app/world?scene=personal'});}catch(e){res.status(400).json({ok:false,error:e.message})}});
+  app.get('/api/world/personal', requireWorldUser, async (req,res,next)=>{try{let world;await repository.updateState(raw=>{const state=ensureWorldState(raw);world=state.personalWorldsByUserId[String(req.worldUser.id)]||null;return state});if(!world)return res.status(404).json({ok:false,error:'personal_world_not_forged',genesisUrl:'/app/world?scene=genesis'});res.json({ok:true,world});}catch(e){next(e)}});
 
   // Personal Planet / World Forge API. World DNA is renderer-neutral and can feed Babylon today or Unreal later.
   app.post('/api/world/blueprint/preview', requireWorldUser, (req,res)=>{const prompt=clean(req.body?.prompt,1200);if(!prompt)return res.status(400).json({ok:false,error:'prompt is required.'});res.json({ok:true,preview:compileHolographicPreview(prompt,req.body?.context||{})});});
