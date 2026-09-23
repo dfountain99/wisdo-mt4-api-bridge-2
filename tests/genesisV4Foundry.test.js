@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
+test('Genesis V4 routes keep creation separate from Commons',()=>{const x=fs.readFileSync('public/app/world/index.html','utf8');assert.match(x,/genesis-v4\.html/);assert.match(x,/personal-world-v1\.html/);});
+test('Genesis V4 has WebGL fallback and foundry lifecycle',()=>{const x=fs.readFileSync('public/app/world/babylon-city/genesis-v4.js','utf8');assert.match(x,/Engine\.isSupported/);assert.match(x,/foundry\/draft/);assert.match(x,/foundry\/approve/);assert.match(x,/foundry\/forge/);});
