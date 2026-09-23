@@ -437,10 +437,11 @@ export function registerWisdoWorldRoutes(app, {
     ok: true,
     service: 'wisdo-world',
     version: WORLD_VERSION,
-    release: 'world-forge-live-route-v1',
+    release: 'genesis-holographic-chamber-v3',
     gitSha: process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || process.env.COMMIT_SHA || null,
     canonicalUrl: '/app/world',
     genesisUrl: '/app/world?scene=genesis',
+    genesisRuntime: '/app/world/babylon-city/genesis-v3.html',
     centralUrl: '/app/world?scene=central',
   }));
 
