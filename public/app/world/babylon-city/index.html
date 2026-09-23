@@ -17,6 +17,7 @@ html,body,#renderCanvas{width:100%;height:100%;margin:0;overflow:hidden;backgrou
 </style>
 </head>
 <body>
+<script>if((new URLSearchParams(location.search).get('entry')||'').toLowerCase()==='genesis'){location.replace('/app/world/babylon-city/genesis-v3.html');}</script>
 <div id="loading">ENTERING WISDO</div><canvas id="renderCanvas"></canvas>
 <div class="hud">
  <div class="genesisState">BLUE HOLOGRAM = PROPOSED • GOLD = APPROVED • PHYSICAL = FORGED</div><div id="ideaCloud" class="ideaCloud"></div><div id="selection" class="selection">GENESIS • NO OBJECT SELECTED</div>
