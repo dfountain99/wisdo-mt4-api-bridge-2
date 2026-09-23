@@ -7,6 +7,8 @@ import { WorldDataAdapterService } from '../services/worldDataAdapterService.js'
 import { createDefaultWorldDNA, applyWorldDNAUpdate, worldRuntimeManifest } from '../services/worldDNAService.js';
 import { compileWorldPrompt } from '../services/worldArchitectService.js';
 import { applyMutation, undoWorldMutation, redoWorldMutation } from '../services/worldMutationService.js';
+import { createWorldBlueprint, reviseBlueprint, branchBlueprint, simulateBlueprint, approveBlueprint, blueprintManifest } from '../services/worldBlueprintService.js';
+import { compileApprovedBlueprint } from '../services/worldCompilerService.js';
 
 const WORLD_VERSION = '2.0.0-smart-home';
 const HOME_SCHEMA_VERSION = 1;
@@ -481,6 +483,18 @@ export function registerWisdoWorldRoutes(app, {
   });
 
   // Personal Planet / World Forge API. World DNA is renderer-neutral and can feed Babylon today or Unreal later.
+  app.get('/api/world/blueprint', requireWorldUser, (req, res) => {
+    const uid=String(req.worldUser.id); let bp=worldBlueprintByUserId.get(uid); if(!bp){bp=createWorldBlueprint(uid);worldBlueprintByUserId.set(uid,bp)}
+    res.json({ok:true,blueprint:bp,manifest:blueprintManifest(bp)});
+  });
+  app.post('/api/world/blueprint', requireWorldUser, (req, res) => {
+    const uid=String(req.worldUser.id); const current=worldBlueprintByUserId.get(uid)||createWorldBlueprint(uid); const bp=reviseBlueprint(current,req.body||{},uid); worldBlueprintByUserId.set(uid,bp); res.json({ok:true,blueprint:bp,manifest:blueprintManifest(bp)});
+  });
+  app.post('/api/world/blueprint/branch', requireWorldUser, (req,res)=>{const uid=String(req.worldUser.id);const current=worldBlueprintByUserId.get(uid)||createWorldBlueprint(uid);const bp=branchBlueprint(current,req.body?.label);worldBlueprintByUserId.set(uid,bp);res.json({ok:true,blueprint:bp});});
+  app.post('/api/world/blueprint/simulate', requireWorldUser, (req,res)=>{const uid=String(req.worldUser.id);const current=worldBlueprintByUserId.get(uid)||createWorldBlueprint(uid);const result=simulateBlueprint(current,req.body||{});worldBlueprintByUserId.set(uid,result.blueprint);res.json({ok:true,...result});});
+  app.post('/api/world/blueprint/approve', requireWorldUser, (req,res)=>{try{const uid=String(req.worldUser.id);const current=worldBlueprintByUserId.get(uid)||createWorldBlueprint(uid);const bp=approveBlueprint(current);worldBlueprintByUserId.set(uid,bp);res.json({ok:true,blueprint:bp,forgePlan:compileApprovedBlueprint(bp)});}catch(error){res.status(400).json({ok:false,error:error.message});}});
+  app.post('/api/world/blueprint/forge', requireWorldUser, (req,res)=>{try{const uid=String(req.worldUser.id);const bp=worldBlueprintByUserId.get(uid);const forgePlan=compileApprovedBlueprint(bp);res.json({ok:true,status:'ready-to-forge',forgePlan});}catch(error){res.status(400).json({ok:false,error:error.message});}});
+
   app.get('/api/world/dna', requireWorldUser, async (req, res, next) => {
     try {
       let dna;
