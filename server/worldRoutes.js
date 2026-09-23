@@ -6,6 +6,7 @@ import { createWisdoPhase1Repository, ensureWisdoPhase1State } from '../services
 import { WorldDataAdapterService } from '../services/worldDataAdapterService.js';
 import { createDefaultWorldDNA, applyWorldDNAUpdate, worldRuntimeManifest } from '../services/worldDNAService.js';
 import { compileWorldPrompt } from '../services/worldArchitectService.js';
+import { applyMutation, undoWorldMutation, redoWorldMutation } from '../services/worldMutationService.js';
 
 const WORLD_VERSION = '2.0.0-smart-home';
 const HOME_SCHEMA_VERSION = 1;
@@ -507,6 +508,39 @@ export function registerWisdoWorldRoutes(app, {
         return state;
       });
       res.json({ ok: true, plan, dna, runtime: worldRuntimeManifest(dna) });
+    } catch (error) { next(error); }
+  });
+
+  app.post('/api/world/mutate', requireWorldUser, async (req, res, next) => {
+    try {
+      let result;
+      await repository.updateState((raw) => {
+        const state = ensureWorldState(raw);
+        result = applyMutation(worldDNAFor(state, req.worldUser), req.body || {}, { userId: req.worldUser.id });
+        state.worldDNAByUserId[String(req.worldUser.id)] = result.dna;
+        addWorldAudit(state, req.worldUser.id, 'world.mutation.applied', { type: result.mutation.type, objectId: result.mutation.objectId, revisionId: result.revision.revisionId });
+        return state;
+      });
+      res.json({ ok: true, ...result, runtime: worldRuntimeManifest(result.dna) });
+    } catch (error) {
+      if (['unsupported_world_mutation','world_object_not_found'].includes(error.message)) return res.status(400).json({ ok: false, error: error.message });
+      next(error);
+    }
+  });
+
+  app.post('/api/world/history/:action', requireWorldUser, async (req, res, next) => {
+    try {
+      const action = clean(req.params.action, 16).toLowerCase();
+      if (!['undo','redo'].includes(action)) return res.status(400).json({ ok: false, error: 'invalid_history_action' });
+      let result;
+      await repository.updateState((raw) => {
+        const state = ensureWorldState(raw);
+        result = action === 'undo' ? undoWorldMutation(worldDNAFor(state, req.worldUser)) : redoWorldMutation(worldDNAFor(state, req.worldUser));
+        state.worldDNAByUserId[String(req.worldUser.id)] = result.dna;
+        addWorldAudit(state, req.worldUser.id, `world.history.${action}`, { changed: result.changed });
+        return state;
+      });
+      res.json({ ok: true, ...result, runtime: worldRuntimeManifest(result.dna) });
     } catch (error) { next(error); }
   });
 
