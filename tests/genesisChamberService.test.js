@@ -1,0 +1,4 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {validateGenesisBlueprintOp,createIdeaNode,genesisDiagnostics} from '../services/genesisChamberService.js';
+test('Genesis accepts spatial blueprint operations but rejects arbitrary execution',()=>{assert.equal(validateGenesisBlueprintOp({type:'SET_LENS',payload:{lens:'space'},context:{scale:'planet'}}).type,'SET_LENS');assert.throws(()=>validateGenesisBlueprintOp({type:'EXECUTE_JAVASCRIPT'}));});
+test('Idea Cloud nodes preserve creator intent',()=>{const n=createIdeaNode('A hidden city reclaimed by nature','vision');assert.match(n.ideaId,/^idea_/);assert.equal(n.category,'vision');});
+test('diagnostics expose missing telescope dependency',()=>{const d=genesisDiagnostics({mode:'creative',sections:{travel:{data:{requiresTelescope:true}},technology:{data:{}}}});assert.equal(d.issues[0].code,'TRAVEL_TELESCOPE_DEPENDENCY');});
