@@ -1,0 +1,34 @@
+(() => {
+'use strict';
+const B=BABYLON, canvas=document.getElementById('renderCanvas');
+async function api(url,options={}){const r=await fetch(url,{credentials:'include',headers:{'Content-Type':'application/json',...(options.headers||{})},...options});if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||`HTTP ${r.status}`);return r.json()}
+function buildGenesis(dna){
+ const engine=new B.Engine(canvas,true,{adaptToDeviceRatio:true});const scene=new B.Scene(engine);scene.clearColor=new B.Color4(.002,.004,.012,1);scene.fogMode=B.Scene.FOGMODE_EXP2;scene.fogDensity=.012;scene.fogColor=new B.Color3(.006,.009,.025);
+ const hemi=new B.HemisphericLight('genesisLight',new B.Vector3(0,1,0),scene);hemi.intensity=.65;
+ const platform=B.MeshBuilder.CreateCylinder('GENESIS_ORIGIN',{diameter:18,height:.8,tessellation:48},scene);platform.position.y=0;const pm=new B.PBRMaterial('originMaterial',scene);pm.albedoColor=B.Color3.FromHexString('#07101f');pm.metallic=.72;pm.roughness=.2;pm.emissiveColor=B.Color3.FromHexString('#142747');platform.material=pm;
+ const ring=B.MeshBuilder.CreateTorus('GENESIS_RING',{diameter:14,thickness:.12,tessellation:64},scene);ring.position.y=.48;ring.rotation.x=Math.PI/2;const rm=new B.StandardMaterial('ringMat',scene);rm.emissiveColor=B.Color3.FromHexString('#d4af37');ring.material=rm;
+ const blob=B.MeshBuilder.CreateSphere('WISDO_BLOB',{diameter:2.1,segments:32},scene);blob.position.set(3.6,2.5,0);const bm=new B.PBRMaterial('blobMat',scene);bm.albedoColor=B.Color3.FromHexString('#091a33');bm.metallic=.35;bm.roughness=.08;bm.emissiveColor=B.Color3.FromHexString('#2c8cff');bm.emissiveIntensity=1.5;blob.material=bm;
+ const camera=new B.ArcRotateCamera('genesisCamera',-Math.PI/2,1.08,17,new B.Vector3(0,1.4,0),scene);camera.attachControl(canvas,true);camera.lowerRadiusLimit=8;camera.upperRadiusLimit=28;
+ const stars=new B.ParticleSystem('worldSeeds',innerWidth<760?500:1200,scene);stars.particleTexture=new B.Texture('https://assets.babylonjs.com/textures/flare.png',scene);stars.emitter=new B.Vector3(0,4,0);stars.minEmitBox=new B.Vector3(-35,-18,-35);stars.maxEmitBox=new B.Vector3(35,25,35);stars.color1=new B.Color4(.15,.45,1,.55);stars.color2=new B.Color4(1,.75,.2,.4);stars.minSize=.03;stars.maxSize=.14;stars.emitRate=90;stars.minLifeTime=5;stars.maxLifeTime=14;stars.start();
+ const created=new Map();
+ function materialFor(name){const m=new B.PBRMaterial('forge_'+name+'_'+Math.random(),scene);m.albedoColor=name?.includes('gold')?B.Color3.FromHexString('#d4af37'):B.Color3.FromHexString('#26384e');m.metallic=.3;m.roughness=.55;return m}
+ function renderObject(o,animate=true){if(created.has(o.objectId)){created.get(o.objectId).dispose();created.delete(o.objectId)}let mesh;if(/tower|castle|house|building/i.test(o.type||o.name))mesh=B.MeshBuilder.CreateBox(o.objectId,{size:2},scene);else if(/tree|forest/i.test(o.type||o.name))mesh=B.MeshBuilder.CreateCylinder(o.objectId,{diameter:1.5,height:4,tessellation:12},scene);else mesh=B.MeshBuilder.CreatePolyhedron(o.objectId,{type:2,size:1.5},scene);mesh.position.set(o.position?.x||0,o.position?.y||1,o.position?.z||0);mesh.rotation.set(o.rotation?.x||0,o.rotation?.y||0,o.rotation?.z||0);const sc=o.scale||{x:1,y:1,z:1};mesh.scaling.set(sc.x||1,sc.y||1,sc.z||1);mesh.material=materialFor(o.material);mesh.metadata={worldObjectId:o.objectId};created.set(o.objectId,mesh);if(animate){const target=mesh.scaling.clone();mesh.scaling.set(.02,.02,.02);B.Animation.CreateAndStartAnimation('forgeRise',mesh,'scaling',60,42,mesh.scaling.clone(),target,B.Animation.ANIMATIONLOOPMODE_CONSTANT,new B.CubicEase())}return mesh}
+ (dna.objects||[]).forEach(o=>renderObject(o,false));
+ scene.onBeforeRenderObservable.add(()=>{const t=performance.now()/1000;blob.position.y=2.5+Math.sin(t*1.8)*.22;blob.scaling.y=1+Math.sin(t*2.2)*.08;ring.rotation.z+=.0015});
+ scene.onPointerObservable.add(pi=>{if(pi.type!==B.PointerEventTypes.POINTERPICK)return;const id=pi.pickInfo?.pickedMesh?.metadata?.worldObjectId;if(id){globalThis.WISDOGenesisSelection={objectId:id,point:pi.pickInfo.pickedPoint};document.getElementById('selection').textContent='SELECTED • '+id.slice(0,18)}});
+ engine.runRenderLoop(()=>scene.render());addEventListener('resize',()=>engine.resize());
+ return {engine,scene,renderObject};
+}
+async function start(){
+ let payload;try{payload=await api('/api/world/dna')}catch(e){document.getElementById('loading').textContent='SIGN IN TO ENTER YOUR WORLD';return}
+ const dna=payload.dna;document.getElementById('worldName').textContent=dna.name;document.getElementById('revision').textContent='REV '+dna.generation.revision;
+ if(dna.architect?.onboardingComplete){location.replace('/app/world/babylon-city/?entry=production-v1&personal=1');return}
+ const runtime=buildGenesis(dna);document.getElementById('loading').style.display='none';document.getElementById('forge').classList.add('show');document.getElementById('architectText').textContent=dna.architect?.openingQuestion||'What world do you want to create?';
+ async function submit(){const input=document.getElementById('forgeInput'),prompt=input.value.trim();if(!prompt)return;input.disabled=true;document.getElementById('architectText').textContent='I can see it. Building your World DNA…';try{const result=await api('/api/world/architect',{method:'POST',body:JSON.stringify({prompt})});document.getElementById('revision').textContent='REV '+result.dna.generation.revision;document.getElementById('architectText').textContent=result.plan.understood.length?`Foundation understood: ${result.plan.understood.join(' • ')}. Your world is ready for construction.`:'I saved your vision. We can shape it together.';setTimeout(()=>location.assign('/app/world/babylon-city/?entry=production-v1&personal=1'),1400)}catch(e){document.getElementById('architectText').textContent='I could not save that world yet: '+e.message}finally{input.disabled=false}}
+ document.getElementById('forgeSend').onclick=submit;document.getElementById('forgeInput').addEventListener('keydown',e=>{if(e.key==='Enter')submit()});
+ document.getElementById('undo').onclick=async()=>{const r=await api('/api/world/history/undo',{method:'POST',body:'{}'});document.getElementById('revision').textContent='REV '+r.dna.generation.revision};
+ document.getElementById('redo').onclick=async()=>{const r=await api('/api/world/history/redo',{method:'POST',body:'{}'});document.getElementById('revision').textContent='REV '+r.dna.generation.revision};
+ globalThis.WISDOGenesis={runtime,mutate:async mutation=>{const r=await api('/api/world/mutate',{method:'POST',body:JSON.stringify(mutation)});if(r.mutation.objectId){const o=r.dna.objects.find(x=>x.objectId===r.mutation.objectId);if(o)runtime.renderObject(o,true)}return r}};
+}
+start();
+})();
