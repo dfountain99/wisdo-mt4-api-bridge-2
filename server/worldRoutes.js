@@ -4,6 +4,8 @@ import express from 'express';
 import { getSessionUser } from './security.js';
 import { createWisdoPhase1Repository, ensureWisdoPhase1State } from '../services/repositories/wisdoPhase1Repository.js';
 import { WorldDataAdapterService } from '../services/worldDataAdapterService.js';
+import { createDefaultWorldDNA, applyWorldDNAUpdate, worldRuntimeManifest } from '../services/worldDNAService.js';
+import { compileWorldPrompt } from '../services/worldArchitectService.js';
 
 const WORLD_VERSION = '2.0.0-smart-home';
 const HOME_SCHEMA_VERSION = 1;
@@ -102,6 +104,7 @@ function ensureWorldState(state = {}) {
   next.worldHomesByUserId ||= {};
   next.worldEntitlementsByUserId ||= {};
   next.worldAuditLogsById ||= {};
+  next.worldDNAByUserId ||= {};
   return next;
 }
 
@@ -181,6 +184,12 @@ function homeFor(state, user) {
   home.privacy ||= defaultHome(user).privacy;
   home.preferences ||= defaultHome(user).preferences;
   return home;
+}
+
+function worldDNAFor(state, user) {
+  const key = String(user.id);
+  if (!state.worldDNAByUserId[key]) state.worldDNAByUserId[key] = createDefaultWorldDNA(user);
+  return state.worldDNAByUserId[key];
 }
 
 function grantsFor(state, userId) {
@@ -450,6 +459,55 @@ export function registerWisdoWorldRoutes(app, {
     } catch (error) {
       next(error);
     }
+  });
+
+  // Personal Planet / World Forge API. World DNA is renderer-neutral and can feed Babylon today or Unreal later.
+  app.get('/api/world/dna', requireWorldUser, async (req, res, next) => {
+    try {
+      let dna;
+      await repository.updateState((raw) => {
+        const state = ensureWorldState(raw);
+        dna = worldDNAFor(state, req.worldUser);
+        return state;
+      });
+      res.json({ ok: true, dna, runtime: worldRuntimeManifest(dna) });
+    } catch (error) { next(error); }
+  });
+
+  app.post('/api/world/dna', requireWorldUser, async (req, res, next) => {
+    try {
+      let dna;
+      await repository.updateState((raw) => {
+        const state = ensureWorldState(raw);
+        const current = worldDNAFor(state, req.worldUser);
+        dna = applyWorldDNAUpdate(current, req.body || {});
+        state.worldDNAByUserId[String(req.worldUser.id)] = dna;
+        addWorldAudit(state, req.worldUser.id, 'world.dna.updated', { worldId: dna.worldId, revision: dna.generation.revision });
+        return state;
+      });
+      res.json({ ok: true, dna, runtime: worldRuntimeManifest(dna) });
+    } catch (error) { next(error); }
+  });
+
+  app.post('/api/world/architect', requireWorldUser, async (req, res, next) => {
+    try {
+      const prompt = clean(req.body?.prompt, 1200);
+      if (!prompt) return res.status(400).json({ ok: false, error: 'prompt is required.' });
+      let dna;
+      let plan;
+      await repository.updateState((raw) => {
+        const state = ensureWorldState(raw);
+        const current = worldDNAFor(state, req.worldUser);
+        plan = compileWorldPrompt(prompt, current);
+        dna = applyWorldDNAUpdate(current, plan.patch);
+        dna.architect.onboardingComplete = true;
+        dna.generation.status = plan.requiresAssetGeneration ? 'asset_generation_pending' : 'ready';
+        state.worldDNAByUserId[String(req.worldUser.id)] = dna;
+        addWorldAudit(state, req.worldUser.id, 'world.architect.command', { worldId: dna.worldId, revision: dna.generation.revision, understood: plan.understood });
+        return state;
+      });
+      res.json({ ok: true, plan, dna, runtime: worldRuntimeManifest(dna) });
+    } catch (error) { next(error); }
   });
 
   app.get('/api/world/mesh', requireWorldUser, async (req, res, next) => {
