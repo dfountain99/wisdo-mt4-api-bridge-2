@@ -31,6 +31,27 @@ Each active interactive stream needs hosting capacity; authentication,
 isolation, persistence and reconnect behavior must be built before inviting
 users into their own worlds.
 
-This repository currently contains the manifest handoff and a data-driven web
-preview. It does not contain an Unreal project, packaged build, GPU host, or
-Pixel Streaming deployment. The web server cannot run Unreal by itself.
+## Runtime V1 local proof
+
+`unreal/WisdoWorld/WisdoWorld.uproject` targets Unreal Engine 5.8. Open it in
+the 5.8 editor, let Unreal compile the C++ module, and press Play. The default
+map is intentionally empty. `AWisdoWorldGameMode` loads the fixture generated
+by `node scripts/exportUnrealFixture.js` and builds the world on startup.
+
+Controls: WASD to move, mouse to look, Space to jump. The visible character is
+a placeholder cylinder with a third-person camera. To try an actual forged
+world locally, save the authenticated endpoint response as a JSON file and
+launch the editor/game with `-WisdoManifest="/absolute/path/to/world.json"`.
+The loader accepts either the API envelope or its inner manifest. Keep that
+file private because it contains the owner's world design.
+
+The current geometry uses stock Unreal meshes. The terrain is a flat island,
+mountains are cone clusters, water is a non-colliding plane, and buildings are
+scaled blocks. The operation registry also creates forests, homes, city zones,
+crafting labs and portal frames. This proves manifest-driven world generation;
+it is not the final visual asset catalog or an Unreal Landscape implementation.
+Unsupported operations are logged explicitly. Pixel Streaming, multiplayer,
+remote authentication and GPU hosting are separate subsequent milestones.
+
+This environment does not have Unreal Editor installed, so C++ compilation,
+playability and the rendered result still require verification in Unreal 5.8.

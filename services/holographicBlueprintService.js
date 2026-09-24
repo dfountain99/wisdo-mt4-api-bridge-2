@@ -8,6 +8,10 @@ export function compileHolographicPreview(prompt,context={}){
  if(has(p,'mountain')){add('MOUNTAINS','geography');ops.push({type:'CREATE_MOUNTAIN_RANGE',payload:{radius:6,height:2.8}})}
  if(has(p,'forest','nature')){add('FOREST','biome');ops.push({type:'CREATE_FOREST',payload:{radius:5,density:18}})}
  if(has(p,'city','atlanta')){add('CITY','civilization');ops.push({type:'CREATE_CITY_ZONE',payload:{name:'City',radius:3.5,position:{x:-3,y:.7,z:1}}})}
+ if(has(p,'tower','skyscraper')){add('TOWER','architecture');ops.push({type:'CREATE_TOWER',payload:{name:'Central Tower',height:14,position:{x:0,y:0,z:-8}}})}
+ if(has(p,'home','house')){add('HOME','architecture');ops.push({type:'CREATE_HOME',payload:{name:'Personal Home',position:{x:-7,y:0,z:1}}})}
+ if(has(p,'crafting','craft lab','workshop')){add('CRAFTING LAB','activity');ops.push({type:'CREATE_CRAFTING_LAB',payload:{name:'Crafting Lab',position:{x:7,y:0,z:1}}})}
+ if(has(p,'portal')){add('PORTAL','travel');ops.push({type:'CREATE_PORTAL',payload:{name:'Portal Gate',position:{x:9,y:0,z:-8}}})}
  if(has(p,'hidden','secret'))add('HIDDEN','experience');
  if(has(p,'fps','shooter')){add('FPS','gameplay');ops.push({type:'PREVIEW_MODULE',payload:{module:'fps'}})}
  if(has(p,'ocean','island','water')){add('OCEAN','geography');ops.push({type:'CREATE_OCEAN',payload:{radius:9}})}
