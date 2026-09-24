@@ -17,8 +17,12 @@ public:
 private:
     using FOperationHandler = TFunction<void(const TSharedPtr<FJsonObject>&)>;
     TMap<FString, FOperationHandler> Registry;
+    FString CurrentOperationId;
+    int32 SpawnedCount = 0;
+    int32 SpawnFailures = 0;
     void RegisterOperations();
     FVector Position(const TSharedPtr<FJsonObject>& Data, FVector Default) const;
+    float Yaw(const TSharedPtr<FJsonObject>& Data) const;
     AStaticMeshActor* Shape(const TCHAR* MeshPath, FVector Location, FVector Scale, FLinearColor Color, bool Collides = true);
     void Terrain(const TSharedPtr<FJsonObject>& Data);
     void Mountains(const TSharedPtr<FJsonObject>& Data);

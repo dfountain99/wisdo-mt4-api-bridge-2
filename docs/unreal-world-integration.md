@@ -35,8 +35,9 @@ users into their own worlds.
 
 `unreal/WisdoWorld/WisdoWorld.uproject` targets Unreal Engine 5.8. Open it in
 the 5.8 editor, let Unreal compile the C++ module, and press Play. The default
-map is intentionally empty. `AWisdoWorldGameMode` loads the fixture generated
-by `node scripts/exportUnrealFixture.js` and builds the world on startup.
+map is intentionally empty. `AWisdoWorldGameMode` reads the canonical fixture
+at `public/app/world/fixtures/golden-world.json` and builds the world on
+startup. Regenerate it with `node scripts/exportUnrealFixture.js`.
 
 Controls: WASD to move, mouse to look, Space to jump. The visible character is
 a placeholder cylinder with a third-person camera. To try an actual forged
@@ -53,5 +54,34 @@ it is not the final visual asset catalog or an Unreal Landscape implementation.
 Unsupported operations are logged explicitly. Pixel Streaming, multiplayer,
 remote authentication and GPU hosting are separate subsequent milestones.
 
-This environment does not have Unreal Editor installed, so C++ compilation,
-playability and the rendered result still require verification in Unreal 5.8.
+## Unreal Runtime V1 in-engine validation
+
+1. Clone the repository on a machine with Unreal Engine 5.8 and a C++ build
+   toolchain. From the repository root, run `node scripts/exportUnrealFixture.js`
+   and `node --test tests/unrealWorldRuntime.test.js`.
+2. Open `unreal/WisdoWorld/WisdoWorld.uproject` in UE 5.8 and compile the
+   project. Record any compiler errors with the source file and line number.
+3. Press Play. In Output Log, filter `WISDO`. Require every `op:NN:TYPE` line,
+   its expected actor count, and `WISDO_VALIDATION_PASS`. The golden scene has
+   the base terrain, seven mountains, eighteen trees, ocean, castle, tower,
+   home, crafting lab, three portal-frame pieces and a portal trigger.
+4. From spawn at manifest `(x:0,y:1,z:6)`, verify the character stands on the
+   island, moves with WASD, looks with the mouse, jumps and lands, collides with
+   buildings, and walks into the portal trigger. The portal should say its
+   destination is not connected. It does not teleport yet.
+5. Open `/app/world/babylon-city/personal-world-v1.html?fixture=golden&debug=1`
+   on the WISDO site. Compare a top-down view and a view from spawn against
+   Unreal. Match the main layout and the operation IDs, not material quality.
+   Save screenshots of both and the filtered UE Output Log for review.
+
+Contract coordinates are meters with `(x,y,z)` where `y` is height. Unreal
+maps these to centimeters `(100x,100z,100y)`; Babylon uses `(x,y,z)` directly.
+An optional `payload.rotation.y` is a yaw in degrees. Terrain top is height
+zero and the spawn capsule starts one meter above it. Babylon uses the same
+island, water level, mountain and forest placement as the Unreal placeholder
+generators. The `buildings` list is metadata; renderers consume `operations`
+when present so a building is not instantiated twice.
+
+This workspace does not have Unreal Editor, so C++ compilation, playability,
+collision, portal overlap and visual parity remain unverified until step 2–5
+are run. Do not label the renderer “V1.1 Proven” on contract tests alone.
