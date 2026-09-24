@@ -27,6 +27,7 @@ private:
     void Terrain(const TSharedPtr<FJsonObject>& Data);
     void Mountains(const TSharedPtr<FJsonObject>& Data);
     void Water(const TSharedPtr<FJsonObject>& Data);
+    void Road(const TSharedPtr<FJsonObject>& Data);
     void Forest(const TSharedPtr<FJsonObject>& Data);
     void Building(const TSharedPtr<FJsonObject>& Data, FString Kind);
     void Portal(const TSharedPtr<FJsonObject>& Data);

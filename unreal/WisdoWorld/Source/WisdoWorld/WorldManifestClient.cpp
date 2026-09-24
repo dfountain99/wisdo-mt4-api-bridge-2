@@ -1,4 +1,5 @@
 #include "WorldManifestTypes.h"
+#include "WisdoWorldSpace.h"
 #include "Dom/JsonValue.h"
 #include "Misc/FileHelper.h"
 #include "Serialization/JsonReader.h"
@@ -40,7 +41,7 @@ bool FWisdoManifestClient::LoadFile(const FString& Filename, FWisdoManifest& Out
         (*Spawn)->TryGetNumberField(TEXT("x"), X);
         (*Spawn)->TryGetNumberField(TEXT("y"), Y);
         (*Spawn)->TryGetNumberField(TEXT("z"), Z);
-        Out.Spawn = FVector(X * 100, Z * 100, Y * 100);
+        Out.Spawn = FWisdoWorldSpace::ToUnreal(X, Y, Z);
     }
     const TArray<TSharedPtr<FJsonValue>>* Operations = nullptr;
     if (Root->TryGetArrayField(TEXT("operations"), Operations))
@@ -51,10 +52,32 @@ bool FWisdoManifestClient::LoadFile(const FString& Filename, FWisdoManifest& Out
             const TSharedPtr<FJsonObject> Item = Value->AsObject();
             if (!Item.IsValid()) continue;
             FWisdoOperation Operation;
+            Item->TryGetStringField(TEXT("id"), Operation.Id);
             if (!Item->TryGetStringField(TEXT("type"), Operation.Type)) continue;
             const TSharedPtr<FJsonObject>* Payload = nullptr;
             if (Item->TryGetObjectField(TEXT("payload"), Payload)) Operation.Payload = *Payload;
             Out.Operations.Add(MoveTemp(Operation));
+        }
+    }
+    const TArray<TSharedPtr<FJsonValue>>* Views = nullptr;
+    if (Root->TryGetArrayField(TEXT("validationViews"), Views))
+    {
+        if (Views->Num() > 16) { Error = TEXT("Too many validation views"); return false; }
+        for (const TSharedPtr<FJsonValue>& Value : *Views)
+        {
+            const TSharedPtr<FJsonObject> View = Value->AsObject();
+            if (!View.IsValid()) continue;
+            FWisdoValidationView Anchor;
+            if (!View->TryGetStringField(TEXT("id"), Anchor.Id)) continue;
+            const TSharedPtr<FJsonObject>* Position = nullptr;
+            const TSharedPtr<FJsonObject>* Target = nullptr;
+            if (!View->TryGetObjectField(TEXT("position"), Position) || !View->TryGetObjectField(TEXT("target"), Target)) continue;
+            double PX=0,PY=0,PZ=0,TX=0,TY=0,TZ=0;
+            if (!(*Position)->TryGetNumberField(TEXT("x"),PX) || !(*Position)->TryGetNumberField(TEXT("y"),PY) || !(*Position)->TryGetNumberField(TEXT("z"),PZ) ||
+                !(*Target)->TryGetNumberField(TEXT("x"),TX) || !(*Target)->TryGetNumberField(TEXT("y"),TY) || !(*Target)->TryGetNumberField(TEXT("z"),TZ)) continue;
+            Anchor.Position=FWisdoWorldSpace::ToUnreal(PX,PY,PZ);
+            Anchor.Target=FWisdoWorldSpace::ToUnreal(TX,TY,TZ);
+            Out.ValidationViews.Add(Anchor);
         }
     }
     return true;

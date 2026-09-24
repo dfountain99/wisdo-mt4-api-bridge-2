@@ -2,15 +2,15 @@
   "schema": "wisdo-unreal-world-v1",
   "worldId": "fixture:golden-world",
   "revision": 1,
-  "name": "Golden World",
+  "name": "Aurelia Prime",
   "theme": "future",
   "terrain": {
     "type": "spawn-island"
   },
   "spawn": {
     "x": 0,
-    "y": 1,
-    "z": 6
+    "y": 1.8,
+    "z": 600
   },
   "zones": [
     {
@@ -75,87 +75,1242 @@
   ],
   "operations": [
     {
+      "type": "CREATE_LANDMASS",
+      "payload": {
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "dimensions": {
+          "x": 2400,
+          "y": 1.5,
+          "z": 2400
+        }
+      },
+      "id": "op_001",
+      "concept": "TERRAIN",
+      "region": "center",
+      "parentId": null,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "scale": {
+        "x": 1,
+        "y": 1,
+        "z": 1
+      },
+      "dimensions": {
+        "x": 2400,
+        "y": 1.5,
+        "z": 2400
+      },
+      "renderStatus": "planned",
+      "semanticAsset": "terrain.island.biome.aurelia_prime",
+      "theme": "aurelia_prime",
+      "materials": {
+        "primary": "metal_dark",
+        "secondary": "glass_blue",
+        "accent": "emissive_gold"
+      },
+      "importance": "support",
+      "seed": 361868368
+    },
+    {
       "type": "SET_THEME",
       "payload": {
         "theme": "future"
-      }
+      },
+      "id": "op_002",
+      "semanticAsset": null,
+      "theme": "aurelia_prime",
+      "materials": null,
+      "importance": "support",
+      "seed": 412201225
     },
     {
       "type": "CREATE_CASTLE",
       "payload": {
         "name": "Citadel",
         "position": {
-          "x": 2,
-          "y": 2,
-          "z": -1
+          "x": -400,
+          "y": 0,
+          "z": 100
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "dimensions": {
+          "x": 90,
+          "y": 80,
+          "z": 90
         }
-      }
+      },
+      "id": "op_003",
+      "concept": "KINGDOM",
+      "region": "west",
+      "parentId": null,
+      "position": {
+        "x": -400,
+        "y": 0,
+        "z": 100
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "scale": {
+        "x": 1,
+        "y": 1,
+        "z": 1
+      },
+      "dimensions": {
+        "x": 90,
+        "y": 80,
+        "z": 90
+      },
+      "renderStatus": "planned",
+      "semanticAsset": "architecture.kingdom.castle.aurelia_prime",
+      "theme": "aurelia_prime",
+      "materials": {
+        "primary": "metal_dark",
+        "secondary": "glass_blue",
+        "accent": "emissive_gold"
+      },
+      "importance": "landmark",
+      "seed": 395423606
     },
     {
       "type": "CREATE_MOUNTAIN_RANGE",
       "payload": {
-        "radius": 6,
-        "height": 2.8
-      }
+        "radius": 360,
+        "height": 120,
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": -850
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "dimensions": {
+          "x": 720,
+          "y": 120,
+          "z": 250
+        }
+      },
+      "id": "op_004",
+      "concept": "MOUNTAINS",
+      "region": "north",
+      "parentId": null,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": -850
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "scale": {
+        "x": 1,
+        "y": 1,
+        "z": 1
+      },
+      "dimensions": {
+        "x": 720,
+        "y": 120,
+        "z": 250
+      },
+      "renderStatus": "planned",
+      "semanticAsset": "terrain.mountain.range.aurelia_prime",
+      "theme": "aurelia_prime",
+      "materials": {
+        "primary": "metal_dark",
+        "secondary": "glass_blue",
+        "accent": "emissive_gold"
+      },
+      "importance": "support",
+      "seed": 445756463
     },
     {
       "type": "CREATE_FOREST",
       "payload": {
-        "radius": 5,
-        "density": 18
-      }
+        "radius": 180,
+        "density": 18,
+        "position": {
+          "x": -550,
+          "y": 0,
+          "z": -450
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "dimensions": {
+          "x": 360,
+          "y": 8,
+          "z": 300
+        }
+      },
+      "id": "op_005",
+      "concept": "FOREST",
+      "region": "wilderness",
+      "parentId": null,
+      "position": {
+        "x": -550,
+        "y": 0,
+        "z": -450
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "scale": {
+        "x": 1,
+        "y": 1,
+        "z": 1
+      },
+      "dimensions": {
+        "x": 360,
+        "y": 8,
+        "z": 300
+      },
+      "renderStatus": "planned",
+      "semanticAsset": "vegetation.forest.cluster.aurelia_prime",
+      "theme": "aurelia_prime",
+      "materials": {
+        "primary": "metal_dark",
+        "secondary": "glass_blue",
+        "accent": "emissive_gold"
+      },
+      "importance": "support",
+      "seed": 428978844
+    },
+    {
+      "type": "CREATE_CITY_ZONE",
+      "payload": {
+        "name": "City",
+        "radius": 3.5,
+        "position": {
+          "x": 280,
+          "y": 0,
+          "z": 150
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "dimensions": {
+          "x": 320,
+          "y": 40,
+          "z": 300
+        }
+      },
+      "id": "op_006",
+      "concept": "CITY",
+      "region": "center",
+      "parentId": null,
+      "position": {
+        "x": 280,
+        "y": 0,
+        "z": 150
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "scale": {
+        "x": 1,
+        "y": 1,
+        "z": 1
+      },
+      "dimensions": {
+        "x": 320,
+        "y": 40,
+        "z": 300
+      },
+      "renderStatus": "planned",
+      "semanticAsset": "architecture.city.district.aurelia_prime",
+      "theme": "aurelia_prime",
+      "materials": {
+        "primary": "metal_dark",
+        "secondary": "glass_blue",
+        "accent": "emissive_gold"
+      },
+      "importance": "support",
+      "seed": 479311701
     },
     {
       "type": "CREATE_TOWER",
       "payload": {
         "name": "Central Tower",
-        "height": 14,
+        "height": 180,
         "position": {
           "x": 0,
           "y": 0,
-          "z": -8
+          "z": 0
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "dimensions": {
+          "x": 70,
+          "y": 180,
+          "z": 70
         }
-      }
+      },
+      "id": "op_007",
+      "concept": "TOWER",
+      "region": "center",
+      "parentId": null,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "scale": {
+        "x": 1,
+        "y": 1,
+        "z": 1
+      },
+      "dimensions": {
+        "x": 70,
+        "y": 180,
+        "z": 70
+      },
+      "renderStatus": "planned",
+      "semanticAsset": "architecture.tower.hero.aurelia_prime",
+      "theme": "aurelia_prime",
+      "materials": {
+        "primary": "metal_dark",
+        "secondary": "glass_blue",
+        "accent": "emissive_gold"
+      },
+      "importance": "hero",
+      "seed": 462534082
     },
     {
       "type": "CREATE_HOME",
       "payload": {
         "name": "Personal Home",
         "position": {
-          "x": -7,
+          "x": -240,
           "y": 0,
-          "z": 1
+          "z": 420
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "dimensions": {
+          "x": 45,
+          "y": 22,
+          "z": 45
         }
-      }
+      },
+      "id": "op_008",
+      "concept": "HOME",
+      "region": "south",
+      "parentId": null,
+      "position": {
+        "x": -240,
+        "y": 0,
+        "z": 420
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "scale": {
+        "x": 1,
+        "y": 1,
+        "z": 1
+      },
+      "dimensions": {
+        "x": 45,
+        "y": 22,
+        "z": 45
+      },
+      "renderStatus": "planned",
+      "semanticAsset": "architecture.home.aurelia_prime",
+      "theme": "aurelia_prime",
+      "materials": {
+        "primary": "metal_dark",
+        "secondary": "glass_blue",
+        "accent": "emissive_gold"
+      },
+      "importance": "support",
+      "seed": 512866939
     },
     {
       "type": "CREATE_CRAFTING_LAB",
       "payload": {
         "name": "Crafting Lab",
         "position": {
-          "x": 7,
+          "x": 250,
           "y": 0,
-          "z": 1
+          "z": 420
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "dimensions": {
+          "x": 55,
+          "y": 25,
+          "z": 55
         }
-      }
+      },
+      "id": "op_009",
+      "concept": "CRAFTING LAB",
+      "region": "south",
+      "parentId": null,
+      "position": {
+        "x": 250,
+        "y": 0,
+        "z": 420
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "scale": {
+        "x": 1,
+        "y": 1,
+        "z": 1
+      },
+      "dimensions": {
+        "x": 55,
+        "y": 25,
+        "z": 55
+      },
+      "renderStatus": "planned",
+      "semanticAsset": "architecture.crafting.lab.aurelia_prime",
+      "theme": "aurelia_prime",
+      "materials": {
+        "primary": "metal_dark",
+        "secondary": "glass_blue",
+        "accent": "emissive_gold"
+      },
+      "importance": "support",
+      "seed": 496089320
     },
     {
       "type": "CREATE_PORTAL",
       "payload": {
         "name": "Portal Gate",
         "position": {
-          "x": 9,
+          "x": 530,
           "y": 0,
-          "z": -8
+          "z": 200
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "dimensions": {
+          "x": 35,
+          "y": 48,
+          "z": 8
         }
-      }
+      },
+      "id": "op_010",
+      "concept": "PORTAL",
+      "region": "east",
+      "parentId": null,
+      "position": {
+        "x": 530,
+        "y": 0,
+        "z": 200
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "scale": {
+        "x": 1,
+        "y": 1,
+        "z": 1
+      },
+      "dimensions": {
+        "x": 35,
+        "y": 48,
+        "z": 8
+      },
+      "renderStatus": "planned",
+      "semanticAsset": "travel.portal.gateway.aurelia_prime",
+      "theme": "aurelia_prime",
+      "materials": {
+        "primary": "metal_dark",
+        "secondary": "glass_blue",
+        "accent": "emissive_gold"
+      },
+      "importance": "landmark",
+      "seed": 2962149050
     },
     {
       "type": "CREATE_OCEAN",
       "payload": {
-        "radius": 9
-      }
+        "radius": 9,
+        "position": {
+          "x": 0,
+          "y": -1.7,
+          "z": 0
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "dimensions": {
+          "x": 2800,
+          "y": 0.15,
+          "z": 2800
+        }
+      },
+      "id": "op_011",
+      "concept": "OCEAN",
+      "region": "coastline",
+      "parentId": null,
+      "position": {
+        "x": 0,
+        "y": -1.7,
+        "z": 0
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "scale": {
+        "x": 1,
+        "y": 1,
+        "z": 1
+      },
+      "dimensions": {
+        "x": 2800,
+        "y": 0.15,
+        "z": 2800
+      },
+      "renderStatus": "planned",
+      "semanticAsset": "water.coast.ocean.aurelia_prime",
+      "theme": "aurelia_prime",
+      "materials": {
+        "primary": "metal_dark",
+        "secondary": "glass_blue",
+        "accent": "emissive_gold"
+      },
+      "importance": "support",
+      "seed": 2978926669
+    },
+    {
+      "id": "op_012",
+      "type": "CREATE_ROAD",
+      "concept": "ROAD",
+      "region": "center",
+      "parentId": null,
+      "position": {
+        "x": 0,
+        "y": 0.04,
+        "z": 300
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "scale": {
+        "x": 1,
+        "y": 1,
+        "z": 1
+      },
+      "dimensions": {
+        "x": 10,
+        "y": 0.08,
+        "z": 600
+      },
+      "renderStatus": "planned",
+      "payload": {
+        "position": {
+          "x": 0,
+          "y": 0.04,
+          "z": 300
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "dimensions": {
+          "x": 10,
+          "y": 0.08,
+          "z": 600
+        },
+        "from": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "to": {
+          "x": 0,
+          "y": 0,
+          "z": 600
+        }
+      },
+      "semanticAsset": "transport.road.path.aurelia_prime",
+      "theme": "aurelia_prime",
+      "materials": {
+        "primary": "concrete",
+        "secondary": "dirt",
+        "accent": "emissive_gold"
+      },
+      "importance": "support",
+      "seed": 2928593812
+    },
+    {
+      "id": "op_013",
+      "type": "CREATE_ROAD",
+      "concept": "ROAD",
+      "region": "center",
+      "parentId": null,
+      "position": {
+        "x": -200,
+        "y": 0.04,
+        "z": 50
+      },
+      "rotation": {
+        "x": 0,
+        "y": -75.96375653207353,
+        "z": 0
+      },
+      "scale": {
+        "x": 1,
+        "y": 1,
+        "z": 1
+      },
+      "dimensions": {
+        "x": 10,
+        "y": 0.08,
+        "z": 412.31056256176606
+      },
+      "renderStatus": "planned",
+      "payload": {
+        "position": {
+          "x": -200,
+          "y": 0.04,
+          "z": 50
+        },
+        "rotation": {
+          "x": 0,
+          "y": -75.96375653207353,
+          "z": 0
+        },
+        "dimensions": {
+          "x": 10,
+          "y": 0.08,
+          "z": 412.31056256176606
+        },
+        "from": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "to": {
+          "x": -400,
+          "y": 0,
+          "z": 100
+        }
+      },
+      "semanticAsset": "transport.road.path.aurelia_prime",
+      "theme": "aurelia_prime",
+      "materials": {
+        "primary": "concrete",
+        "secondary": "dirt",
+        "accent": "emissive_gold"
+      },
+      "importance": "support",
+      "seed": 2945371431
+    },
+    {
+      "id": "op_014",
+      "type": "CREATE_ROAD",
+      "concept": "ROAD",
+      "region": "center",
+      "parentId": null,
+      "position": {
+        "x": 140,
+        "y": 0.04,
+        "z": 75
+      },
+      "rotation": {
+        "x": 0,
+        "y": 61.82140989004083,
+        "z": 0
+      },
+      "scale": {
+        "x": 1,
+        "y": 1,
+        "z": 1
+      },
+      "dimensions": {
+        "x": 10,
+        "y": 0.08,
+        "z": 317.6476034853718
+      },
+      "renderStatus": "planned",
+      "payload": {
+        "position": {
+          "x": 140,
+          "y": 0.04,
+          "z": 75
+        },
+        "rotation": {
+          "x": 0,
+          "y": 61.82140989004083,
+          "z": 0
+        },
+        "dimensions": {
+          "x": 10,
+          "y": 0.08,
+          "z": 317.6476034853718
+        },
+        "from": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "to": {
+          "x": 280,
+          "y": 0,
+          "z": 150
+        }
+      },
+      "semanticAsset": "transport.road.path.aurelia_prime",
+      "theme": "aurelia_prime",
+      "materials": {
+        "primary": "concrete",
+        "secondary": "dirt",
+        "accent": "emissive_gold"
+      },
+      "importance": "support",
+      "seed": 2895038574
+    },
+    {
+      "id": "op_015",
+      "type": "CREATE_ROAD",
+      "concept": "ROAD",
+      "region": "center",
+      "parentId": null,
+      "position": {
+        "x": -120,
+        "y": 0.04,
+        "z": 210
+      },
+      "rotation": {
+        "x": 0,
+        "y": -29.744881296942225,
+        "z": 0
+      },
+      "scale": {
+        "x": 1,
+        "y": 1,
+        "z": 1
+      },
+      "dimensions": {
+        "x": 10,
+        "y": 0.08,
+        "z": 483.73546489791295
+      },
+      "renderStatus": "planned",
+      "payload": {
+        "position": {
+          "x": -120,
+          "y": 0.04,
+          "z": 210
+        },
+        "rotation": {
+          "x": 0,
+          "y": -29.744881296942225,
+          "z": 0
+        },
+        "dimensions": {
+          "x": 10,
+          "y": 0.08,
+          "z": 483.73546489791295
+        },
+        "from": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "to": {
+          "x": -240,
+          "y": 0,
+          "z": 420
+        }
+      },
+      "semanticAsset": "transport.road.path.aurelia_prime",
+      "theme": "aurelia_prime",
+      "materials": {
+        "primary": "concrete",
+        "secondary": "dirt",
+        "accent": "emissive_gold"
+      },
+      "importance": "support",
+      "seed": 2911816193
+    },
+    {
+      "id": "op_016",
+      "type": "CREATE_ROAD",
+      "concept": "ROAD",
+      "region": "center",
+      "parentId": null,
+      "position": {
+        "x": 125,
+        "y": 0.04,
+        "z": 210
+      },
+      "rotation": {
+        "x": 0,
+        "y": 30.762719534238915,
+        "z": 0
+      },
+      "scale": {
+        "x": 1,
+        "y": 1,
+        "z": 1
+      },
+      "dimensions": {
+        "x": 10,
+        "y": 0.08,
+        "z": 488.77397639399743
+      },
+      "renderStatus": "planned",
+      "payload": {
+        "position": {
+          "x": 125,
+          "y": 0.04,
+          "z": 210
+        },
+        "rotation": {
+          "x": 0,
+          "y": 30.762719534238915,
+          "z": 0
+        },
+        "dimensions": {
+          "x": 10,
+          "y": 0.08,
+          "z": 488.77397639399743
+        },
+        "from": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "to": {
+          "x": 250,
+          "y": 0,
+          "z": 420
+        }
+      },
+      "semanticAsset": "transport.road.path.aurelia_prime",
+      "theme": "aurelia_prime",
+      "materials": {
+        "primary": "concrete",
+        "secondary": "dirt",
+        "accent": "emissive_gold"
+      },
+      "importance": "support",
+      "seed": 2861483336
+    },
+    {
+      "id": "op_017",
+      "type": "CREATE_ROAD",
+      "concept": "ROAD",
+      "region": "center",
+      "parentId": null,
+      "position": {
+        "x": 265,
+        "y": 0.04,
+        "z": 100
+      },
+      "rotation": {
+        "x": 0,
+        "y": 69.32557523912611,
+        "z": 0
+      },
+      "scale": {
+        "x": 1,
+        "y": 1,
+        "z": 1
+      },
+      "dimensions": {
+        "x": 10,
+        "y": 0.08,
+        "z": 566.4803615307419
+      },
+      "renderStatus": "planned",
+      "payload": {
+        "position": {
+          "x": 265,
+          "y": 0.04,
+          "z": 100
+        },
+        "rotation": {
+          "x": 0,
+          "y": 69.32557523912611,
+          "z": 0
+        },
+        "dimensions": {
+          "x": 10,
+          "y": 0.08,
+          "z": 566.4803615307419
+        },
+        "from": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "to": {
+          "x": 530,
+          "y": 0,
+          "z": 200
+        }
+      },
+      "semanticAsset": "transport.road.path.aurelia_prime",
+      "theme": "aurelia_prime",
+      "materials": {
+        "primary": "concrete",
+        "secondary": "dirt",
+        "accent": "emissive_gold"
+      },
+      "importance": "support",
+      "seed": 2878260955
     }
   ],
-  "assetCatalog": "wisdo-world-assets-v1"
+  "assetCatalog": "wisdo-semantic-assets-v1",
+  "world": {
+    "width": 2400,
+    "depth": 2400,
+    "unit": "meter",
+    "origin": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    }
+  },
+  "intent": {
+    "ideas": [
+      {
+        "label": "FUTURE",
+        "category": "era"
+      },
+      {
+        "label": "KINGDOM",
+        "category": "civilization"
+      },
+      {
+        "label": "MOUNTAINS",
+        "category": "geography"
+      },
+      {
+        "label": "FOREST",
+        "category": "biome"
+      },
+      {
+        "label": "CITY",
+        "category": "civilization"
+      },
+      {
+        "label": "TOWER",
+        "category": "architecture"
+      },
+      {
+        "label": "HOME",
+        "category": "architecture"
+      },
+      {
+        "label": "CRAFTING LAB",
+        "category": "activity"
+      },
+      {
+        "label": "PORTAL",
+        "category": "travel"
+      },
+      {
+        "label": "OCEAN",
+        "category": "geography"
+      }
+    ],
+    "prompt": "Aurelia Prime: Futuristic mountain kingdom island surrounded by water, city, huge tower in the center, forest, private home, crafting lab and portal."
+  },
+  "forgeTruth": {
+    "schema": "wisdo-forge-truth-v2",
+    "requested": [
+      "FUTURE",
+      "KINGDOM",
+      "MOUNTAINS",
+      "FOREST",
+      "CITY",
+      "TOWER",
+      "HOME",
+      "CRAFTING LAB",
+      "PORTAL",
+      "OCEAN"
+    ],
+    "generated": [
+      {
+        "id": "op_001",
+        "concept": "TERRAIN",
+        "type": "CREATE_LANDMASS",
+        "status": "planned"
+      },
+      {
+        "id": "op_002",
+        "concept": "FUTURE",
+        "type": "SET_THEME",
+        "status": "planned"
+      },
+      {
+        "id": "op_003",
+        "concept": "KINGDOM",
+        "type": "CREATE_CASTLE",
+        "status": "planned"
+      },
+      {
+        "id": "op_004",
+        "concept": "MOUNTAINS",
+        "type": "CREATE_MOUNTAIN_RANGE",
+        "status": "planned"
+      },
+      {
+        "id": "op_005",
+        "concept": "FOREST",
+        "type": "CREATE_FOREST",
+        "status": "planned"
+      },
+      {
+        "id": "op_006",
+        "concept": "CITY",
+        "type": "CREATE_CITY_ZONE",
+        "status": "planned"
+      },
+      {
+        "id": "op_007",
+        "concept": "TOWER",
+        "type": "CREATE_TOWER",
+        "status": "planned"
+      },
+      {
+        "id": "op_008",
+        "concept": "HOME",
+        "type": "CREATE_HOME",
+        "status": "planned"
+      },
+      {
+        "id": "op_009",
+        "concept": "CRAFTING LAB",
+        "type": "CREATE_CRAFTING_LAB",
+        "status": "planned"
+      },
+      {
+        "id": "op_010",
+        "concept": "PORTAL",
+        "type": "CREATE_PORTAL",
+        "status": "planned"
+      },
+      {
+        "id": "op_011",
+        "concept": "OCEAN",
+        "type": "CREATE_OCEAN",
+        "status": "planned"
+      },
+      {
+        "id": "op_012",
+        "concept": "ROAD",
+        "type": "CREATE_ROAD",
+        "status": "planned"
+      },
+      {
+        "id": "op_013",
+        "concept": "ROAD",
+        "type": "CREATE_ROAD",
+        "status": "planned"
+      },
+      {
+        "id": "op_014",
+        "concept": "ROAD",
+        "type": "CREATE_ROAD",
+        "status": "planned"
+      },
+      {
+        "id": "op_015",
+        "concept": "ROAD",
+        "type": "CREATE_ROAD",
+        "status": "planned"
+      },
+      {
+        "id": "op_016",
+        "concept": "ROAD",
+        "type": "CREATE_ROAD",
+        "status": "planned"
+      },
+      {
+        "id": "op_017",
+        "concept": "ROAD",
+        "type": "CREATE_ROAD",
+        "status": "planned"
+      }
+    ],
+    "errors": [],
+    "valid": true
+  },
+  "seed": 412614374,
+  "themeIdentity": {
+    "id": "aurelia_prime",
+    "palette": {
+      "grass": "#326d50",
+      "rock": "#65778a",
+      "sand": "#baae80",
+      "metal": "#253b56",
+      "glass": "#51b5dd",
+      "accent": "#f5c664",
+      "water": "#1475aa",
+      "sky": "#9bcbe9"
+    },
+    "materials": {
+      "primary": "metal_dark",
+      "secondary": "glass_blue",
+      "accent": "emissive_gold"
+    },
+    "atmosphere": {
+      "timeOfDay": 16,
+      "fogDensity": 0.00035,
+      "sunDirection": {
+        "x": -0.4,
+        "y": 1,
+        "z": -0.3
+      },
+      "weather": "clear",
+      "temperature": 6800
+    },
+    "key": "future"
+  },
+  "fidelityVersion": 3,
+  "validationViews": [
+    {
+      "id": "overview",
+      "position": {
+        "x": 900,
+        "y": 820,
+        "z": 1300
+      },
+      "target": {
+        "x": 0,
+        "y": 55,
+        "z": 0
+      }
+    },
+    {
+      "id": "city",
+      "position": {
+        "x": 600,
+        "y": 220,
+        "z": 650
+      },
+      "target": {
+        "x": 250,
+        "y": 30,
+        "z": 150
+      }
+    },
+    {
+      "id": "tower",
+      "position": {
+        "x": 340,
+        "y": 250,
+        "z": 440
+      },
+      "target": {
+        "x": 0,
+        "y": 95,
+        "z": 0
+      }
+    },
+    {
+      "id": "forest",
+      "position": {
+        "x": -200,
+        "y": 180,
+        "z": 0
+      },
+      "target": {
+        "x": -550,
+        "y": 20,
+        "z": -450
+      }
+    },
+    {
+      "id": "portal",
+      "position": {
+        "x": 780,
+        "y": 100,
+        "z": 470
+      },
+      "target": {
+        "x": 530,
+        "y": 25,
+        "z": 200
+      }
+    },
+    {
+      "id": "spawn",
+      "position": {
+        "x": 140,
+        "y": 85,
+        "z": 850
+      },
+      "target": {
+        "x": 0,
+        "y": 1.8,
+        "z": 600
+      }
+    }
+  ]
 }

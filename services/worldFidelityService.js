@@ -1,0 +1,27 @@
+// Semantic IDs and material tokens are renderer-neutral. No engine asset paths
+// are persisted in approved Genesis plans.
+const hash = value => {let h=2166136261;for(const c of value){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0};
+const catalog={
+ future:{id:'aurelia_prime',palette:{grass:'#326d50',rock:'#65778a',sand:'#baae80',metal:'#253b56',glass:'#51b5dd',accent:'#f5c664',water:'#1475aa',sky:'#9bcbe9'},materials:{primary:'metal_dark',secondary:'glass_blue',accent:'emissive_gold'},atmosphere:{timeOfDay:16,fogDensity:.00035,sunDirection:{x:-.4,y:1,z:-.3},weather:'clear',temperature:6800}},
+ cyberpunk:{id:'cyberpunk',palette:{grass:'#293b47',rock:'#44516a',sand:'#5f596d',metal:'#151b36',glass:'#28ccff',accent:'#f136bb',water:'#35579a',sky:'#192346'},materials:{primary:'metal_dark',secondary:'glass_cyan',accent:'emissive_magenta'},atmosphere:{timeOfDay:22,fogDensity:.0008,sunDirection:{x:.3,y:.3,z:-.5},weather:'haze',temperature:8500}},
+ ancient:{id:'ancient_empire',palette:{grass:'#7d9859',rock:'#b6a37e',sand:'#dcc58e',metal:'#a39061',glass:'#dbc99c',accent:'#e5ad5c',water:'#3380a2',sky:'#a9cbe1'},materials:{primary:'stone_sand',secondary:'marble',accent:'bronze'},atmosphere:{timeOfDay:13,fogDensity:.0003,sunDirection:{x:.6,y:1,z:.1},weather:'clear',temperature:5400}},
+ heavenly:{id:'heavenly',palette:{grass:'#87bba2',rock:'#d5d1c5',sand:'#ece4d5',metal:'#cad3d6',glass:'#b7e8ef',accent:'#ffe5a7',water:'#72b8d1',sky:'#d5e9ff'},materials:{primary:'marble_white',secondary:'glass_pearl',accent:'emissive_gold'},atmosphere:{timeOfDay:9,fogDensity:.0007,sunDirection:{x:-.2,y:1,z:.4},weather:'mist',temperature:6500}},
+ tropical:{id:'tropical_island',palette:{grass:'#43a25e',rock:'#847b64',sand:'#ecd89a',metal:'#856c50',glass:'#8ed5d4',accent:'#f5ba66',water:'#168cbb',sky:'#87d4f0'},materials:{primary:'wood_warm',secondary:'stone_sand',accent:'sunlit_copper'},atmosphere:{timeOfDay:15,fogDensity:.00025,sunDirection:{x:-.4,y:1,z:.5},weather:'clear',temperature:5800}},
+ kingdom:{id:'classic_kingdom',palette:{grass:'#5b8d50',rock:'#6c7270',sand:'#c9b687',metal:'#797f82',glass:'#90bbca',accent:'#d6a85c',water:'#347da9',sky:'#a4c9e7'},materials:{primary:'stone_gray',secondary:'wood_warm',accent:'bronze'},atmosphere:{timeOfDay:14,fogDensity:.00045,sunDirection:{x:-.5,y:1,z:.3},weather:'clear',temperature:5600}},
+};
+function themeFor(prompt){const p=String(prompt||'').toLowerCase();if(/cyberpunk|neon city/.test(p))return 'cyberpunk';if(/ancient|empire|roman/.test(p))return 'ancient';if(/heaven|celestial|angelic/.test(p))return 'heavenly';if(/tropical|jungle|paradise/.test(p))return 'tropical';if(/future|futuristic|aurelia/.test(p))return 'future';return 'kingdom'}
+const semantic={CREATE_LANDMASS:'terrain.island.biome',CREATE_OCEAN:'water.coast.ocean',CREATE_RIVER:'water.river',CREATE_MOUNTAIN_RANGE:'terrain.mountain.range',CREATE_FOREST:'vegetation.forest.cluster',CREATE_CASTLE:'architecture.kingdom.castle',CREATE_CITY_ZONE:'architecture.city.district',CREATE_TOWER:'architecture.tower.hero',CREATE_HOME:'architecture.home',CREATE_CRAFTING_LAB:'architecture.crafting.lab',CREATE_PORTAL:'travel.portal.gateway',CREATE_SPACE_BODY:'sky.celestial.body',CREATE_ROAD:'transport.road.path'};
+const importance={CREATE_TOWER:'hero',CREATE_CASTLE:'landmark',CREATE_PORTAL:'landmark'};
+const xy = p => p?.position||{x:0,y:0,z:0};
+export function enrichWorldFidelity(preview, name=''){
+ const source=preview.prompt||'',themeKey=themeFor(source),config=catalog[themeKey];
+ const seed=hash(`${source.toLowerCase().trim()}|${String(name).toLowerCase().trim()}`);
+ const operations=preview.operations.map(op=>({...op,semanticAsset:semantic[op.type]?`${semantic[op.type]}.${config.id}`:null,theme:config.id,materials:op.type.startsWith('CREATE_')?{...config.materials}:null,importance:importance[op.type]||'support',seed:hash(`${seed}:${op.id}`)}));
+ const anchors=[{id:'spawn',position:{x:0,y:0,z:600}},...operations.filter(o=>['CREATE_TOWER','CREATE_CASTLE','CREATE_CITY_ZONE','CREATE_PORTAL','CREATE_HOME','CREATE_CRAFTING_LAB'].includes(o.type)).map(o=>({id:o.id,position:xy(o)}))];
+ const hub=anchors.find(a=>operations.some(o=>o.id===a.id&&o.type==='CREATE_TOWER'))||anchors[0];
+ for(const anchor of anchors){if(anchor===hub)continue;const a=hub.position,b=anchor.position,length=Math.hypot(b.x-a.x,b.z-a.z);if(length<1)continue;
+  const id=`op_${String(operations.length+1).padStart(3,'0')}`,position={x:(a.x+b.x)/2,y:.04,z:(a.z+b.z)/2},dimensions={x:10,y:.08,z:length},rotation={x:0,y:Math.atan2(b.x-a.x,b.z-a.z)*180/Math.PI,z:0};
+  operations.push({id,type:'CREATE_ROAD',concept:'ROAD',region:'center',parentId:null,position,rotation,scale:{x:1,y:1,z:1},dimensions,renderStatus:'planned',payload:{position,rotation,dimensions,from:a,to:b},semanticAsset:`transport.road.path.${config.id}`,theme:config.id,materials:{primary:themeKey==='future'||themeKey==='cyberpunk'?'concrete':'stone_sand',secondary:'dirt',accent:config.materials.accent},importance:'support',seed:hash(`${seed}:${id}`)});
+ }
+ return {theme:{...config,key:themeKey},seed,operations,assetCatalog:'wisdo-semantic-assets-v1',fidelityVersion:3};
+}
