@@ -1,0 +1,7 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.8",
+  "Category": "Games",
+  "Description": "WISDO manifest-driven personal world runtime",
+  "Modules": [{"Name":"WisdoWorld","Type":"Runtime","LoadingPhase":"Default"}]
+}

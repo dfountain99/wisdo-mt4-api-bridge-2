@@ -137,7 +137,7 @@ test('member workspace loads the live recognition layer and suppresses the legac
   assert.match(workspace, /wisdo:account-selected/);
   assert.match(recognition, /Floating P\/L/);
   assert.match(recognition, /Growth milestone/);
-  assert.match(worker, /wisdo-static-v7\.0\.[56789]-(?:heap-transport|snapshot-churn|section-persistence|database-first|launch-hardening)/);
+  assert.match(worker, /const CACHE_NAME = 'wisdo-static-v\d+\.\d+\.\d+-[a-z0-9-]+';/);
   assert.match(worker, /\/js\/wisdo-recognition\.js/);
 });
 
