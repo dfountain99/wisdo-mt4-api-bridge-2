@@ -1,5 +1,5 @@
+import { compileApprovedForgePreview, buildForgeTruthReport, applyBabylonObservation } from '../services/worldForgeTruthService.js';
 import { WorldSessionService, createWorldGpuAllocator } from '../services/worldSessionService.js';
-import { validateWorldManifest } from '../services/worldSpatialPlanner.js';
 import path from 'node:path';
 import express from 'express';
 
@@ -509,7 +509,53 @@ export function registerWisdoWorldRoutes(app, {
   app.get('/api/world/foundry', requireWorldUser, async (req,res,next)=>{try{let draft,world;await repository.updateState(raw=>{const state=ensureWorldState(raw);const uid=String(req.worldUser.id);draft=state.worldDraftsByUserId[uid]||null;world=state.personalWorldsByUserId[uid]||null;return state});res.json({ok:true,draft,world});}catch(e){next(e)}});
   app.post('/api/world/foundry/draft', requireWorldUser, async (req,res,next)=>{try{const prompt=clean(req.body?.prompt,1200);if(!prompt)return res.status(400).json({ok:false,error:'prompt is required.'});let draft;await repository.updateState(raw=>{const state=ensureWorldState(raw),uid=String(req.worldUser.id),preview=compileHolographicPreview(prompt,req.body?.context||{}),prior=state.worldDraftsByUserId[uid];draft={draftId:prior?.draftId||`draft:${uid}`,ownerId:uid,name:clean(req.body?.name||prior?.name||prompt.split(/[,.]/)[0],72)||'My World',description:prompt,stage:'visualize',approved:false,revision:Number(prior?.revision||0)+1,preview,permissions:{visibility:req.body?.visibility||prior?.permissions?.visibility||'private',invitedUsers:prior?.permissions?.invitedUsers||[]},updatedAt:nowIso(),createdAt:prior?.createdAt||nowIso()};state.worldDraftsByUserId[uid]=draft;addWorldAudit(state,uid,'world.foundry.draft',{draftId:draft.draftId,revision:draft.revision});return state});res.json({ok:true,draft});}catch(e){next(e)}});
   app.post('/api/world/foundry/approve', requireWorldUser, async (req,res,next)=>{try{let draft;await repository.updateState(raw=>{const state=ensureWorldState(raw),uid=String(req.worldUser.id);draft=state.worldDraftsByUserId[uid];if(!draft)throw new Error('world_draft_required');draft={...draft,stage:'approved',approved:true,approvedAt:nowIso(),updatedAt:nowIso()};state.worldDraftsByUserId[uid]=draft;return state});res.json({ok:true,draft,summary:{worldName:draft.name,estimatedZones:4,startingResources:['wood','stone','energy'],firstBuilding:'Personal Home',visibility:draft.permissions.visibility,invitedUsers:draft.permissions.invitedUsers,forgeStatus:'ready'}});}catch(e){res.status(400).json({ok:false,error:e.message})}});
-  app.post('/api/world/foundry/forge', requireWorldUser, async (req,res,next)=>{try{let world;await repository.updateState(raw=>{const state=ensureWorldState(raw),uid=String(req.worldUser.id),d=state.worldDraftsByUserId[uid];if(!d?.approved)throw new Error('approved_blueprint_required');const old=state.personalWorldsByUserId[uid];if(!d.preview?.truth?.valid)throw new Error('forge_incomplete: '+JSON.stringify(d.preview?.truth?.errors||[{code:'MISSING_TRUTH_REPORT'}]));world={worldId:old?.worldId||`world:${uid}`,ownerId:uid,name:d.name,description:d.description,theme:d.preview?.themeIdentity?.id||d.preview?.theme||'custom',themeIdentity:d.preview?.themeIdentity,seed:d.preview?.seed,assetCatalog:d.preview?.assetCatalog,fidelityVersion:d.preview?.fidelityVersion,terrain:{type:'spawn-island'},buildings:(d.preview?.operations||[]).filter(o=>['CREATE_CASTLE','CREATE_CITY_ZONE','CREATE_TOWER','CREATE_HOME','CREATE_CRAFTING_LAB'].includes(o.type)).map((o,i)=>({id:`structure-${i}`,type:o.type.replace('CREATE_','').toLowerCase(),name:o.payload?.name||'Structure',position:o.payload?.position||{x:i*8,y:0,z:-8},height:o.payload?.height})),zones:[{id:'spawn',type:'spawn-island',walkable:true}],objects:[],portals:(d.preview?.operations||[]).filter(o=>o.type==='CREATE_PORTAL').map((o,i)=>({id:`portal-${i}`,status:'inactive',destination:null,position:o.payload?.position})),forgeOperations:d.preview?.operations||[],world:d.preview?.world,intent:{ideas:d.preview?.ideas||[]},revision:d.revision,permissions:d.permissions,progression:{level:1,resources:{wood:25,stone:25,energy:10}},buildStatus:'forged',spawn:{x:0,y:1.8,z:600},updatedAt:nowIso(),createdAt:old?.createdAt||nowIso()};const report=validateWorldManifest({...world,operations:world.forgeOperations});if(!report.valid)throw new Error('forge_incomplete: '+JSON.stringify(report.errors));world.forgeTruth=report;state.personalWorldsByUserId[uid]=world;state.worldDraftsByUserId[uid]={...d,stage:'forged',forgedWorldId:world.worldId,updatedAt:nowIso()};addWorldAudit(state,uid,'world.foundry.forged',{worldId:world.worldId});return state});res.json({ok:true,status:'WORLD FORGED',world,enterUrl:'/app/world?scene=personal'});}catch(e){res.status(400).json({ok:false,error:e.message})}});
+  app.post('/api/world/foundry/forge', requireWorldUser, async (req,res)=>{
+    try {
+      let world,truthReport;
+      await repository.updateState(raw=>{
+        const state=ensureWorldState(raw),uid=String(req.worldUser.id),d=state.worldDraftsByUserId[uid];
+        if(!d?.approved)throw new Error('approved_blueprint_required');
+        // Old approved drafts predate the truth stage. Recompile their approved
+        // prompt at Forge time rather than treating absent preview.truth as a dead end.
+        const preview=compileApprovedForgePreview(d);
+        const old=state.personalWorldsByUserId[uid];
+        world={worldId:old?.worldId||`world:${uid}`,ownerId:uid,name:d.name,description:d.description,
+          theme:preview.themeIdentity?.id||preview.theme||'custom',themeIdentity:preview.themeIdentity,
+          seed:preview.seed,assetCatalog:preview.assetCatalog,fidelityVersion:preview.fidelityVersion,
+          terrain:{type:'spawn-island'},buildings:(preview.operations||[]).filter(o=>['CREATE_CASTLE','CREATE_CITY_ZONE','CREATE_TOWER','CREATE_HOME','CREATE_CRAFTING_LAB'].includes(o.type)).map((o,i)=>({id:`structure-${i}`,type:o.type.replace('CREATE_','').toLowerCase(),name:o.payload?.name||'Structure',position:o.payload?.position||{x:i*8,y:0,z:-8},height:o.payload?.height})),
+          zones:[{id:'spawn',type:'spawn-island',walkable:true}],objects:[],
+          portals:(preview.operations||[]).filter(o=>o.type==='CREATE_PORTAL').map((o,i)=>({id:`portal-${i}`,status:'inactive',destination:null,position:o.payload?.position})),
+          forgeOperations:preview.operations||[],world:preview.world,intent:{ideas:preview.ideas||[]},revision:d.revision,
+          permissions:d.permissions,progression:{level:1,resources:{wood:25,stone:25,energy:10}},
+          buildStatus:'forged',spawn:{x:0,y:1.8,z:600},updatedAt:nowIso(),createdAt:old?.createdAt||nowIso()};
+        truthReport=buildForgeTruthReport(world);
+        if(truthReport.status==='FAIL'){
+          const error=new Error('forge_incomplete');error.truthReport=truthReport;throw error;
+        }
+        world.forgeTruth=truthReport;world.forgeStatus='awaiting_visual';
+        state.personalWorldsByUserId[uid]=world;
+        state.worldDraftsByUserId[uid]={...d,preview,stage:'forged',forgedWorldId:world.worldId,updatedAt:nowIso()};
+        addWorldAudit(state,uid,'world.foundry.manifest_generated',{worldId:world.worldId,revision:world.revision});
+        return state;
+      });
+      res.json({ok:true,status:'FORGE AWAITING BABYLON',forgeStatus:'awaiting_visual',truthReport,world,enterUrl:'/app/world?scene=personal'});
+    }catch(error){res.status(error.truthReport?422:400).json({ok:false,error:error.message,forgeStatus:'incomplete',truthReport:error.truthReport||null})}
+  });
+  app.post('/api/world/personal/visual-report',requireWorldUser,async(req,res)=>{
+    try{
+      let truthReport;
+      await repository.updateState(raw=>{
+        const state=ensureWorldState(raw),uid=String(req.worldUser.id),world=state.personalWorldsByUserId[uid];
+        if(!world||world.buildStatus!=='forged')throw new Error('personal_world_not_forged');
+        const structural=world.forgeTruth?.schema==='wisdo-forge-truth-report-v1'?world.forgeTruth:buildForgeTruthReport(world);
+        const report=applyBabylonObservation(structural,world,req.body||{});
+        world.forgeTruth=report;world.forgeStatus=report.forgeStatus;world.updatedAt=nowIso();truthReport=report;
+        addWorldAudit(state,uid,'world.foundry.babylon_observed',{worldId:world.worldId,revision:world.revision,status:report.status});
+        return state;
+      });
+      res.set('Cache-Control','no-store').json({ok:true,forgeStatus:truthReport.forgeStatus,truthReport});
+    }catch(error){res.status(400).json({ok:false,error:error.message})}
+  });
   app.get('/api/world/personal/unreal-manifest', requireWorldUser, async (req,res,next)=>{try{let world;await repository.updateState(raw=>{const state=ensureWorldState(raw);world=state.personalWorldsByUserId[String(req.worldUser.id)]||null;return state});if(!world)return res.status(404).json({ok:false,error:'personal_world_not_forged'});res.set('Cache-Control','no-store');res.json({ok:true,manifest:createUnrealWorldManifest(world)});}catch(e){next(e)}});
   app.get('/api/world/personal', requireWorldUser, async (req,res,next)=>{try{let world;await repository.updateState(raw=>{const state=ensureWorldState(raw);world=state.personalWorldsByUserId[String(req.worldUser.id)]||null;return state});if(!world)return res.status(404).json({ok:false,error:'personal_world_not_forged',genesisUrl:'/app/world?scene=genesis'});res.json({ok:true,world});}catch(e){next(e)}});
 
