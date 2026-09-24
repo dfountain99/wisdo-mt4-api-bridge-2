@@ -1,0 +1,161 @@
+{
+  "schema": "wisdo-unreal-world-v1",
+  "worldId": "fixture:golden-world",
+  "revision": 1,
+  "name": "Golden World",
+  "theme": "future",
+  "terrain": {
+    "type": "spawn-island"
+  },
+  "spawn": {
+    "x": 0,
+    "y": 1,
+    "z": 6
+  },
+  "zones": [
+    {
+      "id": "spawn",
+      "type": "spawn-island",
+      "walkable": true
+    }
+  ],
+  "buildings": [
+    {
+      "id": "structure-0",
+      "type": "castle",
+      "name": "Citadel",
+      "position": {
+        "x": 2,
+        "y": 2,
+        "z": -1
+      }
+    },
+    {
+      "id": "structure-1",
+      "type": "tower",
+      "name": "Central Tower",
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": -8
+      }
+    },
+    {
+      "id": "structure-2",
+      "type": "home",
+      "name": "Personal Home",
+      "position": {
+        "x": -7,
+        "y": 0,
+        "z": 1
+      }
+    },
+    {
+      "id": "structure-3",
+      "type": "crafting_lab",
+      "name": "Crafting Lab",
+      "position": {
+        "x": 7,
+        "y": 0,
+        "z": 1
+      }
+    }
+  ],
+  "objects": [],
+  "portals": [
+    {
+      "id": "portal-0",
+      "position": {
+        "x": 9,
+        "y": 0,
+        "z": -8
+      },
+      "status": "inactive"
+    }
+  ],
+  "operations": [
+    {
+      "type": "SET_THEME",
+      "payload": {
+        "theme": "future"
+      }
+    },
+    {
+      "type": "CREATE_CASTLE",
+      "payload": {
+        "name": "Citadel",
+        "position": {
+          "x": 2,
+          "y": 2,
+          "z": -1
+        }
+      }
+    },
+    {
+      "type": "CREATE_MOUNTAIN_RANGE",
+      "payload": {
+        "radius": 6,
+        "height": 2.8
+      }
+    },
+    {
+      "type": "CREATE_FOREST",
+      "payload": {
+        "radius": 5,
+        "density": 18
+      }
+    },
+    {
+      "type": "CREATE_TOWER",
+      "payload": {
+        "name": "Central Tower",
+        "height": 14,
+        "position": {
+          "x": 0,
+          "y": 0,
+          "z": -8
+        }
+      }
+    },
+    {
+      "type": "CREATE_HOME",
+      "payload": {
+        "name": "Personal Home",
+        "position": {
+          "x": -7,
+          "y": 0,
+          "z": 1
+        }
+      }
+    },
+    {
+      "type": "CREATE_CRAFTING_LAB",
+      "payload": {
+        "name": "Crafting Lab",
+        "position": {
+          "x": 7,
+          "y": 0,
+          "z": 1
+        }
+      }
+    },
+    {
+      "type": "CREATE_PORTAL",
+      "payload": {
+        "name": "Portal Gate",
+        "position": {
+          "x": 9,
+          "y": 0,
+          "z": -8
+        }
+      }
+    },
+    {
+      "type": "CREATE_OCEAN",
+      "payload": {
+        "radius": 9
+      }
+    }
+  ],
+  "assetCatalog": "wisdo-world-assets-v1"
+}

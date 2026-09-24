@@ -17,7 +17,7 @@ void AWisdoWorldGameMode::BeginPlay()
     Super::BeginPlay();
     FString Filename;
     if (!FParse::Value(FCommandLine::Get(), TEXT("WisdoManifest="), Filename))
-        Filename = FPaths::ProjectContentDir() / TEXT("WISDO/Fixtures/mountain_kingdom.json");
+        Filename = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("../../public/app/world/fixtures/golden-world.json"));
     AWorldRuntimeActor* Builder = GetWorld()->SpawnActor<AWorldRuntimeActor>();
     FVector Spawn;
     if (!Builder || !Builder->BuildFromFile(Filename, Spawn)) return;

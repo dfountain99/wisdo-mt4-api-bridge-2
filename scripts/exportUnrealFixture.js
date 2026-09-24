@@ -4,17 +4,19 @@ import { compileHolographicPreview } from '../services/holographicBlueprintServi
 import { createUnrealWorldManifest } from '../services/unrealWorldManifestService.js';
 
 // Same Genesis compiler and Forge manifest contract; no Unreal-only prompt parser.
-const prompt = 'Mountain kingdom surrounded by water with a huge futuristic tower in the center.';
+const prompt = 'Futuristic mountain kingdom surrounded by water with a huge tower in the center, forest, private home, crafting lab and portal.';
 const preview = compileHolographicPreview(prompt);
 const world = {
-  worldId: 'fixture:mountain-kingdom', buildStatus: 'forged', revision: 1,
-  name: 'Mountain Kingdom', theme: 'future', terrain: {type: 'spawn-island'},
+  worldId: 'fixture:golden-world', buildStatus: 'forged', revision: 1,
+  name: 'Golden World', theme: 'future', terrain: {type: 'spawn-island'},
   spawn: {x:0,y:1,z:6}, zones: [{id:'spawn',type:'spawn-island',walkable:true}],
-  buildings: preview.operations.filter(op => op.type === 'CREATE_TOWER').map((op,i) =>
-    ({id:`structure-${i}`,type:'tower',name:op.payload.name,position:op.payload.position})),
-  objects: [], portals: [], forgeOperations: preview.operations,
+  buildings: preview.operations.filter(op => ['CREATE_CASTLE','CREATE_TOWER','CREATE_HOME','CREATE_CRAFTING_LAB'].includes(op.type)).map((op,i) =>
+    ({id:`structure-${i}`,type:op.type.replace('CREATE_','').toLowerCase(),name:op.payload.name,position:op.payload.position})),
+  objects: [], portals: preview.operations.filter(op=>op.type==='CREATE_PORTAL').map((op,i)=>
+    ({id:`portal-${i}`,position:op.payload.position,status:'inactive'})),
+  forgeOperations: preview.operations,
 };
-const output = path.resolve('unreal/WisdoWorld/Content/WISDO/Fixtures/mountain_kingdom.json');
+const output = path.resolve('public/app/world/fixtures/golden-world.json');
 fs.mkdirSync(path.dirname(output), {recursive:true});
 fs.writeFileSync(output, JSON.stringify(createUnrealWorldManifest(world), null, 2) + '\n');
 console.log(output);
