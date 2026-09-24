@@ -7,6 +7,12 @@ export function createUnrealWorldManifest(world) {
     revision: world.revision || 1,
     name: world.name,
     theme: world.theme,
+    themeIdentity: world.themeIdentity,
+    seed: world.seed,
+    fidelityVersion: world.fidelityVersion,
+    world: world.world,
+    intent: world.intent,
+    forgeTruth: world.forgeTruth,
     terrain: world.terrain,
     spawn: world.spawn,
     zones: world.zones,
@@ -15,6 +21,6 @@ export function createUnrealWorldManifest(world) {
     portals: world.portals,
     operations: world.forgeOperations || [],
     // Rendered assets are resolved by the Unreal project, never from user input.
-    assetCatalog: 'wisdo-world-assets-v1',
+    assetCatalog: world.assetCatalog || 'wisdo-world-assets-v1',
   };
 }

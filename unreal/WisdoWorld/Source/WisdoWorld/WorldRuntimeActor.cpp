@@ -1,4 +1,5 @@
 #include "WorldRuntimeActor.h"
+#include "WisdoWorldSpace.h"
 #include "Engine/StaticMeshActor.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -14,6 +15,14 @@
 #include "DrawDebugHelpers.h"
 #include "WorldPortalTrigger.h"
 
+static double Dimension(const TSharedPtr<FJsonObject>& Data, const TCHAR* Axis, double Fallback)
+{
+    const TSharedPtr<FJsonObject>* Dimensions = nullptr;
+    double Value = Fallback;
+    if (Data.IsValid() && Data->TryGetObjectField(TEXT("dimensions"), Dimensions)) (*Dimensions)->TryGetNumberField(Axis, Value);
+    return FMath::Clamp(Value, 0.1, 3000.0);
+}
+
 // Manifest distances are meters. Unreal units are centimeters. Manifest z is
 // horizontal depth; manifest y is height.
 AWorldRuntimeActor::AWorldRuntimeActor() { PrimaryActorTick.bCanEverTick = false; }
@@ -26,7 +35,7 @@ FVector AWorldRuntimeActor::Position(const TSharedPtr<FJsonObject>& Data, FVecto
     (*Pos)->TryGetNumberField(TEXT("x"), X);
     (*Pos)->TryGetNumberField(TEXT("y"), Y);
     (*Pos)->TryGetNumberField(TEXT("z"), Z);
-    return FVector(X*100, Z*100, Y*100);
+    return FWisdoWorldSpace::ToUnreal(X, Y, Z);
 }
 
 float AWorldRuntimeActor::Yaw(const TSharedPtr<FJsonObject>& Data) const
@@ -61,9 +70,10 @@ AStaticMeshActor* AWorldRuntimeActor::Shape(const TCHAR* MeshPath, FVector Locat
     return Actor;
 }
 
-void AWorldRuntimeActor::Terrain(const TSharedPtr<FJsonObject>&)
+void AWorldRuntimeActor::Terrain(const TSharedPtr<FJsonObject>& Data)
 {
-    Shape(TEXT("/Engine/BasicShapes/Cube.Cube"), FVector(0,0,-75), FVector(60,60,1.5), FLinearColor(0.12,0.3,0.17));
+    const FVector P = Position(Data, FVector::ZeroVector);
+    Shape(TEXT("/Engine/BasicShapes/Cube.Cube"), P+FVector(0,0,-75), FVector(Dimension(Data,TEXT("x"),60),Dimension(Data,TEXT("z"),60),1.5), FLinearColor(0.12,0.3,0.17));
 }
 void AWorldRuntimeActor::Mountains(const TSharedPtr<FJsonObject>& Data)
 {
@@ -71,11 +81,14 @@ void AWorldRuntimeActor::Mountains(const TSharedPtr<FJsonObject>& Data)
     if (Data.IsValid()) { Data->TryGetNumberField(TEXT("height"), Height); Data->TryGetNumberField(TEXT("radius"), Radius); }
     Height = FMath::Clamp(Height, 2.0, 20.0);
     Radius = FMath::Clamp(Radius, 2.0, 20.0);
-    for (int32 I=0; I<7; ++I)
+    const FVector P = Position(Data, FVector(-1200,-1600,0));
+    const double Width=Dimension(Data,TEXT("x"),18), Depth=Dimension(Data,TEXT("z"),6);
+    Height=Dimension(Data,TEXT("y"),Height);
+    for (int32 I=0; I<8; ++I)
     {
-        const float H = float(Height * 100 * (0.7 + (I%3)*0.25));
-        Shape(TEXT("/Engine/BasicShapes/Cone.Cone"), FVector((-12+(I-3)*Radius/3)*100,(-16+(I%2)*Radius/2)*100,H/2),
-              FVector(8,8,H/100), FLinearColor(0.28,0.32,0.36));
+        const float H = float(Height * 100 * (0.65 + (I%3)*0.16));
+        Shape(TEXT("/Engine/BasicShapes/Cone.Cone"), P+FVector((I-3.5)*Width*100/8,((I%2)-0.5)*Depth*50,H/2),
+              FVector(FMath::Min(Width/6,130.0),FMath::Min(Width/6,130.0),H/100), FLinearColor(0.28,0.32,0.36));
     }
 }
 void AWorldRuntimeActor::Water(const TSharedPtr<FJsonObject>& Data)
@@ -83,7 +96,16 @@ void AWorldRuntimeActor::Water(const TSharedPtr<FJsonObject>& Data)
     double Radius=15;
     if (Data.IsValid()) Data->TryGetNumberField(TEXT("radius"), Radius);
     const float Width = 60.f + 2.f*FMath::Clamp(static_cast<float>(Radius), 9.f, 100.f);
-    Shape(TEXT("/Engine/BasicShapes/Cube.Cube"), FVector(0,0,-170), FVector(Width,Width,0.15), FLinearColor(0.025,0.18,0.46), false);
+    const FVector P = Position(Data, FVector(0,0,-170));
+    Shape(TEXT("/Engine/BasicShapes/Cube.Cube"), P, FVector(Dimension(Data,TEXT("x"),Width),Dimension(Data,TEXT("z"),Width),0.15), FLinearColor(0.025,0.18,0.46), false);
+}
+void AWorldRuntimeActor::Road(const TSharedPtr<FJsonObject>& Data)
+{
+    const FVector P = Position(Data, FVector(0,0,4));
+    AStaticMeshActor* Actor=Shape(TEXT("/Engine/BasicShapes/Cube.Cube"), P,
+        FVector(Dimension(Data,TEXT("x"),10),Dimension(Data,TEXT("z"),100),Dimension(Data,TEXT("y"),0.08)),
+        FLinearColor(0.28,0.32,0.35), false);
+    if (Actor) Actor->SetActorRotation(FRotator(0,Yaw(Data),0));
 }
 void AWorldRuntimeActor::Forest(const TSharedPtr<FJsonObject>& Data)
 {
@@ -92,11 +114,12 @@ void AWorldRuntimeActor::Forest(const TSharedPtr<FJsonObject>& Data)
     const int32 Count=FMath::Clamp(FMath::RoundToInt(Density),1,64);
     const int32 Columns=FMath::CeilToInt(FMath::Sqrt(static_cast<float>(Count)));
     Radius=FMath::Clamp(Radius,2.0,20.0);
+    const FVector Center=Position(Data,FVector(-2000,1100,0));
+    const double Width=Dimension(Data,TEXT("x"),Radius*2),Depth=Dimension(Data,TEXT("z"),Radius*2),TreeHeight=Dimension(Data,TEXT("y"),3);
     for (int32 I=0; I<Count; ++I)
     {
-        const float Step=2.f*Radius/FMath::Max(1,Columns-1);
-        const FVector P((-20-Radius+(I%Columns)*Step)*100,(11-Radius+(I/Columns)*Step)*100,150);
-        Shape(TEXT("/Engine/BasicShapes/Cone.Cone"), P, FVector(1,1,3), FLinearColor(0.03,0.24,0.08));
+        const FVector P=Center+FVector((-Width/2+(I%Columns)*Width/FMath::Max(1,Columns-1))*100,(-Depth/2+(I/Columns)*Depth/FMath::Max(1,Columns-1))*100,TreeHeight*50);
+        Shape(TEXT("/Engine/BasicShapes/Cone.Cone"), P, FVector(FMath::Max(1.0,Width/80),FMath::Max(1.0,Width/80),TreeHeight), FLinearColor(0.03,0.24,0.08));
     }
 }
 void AWorldRuntimeActor::Building(const TSharedPtr<FJsonObject>& Data, FString Kind)
@@ -105,9 +128,9 @@ void AWorldRuntimeActor::Building(const TSharedPtr<FJsonObject>& Data, FString K
     const bool Tall = Kind==TEXT("tower") || Kind==TEXT("castle") || Kind==TEXT("city");
     double Height = Tall ? 14 : 4;
     if (Data.IsValid()) Data->TryGetNumberField(TEXT("height"), Height);
-    Height = FMath::Clamp(Height, 2.0, 50.0);
+    Height = Dimension(Data,TEXT("y"),FMath::Clamp(Height, 2.0, 50.0));
     AStaticMeshActor* Actor = Shape(TEXT("/Engine/BasicShapes/Cube.Cube"), P+FVector(0,0,Height*50),
-          FVector(Tall?7:6,Tall?7:6,Height),
+          FVector(Dimension(Data,TEXT("x"),Tall?7:6),Dimension(Data,TEXT("z"),Tall?7:6),Height),
           Kind==TEXT("tower") ? FLinearColor(0.08,0.45,0.8) : FLinearColor(0.5,0.43,0.3));
     if (Actor) Actor->SetActorRotation(FRotator(0,Yaw(Data),0));
 }
@@ -115,14 +138,15 @@ void AWorldRuntimeActor::Portal(const TSharedPtr<FJsonObject>& Data)
 {
     const FVector P = Position(Data, FVector(900,-800,0));
     const FRotator Rotation(0,Yaw(Data),0);
-    const FVector Offsets[] = {FVector(0,-130,200),FVector(0,130,200),FVector(0,0,400)};
-    const FVector Scales[] = {FVector(0.5,0.35,4),FVector(0.5,0.35,4),FVector(0.5,2.9,0.4)};
+    const float H=Dimension(Data,TEXT("y"),4),W=Dimension(Data,TEXT("x"),2.9);
+    const FVector Offsets[] = {FVector(-W*50,0,H*50),FVector(W*50,0,H*50),FVector(0,0,H*100)};
+    const FVector Scales[] = {FVector(0.5,0.5,H),FVector(0.5,0.5,H),FVector(W+0.5,0.5,0.4)};
     for (int32 I=0; I<3; ++I)
     {
         AStaticMeshActor* Frame = Shape(TEXT("/Engine/BasicShapes/Cube.Cube"), P+Rotation.RotateVector(Offsets[I]), Scales[I], FLinearColor(0.15,0.65,1), false);
         if (Frame) Frame->SetActorRotation(Rotation);
     }
-    AWorldPortalTrigger* Trigger = GetWorld()->SpawnActor<AWorldPortalTrigger>(P+FVector(0,0,180),Rotation);
+    AWorldPortalTrigger* Trigger = GetWorld()->SpawnActor<AWorldPortalTrigger>(P+FVector(0,0,H*50),Rotation);
     if (Trigger) { ++SpawnedCount; Trigger->Tags.Add(FName(*CurrentOperationId)); }
     else ++SpawnFailures;
 }
@@ -142,6 +166,7 @@ void AWorldRuntimeActor::RegisterOperations()
     Registry.Add(TEXT("CREATE_MOUNTAIN_RANGE"), [this](const auto& P){ Mountains(P); });
     Registry.Add(TEXT("CREATE_OCEAN"), [this](const auto& P){ Water(P); });
     Registry.Add(TEXT("CREATE_RIVER"), [this](const auto& P){ Water(P); });
+    Registry.Add(TEXT("CREATE_ROAD"), [this](const auto& P){ Road(P); });
     Registry.Add(TEXT("CREATE_FOREST"), [this](const auto& P){ Forest(P); });
     Registry.Add(TEXT("CREATE_CASTLE"), [this](const auto& P){ Building(P,TEXT("castle")); });
     Registry.Add(TEXT("CREATE_CITY_ZONE"), [this](const auto& P){ Building(P,TEXT("city")); });
@@ -174,13 +199,13 @@ bool AWorldRuntimeActor::BuildFromFile(const FString& Filename, FVector& PlayerS
     {
         const FWisdoOperation& Operation = Manifest.Operations[I];
         SeenOperations.Add(Operation.Type);
-        CurrentOperationId = FString::Printf(TEXT("op:%02d:%s"), I, *Operation.Type);
+        CurrentOperationId = Operation.Id.IsEmpty() ? FString::Printf(TEXT("op:%02d:%s"), I, *Operation.Type) : Operation.Id;
         const int32 Before = SpawnedCount;
         if (FOperationHandler* Handler = Registry.Find(Operation.Type)) (*Handler)(Operation.Payload);
         else { ++SpawnFailures; UE_LOG(LogTemp, Error, TEXT("WISDO World: unsupported %s"), *CurrentOperationId); }
         const int32 Created = SpawnedCount-Before;
         int32 Expected = -1;
-        if (Operation.Type == TEXT("CREATE_MOUNTAIN_RANGE")) Expected = 7;
+        if (Operation.Type == TEXT("CREATE_MOUNTAIN_RANGE")) Expected = 8;
         else if (Operation.Type == TEXT("CREATE_FOREST"))
         {
             double Density=20;

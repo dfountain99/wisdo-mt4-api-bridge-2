@@ -5,8 +5,16 @@
 
 struct FWisdoOperation
 {
+    FString Id;
     FString Type;
     TSharedPtr<FJsonObject> Payload;
+};
+
+struct FWisdoValidationView
+{
+    FString Id;
+    FVector Position;
+    FVector Target;
 };
 
 struct FWisdoManifest
@@ -16,6 +24,7 @@ struct FWisdoManifest
     int32 Revision = 0;
     FVector Spawn = FVector(0, 600, 100);
     TArray<FWisdoOperation> Operations;
+    TArray<FWisdoValidationView> ValidationViews;
 };
 
 class FWisdoManifestClient

@@ -1,0 +1,11 @@
+# World Forge V2 — Spatial Intelligence
+
+The Genesis foundry preview now assigns each supported geometry concept an operation ID, region, position, rotation, scale, dimensions and planned status. The planner stores the same data in the Forge manifest. Coordinates are **meters**: origin at landmass center, x east, y up, z south. Unreal converts x/z/y to centimeters in X/Y/Z. The default new world is 2,400 × 2,400 m; older manifests without a `world` size retain their 60 m fallback.
+
+The validator compares `intent.ideas` against generated operations, checks supported types, unique IDs, finite transforms, positive dimensions, structure overlap, terrain and spawn bounds. `/api/world/foundry/forge` returns `forge_incomplete` with offending IDs if it fails. The stored world includes `forgeTruth`, and the authenticated Unreal manifest exports that report with the operations. This is a structural validation, not a claim that UE has spawned actors.
+
+Babylon generates terrain, surrounding water, mountains, forest, buildings/tower and portal from the manifest dimensions and positions. It records mesh counts and bounds, flags missing geometry and bad placement, and exposes `window.__WISDO_FORGE_HEALTH__`. Use `?debug=1` to click an operation and highlight its meshes. Overview frames the world bounds, Player uses a collision-enabled first-person camera, and Free Explore uses the orbit camera. The generated mesh registry is a geometric fallback; curated assets may replace its shapes later.
+
+The shared golden fixture is `public/app/world/fixtures/golden-world.json`. Open `/app/world/babylon-city/personal-world-v1.html?fixture=golden&debug=1` to inspect the geometry report. This fixture carries the V2 positions and dimensions. The UE runtime reads the same payload and logs the manifest IDs, but **UE 5.8 compile, gameplay, and screenshot parity remain pending** until they are tested in the engine. No Pixel Streaming work is included.
+
+Known limits: prompt concept extraction remains a bounded keyword compiler. Unrecognized ideas cannot be guaranteed as geometry; requested concepts without supported operations produce `forge_incomplete`. Babylon visual health checks verify structural visibility and geometry bounds, not a human visual verdict or Unreal parity. Browser rendering and UE compile were not available in the current workspace.
