@@ -27,7 +27,6 @@ export function installEmergencyWisdoOperator({ THREE, scene } = {}) {
   const suit = addDisposable(disposables, new THREE.MeshStandardMaterial({ color: 0x080b11, roughness: .48, metalness: .36 }));
   const panel = addDisposable(disposables, new THREE.MeshStandardMaterial({ color: 0x151b26, roughness: .36, metalness: .56 }));
   const skin = addDisposable(disposables, new THREE.MeshStandardMaterial({ color: 0x855a43, roughness: .78, metalness: 0 }));
-  const hair = addDisposable(disposables, new THREE.MeshStandardMaterial({ color: 0x090909, roughness: .92, metalness: 0 }));
   const cyan = addDisposable(disposables, new THREE.MeshStandardMaterial({ color: 0x64e9ff, emissive: 0x0a6f91, emissiveIntensity: 1.8, roughness: .22, metalness: .45 }));
   const violet = addDisposable(disposables, new THREE.MeshStandardMaterial({ color: 0x715cff, emissive: 0x24105f, emissiveIntensity: 1.15, roughness: .26, metalness: .42 }));
 
@@ -54,15 +53,13 @@ export function installEmergencyWisdoOperator({ THREE, scene } = {}) {
   neck.position.y = 1.82;
   shell.add(neck);
 
-  const head = new THREE.Mesh(addDisposable(disposables, new THREE.SphereGeometry(.205, 18, 14)), skin);
+  const head = new THREE.Mesh(addDisposable(disposables, new THREE.SphereGeometry(.22, 18, 14)), panel);
   head.position.y = 2.08;
-  head.scale.set(.92, 1.13, .9);
+  head.scale.set(.98, 1.12, .94);
   shell.add(head);
-
-  const hairCap = new THREE.Mesh(addDisposable(disposables, new THREE.SphereGeometry(.214, 18, 10, 0, Math.PI * 2, 0, Math.PI * .5)), hair);
-  hairCap.position.y = 2.13;
-  hairCap.scale.set(.95, 1.06, .93);
-  shell.add(hairCap);
+  const visor = new THREE.Mesh(addDisposable(disposables, new THREE.BoxGeometry(.34, .115, .055)), cyan);
+  visor.position.set(0, 2.09, -.2);
+  shell.add(visor);
 
   const logo = new THREE.Group();
   logo.name = 'WISDOFallbackBackLogo';

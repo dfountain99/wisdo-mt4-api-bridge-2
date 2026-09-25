@@ -1,12 +1,12 @@
 import { THREE_MODULE_URL, chooseAutoQuality, getWorldCapabilities } from './world-config.js?v=2026.09.17.visual-fidelity-v4';
 import { createAdaptiveQualityController } from './world-quality.js?v=2026.09.17.visual-fidelity-v4';
-import { installProductionFidelityV4 } from './production-fidelity-layer-v4.js?v=2026.09.17.visual-fidelity-v4';
+import { installProductionFidelityV4 } from './production-fidelity-layer-v4.js?v=2026.09.25.city-phone-fix';
 import { installAuthoredOperatorV4 } from './authored-operator-v4.js?v=2026.09.17.visual-fidelity-v4';
 import { installAuthoredOperator as installLegacyAuthoredOperator } from './authored-operator.js?v=2026.09.17.visual-fidelity-v4';
 import { AUTHORED_WORLD_ASSETS } from './authored-asset-manifest.js?v=2026.09.17.visual-fidelity-v4';
 import { createWorldExperience as createCoreWorldExperience } from './world3d-production-core.js?v=2026.09.17.visual-fidelity-v4';
 
-const WORLD_CLIENT_REVISION='2026.09.17.visual-fidelity-v4';
+const WORLD_CLIENT_REVISION='2026.09.25.city-phone-fix';
 const PRODUCTION_CITY_COMPATIBILITY='production-city-v1';
 globalThis.WisdoWorldClientRevision=WORLD_CLIENT_REVISION;
 
@@ -47,9 +47,12 @@ export async function createWorldExperience(options={}){
   try{window.dispatchEvent(new CustomEvent('wisdo:world-renderer-ready',{detail:{instanceId,scene:'central',clientRevision:WORLD_CLIENT_REVISION}}));}catch{}
 
   const debug=new URLSearchParams(globalThis.location?.search||'').get('debug')==='1';const asset=AUTHORED_WORLD_ASSETS.defaultOperator;
-  document.documentElement.dataset.wisdoOperator='loading-authored-glb';
-  publish('WisdoOperatorDiagnostics',instanceId,{status:'V4_QUEUED',active:false,renderer:'PROCEDURAL_FALLBACK',assetId:asset.id,assetUrl:asset.url});
-  const operatorTask=installAuthoredOperatorV4({THREE,scene,renderer,camera,debug,instanceId}).catch(async(error)=>{
+  // The bundled CC0 suited model is a placeholder. On phones its face and idle pose
+  // read as damaged; use the scene's animated WISDO operator until a reviewed asset lands.
+  const useAuthoredOperator=asset.id!=='wisdo-default-operator-v1';
+  document.documentElement.dataset.wisdoOperator=useAuthoredOperator?'loading-authored-glb':'city-stylized-operator';
+  publish('WisdoOperatorDiagnostics',instanceId,{status:useAuthoredOperator?'V4_QUEUED':'STYLIZED_FALLBACK',active:false,renderer:'PROCEDURAL_FALLBACK',assetId:asset.id,assetUrl:asset.url});
+  const operatorTask=(useAuthoredOperator?installAuthoredOperatorV4({THREE,scene,renderer,camera,debug,instanceId}):Promise.resolve(null)).catch(async(error)=>{
     if(destroyed||!isCurrent())return null;
     console.warn('Operator V4 unavailable; trying proven authored Operator fallback.',error);
     publish('WisdoOperatorDiagnostics',instanceId,{status:'V4_FALLBACK',failureReason:error?.message||String(error)});
