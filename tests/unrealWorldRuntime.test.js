@@ -15,7 +15,7 @@ test('Genesis acceptance prompt reaches the Unreal runtime through the shared op
   for (const {type} of operations) assert.ok(registry.includes(`Registry.Add(TEXT("${type}")`), `Unmapped ${type}`);
   const browser = fs.readFileSync('public/app/world/babylon-city/personal-world-v1.js','utf8');
   for (const {type} of operations) assert.ok(browser.includes(`${type}:`), `Babylon unmapped ${type}`);
-  assert.match(browser, /if\(!operations\.length\)/, 'Metadata fallback should only run when operations are absent');
+  assert.match(browser, /FORGE_OPERATION_SET_EMPTY/, 'An empty operation set must fail closed');
   assert.match(registry, /WISDO_VALIDATION_/, 'UE must report an explicit validation result');
   assert.match(registry, /CurrentOperationId = Operation.Id.IsEmpty/, 'UE must trace manifest operation IDs');
 });
