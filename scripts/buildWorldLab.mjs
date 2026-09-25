@@ -9,7 +9,7 @@ const requested=process.env.WORLD_LAB_TARGET_SHA||'';
 const git=(...args)=>execFileSync('git',args,{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
 if(!Number.isSafeInteger(pr)||pr<=0||!/^[a-f0-9]{40}$/.test(requested))
  throw Error('Set WORLD_LAB_PR and the full 40-character WORLD_LAB_TARGET_SHA');
-git('fetch','--no-tags','origin',`refs/pull/${pr}/head`);
+git('fetch','--no-tags','https://github.com/dfountain99/wisdo-mt4-api-bridge-2.git',`refs/pull/${pr}/head`);
 const head=git('rev-parse','FETCH_HEAD');
 if(head!==requested)throw Error(`PR #${pr} moved: expected ${requested}, current ${head}. Rebuild for the new SHA; prior evidence is invalid.`);
 const files=[
