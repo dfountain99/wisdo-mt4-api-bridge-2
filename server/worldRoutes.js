@@ -547,7 +547,10 @@ export function registerWisdoWorldRoutes(app, {
       await repository.updateState(raw=>{
         const state=ensureWorldState(raw),uid=String(req.worldUser.id),world=state.personalWorldsByUserId[uid];
         if(!world||world.buildStatus!=='forged')throw new Error('personal_world_not_forged');
-        const structural=world.forgeTruth?.schema==='wisdo-forge-truth-report-v1'?world.forgeTruth:buildForgeTruthReport(world);
+        // Re-evaluate the manifest on every render. A failed camera or mesh
+        // observation must remain incomplete, yet a corrected render of the
+        // same manifest must be able to recover without another Forge run.
+        const structural=buildForgeTruthReport(world);
         const report=applyBabylonObservation(structural,world,req.body||{});
         world.forgeTruth=report;world.forgeStatus=report.forgeStatus;world.updatedAt=nowIso();truthReport=report;
         addWorldAudit(state,uid,'world.foundry.babylon_observed',{worldId:world.worldId,revision:world.revision,status:report.status});
