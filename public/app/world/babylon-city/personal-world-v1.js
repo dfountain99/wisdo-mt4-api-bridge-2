@@ -2,7 +2,7 @@
 const canvas=document.getElementById('c'),engine=new BABYLON.Engine(canvas,true),scene=new BABYLON.Scene(engine);
 scene.clearColor=new BABYLON.Color4(.01,.025,.05,1);scene.collisionsEnabled=true;scene.gravity=new BABYLON.Vector3(0,-.06,0);
 new BABYLON.HemisphericLight('sun',new BABYLON.Vector3(0,1,0),scene).intensity=.9;
-const player=new BABYLON.UniversalCamera('player',new BABYLON.Vector3(0,1.8,6),scene);player.speed=2;player.ellipsoid=new BABYLON.Vector3(.35,.9,.35);player.checkCollisions=true;player.applyGravity=true;player.keysUp.push(87);player.keysDown.push(83);player.keysLeft.push(65);player.keysRight.push(68);
+const player=new BABYLON.UniversalCamera('player',new BABYLON.Vector3(0,1.8,6),scene);player.speed=8;player.ellipsoid=new BABYLON.Vector3(.35,.9,.35);player.checkCollisions=true;player.applyGravity=true;player.keysUp.push(87);player.keysDown.push(83);player.keysLeft.push(65);player.keysRight.push(68);
 const overview=new BABYLON.ArcRotateCamera('overview',-.9,1.05,120,new BABYLON.Vector3(0,0,0),scene);overview.lowerRadiusLimit=5;overview.maxZ=100000;scene.activeCamera=overview;overview.attachControl(canvas,true);
 const meshes=[],portalPositions=[],debugLines=[],rows=[];let palette={},portalSite={x:180,z:120};const params=new URLSearchParams(location.search),debug=params.has('debug')||params.has('fixture');let worldWidth=60;
 function material(name,color,alpha=1){const m=new BABYLON.StandardMaterial(name,scene);m.diffuseColor=BABYLON.Color3.FromHexString(color);m.alpha=alpha;return m}
@@ -58,7 +58,7 @@ const observations=rows.filter(row=>row.type.startsWith('CREATE_')).map(row=>{
 });
 const visible=observations.filter(o=>o.visible).length,cameraFraming=visible===observations.length&&observations.length>0;
 if(!cameraFraming)failures.push('camera misses one or more operations');
-const localStatus=failures.length?'FORGE INCOMPLETE':'BABYLON OBSERVED PASS';
+const localStatus=failures.length?'FORGE INCOMPLETE':'AETHER OBSERVED PASS';
 const report={worldId:manifest.worldId,manifestVersion:manifest.revision||1,operations:observations,
  worldBounds:{min:{x:b.min.x,y:b.min.y,z:b.min.z},max:{x:b.max.x,y:b.max.y,z:b.max.z}},cameraFraming};
 window.__WISDO_FORGE_HEALTH__={status:localStatus,requested:manifest.intent?.ideas?.length??null,manifest:observations.length,
@@ -66,7 +66,7 @@ window.__WISDO_FORGE_HEALTH__={status:localStatus,requested:manifest.intent?.ide
  camera:{portrait:engine.getRenderWidth()<engine.getRenderHeight(),target:overview.target.asArray(),radius:overview.radius,beta:overview.beta},composition:manifest.forgeTruth?.composition||null};
 const meta=document.getElementById('meta');document.getElementById('name').textContent=(manifest.name||'MY WORLD').toUpperCase();
 meta.textContent=`${localStatus} • ${visible}/${observations.length} VISIBLE • ${meshes.length} MESHES`;
-document.getElementById('load').style.display='none';
+document.getElementById('load').style.display='none';if(params.get('fixture')!=='golden')showCamera('player');
 if(debug){const panel=document.getElementById('debug');panel.replaceChildren();const title=document.createElement('div');
  title.textContent=`${manifest.worldId||'world'} • ${localStatus}\nrequested ${manifest.intent?.ideas?.length??'?'} • generated ${observations.length} • executed ${observations.filter(o=>o.meshCount>0).length} • visible ${visible}\nworld ${worldWidth}m • spawn ${JSON.stringify(spawn)}\n${failures.join('\n')}`;
  panel.append(title);rows.forEach(row=>{const button=document.createElement('button');const observation=observations.find(o=>o.id===row.id);button.textContent=`${row.id} ${row.type} ${row.count} meshes ${row.rejected?'REJECTED: '+row.rejected:observation?.visible?'PASS':'PENDING'}`;button.onclick=()=>highlight(row.id);panel.append(button)})}
