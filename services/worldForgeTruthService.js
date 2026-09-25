@@ -1,5 +1,6 @@
 import {compileHolographicPreview} from './holographicBlueprintService.js';
 import {validateWorldManifest} from './worldSpatialPlanner.js';
+import {evaluateWorldComposition} from './worldCompositionService.js';
 
 const groups={
  terrain:['CREATE_LANDMASS'],water:['CREATE_OCEAN','CREATE_RIVER'],mountains:['CREATE_MOUNTAIN_RANGE'],
@@ -9,7 +10,7 @@ const groups={
 const isRenderable=op=>op?.type?.startsWith('CREATE_');
 export function compileApprovedForgePreview(draft){
  if(!draft?.approved||!draft.description)throw new Error('approved_blueprint_required');
- return draft.preview?.truth&&Array.isArray(draft.preview.operations)?draft.preview:compileHolographicPreview(draft.description,{...(draft.preview?.context||{}),worldName:draft.name});
+ return draft.preview?.truth&&draft.preview.fidelityVersion>=4&&Array.isArray(draft.preview.operations)?draft.preview:compileHolographicPreview(draft.description,{...(draft.preview?.context||{}),worldName:draft.name});
 }
 const finite=n=>typeof n==='number'&&Number.isFinite(n);
 const issue=(code,operationId)=>({code,...(operationId?{operationId}:{})});
@@ -30,11 +31,13 @@ export function buildForgeTruthReport(world){
  for(const idea of ideas){const label=String(idea.label||'').toLowerCase();for(const [name,types] of Object.entries(groups))if(types.some(t=>operations.some(o=>o.type===t&&o.concept?.toLowerCase()===label)))required.add(name)}
  if(/aurelia prime/i.test(world.name+' '+(world.description||'')))for(const name of Object.keys(groups))required.add(name);
  for(const name of required)if(requirements[name].status==='MISSING')missing.push(issue('REQUIRED_GROUP_MISSING',name));
- const valid=structural.valid&&missing.length===0;
+ const composition=/aurelia prime/i.test(world.name+' '+(world.description||''))?evaluateWorldComposition(world):null;
+ if(composition?.status==='FAIL')for(const name of composition.failed)invalid.push(issue('COMPOSITION_'+name.toUpperCase()));
+ const valid=structural.valid&&missing.length===0&&invalid.length===0;
  return {schema:'wisdo-forge-truth-report-v1',worldId:world.worldId,manifestVersion:world.revision||1,
   requested:{count:requested.length,concepts:requested},manifest:{count:renderable.length,operationIds:renderable.map(o=>o.id)},
-  executed:null,visible:null,missing,invalid,requirements,worldBounds,spawnStatus,
-  visual:null,status:valid?'PENDING_VISUAL':'FAIL',forgeStatus:valid?'awaiting_visual':'incomplete'};
+  executed:null,visible:null,missing,invalid,requirements,worldBounds,spawnStatus,composition,
+  visual:null,status:valid?'PENDING_VISUAL':'FAIL',forgeStatus:valid?'awaiting_visual':'incomplete',babylonCertification:'PENDING'};
 }
 export function applyBabylonObservation(report,world,observation){
  if(!report||report.status==='FAIL')throw new Error('structural_report_invalid');
@@ -65,5 +68,5 @@ export function applyBabylonObservation(report,world,observation){
  if(!camera)invalid.push(issue('CAMERA_FRAMING_FAILED'));
  const status=invalid.length||visible!==expected.length||Object.values(report.requirements).some(r=>r.status==='FAIL')?'FAIL':'PASS';
  return {...report,executed,visible,invalid:[...report.invalid,...invalid],requirements:report.requirements,
-  visual:{renderer:'babylon',operations:validated,worldBounds:boundsSane?bounds:null,cameraFraming:camera,observedAt:new Date().toISOString()},status,forgeStatus:status==='PASS'?'complete':'incomplete'};
+  visual:{renderer:'babylon',operations:validated,worldBounds:boundsSane?bounds:null,cameraFraming:camera,observedAt:new Date().toISOString()},status,forgeStatus:status==='PASS'?(report.composition?'composition_pending':'complete'):'incomplete',babylonCertification:'PENDING'};
 }

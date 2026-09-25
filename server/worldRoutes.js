@@ -521,7 +521,7 @@ export function registerWisdoWorldRoutes(app, {
         const old=state.personalWorldsByUserId[uid];
         world={worldId:old?.worldId||`world:${uid}`,ownerId:uid,name:d.name,description:d.description,
           theme:preview.themeIdentity?.id||preview.theme||'custom',themeIdentity:preview.themeIdentity,
-          seed:preview.seed,assetCatalog:preview.assetCatalog,fidelityVersion:preview.fidelityVersion,
+          seed:preview.seed,assetCatalog:preview.assetCatalog,fidelityVersion:preview.fidelityVersion,worldScale:preview.worldScale,
           terrain:{type:'spawn-island'},buildings:(preview.operations||[]).filter(o=>['CREATE_CASTLE','CREATE_CITY_ZONE','CREATE_TOWER','CREATE_HOME','CREATE_CRAFTING_LAB'].includes(o.type)).map((o,i)=>({id:`structure-${i}`,type:o.type.replace('CREATE_','').toLowerCase(),name:o.payload?.name||'Structure',position:o.payload?.position||{x:i*8,y:0,z:-8},height:o.payload?.height})),
           zones:[{id:'spawn',type:'spawn-island',walkable:true}],objects:[],
           portals:(preview.operations||[]).filter(o=>o.type==='CREATE_PORTAL').map((o,i)=>({id:`portal-${i}`,status:'inactive',destination:null,position:o.payload?.position})),
