@@ -20,7 +20,7 @@ test('WISDO World catalog exposes immersive destinations without trade execution
   assert.equal(catalog.executionFromWorldEnabled, false);
   assert.equal(catalog.billingConnected, false);
   assert.equal(catalog.defaultSpawn, 'home');
-  assert.equal(catalog.architecture, 'persistent-smart-home-civilization');
+  assert.equal(catalog.architecture, 'aether-universe-platform');
   assert.ok(catalog.homeRooms.some((item) => item.id === 'trading-room'));
   assert.ok(catalog.homeRooms.some((item) => item.id === 'reporter-room'));
   assert.ok(catalog.destinations.length >= 10);
