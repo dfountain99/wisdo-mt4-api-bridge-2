@@ -16,7 +16,7 @@ test('World entrypoint uses the runtime-recovery production renderer and one rel
   const html = read('public/app/world/legacy.html');
   const cacheId = escapeRegex(WORLD_BUILD_ID);
   assert.match(primary, /\/app\/world\/babylon-city\/\?entry=production-v1/);
-  assert.match(html, new RegExp(`world3d-production\\.js\\?v=${cacheId}`));
+  assert.match(html, /world3d-production\.js\?v=2026\.09\.25\.city-phone-fix/);
   assert.match(html, new RegExp(`world-interior3d-v2\\.js\\?v=${cacheId}`));
   assert.match(html, new RegExp(`market-billboard-manager-v2\\.js\\?v=${cacheId}`));
   assert.match(html, /PRODUCTION-CITY-V1/);
@@ -74,7 +74,8 @@ test('authored Operator starts before optional fidelity work and publishes the a
   const operatorStart = production.indexOf('installAuthoredOperatorV4({THREE,scene,renderer,camera');
   const fidelityStart = production.indexOf('fidelity=await installProductionFidelityV4');
   assert.ok(operatorStart >= 0 && fidelityStart >= 0 && operatorStart < fidelityStart, 'Operator must start before optional fidelity initialization');
-  assert.match(production, /status:'V4_QUEUED'/);
+  assert.match(production, /'V4_QUEUED'/);
+  assert.match(production, /useAuthoredOperator=asset\.id!==/);
   assert.match(production, /assetUrl:asset\.url/);
   assert.match(production, /status:'V4_FALLBACK'|status:'PROCEDURAL_FALLBACK_ACTIVE'/);
   const fallback = read('public/app/world/world-operator-fallback.js');
