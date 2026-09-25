@@ -15,6 +15,7 @@ if(head!==requested)throw Error(`PR #${pr} moved: expected ${requested}, current
 const files=[
  'public/app/world/babylon-city/personal-world-v1.html',
  'public/app/world/babylon-city/personal-world-v1.js',
+ 'public/app/world/babylon-city/manifest-adapter.js',
  'public/app/world/babylon-city/world-space.js',
  'public/app/world/fixtures/golden-world.json',
 ];
