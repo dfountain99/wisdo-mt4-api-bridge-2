@@ -27,7 +27,7 @@ jobs:
       WISDO_BLENDER_RUN_TESTS: 'true'
     steps:
       - name: Checkout WISDO
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
