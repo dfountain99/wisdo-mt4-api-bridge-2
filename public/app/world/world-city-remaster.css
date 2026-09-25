@@ -1,0 +1,11 @@
+/* WISDO City #102: give the existing playable scene room to read on a phone. */
+.world-shell .cinema-vignette{background:radial-gradient(circle at 50% 45%,transparent 66%,rgba(7,18,37,.08) 88%,rgba(4,10,22,.20) 100%)!important;box-shadow:none!important}
+.world-shell .topbar,.world-shell .wisdo-production-map-card,.world-shell .wisdo-game-card,.world-shell .wisdo-financial-hud{background:linear-gradient(145deg,rgba(11,25,43,.78),rgba(9,18,33,.64))!important;border-color:rgba(136,209,239,.29)!important}
+.world-shell .wisdo-activity-ribbon{background:rgba(9,22,38,.52)!important;border-color:rgba(122,202,232,.23)!important}
+@media(max-width:700px){
+  .world-shell .topbar{background:linear-gradient(145deg,rgba(9,22,39,.76),rgba(7,17,31,.58))!important}
+  .world-shell .wisdo-production-map,.world-shell .wisdo-game-hud{opacity:.82!important}
+  .world-shell .wisdo-activity-ribbon{opacity:.70!important}
+  .world-shell .wisdo-activity-ribbon:focus-within,.world-shell .wisdo-production-map:focus-within{opacity:1!important}
+  .world-shell .mobile-actions button,.world-shell .move-stick{border-color:rgba(150,218,243,.42)!important;background:rgba(12,27,47,.46)!important}
+}

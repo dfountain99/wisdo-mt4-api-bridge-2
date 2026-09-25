@@ -23,7 +23,7 @@ function repeatTexture(THREE,canvas,repeatX,repeatY,{color=true,anisotropy=4}={}
 
 function asphaltCanvas(size=512,seed=11){
   const {canvas,ctx}=makeCanvas(size);const rand=seeded(seed);
-  ctx.fillStyle='#30343a';ctx.fillRect(0,0,size,size);
+  ctx.fillStyle='#414b55';ctx.fillRect(0,0,size,size);
   const image=ctx.getImageData(0,0,size,size);const data=image.data;
   for(let i=0;i<data.length;i+=4){const n=(rand()-.5)*24;data[i]=clamp(data[i]+n,0,255);data[i+1]=clamp(data[i+1]+n,0,255);data[i+2]=clamp(data[i+2]+n,0,255);}
   ctx.putImageData(image,0,0);
@@ -89,7 +89,7 @@ export function createWorldPbrLibrary(THREE,renderer,{quality='medium'}={}){
   const stone=surface(THREE,{canvas:facadeCanvas(),repeat:[3,3],roughness:.64,metalness:.04,bumpScale:.045,clearcoat:.08,anisotropy});
   const grass=surface(THREE,{canvas:grassCanvas(),repeat:[18,18],roughness:1,metalness:0,bumpScale:.025,anisotropy});
   const facadeWarm=surface(THREE,{canvas:facadeCanvas(512,41,{base:'#c9c0ae',accent:'#a99881'}),repeat:[2,4],roughness:.65,metalness:.04,bumpScale:.032,anisotropy});
-  const facadeCool=surface(THREE,{canvas:facadeCanvas(512,45,{base:'#727b81',accent:'#555e64'}),repeat:[2,4],roughness:.59,metalness:.08,bumpScale:.028,anisotropy});
+  const facadeCool=surface(THREE,{canvas:facadeCanvas(512,45,{base:'#91a5b1',accent:'#728894'}),repeat:[2,4],roughness:.59,metalness:.08,bumpScale:.028,anisotropy});
   const roadLine=new THREE.MeshStandardMaterial({color:0xf1e7c0,roughness:.74,metalness:0});
   const roadLineWhite=new THREE.MeshStandardMaterial({color:0xf5f5ef,roughness:.72,metalness:0});
   const blackMetal=new THREE.MeshStandardMaterial({color:0x171b1f,roughness:.32,metalness:.82});
@@ -97,13 +97,13 @@ export function createWorldPbrLibrary(THREE,renderer,{quality='medium'}={}){
   const gold=new THREE.MeshStandardMaterial({color:0xcaa65d,roughness:.28,metalness:.9});
   const glass=new THREE.MeshPhysicalMaterial({color:0x31596b,roughness:.08,metalness:.14,transmission:.16,transparent:true,opacity:.84,clearcoat:1,clearcoatRoughness:.08});
   const glassWarm=new THREE.MeshPhysicalMaterial({color:0x765b37,emissive:0x3d260b,emissiveIntensity:.42,roughness:.13,metalness:.08,transmission:.08,transparent:true,opacity:.88,clearcoat:.75});
-  const windowCool=new THREE.MeshStandardMaterial({color:0x315669,emissive:0x173748,emissiveIntensity:.52,roughness:.2,metalness:.16});
-  const windowWarm=new THREE.MeshStandardMaterial({color:0x8f6d3f,emissive:0x5b350d,emissiveIntensity:.72,roughness:.24,metalness:.08});
-  const foliage=new THREE.MeshStandardMaterial({color:0x356a43,roughness:.92,metalness:0,side:THREE.DoubleSide});
-  const foliageLight=new THREE.MeshStandardMaterial({color:0x527f4c,roughness:.9,metalness:0,side:THREE.DoubleSide});
+  const windowCool=new THREE.MeshStandardMaterial({color:0x83c8db,emissive:0x287c9f,emissiveIntensity:1.15,roughness:.2,metalness:.16});
+  const windowWarm=new THREE.MeshStandardMaterial({color:0xe4b978,emissive:0xb87427,emissiveIntensity:1.25,roughness:.24,metalness:.08});
+  const foliage=new THREE.MeshStandardMaterial({color:0x438363,roughness:.92,metalness:0,side:THREE.DoubleSide});
+  const foliageLight=new THREE.MeshStandardMaterial({color:0x7aa36a,roughness:.9,metalness:0,side:THREE.DoubleSide});
   const trunk=new THREE.MeshStandardMaterial({color:0x5f4734,roughness:.96,metalness:0});
   const roof=new THREE.MeshStandardMaterial({color:0x33383b,roughness:.72,metalness:.16});
-  const emissiveCyan=new THREE.MeshStandardMaterial({color:0x7deaff,emissive:0x0a6d86,emissiveIntensity:1.35,roughness:.2,metalness:.24});
-  const emissiveGold=new THREE.MeshStandardMaterial({color:0xe0bf70,emissive:0x744807,emissiveIntensity:1.05,roughness:.24,metalness:.62});
+  const emissiveCyan=new THREE.MeshStandardMaterial({color:0xb2f0ff,emissive:0x278fae,emissiveIntensity:1.7,roughness:.2,metalness:.24});
+  const emissiveGold=new THREE.MeshStandardMaterial({color:0xffd991,emissive:0xb16c1e,emissiveIntensity:1.4,roughness:.24,metalness:.62});
   return Object.freeze({asphalt,sidewalk,concrete,concreteDark,stone,grass,facadeWarm,facadeCool,roadLine,roadLineWhite,blackMetal,brushedMetal,gold,glass,glassWarm,windowCool,windowWarm,foliage,foliageLight,trunk,roof,emissiveCyan,emissiveGold,dispose(){for(const value of Object.values(this)){if(value?.isMaterial){for(const item of Object.values(value))if(item?.isTexture)item.dispose?.();value.dispose?.();}}}});
 }

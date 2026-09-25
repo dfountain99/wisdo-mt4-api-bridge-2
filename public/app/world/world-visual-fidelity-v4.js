@@ -69,7 +69,7 @@ export function installWisdoVisualFidelityV4({THREE,scene,camera,renderer,qualit
   const touchLike=Boolean(globalThis.matchMedia?.('(pointer: coarse)')?.matches||globalThis.navigator?.maxTouchPoints>0);const root=new THREE.Group();root.name='WisdoVisualFidelityV4';scene.add(root);const disposables=[];
   const previousEnvironment=scene.environment,previousFog=scene.fog,previousExposure=renderer.toneMappingExposure;let envTexture=null;
   try{envTexture=makeEnvironment(THREE,renderer,disposables);if(envTexture)scene.environment=envTexture;}catch(error){if(debug)console.warn('WISDO V4 PMREM environment degraded.',error);}
-  scene.fog=new THREE.FogExp2(0x06101c,touchLike?.0075:.0062);renderer.toneMappingExposure=Math.max(Number(previousExposure||1),touchLike?1.34:1.28);
+  scene.fog=new THREE.FogExp2(0x304862,touchLike?.0048:.0038);renderer.toneMappingExposure=Math.max(Number(previousExposure||1),touchLike?1.62:1.48);
   const academy=buildAcademyEntrance(THREE,root,touchLike,disposables);const water=buildWaterFeature(THREE,root,touchLike,disposables);const atmosphere=buildAtmosphere(THREE,root,touchLike,disposables);const contact=buildOperatorContact(THREE,scene,root,disposables);
   const diagnostics=createDiagnostics({quality,touchLike,academy,water,environmentActive:Boolean(envTexture)});globalThis.WisdoVisualFidelityV4Diagnostics=diagnostics;
   if(debug)console.debug('[WISDO VISUAL FIDELITY V4]',diagnostics);

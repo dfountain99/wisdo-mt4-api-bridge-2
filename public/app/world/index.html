@@ -13,6 +13,7 @@
 <script>
 (()=>{const p=new URLSearchParams(location.search);const scene=(p.get('scene')||'lobby').toLowerCase(),frame=document.getElementById('worldFrame');
 if(scene==='lobby'||scene==='home'){frame.src='/app/world/aether-lobby/';return}
+if(scene==='city'){frame.src='/app/world/legacy.html';return}
 if(scene==='genesis'){frame.src='/app/world/babylon-city/genesis-v4.html';return}
 if(scene==='unreal'){frame.src='/app/world/babylon-city/unreal-session.html';return}
 if(scene==='personal'){frame.src='/app/world/babylon-city/personal-world-v1.html';return}
