@@ -1,0 +1,21 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
+import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {createHash} from 'node:crypto';
+
+const sha='a'.repeat(40),hash=createHash('sha256').update('image').digest('hex');
+const dir=mkdtempSync(path.join(tmpdir(),'aether-'));
+test.after(()=>rmSync(dir,{recursive:true,force:true}));
+const capture={status:'pass',image:'image.png',sha256:hash,commit:sha};
+const checks=Object.fromEntries(['terrain','ocean','mountainPerimeter','towerProminence','cityComposition','forestSeparation','portalPlacement','spawnOrientation','cameraComposition'].map(k=>[k,'pass']));
+const valid={pr:95,commit:sha,renderer:'aether',manifestHash:'b'.repeat(64),build:{pr:95,commit:sha,manifestHash:'b'.repeat(64)},reviewer:'human reviewer',reviewedAt:'2026-09-25T00:00:00Z',certified:true,checks,observations:{generated:12,rendered:12,visible:12},truthReport:{persisted:true,status:'PASS'},views:{desktop:{status:'pass',viewport:{width:1440,height:900},golden:capture,authenticatedForge:capture},portrait:{status:'pass',viewport:{width:390,height:844},golden:capture,authenticatedForge:capture}}};
+writeFileSync(path.join(dir,'image.png'),'image');
+const run=(value,head=sha)=>{writeFileSync(path.join(dir,'evidence.json'),JSON.stringify(value));return execFileSync(process.execPath,['scripts/checkAetherCertification.mjs',path.join(dir,'evidence.json'),'95',head],{encoding:'utf8'})};
+test('accepts reviewed exact-SHA evidence with both viewports and Forge captures',()=>assert.match(run(valid),/PASS/));
+test('a new PR commit invalidates old evidence',()=>assert.throws(()=>run(valid,'c'.repeat(40)),/commit differs/));
+test('missing portrait or Forge capture blocks certification',()=>{const changed=structuredClone(valid);delete changed.views.portrait.authenticatedForge;assert.throws(()=>run(changed),/capture missing/)});
+test('tampered screenshot blocks certification',()=>{const changed=structuredClone(valid);changed.views.desktop.golden.sha256='f'.repeat(64);assert.throws(()=>run(changed),/hash mismatch/)});
+test('mismatched preview identity blocks certification',()=>{const changed=structuredClone(valid);changed.build.commit='c'.repeat(40);assert.throws(()=>run(changed),/preview build identity/)});

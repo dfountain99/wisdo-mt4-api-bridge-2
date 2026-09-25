@@ -25,6 +25,21 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm run audit:secrets
+
+      # PR #96 is the bootstrap Aether lab and intentionally certifies the
+      # frozen World Composition V2 target in PR #95. Other PRs certify their
+      # own head once the lab infrastructure is on main.
+      - run: node scripts/buildWorldLab.mjs
+        if: github.event_name == 'pull_request'
+        env:
+          WORLD_LAB_PR: ${{ github.event.pull_request.number == 96 && 95 || github.event.pull_request.number }}
+          WORLD_LAB_TARGET_SHA: ${{ github.event.pull_request.number == 96 && 'e3387fe44f09f9d41c25840bf53eb730e3051eac' || github.event.pull_request.head.sha }}
+
+      - run: node --input-type=module -e "import {readFileSync} from 'node:fs'; import {createHash} from 'node:crypto'; const m=JSON.parse(readFileSync('.world-lab-dist/build.json')); const fixture=readFileSync('.world-lab-dist/app/world/fixtures/golden-world.json'); if(m.commit!==process.env.WORLD_LAB_TARGET_SHA || m.manifestHash!==createHash('sha256').update(fixture).digest('hex')) process.exit(1)"
+        if: github.event_name == 'pull_request'
+        env:
+          WORLD_LAB_TARGET_SHA: ${{ github.event.pull_request.number == 96 && 'e3387fe44f09f9d41c25840bf53eb730e3051eac' || github.event.pull_request.head.sha }}
+
       - run: npm run lint
       - run: npm run test:security
       - run: npm run test:unit
