@@ -118,9 +118,9 @@ test('World account selection delegates to existing authorized selection service
   assert.equal(selected.isPrimary, true);
 });
 
-test('World catalog declares Smart Home-first architecture and no execution shortcut', () => {
+test('World catalog declares Aether universe architecture and no execution shortcut', () => {
   const catalog = worldCatalog();
-  assert.equal(catalog.architecture, 'persistent-smart-home-civilization');
+  assert.equal(catalog.architecture, 'aether-universe-platform');
   assert.equal(catalog.defaultSpawn, 'home');
   assert.equal(catalog.executionFromWorldEnabled, false);
   assert.ok(catalog.homeRooms.some((room) => room.id === 'trading-room'));
