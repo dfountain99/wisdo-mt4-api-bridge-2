@@ -104,10 +104,10 @@ function createNightSky(THREE, scene, root, quality, disposables) {
       side: THREE.BackSide,
       depthWrite: false,
       uniforms: {
-        zenith: { value: new THREE.Color(0x02030c) },
-        upper: { value: new THREE.Color(0x09142c) },
-        horizon: { value: new THREE.Color(0x15102e) },
-        city: { value: new THREE.Color(0x08324b) },
+        zenith: { value: new THREE.Color(0x10233f) },
+        upper: { value: new THREE.Color(0x1b3a5d) },
+        horizon: { value: new THREE.Color(0x355471) },
+        city: { value: new THREE.Color(0x54748a) },
       },
       vertexShader: 'varying float vY; void main(){vY=normalize(position).y;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
       fragmentShader: 'varying float vY; uniform vec3 zenith; uniform vec3 upper; uniform vec3 horizon; uniform vec3 city; void main(){float h=clamp(vY*.5+.5,0.0,1.0);vec3 c=mix(city,horizon,smoothstep(.35,.5,h));c=mix(c,upper,smoothstep(.48,.72,h));c=mix(c,zenith,smoothstep(.7,1.0,h));gl_FragColor=vec4(c,1.0);}',
@@ -295,12 +295,10 @@ function createHeroArchitecture(THREE, root, quality, disposables) {
 }
 
 function createHolograms(THREE, root, quality, disposables) {
-  const signs = [
-    { lines: ['WISDO', 'ARCADE WORLD', 'TRADE · EXPLORE · PLAY · LIVE'], position: [38, 17, 15.7], scale: [13, 6] },
-    { lines: ['SAME MARKETS', 'A BIGGER WORLD', 'CONNECT · COPY · CONTROL'], position: [0, 6.8, 30.2], scale: [9, 4.2] },
-    { lines: ['REAL ACCOUNTS', 'REAL OPPORTUNITY', 'WORLD ONLINE'], position: [-28, 8.4, -22], scale: [7.5, 3.5] },
+  // Keep one architectural identifier. Destination names remain on façades and in the map.
+  const signs = quality === 'low' ? [] : [
+    { lines: ['WISDO', 'CITY HUB', 'CONNECT · COPY · CONTROL'], position: [38, 17, 15.7], scale: [10, 4.6] },
   ];
-  if (quality !== 'low') signs.push({ lines: ['TRADE', 'EARN · BUILD', 'BELONG'], position: [-58, 8.4, 62], scale: [7.2, 3.6] });
   const sprites = [];
   for (const [index, row] of signs.entries()) {
     const texture = addDisposable(disposables, makeTextTexture(THREE, row.lines, { accent: index % 2 ? '#dfbb64' : '#6fe9ff' }));
@@ -507,13 +505,13 @@ function retuneExistingLights(THREE, scene) {
   for (const object of scene.children) {
     if (object.isHemisphereLight) {
       previous.push({ object, intensity: object.intensity, color: object.color.clone(), groundColor: object.groundColor?.clone?.() });
-      object.intensity = .34;
-      object.color.set(0x4e6e9b);
-      object.groundColor?.set?.(0x08070d);
+      object.intensity = 1.25;
+      object.color.set(0xa9c8e8);
+      object.groundColor?.set?.(0x34465c);
     } else if (object.isDirectionalLight) {
       previous.push({ object, intensity: object.intensity, color: object.color.clone() });
-      object.intensity = object.castShadow ? .72 : .18;
-      object.color.set(object.castShadow ? 0x7c8ec5 : 0x375a89);
+      object.intensity = object.castShadow ? 1.65 : .65;
+      object.color.set(object.castShadow ? 0xc1d9f4 : 0x90b8dd);
     }
   }
   return () => {
@@ -538,20 +536,20 @@ export function installCinematicWorldLayer({ THREE, scene, camera, renderer, qua
   const previousClearColor = renderer.getClearColor?.(new THREE.Color())?.clone?.() || null;
   const previousClearAlpha = renderer.getClearAlpha?.() ?? 1;
 
-  scene.background = new THREE.Color(0x02050d);
-  scene.fog = new THREE.FogExp2(0x07101e, safeQuality === 'low' ? .0061 : safeQuality === 'medium' ? .0047 : .0041);
+  scene.background = new THREE.Color(0x1b3552);
+  scene.fog = new THREE.FogExp2(0x304862, safeQuality === 'low' ? .0046 : safeQuality === 'medium' ? .0038 : .0034);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = safeQuality === 'low' ? .92 : .84;
-  renderer.setClearColor?.(0x02050d, 1);
+  renderer.toneMappingExposure = safeQuality === 'low' ? 1.3 : 1.18;
+  renderer.setClearColor?.(0x1b3552, 1);
 
   const restoreSky = createNightSky(THREE, scene, root, safeQuality, disposables);
   const restoreLights = retuneExistingLights(THREE, scene);
   const groundShade = new THREE.Mesh(addDisposable(disposables, new THREE.PlaneGeometry(250, 250)), addDisposable(disposables, new THREE.MeshStandardMaterial({
-    color: 0x02050a,
+    color: 0x152539,
     roughness: .93,
     metalness: .02,
     transparent: true,
-    opacity: safeQuality === 'low' ? .42 : .55,
+    opacity: safeQuality === 'low' ? .18 : .24,
     depthWrite: false,
   })));
   groundShade.rotation.x = -Math.PI / 2;

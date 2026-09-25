@@ -48,22 +48,30 @@ function facadeBuilding(THREE,root,mat,{id,name,position,size,style='cool',colli
   addWindowGrid(THREE,group,mat,{width:w,height:h,depth:d,position:[x,0,z],floors:clamp(Math.floor(h/3.4),3,14),cols:clamp(Math.floor(w/3.6),3,9),front:entranceFront});
   const entranceZ=z+entranceFront*(d/2+.28);group.add(box(THREE,[Math.min(6,w*.38),4.3,.45],[x,2.15,entranceZ],mat.glass,{cast:true,receive:true}));
   const canopy=box(THREE,[Math.min(9,w*.62),.28,3.4],[x,4.55,entranceZ-entranceFront*1.25],mat.blackMetal,{cast:true,receive:true});group.add(canopy);
+  const frame=style==='warm'?mat.emissiveGold:mat.brushedMetal;
+  for(const edge of [-1,1]){
+    group.add(box(THREE,[.28,h*.82,.34],[x+edge*w*.46,h*.51,entranceZ],frame,{cast:false,receive:false}));
+    group.add(box(THREE,[w*.16,.28,1.8],[x+edge*w*.34,4.95,entranceZ+entranceFront*.5],mat.roof,{cast:false,receive:false}));
+  }
+  group.add(box(THREE,[w*.88,.2,.38],[x,h*.86,entranceZ],style==='warm'?mat.emissiveGold:mat.emissiveCyan,{cast:false,receive:false}));
   const crown=box(THREE,[w*.72,1.2,d*.7],[x,h+.6,z],mat.roof,{cast:true,receive:true});group.add(crown);
   for(const ox of [-w*.3,w*.3])group.add(box(THREE,[w*.12,1.1,d*.18],[x+ox,h+1.45,z],mat.brushedMetal,{cast:true,receive:true}));
-  const s=sign(THREE,String(name||id).toUpperCase(),'WISDO WORLD',[Math.min(11,w*.72),2.1]);s.position.set(x,Math.min(h-1,7.8),entranceZ+entranceFront*.25);s.rotation.y=entranceFront<0?Math.PI:0;group.add(s);
+  if(!id.startsWith('market-block-')){const s=sign(THREE,String(name||id).toUpperCase(),'WISDO WORLD',[Math.min(11,w*.72),2.1]);s.position.set(x,Math.min(h-1,7.8),entranceZ+entranceFront*.25);s.rotation.y=entranceFront<0?Math.PI:0;group.add(s);}
   return group;
 }
 
 function buildWisdoCentral(THREE,root,mat,colliders,occluders){
   const group=new THREE.Group();group.name='WISDOCentralHeadquarters';root.add(group);const x=38,z=-1;
   const podium=box(THREE,[44,7,31],[x,3.5,z],mat.stone,{cast:true,receive:true});group.add(podium);addCollider(THREE,podium,colliders,.12);occluders.push(podium);
-  const tower=box(THREE,[31,28,23],[x,20,z],mat.glass,{cast:true,receive:true});group.add(tower);addCollider(THREE,tower,colliders,.04);occluders.push(tower);
-  for(let y=9;y<34;y+=3.2)group.add(box(THREE,[31.4,.12,23.4],[x,y,z],(Math.round(y)%4===0)?mat.emissiveGold:mat.blackMetal,{cast:false,receive:false}));
-  for(const ox of [-12.5,12.5])group.add(box(THREE,[.45,25,23.7],[x+ox,20,z],mat.gold,{cast:false,receive:false}));
+  const tower=box(THREE,[31,72,23],[x,43,z],mat.glass,{cast:true,receive:true,name:'WISDOCityHeroTower'});group.add(tower);addCollider(THREE,tower,colliders,.04);occluders.push(tower);
+  for(let y=9;y<78;y+=3.2)group.add(box(THREE,[31.4,.12,23.4],[x,y,z],Math.round(y)%3===0?mat.emissiveGold:mat.blackMetal,{cast:false,receive:false}));
+  for(const ox of [-12.5,12.5])group.add(box(THREE,[.45,69,23.7],[x+ox,43,z],mat.gold,{cast:false,receive:false}));
+  for(let y=13;y<77;y+=6.4)for(const ox of [-8,0,8])group.add(box(THREE,[4.3,2.1,.12],[x+ox,y,z+11.64],(y+ox)%3?mat.windowWarm:mat.windowCool,{cast:false,receive:false}));
   const entrance=box(THREE,[11,5,.5],[x,2.5,z+15.78],mat.glassWarm,{cast:true,receive:true});group.add(entrance);
   const canopy=box(THREE,[19,.35,5],[x,5.1,z+13.3],mat.blackMetal,{cast:true,receive:true});group.add(canopy);
-  const rooftop=box(THREE,[16,4,12],[x,36,z],mat.blackMetal,{cast:true,receive:true});group.add(rooftop);
-  const blade=box(THREE,[.8,12,4],[x,44,z],mat.emissiveCyan,{cast:true,receive:false});group.add(blade);
+  const rooftop=box(THREE,[20,6,15],[x,82,z],mat.blackMetal,{cast:true,receive:true});group.add(rooftop);
+  for(const ox of [-8,8])group.add(box(THREE,[.7,12,1],[x+ox,90,z],mat.emissiveGold,{cast:false,receive:false}));
+  const blade=box(THREE,[1.2,24,4],[x,96,z],mat.emissiveCyan,{cast:true,receive:false});group.add(blade);
   const s=sign(THREE,'WISDO','CONNECT · COPY · CONTROL',[15,3]);s.position.set(x,10,z+15.9);group.add(s);
   return group;
 }
@@ -115,8 +123,8 @@ function buildProps(THREE,root,mat,quality){
   for(const [x,z] of [[-26,18],[26,18],[-26,56],[26,56],[-13,-32],[13,-32]]){propRoot.add(box(THREE,[3.5,.18,.72],[x,.55,z],mat.blackMetal,{cast:true,receive:true}));propRoot.add(box(THREE,[3.5,.9,.15],[x,1.02,z+.3],mat.blackMetal,{cast:true,receive:true}));}
   for(const [x,z] of [[-24,4],[24,4],[-24,36],[24,36],[-70,18],[-46,18]]){propRoot.add(cylinder(THREE,[.42,.5,.82,12],[x,.41,z],mat.concreteDark,{cast:true,receive:true}));}
   for(let z=-30;z<78;z+=8)for(const x of [-14.7,14.7])propRoot.add(cylinder(THREE,[.13,.16,.82,8],[x,.41,z],mat.gold,{cast:true,receive:true}));
-  const count=quality==='low'?24:quality==='medium'?42:64;const trunkGeo=new THREE.CylinderGeometry(.18,.26,3.1,8);const crownGeo=new THREE.IcosahedronGeometry(1.5,1);const trunks=new THREE.InstancedMesh(trunkGeo,mat.trunk,count);const crowns=new THREE.InstancedMesh(crownGeo,mat.foliage,count);const dummy=new THREE.Object3D();
-  for(let i=0;i<count;i+=1){const side=i%4;let x,z;if(side<2){x=side===0?-30:30;z=-95+(i/count)*190;}else{x=-104+(i/count)*208;z=side===2?-28:48;}const s=.85+((i*17)%13)/50;dummy.position.set(x,1.55,z);dummy.scale.set(s,s,s);dummy.rotation.y=(i*.61)%Math.PI;dummy.updateMatrix();trunks.setMatrixAt(i,dummy.matrix);dummy.position.set(x,4.3*s,z);dummy.scale.set(1.1*s,1.25*s,1.1*s);dummy.rotation.y=(i*.37)%Math.PI;dummy.updateMatrix();crowns.setMatrixAt(i,dummy.matrix);}trunks.castShadow=quality!=='low';trunks.receiveShadow=true;crowns.castShadow=quality==='high';crowns.receiveShadow=true;propRoot.add(trunks,crowns);
+  const count=quality==='low'?24:quality==='medium'?42:64;const trunkGeo=new THREE.CylinderGeometry(.18,.26,3.1,8);const crownGeo=new THREE.SphereGeometry(1,quality==='low'?7:10,quality==='low'?5:7);const trunks=new THREE.InstancedMesh(trunkGeo,mat.trunk,count);trunks.name='WisdoCityTreeTrunks';const crowns=[mat.foliage,mat.foliageLight,mat.foliage].map((material,j)=>{const mesh=new THREE.InstancedMesh(crownGeo,material,count);mesh.name=`WisdoCityCanopyLayer-${j}`;mesh.castShadow=quality==='high';mesh.receiveShadow=true;return mesh});const dummy=new THREE.Object3D();
+  for(let i=0;i<count;i+=1){const side=i%4;let x,z;if(side<2){x=side===0?-30:30;z=-95+(i/count)*190;}else{x=-104+(i/count)*208;z=side===2?-28:48;}const s=.85+((i*17)%13)/50;dummy.position.set(x,1.55*s,z);dummy.scale.set(s,s,s);dummy.rotation.y=(i*.61)%Math.PI;dummy.updateMatrix();trunks.setMatrixAt(i,dummy.matrix);for(let j=0;j<3;j+=1){const sway=j===0?0:j===1?-1:1;dummy.position.set(x+sway*.7*s,(4.05+(j===0?.8:-.1))*s,z+(j===1?.45:-.25)*s);dummy.scale.set((j===0?1.65:1.12)*s,(j===0?1.34:1.04)*s,(j===0?1.55:1.15)*s);dummy.rotation.y=(i*.37+j*.8)%Math.PI;dummy.updateMatrix();crowns[j].setMatrixAt(i,dummy.matrix)}}trunks.castShadow=quality!=='low';trunks.receiveShadow=true;propRoot.add(trunks,...crowns);
   return propRoot;
 }
 
