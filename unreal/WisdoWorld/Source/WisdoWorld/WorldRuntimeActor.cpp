@@ -88,7 +88,7 @@ void AWorldRuntimeActor::Mountains(const TSharedPtr<FJsonObject>& Data)
     {
         const float H = float(Height * 100 * (0.65 + (I%3)*0.16));
         Shape(TEXT("/Engine/BasicShapes/Cone.Cone"), P+FVector((I-3.5)*Width*100/8,((I%2)-0.5)*Depth*50,H/2),
-              FVector(FMath::Min(Width/6,130.0),FMath::Min(Width/6,130.0),H/100), FLinearColor(0.28,0.32,0.36));
+              FVector(FMath::Min(Width/7,300.0),FMath::Min(Width/7,300.0),H/100), FLinearColor(0.28,0.32,0.36));
     }
 }
 void AWorldRuntimeActor::Water(const TSharedPtr<FJsonObject>& Data)

@@ -198,8 +198,8 @@
     {
       "type": "CREATE_MOUNTAIN_RANGE",
       "payload": {
-        "radius": 360,
-        "height": 120,
+        "radius": 1000,
+        "height": 160,
         "position": {
           "x": 0,
           "y": 0,
@@ -211,9 +211,9 @@
           "z": 0
         },
         "dimensions": {
-          "x": 720,
-          "y": 120,
-          "z": 250
+          "x": 2000,
+          "y": 160,
+          "z": 350
         }
       },
       "id": "op_004",
@@ -236,9 +236,9 @@
         "z": 1
       },
       "dimensions": {
-        "x": 720,
-        "y": 120,
-        "z": 250
+        "x": 2000,
+        "y": 160,
+        "z": 350
       },
       "renderStatus": "planned",
       "semanticAsset": "terrain.mountain.range.aurelia_prime",
@@ -367,7 +367,7 @@
       "type": "CREATE_TOWER",
       "payload": {
         "name": "Central Tower",
-        "height": 180,
+        "height": 420,
         "position": {
           "x": 0,
           "y": 0,
@@ -379,9 +379,9 @@
           "z": 0
         },
         "dimensions": {
-          "x": 70,
-          "y": 180,
-          "z": 70
+          "x": 90,
+          "y": 420,
+          "z": 90
         }
       },
       "id": "op_007",
@@ -404,9 +404,9 @@
         "z": 1
       },
       "dimensions": {
-        "x": 70,
-        "y": 180,
-        "z": 70
+        "x": 90,
+        "y": 420,
+        "z": 90
       },
       "renderStatus": "planned",
       "semanticAsset": "architecture.tower.hero.aurelia_prime",
@@ -1269,7 +1269,7 @@
       },
       "target": {
         "x": 0,
-        "y": 95,
+        "y": 210,
         "z": 0
       }
     },
