@@ -1,5 +1,5 @@
 import { enrichWorldFidelity } from './worldFidelityService.js';
-import { planWorldOperations, validateWorldPlan } from './worldSpatialPlanner.js';
+import { planWorldOperations, validateWorldPlan, WORLD_SCALE } from './worldSpatialPlanner.js';
 const cap=(s,n=120)=>String(s||'').trim().slice(0,n);
 const has=(p,...words)=>words.some(w=>p.includes(w));
 const idea=(label,category)=>({label,category});
@@ -24,5 +24,5 @@ export function compileHolographicPreview(prompt,context={}){
  const fidelity=enrichWorldFidelity({prompt,operations:planned},context.worldName||'');
  const operations=fidelity.operations;
  const truth=validateWorldPlan(operations,ideas);
- return {schema:'wisdo-holographic-preview-v1',prompt:cap(prompt,1200),ideas,operations,truth,themeIdentity:fidelity.theme,seed:fidelity.seed,assetCatalog:fidelity.assetCatalog,fidelityVersion:3,world:{width:2400,depth:2400,unit:'meter',origin:{x:0,y:0,z:0}},context:{scale:context.scale||'planet',selectedObjectId:context.selectedObjectId||null},state:'proposed'};
+ return {schema:'wisdo-holographic-preview-v1',prompt:cap(prompt,1200),ideas,operations,truth,themeIdentity:fidelity.theme,seed:fidelity.seed,assetCatalog:fidelity.assetCatalog,fidelityVersion:fidelity.fidelityVersion,world:{width:2400,depth:2400,unit:'meter',origin:{x:0,y:0,z:0}},worldScale:WORLD_SCALE,context:{scale:context.scale||'planet',selectedObjectId:context.selectedObjectId||null},state:'proposed'};
 }

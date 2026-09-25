@@ -34,6 +34,6 @@ test('approved Aurelia Prime produces a pending truth report, then records Babyl
   assert.equal((await req('/api/world/personal')).data.world.forgeStatus,'incomplete');
   const accepted=await req('/api/world/personal/visual-report','POST',visual);
   assert.equal(accepted.status,200);assert.equal(accepted.data.truthReport.status,'PASS');
-  assert.equal((await req('/api/world/personal')).data.world.forgeStatus,'complete');
+  assert.equal((await req('/api/world/personal')).data.world.forgeStatus,'composition_pending');
  }finally{server.close();if(previous===undefined)delete process.env.WISDO_ALLOW_TEST_IDENTITY;else process.env.WISDO_ALLOW_TEST_IDENTITY=previous}
 });

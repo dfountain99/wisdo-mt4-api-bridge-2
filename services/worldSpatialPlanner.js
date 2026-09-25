@@ -1,21 +1,22 @@
 // Manifest coordinates are meters: x east, y up, z south. Babylon uses them
 // directly; Unreal maps (x,z,y) to centimeters.
 export const WORLD_METERS = 2400;
+export const WORLD_SCALE = Object.freeze({unit:'meter',playerHeight:1.8,landWidth:2400,oceanWidth:3600,mountainPeak:360,towerHeight:420,cityBuildingHeight:65,portalHeight:48,forestTreeHeight:8,roadWidth:10});
 const finite = n => typeof n === 'number' && Number.isFinite(n);
 const bounds = {center:{x:0,z:0},north:{x:0,z:-850},south:{x:0,z:850},east:{x:850,z:0},west:{x:-850,z:0},perimeter:{x:0,z:-1050},coastline:{x:0,z:0},wilderness:{x:-550,z:-450}};
 const definitions = {
- CREATE_LANDMASS:['TERRAIN','center',{x:0,y:0,z:0},{x:2400,y:1.5,z:2400}],
- CREATE_OCEAN:['OCEAN','coastline',{x:0,y:-1.7,z:0},{x:2800,y:.15,z:2800}],
+ CREATE_LANDMASS:['TERRAIN','center',{x:0,y:0,z:0},{x:WORLD_SCALE.landWidth,y:1.5,z:WORLD_SCALE.landWidth}],
+ CREATE_OCEAN:['OCEAN','coastline',{x:0,y:-1.7,z:0},{x:WORLD_SCALE.oceanWidth,y:.15,z:WORLD_SCALE.oceanWidth}],
  CREATE_RIVER:['RIVER','east',{x:650,y:-.1,z:0},{x:15,y:.15,z:1000}],
- CREATE_MOUNTAIN_RANGE:['MOUNTAINS','north',{x:0,y:0,z:-850},{x:2000,y:160,z:350}],
+ CREATE_MOUNTAIN_RANGE:['MOUNTAINS','perimeter',{x:0,y:0,z:0},{x:2300,y:WORLD_SCALE.mountainPeak,z:2300}],
  CREATE_FOREST:['FOREST','wilderness',{x:-550,y:0,z:-450},{x:360,y:8,z:300}],
  CREATE_CASTLE:['KINGDOM','west',{x:-400,y:0,z:100},{x:90,y:80,z:90}],
- CREATE_CITY_ZONE:['CITY','center',{x:280,y:0,z:150},{x:320,y:40,z:300}],
- CREATE_TOWER:['TOWER','center',{x:0,y:0,z:0},{x:90,y:420,z:90}],
+ CREATE_CITY_ZONE:['CITY','center',{x:0,y:0,z:80},{x:760,y:WORLD_SCALE.cityBuildingHeight,z:660}],
+ CREATE_TOWER:['TOWER','center',{x:0,y:0,z:0},{x:90,y:WORLD_SCALE.towerHeight,z:90}],
  CREATE_HOME:['HOME','south',{x:-240,y:0,z:420},{x:45,y:22,z:45}],
  CREATE_CRAFTING_LAB:['CRAFTING LAB','south',{x:250,y:0,z:420},{x:55,y:25,z:55}],
- CREATE_PORTAL:['PORTAL','east',{x:530,y:0,z:200},{x:35,y:48,z:8}],
- CREATE_ROAD:['ROAD','center',{x:0,y:.04,z:0},{x:10,y:.08,z:100}],
+ CREATE_PORTAL:['PORTAL','center',{x:180,y:0,z:120},{x:35,y:WORLD_SCALE.portalHeight,z:8}],
+ CREATE_ROAD:['ROAD','center',{x:0,y:.04,z:0},{x:WORLD_SCALE.roadWidth,y:.08,z:100}],
  CREATE_SPACE_BODY:['ASTRONOMY','north',{x:450,y:350,z:-650},{x:80,y:80,z:80}],
 };
 const nonSpatial = {SET_THEME:'FUTURE',PREVIEW_MODULE:'FPS'};
@@ -49,10 +50,12 @@ export function validateWorldPlan(operations,ideas=[]) {
  }
  for(const idea of ideas){if(!operations.some(op=>op.concept===idea.label||nonSpatial[op.type]===idea.label))errors.push({concept:idea.label,code:'REQUESTED_CONCEPT_MISSING'});}
  if(!types.has('CREATE_LANDMASS'))errors.push({code:'TERRAIN_MISSING'});
- const structures=operations.filter(o=>/CREATE_(CASTLE|CITY_ZONE|TOWER|HOME|CRAFTING_LAB|PORTAL)/.test(o.type));
+ // A city zone describes a district containing the hero tower and streets;
+ // it is not a solid structure whose footprint must exclude other buildings.
+ const structures=operations.filter(o=>/CREATE_(CASTLE|TOWER|HOME|CRAFTING_LAB|PORTAL)/.test(o.type));
  for(let i=0;i<structures.length;i++)for(let j=i+1;j<structures.length;j++){
   const a=structures[i],b=structures[j];if(Math.abs(a.position.x-b.position.x)<(a.dimensions.x+b.dimensions.x)/2+5&&Math.abs(a.position.z-b.position.z)<(a.dimensions.z+b.dimensions.z)/2+5)errors.push({operationId:b.id,code:'STRUCTURE_OVERLAP',with:a.id});
  }
  return {schema:'wisdo-forge-truth-v2',requested:ideas.map(i=>i.label),generated:operations.map(o=>({id:o.id,concept:o.concept||nonSpatial[o.type]||null,type:o.type,status:errors.some(e=>e.operationId===o.id)?'invalid':'planned'})),errors,valid:errors.length===0};
 }
-export function validateWorldManifest(manifest){const report=validateWorldPlan(manifest.operations||[],manifest.intent?.ideas||[]);const spawn=manifest.spawn;if(!spawn||!['x','y','z'].every(k=>finite(spawn[k]))||spawn.y<1||Math.abs(spawn.x)>WORLD_METERS/2-20||Math.abs(spawn.z)>WORLD_METERS/2-20)report.errors.push({code:'INVALID_SPAWN'});for(const op of manifest.operations||[]){if(!/CREATE_(CASTLE|CITY_ZONE|TOWER|HOME|CRAFTING_LAB|PORTAL)/.test(op.type)||!op.position||!op.dimensions||!spawn)continue;if(Math.abs(spawn.x-op.position.x)<op.dimensions.x/2+1&&Math.abs(spawn.z-op.position.z)<op.dimensions.z/2+1)report.errors.push({operationId:op.id,code:'SPAWN_INTERSECTS_STRUCTURE'});}report.valid=report.errors.length===0;return report}
+export function validateWorldManifest(manifest){const report=validateWorldPlan(manifest.operations||[],manifest.intent?.ideas||[]);const spawn=manifest.spawn;if(!spawn||!['x','y','z'].every(k=>finite(spawn[k]))||spawn.y<1||Math.abs(spawn.x)>WORLD_METERS/2-20||Math.abs(spawn.z)>WORLD_METERS/2-20)report.errors.push({code:'INVALID_SPAWN'});for(const op of manifest.operations||[]){if(!/CREATE_(CASTLE|TOWER|HOME|CRAFTING_LAB|PORTAL)/.test(op.type)||!op.position||!op.dimensions||!spawn)continue;if(Math.abs(spawn.x-op.position.x)<op.dimensions.x/2+1&&Math.abs(spawn.z-op.position.z)<op.dimensions.z/2+1)report.errors.push({operationId:op.id,code:'SPAWN_INTERSECTS_STRUCTURE'});}report.valid=report.errors.length===0;return report}

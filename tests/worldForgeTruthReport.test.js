@@ -17,7 +17,7 @@ test('structural truth cannot invent visible or executed operations',()=>{
 test('Babylon observation is pinned to exact operation IDs, revision, bounds and camera',()=>{
  const w=world(),structural=buildForgeTruthReport(w),operations=w.forgeOperations.filter(o=>o.type.startsWith('CREATE_')).map(o=>({id:o.id,type:o.type,meshCount:1,visible:true,inCamera:true,bounds:{min:{x:o.position.x-1,y:o.position.y,z:o.position.z-1},max:{x:o.position.x+1,y:o.position.y+1,z:o.position.z+1}}}));
  const observation={worldId:w.worldId,manifestVersion:w.revision,operations,cameraFraming:true,worldBounds:{min:{x:-1400,y:-2,z:-1400},max:{x:1400,y:180,z:1400}}};
- const pass=applyBabylonObservation(structuredClone(structural),w,observation);assert.equal(pass.status,'PASS');assert.equal(pass.visible,operations.length);assert.equal(pass.forgeStatus,'complete');
+ const pass=applyBabylonObservation(structuredClone(structural),w,observation);assert.equal(pass.status,'PASS');assert.equal(pass.visible,operations.length);assert.equal(pass.forgeStatus,'composition_pending');assert.equal(pass.babylonCertification,'PENDING');
  assert.equal(applyBabylonObservation(structuredClone(structural),w,{...observation,operations:operations.map((o,i)=>i?o:{...o,visible:false})}).status,'FAIL');
  assert.throws(()=>applyBabylonObservation(structuredClone(structural),w,{...observation,manifestVersion:8}),/version_mismatch/);
  assert.throws(()=>applyBabylonObservation(structuredClone(structural),w,{...observation,operations:operations.slice(1)}),/operation_set_mismatch/);

@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {compileHolographicPreview} from '../services/holographicBlueprintService.js';
 import {validateWorldManifest,validateWorldPlan} from '../services/worldSpatialPlanner.js';
+import {evaluateWorldComposition} from '../services/worldCompositionService.js';
 const prompt='Aurelia Prime futuristic island kingdom with mountains, water, forest, city, tower and portal';
 test('Aurelia Prime plans distinct regions, dimensions and stable IDs',()=>{
  const preview=compileHolographicPreview(prompt);assert.equal(preview.truth.valid,true);
  assert.equal(preview.world.width,2400);assert.equal(new Set(preview.operations.map(o=>o.id)).size,preview.operations.length);
  for(const op of preview.operations.filter(o=>o.type.startsWith('CREATE_'))){assert.ok(op.region);assert.ok(op.dimensions.x>0);assert.deepEqual(op.position,op.payload.position)}
  const byType=Object.fromEntries(preview.operations.map(o=>[o.type,o]));
- assert.ok(byType.CREATE_MOUNTAIN_RANGE.position.z<0);assert.ok(byType.CREATE_FOREST.position.x<0);assert.deepEqual(byType.CREATE_TOWER.position,{x:0,y:0,z:0});assert.ok(byType.CREATE_PORTAL.position.x>0);
+ assert.equal(byType.CREATE_MOUNTAIN_RANGE.region,'perimeter');assert.ok(byType.CREATE_MOUNTAIN_RANGE.dimensions.x>2000);assert.ok(byType.CREATE_FOREST.position.x<0);assert.deepEqual(byType.CREATE_TOWER.position,{x:0,y:0,z:0});assert.ok(byType.CREATE_PORTAL.position.x>0);
  assert.equal(validateWorldManifest({operations:preview.operations,intent:{ideas:preview.ideas},spawn:{x:0,y:1.8,z:600}}).valid,true);
 });
 test('Forge truth rejects omitted concepts, overlap, invalid scale, and spawn',()=>{
@@ -26,4 +27,12 @@ test('golden fixture is a shared spatial contract',()=>{
  assert.equal(validateWorldManifest(fixture).valid,true);
  const ue=fs.readFileSync('unreal/WisdoWorld/Source/WisdoWorld/WorldRuntimeActor.cpp','utf8');
  for(const phrase of ['Dimension(Data,TEXT("x")','Position(Data','Operation.Id'])assert.ok(ue.includes(phrase));
+});
+test('Aurelia composition checks relationships without pretending pixels were certified',()=>{
+ const fixture=JSON.parse(fs.readFileSync('public/app/world/fixtures/golden-world.json'));
+ const report=evaluateWorldComposition(fixture);assert.equal(report.status,'STRUCTURAL_PASS_VISUAL_PENDING');assert.equal(report.passed,report.total);
+ const misplaced=structuredClone(fixture);misplaced.operations.find(o=>o.type==='CREATE_TOWER').position.x=900;
+ const broken=evaluateWorldComposition(misplaced);assert.equal(broken.status,'FAIL');assert.equal(broken.checks.towerCentrality,false);assert.equal(broken.checks.cityAroundTower,false);
+ const dry=structuredClone(fixture);dry.operations.find(o=>o.type==='CREATE_OCEAN').dimensions.x=1000;
+ assert.equal(evaluateWorldComposition(dry).checks.oceanSurroundsIsland,false);
 });
