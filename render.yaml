@@ -403,3 +403,14 @@ services:
         sync: false
       - key: DISCORD_CONNECTION_CHANNEL_ID
         sync: false
+  - type: web
+    name: wisdo-world-lab
+    runtime: static
+    buildCommand: node scripts/buildWorldLab.mjs
+    staticPublishPath: .world-lab-dist
+    previews:
+      generation: manual
+    headers:
+      - path: /*
+        name: X-Robots-Tag
+        value: noindex, nofollow

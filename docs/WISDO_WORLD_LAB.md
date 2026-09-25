@@ -1,0 +1,9 @@
+# WISDO World Lab — PR golden fixture
+
+The World Lab publishes only the current Aurelia Prime golden manifest, Babylon renderer, coordinate adapter and a build identity page. `node scripts/buildWorldLab.mjs` writes `.world-lab-dist/` with the source commit, branch, manifest version and SHA-256 hash. It does not run the WISDO API, copy `.env` files, read production data, or enable test identity. The static page is **public** and contains no authenticated world.
+
+The `wisdo-world-lab` static service in `render.yaml` requests manual pull request previews. Sync that Blueprint to Render on its linked `main` branch, verify the free static site's build, and enable manual service previews if the dashboard has not picked up the Blueprint setting. On a subsequent world PR, add the `render-preview` label or `[render preview]` to its title. Open **View deployment** on that PR and compare the displayed commit with its head SHA. Render's service preview supplies a separate URL for the PR commit. Do not enable a preview of the existing paid production API service: it can copy production credentials and database settings.
+
+The lab opens the exact `public/app/world/fixtures/golden-world.json` fixture. Use the desktop and portrait controls, then camera stations overview, city, tower, forest, portal and spawn. Save screenshots with commit and manifest hash visible. The observation pane shows Babylon mesh and frustum results; a human must still inspect the pixels, camera framing, recognizability and player scale.
+
+The authenticated Genesis/Forge preview remains a separate Gate 0 requirement. It needs an isolated web service and test authentication with no production secrets, MT4, Discord, payment, or production database access. A public static golden fixture cannot prove that path. Gate 0 remains pending until both the static PR golden world **and** the authenticated Forge preview pass on desktop and mobile, with persisted truth evidence.
