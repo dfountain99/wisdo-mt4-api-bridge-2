@@ -13,6 +13,7 @@ import { createWorldBlueprint, reviseBlueprint, branchBlueprint, simulateBluepri
 import { compileApprovedBlueprint } from '../services/worldCompilerService.js';
 import { compileHolographicPreview } from '../services/holographicBlueprintService.js';
 import { createUnrealWorldManifest } from '../services/unrealWorldManifestService.js';
+import { ensureAetherUniverseState, seedAetherUniverse, setAetherPresence, createAetherExperience, AETHER_DISTRICTS } from '../services/aetherUniverseService.js';
 
 const WORLD_VERSION = '2.0.0-smart-home';
 const HOME_SCHEMA_VERSION = 1;
@@ -114,6 +115,7 @@ function ensureWorldState(state = {}) {
   next.worldDNAByUserId ||= {};
   next.worldDraftsByUserId ||= {};
   next.personalWorldsByUserId ||= {};
+  ensureAetherUniverseState(next);
   return next;
 }
 
@@ -396,7 +398,9 @@ export function worldCatalog() {
   return {
     ok: true,
     version: WORLD_VERSION,
-    architecture: 'persistent-smart-home-civilization',
+    architecture: 'aether-universe-platform',
+    universeSchema: 'aether-universe-v1',
+    districts: AETHER_DISTRICTS,
     defaultSpawn: 'home',
     homeSchemaVersion: HOME_SCHEMA_VERSION,
     homeRooms: HOME_ROOMS,
@@ -442,7 +446,7 @@ export function registerWisdoWorldRoutes(app, {
     ok: true,
     service: 'wisdo-world',
     version: WORLD_VERSION,
-    release: 'genesis-v4-world-foundry',
+    release: 'aether-universe-foundation',
     gitSha: process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || process.env.COMMIT_SHA || null,
     canonicalUrl: '/app/world',
     genesisUrl: '/app/world?scene=genesis',
@@ -458,6 +462,10 @@ export function registerWisdoWorldRoutes(app, {
       next(error);
     }
   };
+
+  app.get('/api/world/universe', requireWorldUser, async (req,res,next)=>{try{const {state}=await ensureMemberContext(repository,req.worldUser);const personal=state.personalWorldsByUserId?.[String(req.worldUser.id)]||null;res.json({ok:true,schema:'aether-universe-v1',...seedAetherUniverse(state,req.worldUser,personal),presence:state.aetherPresenceByUserId?.[String(req.worldUser.id)]||null,experiences:Object.values(state.aetherExperiences||{}).filter(x=>x.ownerUserId===String(req.worldUser.id))})}catch(e){next(e)}});
+  app.post('/api/world/presence', requireWorldUser, async (req,res,next)=>{try{let presence;await repository.updateState(raw=>{const state=ensureWorldState(raw);presence=setAetherPresence(state,req.worldUser,req.body||{});return state});res.json({ok:true,presence})}catch(e){next(e)}});
+  app.post('/api/world/experiences', requireWorldUser, async (req,res,next)=>{try{let experience;await repository.updateState(raw=>{const state=ensureWorldState(raw);experience=createAetherExperience(state,req.worldUser,req.body||{});addWorldAudit(state,req.worldUser.id,'aether.experience.created',{experienceId:experience.experienceId});return state});res.status(201).json({ok:true,experience})}catch(e){next(e)}});
 
   app.get('/api/world/me', requireWorldUser, sendMemberState);
   app.get('/api/world/state', requireWorldUser, sendMemberState);
