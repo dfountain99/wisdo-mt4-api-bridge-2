@@ -144,6 +144,7 @@ function ensureHud() {
     for (const [label, key, waypoint] of rows) {
       const button = document.createElement('button'); button.type = 'button'; button.dataset.activity = key; button.textContent = label;
       button.addEventListener('click', () => {
+        if (key === 'arcade') { window.location.assign('/app/world/experiences/'); return; }
         if (!waypoint) { window.dispatchEvent(new CustomEvent('wisdo:world-toast', { detail: { message: 'Drive framework is staged for the next vehicle pass.' } })); return; }
         window.dispatchEvent(new CustomEvent('wisdo:set-waypoint', { detail: waypoint }));
       });
