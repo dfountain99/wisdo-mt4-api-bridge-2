@@ -23,6 +23,7 @@ function deliveryRetryReady(record) {
 // return a confirmation_required response first, then queue only the real
 // reporter command after the user confirms.
 const DANGEROUS_COMMANDS = new Set([
+  'WISDO_CAMPAIGN',
   'CLOSE_ALL_TRADES',
   'CLOSE_ALL_PROFITS',
   'CLOSE_ALL_WINNERS',
@@ -44,6 +45,7 @@ const DANGEROUS_COMMANDS = new Set([
 ]);
 
 const ACCOUNT_COMMANDS = new Set([
+  'WISDO_CAMPAIGN',
   ...DANGEROUS_COMMANDS,
   'PAUSE_BOT',
   'RESUME_BOT',
