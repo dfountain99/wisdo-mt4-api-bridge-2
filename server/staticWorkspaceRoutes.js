@@ -10,7 +10,6 @@ export const DEFAULT_WISDO_WORKSPACES = Object.freeze([
   { slug: 'intelligence', title: 'Wisdo Intelligence', required: true },
   { slug: 'kernel-control', title: 'Wisdo Kernel Control', required: true },
   { slug: 'voice-studio', title: 'Wisdo Voice Studio', required: true },
-  { slug: 'command-center', title: 'WISDO Command OS', required: true },
   { slug: 'studio', title: 'Wisdo Studio', required: false },
   { slug: 'world', title: 'WISDO World', required: false },
 ]);
