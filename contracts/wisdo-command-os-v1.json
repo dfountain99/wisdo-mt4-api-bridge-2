@@ -1,0 +1,38 @@
+{
+  "version": "1.0",
+  "name": "WISDO Campaign Command OS",
+  "transport": "server-to-MT4 validated intent",
+  "actions": [
+    "OBSERVE", "PREVIEW", "ENTER_IF_VALID", "ARM_SONIC",
+    "EXTEND_LEVELS", "SET_TRAIL_BEHAVIOR", "SET_CAMPAIGN_RAIL",
+    "PAUSE_NEW_ENTRIES", "RESUME_EVALUATION", "SET_FUTURE_GOAL",
+    "PROTECT_CAMPAIGN", "CLOSE_PROFITABLE", "EMERGENCY_PROTECT"
+  ],
+  "target_roles": ["CAMPAIGN", "HOLD", "COLLECTOR", "RUNNER", "SONIC", "SELECTED"],
+  "level_policy": "institutional_only",
+  "trail_behaviors": ["STRUCTURE_KEEPER", "LIQUIDITY_GUARDIAN", "PROFIT_VAULT", "RUNNER_FREEDOM", "CANDLE_GUARD", "CAMPAIGN_RAIL", "REVERSAL_SENTINEL"],
+  "future_goal": {
+    "trigger_types": ["IMMEDIATE", "COMPOUND_TARGET", "WIN", "REVERSAL_CANDLE", "VALID_ENTRY", "TIMER", "CAMPAIGN_END", "RAIL_FAILURE"],
+    "resume_policy": "evaluate_current_ea_logic_before_entry",
+    "safety_priority": ["EMERGENCY", "BROKER_EA_RULES", "ACTIVE_CAMPAIGN_COMMAND", "FUTURE_GOAL", "DEFAULT_STRATEGY"]
+  },
+  "command": {
+    "id": "string",
+    "issued_at": "ISO-8601",
+    "actor": "user|wisdo|system",
+    "action": "string",
+    "target": "string",
+    "level_steps": "integer|null",
+    "trail_behavior": "string|null",
+    "conditions": [],
+    "expires_at": "ISO-8601|null",
+    "requires_confirmation": "boolean",
+    "simulation_only": "boolean"
+  },
+  "ea_result": {
+    "status": "accepted|waiting|rejected|executed|failed",
+    "reason": "string",
+    "broker_confirmed": "boolean",
+    "observed_at": "ISO-8601"
+  }
+}
