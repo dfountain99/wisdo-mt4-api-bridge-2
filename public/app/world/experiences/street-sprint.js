@@ -25,7 +25,7 @@ function makeCar(color,custom={},rival=false){
 }
 
 function buildCity(scene){
-  const asphalt=new THREE.MeshStandardMaterial({color:0x1c3547,roughness:.82}),sidewalk=new THREE.MeshStandardMaterial({color:0x687b84,roughness:.87}),edge=glow(0x31c8e5,.5),land=new THREE.MeshStandardMaterial({color:0x133b33,roughness:1});
+  const asphalt=new THREE.MeshStandardMaterial({color:0x1c3547,roughness:.82}),sidewalk=new THREE.MeshStandardMaterial({color:0x687b84,roughness:.87}),edge=glow(0x31c8e5,.5),land=new THREE.MeshStandardMaterial({color:0x285044,roughness:1});
   box(scene,[470,.2,430],[0,-.24,0],land);
   // Short segments follow the curve with consistent width, including on portrait devices.
   const mark=new THREE.MeshBasicMaterial({color:0xf3cd78});
@@ -33,7 +33,7 @@ function buildCity(scene){
     const p=i/128,q=(i+1)/128,a=place(p),b=place(q),len=a.distanceTo(b),t=tangent((p+q)/2),mid=a.add(b).multiplyScalar(.5);
     const slab=box(scene,[ROAD,.08,len+1],[mid.x,.005,mid.z],asphalt);slab.rotation.y=Math.atan2(t.x,t.z);
     if(i%4===0){const dash=box(scene,[.18,.012,len*.7],[mid.x,.053,mid.z],mark);dash.rotation.y=slab.rotation.y;dash.castShadow=false}
-    if(i%3===0)for(const lane of [-ROAD*.6,ROAD*.6]){const curb=box(scene,[.22,.13,Math.max(2,len+1)],[mid.x+normal((p+q)/2).x*lane,.1,mid.z+normal((p+q)/2).z*lane],sidewalk);curb.rotation.y=Math.atan2(t.x,t.z)}
+    for(const lane of [-ROAD*.55,ROAD*.55]){const n=normal((p+q)/2),curb=box(scene,[.32,.22,len+1],[mid.x+n.x*lane,.14,mid.z+n.z*lane],i%8<2?edge:sidewalk);curb.rotation.y=Math.atan2(t.x,t.z);curb.castShadow=false}
   }
   const glass=new THREE.MeshStandardMaterial({color:0x345f7e,metalness:.48,roughness:.25,emissive:0x0a1f32,emissiveIntensity:.45}),stone=new THREE.MeshStandardMaterial({color:0x445563,roughness:.8}),window=glow(0xf5c872,.7);
   // Fixed, low-cost buildings form the downtown center and outer skyline.
@@ -42,7 +42,15 @@ function buildCity(scene){
     if(Math.abs(Math.hypot(x/RX,z/RZ)-1)<.43)continue;
     const h=11+(i*13)%45,w=8+(i*7)%8,d=8+(i*11)%8;
     box(scene,[w,h,d],[x,h/2-.1,z],i%4===0?glass:stone);
+    box(scene,[w+1,.6,d+1],[x,h+.15,z],i%4===0?window:glass);
     for(let floor=4;floor<h-2;floor+=4)for(const dx of [-w*.24,w*.24])box(scene,[1.2,1.2,.08],[x+dx,floor,z+d/2+.06],i%4===0?window:glass);
+  }
+  // A readable skyline and planted verge make the bounded road feel like a city circuit.
+  const trunk=new THREE.MeshStandardMaterial({color:0x514536,roughness:1}),canopy=new THREE.MeshStandardMaterial({color:0x277768,roughness:.94});
+  for(let i=0;i<42;i++){
+    const p=(i+.35)/42,side=i%2?1:-1,pos=place(p,side*17);
+    box(scene,[.8,3.6,.8],[pos.x,1.8,pos.z],trunk);
+    const crown=new THREE.Mesh(new THREE.IcosahedronGeometry(2.7+(i%3)*.35,1),canopy);crown.position.set(pos.x,5.2,pos.z);scene.add(crown);
   }
   // Landmark, open office tunnel and lit rail sections along the city course.
   const tower=box(scene,[17,82,17],[0,41,0],glass);tower.name='WISDO City Tower';
@@ -84,6 +92,7 @@ function message(text){$('message').textContent=text}
 function display(s){const remaining=Math.max(0,Math.ceil(s.duration-s.elapsed));$('clock').textContent=`${String(Math.floor(remaining/60)).padStart(2,'0')}:${String(remaining%60).padStart(2,'0')}`;$('banked').textContent=s.player.banked;$('carried').textContent=s.player.carried;$('rival').textContent=s.ai.banked;$('bin').textContent=`${s.player.nextCheckpoint+1} / 4`;$('weapon').textContent=s.weapon;$('speed').textContent=Math.round(Math.abs(s.speed)*3.6);$('district').textContent=s.offroad?'SIDEWALK · SLOWDOWN':s.grind?'RAIL GRIND · WEAPON CHARGE':s.shortcut?'OFFICE SPEED TRACK':'DOWNTOWN LOOP'}
 function hit(s,perfect){const next=applyHit(s.player,{perfect});s.player=next;s.hitCooldown=1.7;message(perfect?`PERFECT HIT! ${next.lost} CARRIED COINS SPILLED`:`CONTACT · ${next.lost} CARRIED COINS SPILLED`);s.shake=.65}
 function loop(t){const s=runtime;if(!s||s.stopped)return;s.raf=requestAnimationFrame(loop);if(s.paused){s.last=t;return}const dt=Math.min(.035,Math.max(0,(t-s.last)/1000));s.last=t;s.elapsed+=dt;s.player.cleanSeconds+=dt;s.hitCooldown=Math.max(0,s.hitCooldown-dt);s.jump=Math.max(0,s.jump-dt);s.strikeCooldown=Math.max(0,s.strikeCooldown-dt);s.shake=Math.max(0,s.shake-dt*2);
+  if(keys.has('KeyR')){keys.delete('KeyR');recover(s)}
   const profile=palette[s.options.car],throttle=(keys.has('KeyW')||keys.has('ArrowUp')?1:0)-(keys.has('KeyS')||keys.has('ArrowDown')?1:0),steer=(keys.has('KeyD')||keys.has('ArrowRight')?1:0)-(keys.has('KeyA')||keys.has('ArrowLeft')?1:0);
   const cleanBoost=s.player.cleanSeconds>=12,boost=(keys.has('ShiftLeft')||keys.has('ShiftRight'))&&cleanBoost&&s.speed>5;
   const top=profile.top*(s.offroad?.62:1)*(boost?1.28:1)*(s.shortcut?1.14:1);s.speed=clamp(s.speed+(throttle>0?15:throttle<0?-21:-7*Math.sign(s.speed))*dt,-9,top);
@@ -94,6 +103,8 @@ function loop(t){const s=runtime;if(!s||s.stopped)return;s.raf=requestAnimationF
   const progress=worldProgress(s.position.x,s.position.z);if(s.progress>.88&&progress<.12&&s.speed>0){s.lap++;message('NEW LAP · TRACK COINS RESTORED')}s.progress=progress;
   s.shortcut=progress>.2&&progress<.31&&radius<.93&&radius>.76;
   s.offroad=Math.abs(radius-1)>.115&&!s.shortcut;
+  s.offroadSeconds=s.offroad?s.offroadSeconds+dt:0;
+  if(s.offroadSeconds>4)recover(s);
   const railLane=Math.abs(radius-1)*Math.min(RX,RZ),railSection=[.07,.56].some(p=>Math.abs(progress-p)<.045),onRail=railSection&&railLane>8.7&&railLane<12&&Math.abs(s.speed)>11;s.grind=onRail;
   if(onRail){s.grindTime+=dt;if(s.grindTime>=1.25){s.weapon=Math.min(3,s.weapon+1);s.grindTime=0;message('RAIL GRIND · CAR BOXING CHARGE +1')}}else s.grindTime=0;
   if(keys.has('Space')&&s.jump<=0&&s.jumpCooldown<=0){s.jump=.7;s.jumpCooldown=1.3;const stunt=[.15,.63].some(p=>Math.abs(progress-p)<.04);if(stunt){s.weapon=Math.min(3,s.weapon+1);message('SPECIAL JUMP · CAR BOXING CHARGE +1')}else message('SIDEWALK JUMP')}s.jumpCooldown=Math.max(0,s.jumpCooldown-dt);
@@ -109,11 +120,17 @@ function loop(t){const s=runtime;if(!s||s.stopped)return;s.raf=requestAnimationF
   s.visual.renderer.render(s.visual.scene,s.visual.camera);display(s);if(s.elapsed>=s.duration)endRace(s);
 }
 
+function recover(s){
+  const progress=worldProgress(s.position.x,s.position.z),safe=place(progress);
+  s.position.copy(safe);s.heading=Math.atan2(tangent(progress).x,tangent(progress).z);s.speed=0;s.offroad=false;s.offroadSeconds=0;
+  message('BACK ON TRACK · COINS STILL AT RISK');
+}
+
 function endRace(s){if(s.stopped)return;s.stopped=true;cancelAnimationFrame(s.raf);keys.clear();const order=rankByBanked([{name:'YOU',...s.player},{name:'RIVAL',...s.ai}]);$('overlayEyebrow').textContent='RACE COMPLETE';$('overlayTitle').textContent=order[0].name==='YOU'?'YOU WON THE COIN CIRCUIT':'RIVAL TOOK THE CIRCUIT';$('overlayBody').textContent=`You banked ${s.player.banked} coins at ${s.player.checkpoints} checkpoints. Rival banked ${s.ai.banked}. Unbanked coins do not count. This solo result does not credit your Culture Coin wallet.`;$('resume').textContent='RACE AGAIN';$('resume').onclick=()=>{stop();startRace(s.options)};$('overlay').hidden=false}
 function pause(){const s=runtime;if(!s||s.stopped)return;s.paused=!s.paused;keys.clear();$('overlay').hidden=!s.paused;$('overlayEyebrow').textContent='PAUSED';$('overlayTitle').textContent='Catch your breath';$('overlayBody').textContent='The race clock is stopped. Your carried coins stay at risk when you resume.';$('resume').textContent='RESUME';$('resume').onclick=()=>{s.paused=false;s.last=performance.now();$('overlay').hidden=true}}
 function stop(){if(runtime){runtime.stopped=true;cancelAnimationFrame(runtime.raf);runtime.visual.renderer.dispose();runtime.visual.scene.traverse(o=>{o.geometry?.dispose?.();if(o.material){const mats=Array.isArray(o.material)?o.material:[o.material];mats.forEach(m=>m.dispose?.())}})}runtime=null;keys.clear();$('overlay').hidden=true;$('play').hidden=true}
 function startRace(options){stop();let visual;try{visual=makeScene(options)}catch(error){$('overlay').hidden=false;$('overlayEyebrow').textContent='3D UNAVAILABLE';$('overlayTitle').textContent='Unable to open the race';$('overlayBody').textContent='This device or browser could not start WebGL. '+error.message;$('resume').hidden=true;return}
-  $('garage').hidden=true;$('play').hidden=false;$('resume').hidden=false;const position=at(0);runtime={options,visual,duration:raceDuration(options.minutes),elapsed:0,last:performance.now(),stopped:false,paused:false,raf:0,position,heading:Math.PI/2,speed:0,progress:0,lap:0,offroad:false,shortcut:false,grind:false,grindTime:0,weapon:0,jump:0,jumpCooldown:0,checkpointCooldown:0,hitCooldown:0,strikeCooldown:0,shake:0,player:{carried:0,banked:0,collected:0,checkpoints:0,nextCheckpoint:0,cleanSeconds:0},ai:{position:place(.07),progress:.07,carried:0,banked:0,checkpoints:0,nextCheckpoint:0,collectTimer:0,checkpointCooldown:0}};
+  $('garage').hidden=true;$('play').hidden=false;$('resume').hidden=false;const position=at(0);runtime={options,visual,duration:raceDuration(options.minutes),elapsed:0,last:performance.now(),stopped:false,paused:false,raf:0,position,heading:Math.PI/2,speed:0,progress:0,lap:0,offroad:false,offroadSeconds:0,shortcut:false,grind:false,grindTime:0,weapon:0,jump:0,jumpCooldown:0,checkpointCooldown:0,hitCooldown:0,strikeCooldown:0,shake:0,player:{carried:0,banked:0,collected:0,checkpoints:0,nextCheckpoint:0,cleanSeconds:0},ai:{position:place(.07),progress:.07,carried:0,banked:0,checkpoints:0,nextCheckpoint:0,collectTimer:0,checkpointCooldown:0}};
   visual.car.position.copy(position);visual.car.rotation.y=Math.PI/2;visual.rival.position.copy(runtime.ai.position);visual.camera.position.copy(position).add(new THREE.Vector3(-11,6.5,0));visual.camera.lookAt(position.clone().add(new THREE.Vector3(9,2.1,0)));message(`${COINS_PER_LAP} TRACK COINS PER LAP · BANK THEM AT THE BINS`);resize();runtime.visual.renderer.render(visual.scene,visual.camera);runtime.raf=requestAnimationFrame(loop)}
 function resize(){if(!runtime)return;const {renderer,camera}=runtime.visual,w=innerWidth,h=innerHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix()}
 window.addEventListener('resize',resize);window.addEventListener('keydown',e=>{if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code))e.preventDefault();if(e.code==='Escape'){pause();return}keys.add(e.code)});window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>{if(runtime&&!runtime.paused)pause()});
