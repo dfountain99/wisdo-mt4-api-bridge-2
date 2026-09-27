@@ -1,0 +1,133 @@
+import { parseCampaignIntent } from './campaign-intent.js';
+const escape = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const labels = { PAUSE_FOR: 'Pause entries for a duration', AFTER_COMPOUND: 'After each compound target → wait for a new opposite candle', AFTER_WIN: 'After each win → pause, then reevaluate', EVALUATE_ENTRY: 'Evaluate entry now', END_AFTER: 'Close campaign after a duration, then pause', CANCEL_GOAL: 'Cancel standing intention', AFTER_CAMPAIGN: 'After campaign end → pause entries', ARM_SONIC: 'Arm a bounded SONIC window', TRAIL_STRUCTURE: 'Trail · Structure Keeper', TRAIL_PROFIT: 'Trail · Profit Vault', MOVE_TARGET: 'Move selected targets', PROTECT_RAIL: 'Protect campaign rail', ASSIGN_RUNNER: 'Assign runners', ASSIGN_COLLECTOR: 'Assign collectors' };
+const ackLabels = { '-2': 'EA processing interrupted or still in progress; inspect terminal before retrying.', '-1': 'EA rejected the instruction. Market, ticket or protection checks failed.', 1: 'EA accepted the instruction.', 2: 'EA reports selected broker target modifications succeeded.', 3: 'Partial broker result. Inspect selected trades before retrying.', 4: 'EA accepted reevaluation; normal entry checks still apply.', 5: 'Evaluation finished without an entry.', 6: 'EA reports a broker entry from the evaluation.' };
+const goalLabels = { 0: 'No standing intention', 1: 'Timed entry pause', 2: 'Waiting for next compound milestone', 3: 'After-win pause rule active', 4: 'Waiting for a newly closed opposite candle', 6: 'Campaign closure timer', 7: 'Campaign ended · entries paused until intention cancelled', 8: 'SONIC window complete · SONIC paused until intention cancelled', 9: 'Waiting for campaign end, then pause', 12: 'SONIC window active' };
+export function mountCampaignCommand(host, { accountId, api }) {
+  let stopped = false, state = null, proposal = null, receipt = null, timer, heldAt = 0, holding = false, holdTimer, busy = false, pollBusy = false, zoom = 1, selected = new Set(), lastIntent = null, lastSpoken = '', recognition = null, audio = null;
+  const q = selector => host.querySelector(selector);
+  host.innerHTML = `<style>
+    .wco-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(270px,350px);gap:18px;margin:20px 0}.wco-map{background:radial-gradient(ellipse at 50% 30%,#1a4c6055,transparent 65%),#09131e;border:1px solid #315061;border-radius:22px;padding:20px;min-width:0}.wco-top{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.wco-orb{width:78px;height:78px;flex-shrink:0;border-radius:50%;background:radial-gradient(circle at 30% 25%,#d2fbff,#35899f 25%,#142e4a 65%,#09111d);border:1px solid #9de9ef;color:white;font-weight:800;box-shadow:0 0 28px #70dcff33;touch-action:none;user-select:none}.wco-map svg{width:100%;height:390px;display:block;touch-action:none;margin-top:16px}.wco-level{stroke:#508a9e;stroke-dasharray:5 7}.wco-target{stroke:#55eaae;stroke-width:3;cursor:ns-resize}.wco-rail{stroke:#ffbe76;stroke-width:3;cursor:ns-resize}.wco-layout label{display:block;margin:12px 0}.wco-layout select,.wco-layout input[type=number],.wco-layout textarea{width:100%;padding:12px;background:#0b1927;border:1px solid #33536a;border-radius:10px;color:#effaff;font:inherit}.wco-layout button{min-height:44px}.wco-actions{display:flex;gap:8px;flex-wrap:wrap}.wco-message{border-left:3px solid #62dfe1;padding:12px;line-height:1.5}.wco-trades{display:flex;flex-wrap:wrap;gap:8px}.wco-trades label{margin:0;padding:10px;border:1px solid #33536a;border-radius:10px;display:flex;align-items:center;gap:8px}.wco-meta{display:flex;gap:14px;flex-wrap:wrap;color:#a2bcca;font-size:13px}.wco-side{min-width:0}.wco-side h3{margin-top:0}.wco-layout button:disabled{opacity:.45;cursor:not-allowed}.wco-log{font-size:13px;padding-left:20px;line-height:1.6;max-height:150px;overflow:auto}.wco-hold[aria-pressed=true]{background:#50e6b5;color:#05151d}.wco-heading{display:flex;justify-content:space-between;gap:12px;align-items:center}.wco-empty{padding:35px 10px;line-height:1.6}.wco-canvas text{font-family:system-ui;font-size:12px;fill:#c6dce6}.wco-canvas .wco-trade-dot{cursor:pointer}.wco-side small{display:block;line-height:1.5;color:#9db6c6}.path-item{gap:12px}
+    @media(max-width:850px){.wco-layout{grid-template-columns:1fr}.wco-map{padding:14px}.wco-map svg{height:340px}.wco-heading{align-items:flex-start}}
+    </style><div class="wco-heading"><div><span class="eyebrow">WISDO Command OS</span><h2>Campaign canvas</h2></div><a class="btn ghost" href="/app/accounts">Connection</a></div>
+    <div class="wco-layout"><section class="wco-map"><div class="wco-top"><button class="wco-orb" aria-label="Tap for summary; hold to speak">WISDO</button><div><strong data-health>Connecting to your account…</strong><p data-goal class="muted"></p></div></div><div class="wco-meta" data-meta></div><div class="wco-empty" data-empty></div><svg class="wco-canvas" viewBox="0 0 800 390" aria-label="Campaign levels, targets and rail" role="img"></svg><label>Canvas zoom<input data-zoom type="range" min="1" max="4" step="0.1" value="1"></label><div data-trades class="wco-trades" aria-label="Select trades"></div><small class="muted">Drag a target or rail to a confirmed pivot. Circle trade dots to select a group. Pinch to zoom. All changes open a preview.</small></section>
+    <aside class="card wco-side"><span class="eyebrow">Speak · select · shape</span><h3>Plan your next action</h3><label>Your instruction<textarea data-text rows="3" placeholder="Wisdo, after each win pause 15 minutes"></textarea></label><div class="wco-actions"><button class="btn" data-voice>Speak</button><button class="btn" data-interpret>Interpret & preview</button></div><label>Action<select data-action>${Object.entries(labels).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label><label data-duration-label>Duration in minutes<input type="number" data-duration min="0.016667" max="10080" value="15" step="any"></label><label data-burst-label>SONIC entries (maximum 10)<input type="number" data-burst min="1" max="10" value="10"></label><label data-level-label>Confirmed destination<select data-level><option value="">Waiting for EA levels</option></select></label><div class="wco-actions"><button class="btn" data-preview>Preview action</button><button class="btn primary wco-hold" data-arm disabled aria-pressed="false">Hold to confirm</button><button class="btn ghost" data-dismiss>Clear preview</button></div><p role="status" aria-live="polite" class="wco-message" data-message>No command sent. Preview first, then hold to confirm.</p><label><input type="checkbox" data-speak> WISDO Voice feedback</label><small>Pauses block entries while existing protection continues. A new intention replaces the previous standing rule. “Enter now” requests the EA’s normal evaluation.</small><details><summary>Command history</summary><ol class="wco-log" data-log></ol></details></aside></div>`;
+  const say = async text => {
+    if (!q('[data-speak]').checked || text === lastSpoken || stopped) return;
+    lastSpoken = text;
+    try {
+      const response = await fetch('/api/wisdo/voice/speak', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', Accept: 'audio/mpeg' }, body: JSON.stringify({ text }) });
+      if (!response.ok || !(response.headers.get('content-type') || '').startsWith('audio/')) throw Error('WISDO Voice unavailable');
+      const url = URL.createObjectURL(await response.blob());
+      if (stopped) { URL.revokeObjectURL(url); return; }
+      audio?.pause();audio = new Audio(url);audio.onended = () => URL.revokeObjectURL(url);audio.onerror = () => URL.revokeObjectURL(url);await audio.play();
+    } catch { q('[data-message]').textContent += ' Voice playback unavailable; the written result remains here.'; }
+  };
+  const message = text => { if (!stopped) { q('[data-message]').textContent = text; void say(text); } };
+  const cancelHold = () => { heldAt = 0; holding = false; clearTimeout(holdTimer); q('[data-arm]').setAttribute('aria-pressed','false'); };
+  const clearPreview = () => { proposal = null;cancelHold();q('[data-arm]').disabled = true; };
+  const levels = () => [...(state?.campaignControl?.levels || [])].sort((a,b)=>a.price-b.price);
+  const positions = () => {
+    const c = state?.campaignControl;
+    return (state?.campaigns || []).flatMap(x=>x.positions || []).filter(p=>c?.positions.some(x=>String(x.ticket)===String(p.ticket))).map(p=>({...p,role:c.positions.find(x=>String(x.ticket)===String(p.ticket)).role}));
+  };
+  const selectedTickets = () => [...selected].map(Number);
+  const updateFields = () => { const action=q('[data-action]').value;q('[data-duration-label]').hidden=!['PAUSE_FOR','AFTER_WIN','END_AFTER','AFTER_CAMPAIGN','ARM_SONIC'].includes(action);q('[data-burst-label]').hidden=action!=='ARM_SONIC';q('[data-level-label]').hidden=!['MOVE_TARGET','PROTECT_RAIL'].includes(action); };
+  const preview = async (intent = {}) => {
+    if (busy || !state?.account || stopped) return;
+    clearPreview();busy=true;
+    try {
+      let action=intent.action || q('[data-action]').value;
+      const c=state.campaignControl;
+      let level=levels().find(l=>l.id===Number(q('[data-level]').value));
+      if (intent.notches) {
+        const chosen=positions().filter(p=>selected.has(String(p.ticket)));
+        if (!chosen.length || new Set(chosen.map(p=>p.takeProfit)).size!==1) throw Error('Select trades with the same current target before extending by notches.');
+        const next=levels().filter(l=>c.direction*(l.price-chosen[0].takeProfit)>0).sort((a,b)=>c.direction*(a.price-b.price));
+        level=next[intent.notches-1];if(!level)throw Error('There are not enough confirmed levels in that direction.');
+      }
+      if (intent.levelId)level=levels().find(l=>l.id===intent.levelId);
+      if(action==='PROTECT_RAIL' && !level)level=levels().filter(l=>c.direction*(l.price-c.rail)>0).sort((a,b)=>c.direction*(a.price-b.price))[0];
+      const body={action,accountId,burstCount:intent.burstCount ?? Number(q('[data-burst]').value),eaCampaignId:c?.campaignId,durationSeconds:intent.durationSeconds ?? Math.round(Number(q('[data-duration]').value)*60),tickets:selectedTickets(),levelId:level?.id,levelPrice:level?.price};
+      const result=await api('/api/world/command/propose',{method:'POST',body:JSON.stringify(body)});
+      if(stopped)return;
+      proposal=result.proposal;lastIntent=body;q('[data-action]').value=action;updateFields();
+      q('[data-arm]').disabled=false;q('[data-arm]').textContent=`Hold ${(proposal.holdRequiredMs/1000).toFixed(1)}s to confirm`;
+      const p=proposal.packet;
+      message(`Preview: ${proposal.label}. Account: ${proposal.account.nickname}. Campaign: ${p?.eaCampaignId ?? 'account'}.${p?.durationSeconds ? ` Duration: ${p.durationSeconds} seconds.`:''}${p?.tickets ? ` Tickets: ${p.tickets}.`:''}${p?.levelPrice ? ` Destination: ${p.levelPrice}.`:''} Nothing sent. Expires in 45 seconds.`);
+    } catch(error){message(error.message);} finally {busy=false;}
+  };
+  const commit = async () => {
+    if(!holding || !proposal || busy || stopped)return;
+    const heldForMs=performance.now()-heldAt;if(heldForMs<proposal.holdRequiredMs)return;
+    const p=proposal;clearPreview();busy=true;
+    try {
+      const result=await api('/api/world/command/execute',{method:'POST',body:JSON.stringify({proposalId:p.proposalId,confirmationToken:p.confirmationToken,heldForMs:Math.floor(heldForMs)})});
+      if(stopped)return;receipt=result.receipt;message('Queued by WISDO. Waiting for Reporter delivery and the EA’s separate acknowledgement.');void poll();
+    }catch(error){message(`${error.message} Check command history before retrying an uncertain request.`);}finally{busy=false;}
+  };
+  q('[data-arm]').onpointerdown=e=>{if(!proposal || busy)return;e.preventDefault();q('[data-arm]').setPointerCapture(e.pointerId);holding=true;heldAt=performance.now();q('[data-arm]').setAttribute('aria-pressed','true');holdTimer=setTimeout(commit,proposal.holdRequiredMs+30);};
+  q('[data-arm]').onpointerup=cancelHold;q('[data-arm]').onpointercancel=cancelHold;q('[data-arm]').onlostpointercapture=cancelHold;
+  q('[data-arm]').onkeydown=e=>{if(![' ','Enter'].includes(e.key)||e.repeat||!proposal)return;e.preventDefault();holding=true;heldAt=performance.now();holdTimer=setTimeout(commit,proposal.holdRequiredMs+30);};q('[data-arm]').onkeyup=cancelHold;q('[data-arm]').onblur=cancelHold;
+  q('[data-dismiss]').onclick=()=>{clearPreview();message('Preview cleared. No new instruction sent.');};
+  q('[data-preview]').onclick=()=>preview();
+  q('[data-interpret]').onclick=()=>{try{void preview(parseCampaignIntent(q('[data-text]').value));}catch(e){message(e.message);}};
+  for(const selector of ['[data-action]','[data-duration]','[data-burst]','[data-level]','[data-text]'])q(selector).addEventListener('input',()=>{clearPreview();updateFields();});
+  const listen = () => {
+    const Speech=window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!Speech){message('Speech recognition is unavailable in this browser. Type your instruction instead.');return;}
+    recognition?.abort();recognition=new Speech();recognition.lang=navigator.language || 'en-US';recognition.interimResults=false;
+    recognition.onresult=e=>{if(stopped)return;q('[data-text]').value=e.results[0][0].transcript;try{void preview(parseCampaignIntent(q('[data-text]').value));}catch(error){message(error.message);}};
+    recognition.onerror=e=>message(`Voice input: ${e.error}. Nothing sent.`);recognition.start();message('Listening. Your words will open a preview, not execute a trade.');
+  };
+  q('[data-voice]').onclick=listen;
+  let orbStart=null,orbTimer;
+  q('.wco-orb').onpointerdown=e=>{orbStart={x:e.clientX,y:e.clientY,time:performance.now()};q('.wco-orb').setPointerCapture(e.pointerId);orbTimer=setTimeout(()=>{orbStart=null;listen();},600);};
+  q('.wco-orb').onpointermove=e=>{if(orbStart && Math.hypot(e.clientX-orbStart.x,e.clientY-orbStart.y)>15)clearTimeout(orbTimer);};
+  q('.wco-orb').onpointerup=e=>{clearTimeout(orbTimer);if(!orbStart)return;const dx=e.clientX-orbStart.x,dy=e.clientY-orbStart.y;orbStart=null;if(dy<-35)q('svg').scrollIntoView({behavior:'smooth',block:'center'});else if(dx<-35)q('[data-trades]').scrollIntoView({behavior:'smooth',block:'center'});else if(dx>35){q('[data-action]').value='MOVE_TARGET';updateFields();q('[data-level]').focus();}else message(`${q('[data-health]').textContent}. ${q('[data-goal]').textContent}. ${selected.size} trades selected.`);};q('.wco-orb').onpointercancel=()=>{clearTimeout(orbTimer);orbStart=null;};q('.wco-orb').onclick=e=>{if(e.detail===0)message(`${q('[data-health]').textContent}. ${q('[data-goal]').textContent}.`);};
+  let yFor = () => 0, priceFor = () => 0;
+  const draw = () => {
+    const c=state?.campaignControl, trades=positions(), ls=levels();
+    const oldLevel=q('[data-level]').value;
+    q('[data-level]').innerHTML=ls.length?ls.map(l=>`<option value="${l.id}">${escape(l.price)} · confirmed pivot</option>`).join(''):'<option value="">No verified levels</option>';
+    if(ls.some(l=>String(l.id)===oldLevel))q('[data-level]').value=oldLevel;
+    q('[data-health]').textContent=c?.live?`${c.symbol} · campaign EA connected`:`${state?.executionHealth?.reporter || 'Waiting'} · campaign controls unavailable`;
+    q('[data-goal]').textContent=c?`${goalLabels[c.goal] || 'EA rule active'}${c.remainingSeconds?` · ${Math.ceil(c.remainingSeconds/60)} min remaining`:''}${c.paused?' · entries paused':''}${c.goal===12?` · ${c.burstRemaining} SONIC entries remaining`:''}`:'Waiting for campaign telemetry';
+    q('[data-meta]').textContent=c?`Campaign ${c.campaignId || 'not started'} · ${c.direction===1?'BUY':c.direction===-1?'SELL':'FLAT'} · Rail ${c.rail || '—'} · Banked milestones ${c.banked}`:'No campaign values have been supplied.';
+    q('[data-empty]').hidden=Boolean(c);q('[data-empty]').textContent=state?.account?'Install Reporter 1.60 and H620 receiver 6.21 on the same terminal. Enable campaign control with the exact symbol and magic number. Existing account data remains available in Trade controls.':'Select a Reporter-backed account to connect this canvas.';
+    q('[data-preview]').disabled=!c?.live;q('[data-interpret]').disabled=!c?.live;
+    for(const ticket of selected)if(!trades.some(t=>String(t.ticket)===ticket))selected.delete(ticket);
+    q('[data-trades]').innerHTML=trades.map(t=>`<label><input type="checkbox" data-ticket="${escape(t.ticket)}" ${selected.has(String(t.ticket))?'checked':''} ${t.role===0?'disabled':''}>${['HOLD','COLLECTOR','RUNNER'][t.role]} #${escape(t.ticket)} · ${Number(t.floatingMoney).toFixed(2)}</label>`).join('') || '<p class="muted">No campaign positions reported.</p>';
+    q('[data-trades]').querySelectorAll('input').forEach(el=>el.onchange=()=>{clearPreview();el.checked?selected.add(el.dataset.ticket):selected.delete(el.dataset.ticket);draw();});
+    const prices=[...ls.map(l=>l.price),...trades.flatMap(t=>[t.entryPrice,t.currentPrice,t.takeProfit]),c?.rail].filter(x=>Number.isFinite(x)&&x>0);
+    const svg=q('svg');svg.hidden=!prices.length;if(!prices.length)return;
+    const low=Math.min(...prices),high=Math.max(...prices),center=(high+low)/2,span=Math.max(high-low,center*.001)*1.2/zoom;
+    yFor=price=>350-(price-(center-span/2))/span*310;priceFor=y=>center-span/2+(350-y)/310*span;
+    svg.innerHTML=ls.map(l=>`<g><line class="wco-level" x1="20" x2="775" y1="${yFor(l.price)}" y2="${yFor(l.price)}"/><text x="22" y="${yFor(l.price)-6}">${escape(l.price)} · structure</text></g>`).join('')+
+      (c?.rail?`<g data-drag="rail"><line class="wco-rail" x1="15" x2="780" y1="${yFor(c.rail)}" y2="${yFor(c.rail)}"/><text x="555" y="${yFor(c.rail)-8}">Campaign rail ${escape(c.rail)}</text></g>`:'')+
+      trades.map((t,i)=>`<g>${t.takeProfit?`<g data-drag="target" data-ticket="${escape(t.ticket)}"><line class="wco-target" x1="${180+i*12}" x2="${500+i*12}" y1="${yFor(t.takeProfit)}" y2="${yFor(t.takeProfit)}"/><text x="${190+i*12}" y="${yFor(t.takeProfit)-7}">#${escape(t.ticket)} target ${escape(t.takeProfit)}</text></g>`:''}<circle class="wco-trade-dot" data-ticket="${escape(t.ticket)}" cx="${200+(i%12)*42}" cy="${yFor(t.entryPrice)}" r="${selected.has(String(t.ticket))?10:7}" fill="${t.role===0?'#ffbe76':selected.has(String(t.ticket))?'#fff':'#57e7b1'}"/><text x="${190+(i%12)*42}" y="${yFor(t.entryPrice)+25}">${escape(t.ticket)}</text></g>`).join('');
+  };
+  q('[data-zoom]').oninput=()=>{zoom=Number(q('[data-zoom]').value);draw();};
+  const svg=q('svg'), pointers=new Map();let gesture=null,pinch=null;
+  const point=e=>{const p=svg.createSVGPoint();p.x=e.clientX;p.y=e.clientY;return p.matrixTransform(svg.getScreenCTM().inverse());};
+  const inside=(p,poly)=>{let hit=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j];if((a.y>p.y)!==(b.y>p.y)&&p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x)hit=!hit;}return hit;};
+  svg.onpointerdown=e=>{const p=point(e);pointers.set(e.pointerId,p);svg.setPointerCapture(e.pointerId);if(pointers.size===2){const a=[...pointers.values()];pinch={distance:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y),zoom};gesture=null;return;}const drag=e.target.closest('[data-drag]');gesture={path:[p],drag:drag?.dataset.drag,ticket:drag?.dataset.ticket,dot:e.target.closest('.wco-trade-dot')?.dataset.ticket};};
+  svg.onpointermove=e=>{if(!pointers.has(e.pointerId))return;const p=point(e);pointers.set(e.pointerId,p);if(pinch&&pointers.size===2){const a=[...pointers.values()];zoom=Math.min(4,Math.max(1,pinch.zoom*Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)/Math.max(1,pinch.distance)));q('[data-zoom]').value=zoom;draw();return;}if(gesture){gesture.path.push(p);svg.querySelector('[data-lasso]')?.remove();if(!gesture.drag){const path=document.createElementNS('http://www.w3.org/2000/svg','polyline');path.dataset.lasso='';path.setAttribute('points',gesture.path.map(x=>`${x.x},${x.y}`).join(' '));path.setAttribute('fill','none');path.setAttribute('stroke','#b5f6ff');svg.append(path);}}};
+  svg.onpointerup=e=>{pointers.delete(e.pointerId);if(pinch){if(!pointers.size)pinch=null;return;}const g=gesture;gesture=null;if(!g)return;const p=point(e);if(g.drag&&g.path.length>2){if(!state?.campaignControl?.live){message('Campaign connection is stale. No instruction sent.');draw();return;}const ls=levels(),nearest=ls.reduce((a,b)=>Math.abs(b.price-priceFor(p.y))<Math.abs(a.price-priceFor(p.y))?b:a,ls[0]);if(!nearest){message('No confirmed level is available.');return;}if(g.ticket&&!selected.has(g.ticket))selected=new Set([g.ticket]);void preview({action:g.drag==='rail'?'PROTECT_RAIL':'MOVE_TARGET',levelId:nearest.id});}else if(g.path.length>5){selected=new Set(positions().filter((t,i)=>t.role!==0&&inside({x:200+(i%12)*42,y:yFor(t.entryPrice)},g.path)).map(t=>String(t.ticket)));clearPreview();}else if(g.dot){const t=positions().find(t=>String(t.ticket)===g.dot);if(t?.role!==0){selected.has(g.dot)?selected.delete(g.dot):selected.add(g.dot);clearPreview();}}draw();};svg.onpointercancel=e=>{pointers.delete(e.pointerId);gesture=null;pinch=null;draw();};
+  const poll=async()=>{
+    if(stopped||pollBusy)return;clearTimeout(timer);pollBusy=true;
+    try{
+      const next=await api(`/api/world/command/state?accountId=${encodeURIComponent(accountId)}`);
+      if(stopped)return;
+      if(state?.campaignControl?.campaignId!==next.campaignControl?.campaignId || !next.campaignControl?.live)clearPreview();
+      state=next;if(proposal&&Date.parse(proposal.expiresAt)<=Date.now()){clearPreview();message('Preview expired. Review current state and preview again.');}
+      if(!gesture&&!pinch)draw();
+      const history=await api(`/api/world/command/receipts?accountId=${encodeURIComponent(accountId)}&limit=8`);
+      if(stopped)return;q('[data-log]').innerHTML=(history.receipts||[]).map(r=>`<li>${escape(r.command)} · ${escape(r.status)}${r.deliveryOnly?' (transport receipt)':''}${r.result?.message?` · ${escape(r.result.message)}`:''}</li>`).join('')||'<li>No commands yet.</li>';
+      if(receipt){const row=(history.receipts||[]).find(r=>r.commandId===receipt.commandId);const c=state.campaignControl;const ack=c?.acknowledgements?.find(a=>a.id===receipt.eaRequestId);if(ack || c?.ackId===receipt.eaRequestId){message((ackLabels[ack?.status ?? c.ackStatus]||'EA acknowledgement received.')+(ack?.requested?` ${ack.changed}/${ack.requested} changes confirmed.`:''));}else if(row?.status==='failed'||row?.status==='expired'){message(`Command ${row.status}: ${row.error||row.result?.message||'no execution confirmed'}`);}else if(row?.completedAt){message('Reporter delivered the instruction. Waiting for an EA acknowledgement; execution is not confirmed.');}}
+    }catch(error){if(!stopped){clearPreview();if(state?.campaignControl)state.campaignControl.live=false;draw();message(`Connection unavailable: ${error.message}. Commands disabled.`);}}finally{pollBusy=false;if(!stopped)timer=setTimeout(poll,4000);}
+  };
+  updateFields();if(accountId)void poll();else{q('[data-health]').textContent='Select an account';q('[data-preview]').disabled=true;q('[data-interpret]').disabled=true;}
+  const onBlur=()=>cancelHold();window.addEventListener('blur',onBlur);
+  return ()=>{stopped=true;clearTimeout(timer);clearTimeout(holdTimer);clearTimeout(orbTimer);recognition?.abort();audio?.pause();window.removeEventListener('blur',onBlur);};
+}
