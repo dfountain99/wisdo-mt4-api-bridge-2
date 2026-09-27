@@ -1,3 +1,4 @@
+import { CAMPAIGN_ACTIONS, campaignPacket } from './campaignControlContract.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { WorldCampaignStateService } from './worldCampaignStateService.js';
 
@@ -6,6 +7,7 @@ const nowIso = () => new Date().toISOString();
 const hash = (value) => createHash('sha256').update(String(value)).digest('hex');
 
 const COMMAND_DEFINITIONS = Object.freeze({
+  ...Object.fromEntries(Object.entries(CAMPAIGN_ACTIONS).map(([key, value]) => [key, { command: 'WISDO_CAMPAIGN', level: 3, scope: 'CAMPAIGN', label: value.label }])),
   CLOSE_POSITION: { command: 'CLOSE_BY_TICKET', level: 3, scope: 'POSITION', label: 'Close Position', requires: ['position'] },
   CLOSE_CAMPAIGN: { command: 'CLOSE_BY_MAGIC', level: 3, scope: 'CAMPAIGN', label: 'Close Campaign', requires: ['campaignMagic'] },
   CLOSE_ALL: { command: 'CLOSE_ALL_TRADES', level: 3, scope: 'ACCOUNT', label: 'Close All', requires: [] },
@@ -37,6 +39,8 @@ function canControlAccount(account = {}, userId = '') {
 function safeReceipt(record = {}) {
   return {
     commandId: record.id || null,
+    eaRequestId: record.payload?.requestId || null,
+    deliveryOnly: record.command === 'WISDO_CAMPAIGN',
     clientCommandId: record.payload?.clientCommandId || record.payload?.commandId || null,
     accountId: record.accountId || null,
     command: record.command || null,
@@ -84,6 +88,7 @@ export class WorldCommandCenterService {
       if (key === 'CLOSE_CAMPAIGN' && !snapshot.campaigns.some((campaign) => campaign.canTargetByMagic)) {
         available = false; reason = 'No active campaign has one verified magic number for safe targeting.';
       }
+      if (CAMPAIGN_ACTIONS[key] && !snapshot.campaignControl?.live) { available = false; reason = 'Campaign EA telemetry is missing or stale. Install the campaign receiver and match Reporter symbol/magic.'; }
       connected[key] = { key, label: definition.label, command: definition.command, safetyLevel: definition.level, scope: definition.scope, available, reason, connected: true };
     }
     for (const [key, reason] of Object.entries(NOT_CONNECTED)) connected[key] = { key, label: key.replaceAll('_', ' '), available: false, connected: false, reason, safetyLevel: key.includes('CLOSE') || key === 'LOCK_PROFIT' ? 3 : 2 };
@@ -138,6 +143,7 @@ export class WorldCommandCenterService {
     if (!capability?.available) {
       const error = new Error(capability?.reason || 'Command is unavailable.'); error.statusCode = 409; error.code = 'command_unavailable'; throw error;
     }
+    const packet = CAMPAIGN_ACTIONS[action] ? campaignPacket(action, body, snapshot) : null;
     const affected = this.affectedFor(snapshot, action, body);
     if (action === 'CLOSE_POSITION' && !affected.position) { const error = new Error('The selected position is no longer open.'); error.statusCode = 409; throw error; }
     if (action === 'CLOSE_CAMPAIGN' && (!affected.campaign || !affected.campaign.canTargetByMagic || affected.campaign.magicNumber == null)) { const error = new Error('This campaign cannot be safely targeted by the current Reporter command contract.'); error.statusCode = 409; throw error; }
@@ -149,6 +155,8 @@ export class WorldCommandCenterService {
     const clientCommandId = clean(body.clientCommandId, 120) || `world-${randomUUID()}`;
     const proposal = {
       proposalId,
+      packet,
+      requestId: Date.now() * 1000 + Math.floor(Math.random() * 1000),
       tokenHash: hash(token),
       userId: String(userId),
       accountId: snapshot.account.accountId,
@@ -199,6 +207,7 @@ export class WorldCommandCenterService {
       expiresAt: proposal.expiresAt,
       currentFloatingPL: proposal.accountState.floatingPL,
       currency: proposal.accountState.currency,
+      packet,
       executionNotice: 'Nothing has been sent to MT4 yet. This is a proposal only.',
     };
   }
@@ -217,6 +226,7 @@ export class WorldCommandCenterService {
       symbol: proposal.symbol || undefined,
       campaignId: proposal.campaignId || undefined,
     };
+    if (proposal.packet) Object.assign(base, proposal.packet, { requestId: proposal.requestId, expiresEpoch: Math.floor(Date.now() / 1000) + 90 });
     if (proposal.action === 'CLOSE_POSITION') base.ticket = proposal.positionId;
     if (proposal.action === 'CLOSE_CAMPAIGN') base.magicNumber = proposal.magicNumber;
     if (['PAUSE_BOT', 'RESUME_BOT', 'STOP_NEW_ENTRIES', 'RESUME_NEW_ENTRIES'].includes(proposal.action)) {
@@ -244,8 +254,13 @@ export class WorldCommandCenterService {
     if (proposal.action === 'CLOSE_POSITION' && !currentAffected.position) { const error = new Error('Position already closed or changed before confirmation. Refresh Command Core.'); error.statusCode = 409; throw error; }
     if (proposal.action === 'CLOSE_CAMPAIGN' && (!currentAffected.campaign || currentAffected.campaign.magicNumber == null || String(currentAffected.campaign.magicNumber) !== String(proposal.magicNumber))) { const error = new Error('Campaign targeting changed before confirmation. Review the live campaign again.'); error.statusCode = 409; throw error; }
 
+    if (proposal.packet) campaignPacket(proposal.action, { ...proposal.packet, tickets: proposal.packet.tickets.split(',').filter(Boolean) }, current);
+    if (proposal.inFlight) { const error = new Error('Command is already being queued.'); error.statusCode = 409; throw error; }
+    proposal.inFlight = true;
     const payload = this.payloadFor(proposal, current);
-    const record = await this.mt4CommandService.queueCommandForAccount(String(userId), proposal.accountId, proposal.definition.command, payload);
+    let record;
+    try { record = await this.mt4CommandService.queueCommandForAccount(String(userId), proposal.accountId, proposal.definition.command, payload); }
+    catch (error) { proposal.inFlight = false; throw error; }
     proposal.usedAt = nowIso();
     if (this.eventEngine?.publish) {
       this.eventEngine.publish('command.requested', { userId: String(userId) }, {

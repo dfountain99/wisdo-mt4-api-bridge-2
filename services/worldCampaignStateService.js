@@ -1,3 +1,4 @@
+import { normalizeCampaignControl } from './campaignControlContract.js';
 import { AccountSelectionService } from './accountSelectionService.js';
 import { movementForTrade, resolveInstrumentMetadata } from './worldMarketStateService.js';
 
@@ -228,6 +229,13 @@ export class WorldCampaignStateService {
         marginLevel: finite(snapshot.marginLevel, 0),
         currency,
       },
+      campaignControl: (() => {
+        const control = normalizeCampaignControl(snapshot.campaignControl);
+        if (!control) return null;
+        const health = executionHealth(account, snapshot);
+        const age = Math.max(0, (Date.now() - Date.parse(account.latestSnapshot?.receivedAt || account.lastSyncAt || 0)) / 1000);
+        return { ...control, live: health.commandLinkReady && snapshot.expertEnabled === true && control.enabled && control.ageSeconds + age <= 30 };
+      })(),
       executionHealth: executionHealth(account, snapshot),
       bot: {
         name: clean(snapshot.eaName || account.eaName, 100) || null,

@@ -384,7 +384,10 @@
   }
 
 
+  let campaignCleanup = null;
   async function drawCommandCenter() {
+    campaignCleanup?.();
+    campaignCleanup = null;
     const active = selectedAccount();
     const accountId = active?.id || '';
     const stats = await api(`/api/v2/analyzer/portfolio?period=month${accountId ? `&account_id=${encodeURIComponent(accountId)}` : ''}`).catch(() => ({}));
@@ -393,35 +396,7 @@
       <div class="workspace-heading"><div><span class="eyebrow">WISDO operating system</span><h1>Command Center</h1><p class="muted">The central launch screen for accounts, relay execution, risk, analytics, education, signals, AI, and support.</p></div><div class="live-chip">${liveAccounts.length}/${accounts.length} Reporter accounts live</div></div>
       ${accountMetrics(active)}
 
-      <style>
-      .wisdo-campaign-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,320px);gap:18px;margin:18px 0}
-      .wisdo-campaign-stage{min-height:390px;position:relative;display:grid;place-items:center;overflow:hidden;background:radial-gradient(ellipse at 50% 80%,#19435666,transparent 70%),#09121e;border:1px solid #33536a;border-radius:22px;padding:28px;text-align:center}
-      .wisdo-campaign-stage:before{content:"";position:absolute;inset:0;background:linear-gradient(#7299b00b 1px,transparent 1px),linear-gradient(90deg,#7299b00b 1px,transparent 1px);background-size:48px 48px;pointer-events:none}
-      .wisdo-campaign-stage>div{position:relative;max-width:480px}.wisdo-command-orb{width:104px;height:104px;border-radius:50%;border:1px solid #99eaff;background:radial-gradient(circle at 30% 25%,#c5f4ff,#368aa4 20%,#192f53 58%,#070e1b);color:white;box-shadow:0 0 38px #55d9ff44;font-weight:800;cursor:pointer;margin:12px}
-      .wisdo-campaign-layout p{line-height:1.6}.wisdo-campaign-layout label{display:block;margin:12px 0}.wisdo-campaign-layout select,.wisdo-campaign-layout textarea{width:100%;font:inherit;padding:12px;border-radius:10px;background:#0b1927;color:#edf4ff;border:1px solid #33536a}
-      .wisdo-campaign-layout .actions{display:flex;flex-wrap:wrap;gap:10px}.wisdo-campaign-layout button:disabled{opacity:.55;cursor:not-allowed}
-      .wisdo-command-receipt{padding:12px;border-left:3px solid #65d3ed;margin-top:14px}.path-item{gap:12px}.workspace main{min-width:0}
-      @media(max-width:800px){.wisdo-campaign-layout{grid-template-columns:1fr}.wisdo-campaign-stage{min-height:310px;padding:18px}.wisdo-campaign-layout .btn{min-height:44px}}
-      </style>
-      <section aria-label="Campaign Command OS" data-wisdo-command-os="integrated-v2">
-        <div class="card-head"><div><span class="eyebrow">WISDO Command OS</span><h2>Campaign canvas</h2></div><a class="btn ghost" href="/app/trades">Trade controls</a></div>
-        <div class="wisdo-campaign-layout">
-          <div class="wisdo-campaign-stage"><div>
-            <span class="eyebrow">${active ? (reporterFresh(active) ? 'Reporter data received' : 'Waiting for Reporter heartbeat') : 'Select an account'}</span>
-            <h3>${active ? html(active.nickname || active.account_number || active.broker) : 'Your campaign starts here'}</h3>
-            <button type="button" class="wisdo-command-orb" id="wisdo-campaign-orb" aria-label="Open WISDO assistant">WISDO</button>
-            <p>Campaign levels, trade assignments and the hold rail are not available from this connection yet.</p>
-            <p class="muted">Verified EA levels will appear here before target dragging is enabled.</p>
-            <a class="btn ghost" href="/app/accounts">Check account connection</a>
-          </div></div>
-          <aside class="card"><span class="eyebrow">Standing intentions</span><h3>Plan the next action</h3>
-            <label>Future goal<select id="wisdo-campaign-goal"><option value="compound">After a compound target, pause until a new opposite candle closes; then evaluate entry in the campaign direction.</option><option value="win">After a win, pause 15 minutes; then evaluate the current EA entry logic.</option><option value="hour">Pause new entries for one hour while managing open trades.</option><option value="now">Evaluate an entry now using the current EA logic.</option></select></label>
-            <label>Your instruction<textarea id="wisdo-campaign-intent" rows="4" placeholder="Describe when WISDO should pause, protect or evaluate…"></textarea></label>
-            <div class="actions"><button class="btn" type="button" id="wisdo-campaign-preview">Preview intention</button><button class="btn" type="button" disabled title="Campaign command acknowledgement is not connected">Arm on EA</button></div>
-            <p class="wisdo-command-receipt" id="wisdo-campaign-receipt" role="status">No command sent. Previewing an intention does not arm it on MT4.</p>
-          </aside>
-        </div>
-      </section>
+      <section data-wisdo-command-os="integrated-v3"></section>
 
       <details><summary class="btn ghost">Accounts, relay and other tools</summary><div class="command-hub">
         <section class="card"><div class="card-head"><div><span class="eyebrow">System map</span><h3>Choose an operating lane</h3></div><a class="btn ghost" href="/app/dashboard?launch=1">Open live dashboard</a></div>
@@ -456,17 +431,11 @@
         </aside>
       </div></details>`;
 
-    document.querySelector('#wisdo-campaign-orb').onclick = () => {
-      const launcher = document.querySelector('.wisdo-ai-launch');
-      if (launcher) launcher.click();
-      else document.querySelector('#wisdo-campaign-receipt').textContent = 'WISDO assistant is unavailable. No command sent.';
-    };
-    document.querySelector('#wisdo-campaign-preview').onclick = () => {
-      const text = document.querySelector('#wisdo-campaign-intent').value.trim()
-        || document.querySelector('#wisdo-campaign-goal').selectedOptions[0].textContent;
-      document.querySelector('#wisdo-campaign-receipt').textContent = 'Draft only: ' + text + ' No command sent to MT4.';
-    };
-
+    const campaignHost = document.querySelector('[data-wisdo-command-os]');
+    const { mountCampaignCommand } = await import('/js/campaign-command.js');
+    if (campaignHost.isConnected) campaignCleanup = mountCampaignCommand(campaignHost, {
+      accountId: active?.reporter_account_id || active?.id || '', api,
+    });
   }
 
   async function drawDashboard() {
@@ -1272,7 +1241,7 @@ ${result.secret}`)}catch(error){status.className='form-status error';status.text
       accountPoll = setInterval(async () => {
         if (document.querySelector('dialog[open]') || document.visibilityState !== 'visible') return;
         const previous = JSON.stringify(accounts.map((a) => [a.id, a.status, a.equity, a.last_sync_at]));
-        try { await refreshAccounts(true, true); const next = JSON.stringify(accounts.map((a) => [a.id, a.status, a.equity, a.last_sync_at])); if (next !== previous && ['command-center', 'dashboard', 'analyzer', 'trades', 'calendar', 'services', 'compound-tracker'].includes(currentPage)) await renderCurrentPage(); } catch {}
+        try { await refreshAccounts(true, true); const next = JSON.stringify(accounts.map((a) => [a.id, a.status, a.equity, a.last_sync_at])); if (next !== previous && ['dashboard', 'analyzer', 'trades', 'calendar', 'services', 'compound-tracker'].includes(currentPage)) await renderCurrentPage(); } catch {}
       }, 45000);
     } catch (error) {
       await finishDashboardBoot(false, 'Workspace recovery mode');
