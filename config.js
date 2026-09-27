@@ -144,7 +144,10 @@ export const config = {
 };
 
 export function getMissingRuntimeEnv() {
-  const missing = ['DISCORD_TOKEN'].filter((key) => !process.env[key]);
+  // The HTTP dashboard, MT4 Reporter bridge, and authenticated APIs can run
+  // without the optional Discord gateway. Keep the process alive so Render
+  // can serve those surfaces while Discord credentials are being configured.
+  const missing = [];
   if (process.env.NODE_ENV === 'production' && String(process.env.SESSION_SECRET || '').length < 32) {
     missing.push('SESSION_SECRET');
   }

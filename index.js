@@ -2974,4 +2974,8 @@ try {
   });
 }
 
-await client.login(config.discordToken);
+if (config.discordToken) {
+  await client.login(config.discordToken);
+} else {
+  logger.warn('Discord gateway disabled: DISCORD_TOKEN is not configured. Web/API and MT4 bridge remain available.');
+}
