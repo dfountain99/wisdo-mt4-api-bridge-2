@@ -1,3 +1,4 @@
+import { normalizeCampaignControl } from './campaignControlContract.js';
 import { createHmac, randomInt } from 'node:crypto';
 import { getHeapStatistics } from 'node:v8';
 
@@ -141,6 +142,7 @@ function compactHistorySnapshot(snapshot = {}) {
   return {
     accountNumber: snapshot.accountNumber,
     accountName: snapshot.accountName,
+    campaignControl: snapshot.campaignControl,
     brokerServer: snapshot.brokerServer,
     isDemo: snapshot.isDemo,
     eaName: snapshot.eaName,
@@ -956,6 +958,7 @@ export class Mt4SyncService {
       eaVersion: String(payload.eaVersion || '').trim(),
       reporterVersion: String(payload.reporterVersion || '').trim(),
       reporterCapabilities: toStringArray(payload.reporterCapabilities),
+      campaignControl: normalizeCampaignControl(payload.campaignControl),
       magicNumberFilter: toInteger(payload.magicNumberFilter) || 0,
       symbolFilter: String(payload.symbolFilter || '').trim(),
       balance: toNumber(payload.balance),
