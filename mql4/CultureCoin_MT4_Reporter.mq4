@@ -1,6 +1,11 @@
 #property strict
-#property version   "1.59"
+#property version   "1.60"
 #property description "Culture Coin MT4 Reporter - WISDO sync-account + close-authority copy/manual/profit dashboard"
+
+#include "include/WISDO_CampaignProtocol.mqh"
+input bool EnableCampaignControl = false;
+input string CampaignControlSymbol = "XAUUSD";
+input int CampaignControlMagic = 0;
 
 input string PairingCode = "";
 input string SyncUrl = "";
@@ -622,6 +627,8 @@ string BuildClosedTradesTodayJson(double &dailyClosedPL, string &symbolsSeen, st
    return output;
 }
 
+#include "include/WISDO_ReporterCampaign.mqh"
+
 string BuildPayload()
 {
    int openTradeCount = 0;
@@ -676,6 +683,7 @@ string BuildPayload()
    payload += "\"magicNumbersSeen\":" + DelimitedIntsToJsonArray(magicSeen) + ",";
    payload += "\"openTrades\":" + openTradesJson + ",";
    payload += "\"closedTradesToday\":" + closedTradesJson + ",";
+   payload += "\"campaignControl\":" + BuildCampaignControlJson() + ",";
    payload += "\"cemBotKey\":\"" + EscapeJson(GetCemBotKey()) + "\",";
    payload += "\"cemBotNickname\":\"" + EscapeJson(CemBotNickname) + "\",";
    payload += "\"adaptiveBots\":" + BuildCemAdaptiveRegistryJson() + ",";
@@ -2280,6 +2288,8 @@ void PollAndExecuteCommands()
       success = ExecuteProfitManagerCommand(command, response, message, ticket);
    else if(command == "PAUSE_TRADING" || command == "RESUME_TRADING" || command == "PAUSE_COPIER" || command == "RESUME_COPIER" || command == "EMERGENCY_STOP" || command == "STOP_ENTRIES" || command == "START_ENTRIES" || command == "SET_BOT_MODE" || command == "SET_RISK_MODE")
       success = ExecuteWisdoControlCommand(command, response, message, ticket);
+   else if(command == "WISDO_CAMPAIGN")
+      success = ExecuteCampaignCommand(response, message, ticket);
    else if(command == "CEM_SET_GLOBALS")
       success = ExecuteCemSetGlobalsCommand(response, message, ticket);
    else
