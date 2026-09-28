@@ -94,6 +94,8 @@ export function createRankAscension({ overlay }={}){
   let lastFetch=0;
   let lastAccount='';
   let state=null;
+  let activeControl=null;
+  let guardianMode='idle';
   const victories=[];
   const seenReceipts=new Set();
   let lastGreenStreak=0;
@@ -179,9 +181,28 @@ export function createRankAscension({ overlay }={}){
     const c=campaign||next?.campaigns?.[0]||null;
     const chamber=q('#wcV8CharacterChamber');
     chamber.dataset.mood=!c?'idle':next?.campaignControl?.paused?'protecting':c?.positionCount>0?'trading':'armed';
+    chamber.dataset.guardianMode=guardianMode;
+    chamber.dataset.control=activeControl?String(activeControl).toLowerCase():'';
     q('#wcV8EntryChip').textContent=`ENTRY · ${c?.averageEntry??'—'}`;
     q('#wcV8TpChip').textContent=`TP · ${c?.takeProfit??'—'}`;
     q('#wcV8SlChip').textContent=`PROTECT · ${c?.stopLoss??'—'}`;
+  }
+
+  function setControlMode(control,mode='active'){
+    const chamber=q('#wcV8CharacterChamber');
+    activeControl=control?String(control).toUpperCase():null;
+    guardianMode=String(mode||'idle').toLowerCase();
+    if(chamber){
+      chamber.dataset.guardianMode=guardianMode;
+      chamber.dataset.control=activeControl?activeControl.toLowerCase():'';
+      chamber.classList.toggle('wisdo-v10-guardian-summoning',guardianMode==='summoning');
+      chamber.classList.toggle('wisdo-v10-guardian-retracting',guardianMode==='retracting');
+    }
+  }
+
+  function setGuardianPose(pose='idle'){
+    const chamber=q('#wcV8CharacterChamber');
+    if(chamber) chamber.dataset.pose=String(pose||'idle').toLowerCase();
   }
 
   function onReceipt(receipt){
@@ -199,5 +220,5 @@ export function createRankAscension({ overlay }={}){
   }
 
   paintRank(null);
-  return {refresh,setCampaignState,onReceipt,triggerVictory:(t,d)=>{graffiti(t);addVictory(t,d);},stop(){}};
+  return {refresh,setCampaignState,setControlMode,setGuardianPose,onReceipt,triggerVictory:(t,d)=>{graffiti(t);addVictory(t,d);},stop(){}};
 }
