@@ -471,6 +471,9 @@ export function startCampaignCommandCenter() {
       materials: { black: roomFx.black, steel: roomFx.steel, glass: roomFx.glass, gold: roomFx.gold, goldGlow: roomFx.gold, cyan: roomFx.cyan, cyanBasic: roomFx.cyanBasic },
     });
     if (commandState) core.setState(commandState, { campaignId: selectedCampaignId });
+    const guardianVisual = guardianDeck.state;
+    core.setGuardianControlState?.(guardianVisual.control, guardianVisual.mode);
+    timeEngine.render();
     resize();
     last = performance.now();
     raf = requestAnimationFrame(frame);
@@ -553,6 +556,7 @@ export function startCampaignCommandCenter() {
     overlay.classList.remove('deck-open', 'intel-open');
     window.removeEventListener('keydown', blockKey, true);
     cancelProposal();
+    guardianDeck.retractAll();
   }
 
   document.getElementById('wisdoCommandLaunch')?.addEventListener('click', open);
