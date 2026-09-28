@@ -61,3 +61,50 @@
  .wisdo-v8-graffiti{font-size:20px}.wisdo-v8-graffiti.left{left:1%}.wisdo-v8-graffiti.right{right:1%}
 }
 @media(prefers-reduced-motion:reduce){.wisdo-v8-character-chamber:before,.wisdo-v8-character-chamber:after,.wisdo-v8-aura{animation:none!important}}
+
+
+/* WISDO CORE V9 — Guardian Avatar Fidelity */
+.wisdo-v8-character-chamber{isolation:isolate;perspective:1000px}
+.wisdo-v8-character-chamber:before{z-index:1;border-width:1px;opacity:.82}
+.wisdo-v8-character-chamber:after{z-index:1;border-width:1px;opacity:.72}
+.wisdo-v8-beam{position:absolute;z-index:1;left:50%;top:3%;bottom:4%;width:5px;transform:translateX(-50%);background:linear-gradient(180deg,transparent,color-mix(in srgb,var(--rank-accent) 86%,white) 18%,var(--rank-primary) 58%,#f0bd4c 86%,transparent);box-shadow:0 0 12px var(--rank-primary),0 0 34px color-mix(in srgb,var(--rank-primary) 55%,transparent),0 0 80px color-mix(in srgb,#f1bd4c 22%,transparent);opacity:.72;animation:v9beam 3.4s ease-in-out infinite}
+.wisdo-v8-plinth{position:absolute;z-index:2;left:50%;bottom:2%;width:70%;height:16%;transform:translateX(-50%);border:1px solid color-mix(in srgb,var(--rank-primary) 70%,transparent);border-radius:50%;background:radial-gradient(ellipse at center,color-mix(in srgb,#f1bd4c 24%,transparent),color-mix(in srgb,var(--rank-primary) 11%,transparent) 36%,rgba(2,8,13,.72) 65%,transparent 70%);box-shadow:0 0 32px color-mix(in srgb,var(--rank-primary) 28%,transparent),inset 0 0 28px rgba(0,0,0,.8)}
+.wisdo-v8-plinth:before,.wisdo-v8-plinth:after{content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border-radius:50%;border:1px solid color-mix(in srgb,var(--rank-accent) 52%,transparent)}
+.wisdo-v8-plinth:before{width:82%;height:58%;box-shadow:0 0 18px color-mix(in srgb,var(--rank-primary) 28%,transparent)}
+.wisdo-v8-plinth:after{width:48%;height:35%;border-color:#f0bd4caa;box-shadow:0 0 24px #f0bd4c55}
+.wisdo-v8-plinth>i{position:absolute;left:50%;top:50%;width:9px;height:9px;border-radius:50%;background:var(--rank-accent);box-shadow:0 0 15px var(--rank-primary)}
+.wisdo-v8-plinth>i:first-child{transform:translate(-50%,-50%) translateX(-31vw);display:none}
+.wisdo-v8-plinth>i:last-child{transform:translate(-50%,-50%);background:#f5d36d;box-shadow:0 0 18px #f0bd4c}
+#wcV8Character{z-index:4;inset:-1% 5% 4%;place-items:center}
+.wisdo-v8-character-svg{width:min(100%,470px);height:100%;overflow:visible;transform-origin:50% 78%;animation:v9avatarFloat 5.2s ease-in-out infinite;filter:drop-shadow(0 0 12px color-mix(in srgb,var(--rank-primary) 42%,transparent)) drop-shadow(0 24px 34px rgba(0,0,0,.72))}
+.wisdo-v8-character-chamber[data-level="4"] .wisdo-v8-character-svg,.wisdo-v8-character-chamber[data-level="5"] .wisdo-v8-character-svg,.wisdo-v8-character-chamber[data-level="6"] .wisdo-v8-character-svg{filter:drop-shadow(0 0 18px color-mix(in srgb,var(--rank-primary) 55%,transparent)) drop-shadow(0 0 28px #f1bd4c22)}
+.wisdo-v8-character-chamber[data-level="7"] .wisdo-v8-character-svg,.wisdo-v8-character-chamber[data-level="8"] .wisdo-v8-character-svg,.wisdo-v8-character-chamber[data-level="9"] .wisdo-v8-character-svg{filter:drop-shadow(0 0 22px color-mix(in srgb,var(--rank-accent) 62%,transparent)) drop-shadow(0 0 42px #f1bd4c38)}
+.wisdo-v8-character-chamber[data-mood="trading"] .wisdo-v8-character-svg{animation-duration:3.6s}
+.wisdo-v8-character-chamber[data-mood="armed"] .wisdo-v8-character-svg{filter:drop-shadow(0 0 20px var(--rank-primary))}
+.wisdo-v8-character-chamber[data-mood="protecting"]:after{border-color:#5bf1bd;box-shadow:0 0 35px #5bf1bd66}
+
+#wcV8Evolution{gap:7px;scroll-snap-type:x proximity;padding-bottom:2px}
+.wisdo-v8-evolution article{position:relative;min-width:82px;padding:5px 5px 6px;overflow:hidden;scroll-snap-align:center;background:radial-gradient(circle at 50% 28%,color-mix(in srgb,var(--rank-primary) 9%,transparent),transparent 43%),linear-gradient(180deg,#071520,#030a10);transition:transform .22s ease,border-color .22s ease,opacity .22s ease}
+.wisdo-v8-evolution article:before{content:"";position:absolute;left:10%;right:10%;bottom:22px;height:1px;background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--rank-primary) 55%,transparent),transparent)}
+.wisdo-v8-evolution article.current{transform:translateY(-1px);background:radial-gradient(circle at 50% 25%,color-mix(in srgb,var(--rank-primary) 19%,transparent),transparent 46%),linear-gradient(180deg,#0b1d2a,#041019)}
+.wisdo-v8-evolution article.locked{opacity:.34;filter:saturate(.32)}
+.wisdo-v8-evolution .wisdo-v8-character-svg.mini{display:block;width:54px;height:61px;margin:-7px auto -3px;animation:none;filter:drop-shadow(0 0 8px color-mix(in srgb,var(--rank-primary) 35%,transparent));transform:none}
+.wisdo-v8-evolution article.current .wisdo-v8-character-svg.mini{width:59px;filter:drop-shadow(0 0 11px var(--rank-primary)) drop-shadow(0 0 18px color-mix(in srgb,#f1bd4c 24%,transparent))}
+.wisdo-v8-evolution strong{position:relative;z-index:2;font-size:6.5px;color:#e9f8ff}
+.wisdo-v8-evolution small{position:relative;z-index:2;font-size:5.7px;color:#7894a3;white-space:nowrap}
+.wisdo-v8-evolution article.current small{color:var(--rank-accent)}
+
+.wisdo-v8-rank-head{box-shadow:0 0 42px color-mix(in srgb,var(--rank-primary) 12%,transparent),inset 0 1px 0 rgba(255,255,255,.05)}
+.wisdo-v8-rank-head:before{content:"";position:absolute;left:50%;top:-11px;width:24px;height:18px;transform:translateX(-50%);clip-path:polygon(50% 0,100% 70%,68% 70%,50% 45%,32% 70%,0 70%);background:linear-gradient(180deg,#fff3b0,#d89f32);filter:drop-shadow(0 0 8px #e7b64f)}
+
+@keyframes v9avatarFloat{0%,100%{transform:translateY(3px) scale(.985)}50%{transform:translateY(-6px) scale(1.012)}}
+@keyframes v9beam{0%,100%{opacity:.45;filter:brightness(.9)}50%{opacity:.9;filter:brightness(1.25)}}
+
+@media(max-width:760px){
+ .wisdo-v8-character-chamber{top:202px;height:584px}
+ #wcV8Character{inset:0 2% 6%}
+ .wisdo-v8-character-svg{width:min(92vw,455px)}
+ .wisdo-v8-plinth{bottom:3%;width:78%;height:13%}
+ .wisdo-v8-evolution article{min-width:76px}
+ .wisdo-v8-evolution .wisdo-v8-character-svg.mini{width:50px;height:58px}
+}
