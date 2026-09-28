@@ -117,7 +117,8 @@ export function createRankAscension({ overlay }={}){
     q('#wcV8Level').textContent=`LEVEL ${def.level}`;
     q('#wcV8Character').innerHTML=characterSvg(def);
     q('#wcV8CharacterChamber').dataset.level=String(def.level);
-    const growth=Number(record?.growthPercent||0);
+    const rawGrowth=Number(record?.growthPercent||0);
+    const growth=Number.isFinite(rawGrowth)?Math.max(0,rawGrowth):0;
     const currentMin=Number(record?.currentRank?.minGrowth||0);
     const nextMin=Number(record?.nextRank?.minGrowth||currentMin);
     const maxed=record?.nextRank?.key===record?.currentRank?.key || nextMin<=currentMin;
