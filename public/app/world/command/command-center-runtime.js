@@ -1,6 +1,7 @@
 import { THREE_MODULE_URL } from '../world-config.js';
 import { createCampaignCoreRenderer } from './campaign-core-renderer.js';
 import { createWorldCommandRuntime } from './command-runtime.js';
+import { createRankAscension } from './rank-ascension.js';
 
 const money = (value, currency = 'USD') => {
   try { return new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: 2 }).format(Number(value || 0)); }
@@ -14,6 +15,7 @@ function ensureStyles() {
     ['/app/world/command/wisdo-core-v5.css?v=20260928-core-v5', 'wisdoCoreCss'],
     ['/app/world/command/wisdo-core-v6.css?v=20260928-core-v6', 'wisdoCoreV6Css'],
     ['/app/world/command/wisdo-core-v7.css?v=20260928-singularity-route', 'wisdoCoreV7Css'],
+    ['/app/world/command/wisdo-core-v8-rank-ascension.css?v=20260928-rank-ascension', 'wisdoCoreV8RankCss'],
   ];
   for (const [href, key] of styles) {
     if (document.querySelector(`link[data-${key.replace(/[A-Z]/g, m => '-'+m.toLowerCase())}]`)) continue;
@@ -245,12 +247,16 @@ export function startCampaignCommandCenter() {
 
   const overlay = document.getElementById('wisdoCommandOverlay');
   const canvas = document.getElementById('wcCanvas');
+  const rankAscension = createRankAscension({ overlay });
   const runtime = createWorldCommandRuntime({
     onState: (state, meta) => {
       commandState = state;
       selectedCampaignId = meta?.selectedCampaignId || state.selectedCampaignId || selectedCampaignId;
       renderState();
       core?.setState(state, { campaignId: selectedCampaignId });
+      const activeCampaign = state?.campaigns?.find((row) => row.campaignId === selectedCampaignId) || state?.campaigns?.[0] || null;
+      rankAscension.setCampaignState(state, activeCampaign);
+      rankAscension.refresh(state?.account?.accountId || '').catch(() => {});
     },
     onStatus: ({ state }) => {
       const el = document.getElementById('wcScopeLink');
@@ -260,6 +266,7 @@ export function startCampaignCommandCenter() {
       latestReceipt = receipt;
       renderReceipt();
       core?.showReceipt(receipt);
+      rankAscension.onReceipt(receipt);
       if (['completed','failed','expired','cancelled'].includes(String(receipt?.status || '').toLowerCase())) runtime.refresh().catch(() => {});
     },
   });
@@ -600,6 +607,7 @@ export function startCampaignCommandCenter() {
     close,
     stop() {
       runtime.stop();
+      rankAscension.stop();
       cancelAnimationFrame(raf);
       renderer?.dispose?.();
       window.removeEventListener('resize', resize);
