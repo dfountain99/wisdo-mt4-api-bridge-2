@@ -12,9 +12,9 @@ export function createSpatialAnalytics(host){
     const equity=n(state?.account?.equity ?? state?.equity ?? state?.summary?.equity);
     const current=positions.find(p=>n(p.currentPrice)>0)?.currentPrice;
     const floating=positions.reduce((s,p)=>s+n(p.floatingMoney),0);
-    const slopes=positions.map(p=>{const d=n(p.currentPrice)-n(p.entryPrice);return Math.abs(d)>1e-8?n(p.floatingMoney)/d:0}).filter(v=>Number.isFinite(v)&&Math.abs(v)>1e-8);
-    const basketSlope=slopes.reduce((a,b)=>a+b,0);
-    const weightedEntry=basketSlope?positions.reduce((s,p,i)=>s+(slopes[i]||0)*n(p.entryPrice),0)/basketSlope:0;
+    const legs=positions.map(p=>{const d=n(p.currentPrice)-n(p.entryPrice);const slope=Math.abs(d)>1e-8?n(p.floatingMoney)/d:0;return {p,slope};}).filter(x=>Number.isFinite(x.slope)&&Math.abs(x.slope)>1e-8);
+    const basketSlope=legs.reduce((a,x)=>a+x.slope,0);
+    const weightedEntry=basketSlope?legs.reduce((sum,x)=>sum+x.slope*n(x.p.entryPrice),0)/basketSlope:0;
     const base=balance||Math.max(0,equity-floating);
     const required=base?base*goalPct/100:NaN;
     const remaining=Number.isFinite(required)?required-floating:NaN;
