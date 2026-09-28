@@ -39,7 +39,7 @@ function markup(){
   </div>`;
 }
 
-export function createWisdoTimeEngine(container,{resetWindowSeconds=120}={}){
+export function createWisdoTimeEngine(container,{resetWindowSeconds=120,onVisualState=null}={}){
   if(!container) return {setState(){},destroy(){}};
   container.classList.add('wisdo-v10-time-host');
   container.innerHTML=markup();
@@ -108,6 +108,7 @@ export function createWisdoTimeEngine(container,{resetWindowSeconds=120}={}){
     const pct=clamp(d.progress,0,1);
     progress.style.strokeDashoffset=String(circumference*(1-pct));
     q('#wcV10RailMarker').style.left=`${(pct*100).toFixed(2)}%`;
+    onVisualState?.({ progress:pct, live:d.live, paused:d.paused, remaining:d.remaining, elapsed:d.elapsed, mode:root.dataset.temporalMode });
   }
 
   function setState(next={},activeCampaign=null){
