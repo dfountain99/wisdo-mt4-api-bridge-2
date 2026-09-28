@@ -19,6 +19,7 @@ function ensureStyles() {
     ['/app/world/command/wisdo-core-v7.css?v=20260928-singularity-route', 'wisdoCoreV7Css'],
     ['/app/world/command/wisdo-core-v8-rank-ascension.css?v=20260928-rank-ascension', 'wisdoCoreV8RankCss'],
     ['/app/world/command/wisdo-core-v10-living-controls.css?v=20260928-v10-living-guardian-time', 'wisdoCoreV10Css'],
+    ['/app/world/command/wisdo-core-v10-1-mobile.css?v=20260928-v10-1-mobile-command-chamber', 'wisdoCoreV101MobileCss'],
   ];
   for (const [href, key] of styles) {
     if (document.querySelector(`link[data-${key.replace(/[A-Z]/g, m => '-'+m.toLowerCase())}]`)) continue;
@@ -63,7 +64,7 @@ function commandMarkup() {
       <div class="wisdo-command-room-label"><span>CAMPAIGN INTELLIGENCE</span><strong>WISDO CORE</strong><i></i></div>
       <aside class="wisdo-v6-status" aria-label="Live campaign truth"><section><span>CAMPAIGN</span><strong id="wcV6Campaign">STANDING BY</strong></section><section class="gold"><span>OBJECTIVE</span><strong id="wcV6Objective">AWAITING LIVE STATE</strong></section><section><span>POSITIONS</span><strong id="wcV6Positions">0</strong></section><section><span>FLOATING</span><strong id="wcV6Floating">—</strong></section></aside>
       <aside class="wisdo-v6-ack"><span>EA TRUTH LOOP</span><strong id="wcV6Ack">NO COMMAND SENT · WISDO WILL NOT DISPLAY SUCCESS BEFORE EA ACKNOWLEDGES</strong></aside>
-      <div class="wisdo-v7-inputs"><button><b>⌁</b>Touch · Draw on screen</button><button><b>✋</b>Spatial · Hand gestures</button><button><b>◉</b>Voice · Speak to WISDO</button><button><b>⌨</b>Keys · Keyboard commands</button></div>
+      <button id="wcMobileInputToggle" class="wisdo-v10-mobile-input-toggle" type="button" aria-expanded="false">INPUT · TOUCH</button>\n      <div class="wisdo-v7-inputs" id="wcMobileInputModes"><button type="button" data-mobile-input="touch"><b>⌁</b>Touch · Draw on screen</button><button type="button" data-mobile-input="spatial"><b>✋</b>Spatial · Hand gestures</button><button type="button" data-mobile-input="voice"><b>◉</b>Voice · Speak to WISDO</button><button type="button" data-mobile-input="keys"><b>⌨</b>Keys · Keyboard commands</button></div>
       <form id="wcIntentComposer" class="wisdo-v6-composer"><input id="wcIntentInput" autocomplete="off" placeholder="Tell WISDO what you want the campaign to do…" aria-label="WISDO intent"><button type="submit">INTERPRET</button></form>
       <div class="wisdo-v7-actions"><button data-command="RESUME_NEW_ENTRIES">BOOST<em>Entry control</em></button><button data-command="PAUSE_BOT">PAUSE<em>Bot</em></button><button data-command="LOCK_PROFIT">PROTECT<em>Profit</em></button><button data-command="CLOSE_CAMPAIGN">COLLECT<em>Campaign</em></button><button data-command="STOP_ADDS">STOP ADDS<em>New entries</em></button><button data-command="CLOSE_CAMPAIGN">CLOSE<em>Campaign</em></button></div>
       <div class="wisdo-v7-gesture"><strong>GESTURE LANGUAGE</strong><div><span>☝ Select / inspect</span><span>✌ Adjust behavior</span><span>○ Reset timer</span><span>↑ Boost / extend</span></div></div>
@@ -382,7 +383,7 @@ export function startCampaignCommandCenter() {
       document.getElementById('wcProposalScope').textContent = `SCOPE ${proposal.scope} · ${proposal.campaign?.symbol || proposal.position?.symbol || ''} · ${proposal.affectedCount} POSITION${proposal.affectedCount === 1 ? '' : 'S'} AFFECTED`;
       document.getElementById('wcProposalEffect').textContent = `CURRENT FLOATING ${money(proposal.currentFloatingPL, proposal.currency)} · HOLD ${proposal.holdRequiredMs}ms TO SEND`;
       document.getElementById('wcProposal').hidden = false;
-      overlay.classList.remove('deck-open', 'intel-open');
+      overlay.classList.remove('deck-open', 'intel-open', 'mobile-input-open');
       syncToggleButtons();
     } catch (error) {
       latestReceipt = { status: 'failed', command: action, error: error.message };
@@ -591,6 +592,39 @@ export function startCampaignCommandCenter() {
     if(state) state.textContent=`INTENT PREVIEW · ${match[1].replaceAll('_',' ')} · AWAITING SERVER PROPOSAL`;
     arm(match[1]);
     input.value='';
+  });
+
+  const mobileInputToggle = document.getElementById('wcMobileInputToggle');
+  mobileInputToggle?.addEventListener('click', () => {
+    const open = !overlay.classList.contains('mobile-input-open');
+    overlay.classList.toggle('mobile-input-open', open);
+    mobileInputToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  overlay.querySelectorAll('[data-mobile-input]').forEach((btn) => btn.addEventListener('click', () => {
+    const mode = String(btn.dataset.mobileInput || 'touch').toUpperCase();
+    if (mobileInputToggle) mobileInputToggle.textContent = `INPUT · ${mode}`;
+    overlay.classList.remove('mobile-input-open');
+    mobileInputToggle?.setAttribute('aria-expanded', 'false');
+    const intentState = document.getElementById('wcIntentState');
+    if (intentState) intentState.textContent = `${mode} INPUT SELECTED · COMMANDS STILL REQUIRE PREVIEW + VERIFIED CONFIRMATION`;
+  }));
+
+  ['wcV7Progress','wcV7State','wcV7Sense','wcV7Next'].forEach((id) => {
+    const panel = document.getElementById(id);
+    if (!panel) return;
+    panel.setAttribute('tabindex','0');
+    panel.setAttribute('role','button');
+    panel.setAttribute('aria-expanded','false');
+    const togglePanel = () => {
+      if (!window.matchMedia('(max-width: 760px)').matches) return;
+      const expanded = !panel.classList.contains('mobile-expanded');
+      panel.classList.toggle('mobile-expanded', expanded);
+      panel.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    };
+    panel.addEventListener('click', togglePanel);
+    panel.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); togglePanel(); }
+    });
   });
 
   overlay.querySelectorAll('[data-core-mode]').forEach((btn) => btn.addEventListener('click', () => {
