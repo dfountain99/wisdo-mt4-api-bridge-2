@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wisdo-static-v9.0.0-guardian-avatars';
+const CACHE_NAME = 'wisdo-static-v10.0.0-living-guardian-controls';
 const STATIC_ASSETS = [
   '/js/workspace.js',
   '/js/wisdo-recognition.js',
