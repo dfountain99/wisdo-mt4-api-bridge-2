@@ -18,8 +18,7 @@ function ensureStyles() {
     ['/app/world/command/wisdo-core-v6.css?v=20260928-core-v6', 'wisdoCoreV6Css'],
     ['/app/world/command/wisdo-core-v7.css?v=20260928-singularity-route', 'wisdoCoreV7Css'],
     ['/app/world/command/wisdo-core-v8-rank-ascension.css?v=20260928-rank-ascension', 'wisdoCoreV8RankCss'],
-    ['/app/world/command/wisdo-core-v10-living-controls.css?v=20260928-v10-living-guardian-time', 'wisdoCoreV10Css'],
-    ['/app/world/command/wisdo-core-v10-1-mobile.css?v=20260928-v10-1-mobile-command-chamber', 'wisdoCoreV101MobileCss'],
+    ['/app/world/command/wisdo-core-v10-living-controls.css?v=20260928-v10-2-deterministic-mobile', 'wisdoCoreV10Css'],
   ];
   for (const [href, key] of styles) {
     if (document.querySelector(`link[data-${key.replace(/[A-Z]/g, m => '-'+m.toLowerCase())}]`)) continue;
@@ -480,7 +479,27 @@ export function startCampaignCommandCenter() {
     raf = requestAnimationFrame(frame);
   }
 
+  function syncViewportMode() {
+    const widths = [
+      Number(window.innerWidth || 0),
+      Number(document.documentElement?.clientWidth || 0),
+      Number(window.visualViewport?.width || 0),
+    ].filter((value) => Number.isFinite(value) && value > 0);
+    const viewportWidth = widths.length ? Math.min(...widths) : 1024;
+    const mobile = viewportWidth <= 760;
+    overlay.classList.toggle('mobile-command-chamber', mobile);
+    overlay.dataset.viewportMode = mobile ? 'mobile' : 'desktop';
+    document.documentElement.classList.toggle('wisdo-core-mobile-active', mobile && opened);
+    if (!mobile) {
+      overlay.classList.remove('mobile-input-open');
+      overlay.querySelectorAll('.mobile-expanded').forEach((node) => node.classList.remove('mobile-expanded'));
+      mobileInputToggle?.setAttribute('aria-expanded', 'false');
+    }
+    return mobile;
+  }
+
   function resize() {
+    syncViewportMode();
     if (!renderer) return;
     const rect = canvas.getBoundingClientRect();
     const mobile = rect.width < 650;
@@ -538,6 +557,7 @@ export function startCampaignCommandCenter() {
     document.exitPointerLock?.();
     overlay.hidden = false;
     overlay.classList.remove('deck-open', 'intel-open');
+    syncViewportMode();
     syncToggleButtons();
     window.addEventListener('keydown', blockKey, true);
     ensure3D().catch((e) => {
@@ -554,7 +574,8 @@ export function startCampaignCommandCenter() {
   function close() {
     opened = false;
     overlay.hidden = true;
-    overlay.classList.remove('deck-open', 'intel-open');
+    overlay.classList.remove('deck-open', 'intel-open', 'mobile-input-open');
+    document.documentElement.classList.remove('wisdo-core-mobile-active');
     window.removeEventListener('keydown', blockKey, true);
     cancelProposal();
     guardianDeck.retractAll();
@@ -616,7 +637,7 @@ export function startCampaignCommandCenter() {
     panel.setAttribute('role','button');
     panel.setAttribute('aria-expanded','false');
     const togglePanel = () => {
-      if (!window.matchMedia('(max-width: 760px)').matches) return;
+      if (!overlay.classList.contains('mobile-command-chamber')) return;
       const expanded = !panel.classList.contains('mobile-expanded');
       panel.classList.toggle('mobile-expanded', expanded);
       panel.setAttribute('aria-expanded', expanded ? 'true' : 'false');
@@ -665,6 +686,8 @@ export function startCampaignCommandCenter() {
     distance = Math.max(7.2, Math.min(17, distance + Math.sign(e.deltaY) * .8));
   }, { passive: false });
   window.addEventListener('resize', resize, { passive: true });
+  window.visualViewport?.addEventListener('resize', resize, { passive: true });
+  syncViewportMode();
 
   return {
     open,
@@ -677,7 +700,9 @@ export function startCampaignCommandCenter() {
       cancelAnimationFrame(raf);
       renderer?.dispose?.();
       window.removeEventListener('resize', resize);
+      window.visualViewport?.removeEventListener('resize', resize);
       window.removeEventListener('keydown', blockKey, true);
+      document.documentElement.classList.remove('wisdo-core-mobile-active');
       overlay.remove();
     },
   };
