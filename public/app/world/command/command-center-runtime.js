@@ -16,6 +16,11 @@ function ensureStyles() {
   const coreLink = document.createElement('link');
   coreLink.rel = 'stylesheet';
   coreLink.href = '/app/world/command/wisdo-core-v5.css?v=20260928-core-v5';
+  const v6Link = document.createElement('link');
+  v6Link.rel = 'stylesheet';
+  v6Link.href = '/app/world/command/wisdo-core-v6.css?v=20260928-core-v6';
+  v6Link.dataset.wisdoCoreV6Css = '1';
+  document.head.appendChild(v6Link);
   coreLink.dataset.wisdoCoreCss = '1';
   document.head.appendChild(coreLink);
   link.dataset.wisdoCommandCss = '1';
@@ -45,7 +50,7 @@ function commandMarkup() {
       <canvas id="wcCanvas" class="wisdo-command-canvas"></canvas>
       <div class="wisdo-command-chart-note">LIVE CAMPAIGN DIGITAL TWIN · DRAG TO ORBIT · SCROLL TO ZOOM</div>
       <div class="wisdo-command-crosshair"></div>
-      <div class="wisdo-command-room-label"><span>LIVE EXECUTION ENVIRONMENT</span><strong>WISDO CORE</strong><i></i></div>
+      <div class="wisdo-v6-protocol"><span>PROTOCOL</span><i></i><b id="wcProtocol">DIRECT CONTROL</b><i></i><span id="wcNextCondition">AWAITING INTENT</span></div>\n      <div class="wisdo-command-room-label"><span>CAMPAIGN INTELLIGENCE</span><strong>WISDO CORE</strong><i></i></div>\n      <aside class="wisdo-v6-status" aria-label="Live campaign truth"><section><span>CAMPAIGN</span><strong id="wcV6Campaign">STANDING BY</strong></section><section class="gold"><span>OBJECTIVE</span><strong id="wcV6Objective">AWAITING LIVE STATE</strong></section><section><span>POSITIONS</span><strong id="wcV6Positions">0</strong></section><section><span>FLOATING</span><strong id="wcV6Floating">—</strong></section></aside>\n      <aside class="wisdo-v6-ack"><span>EA TRUTH LOOP</span><strong id="wcV6Ack">NO COMMAND SENT · WISDO WILL NOT DISPLAY SUCCESS BEFORE EA ACKNOWLEDGES</strong></aside>\n      <form id="wcIntentComposer" class="wisdo-v6-composer"><input id="wcIntentInput" autocomplete="off" placeholder="Tell WISDO what you want the campaign to do…" aria-label="WISDO intent"><button type="submit">INTERPRET</button></form>
       <div class="wisdo-core-flow" aria-label="WISDO intent flow"><div class="wisdo-core-node active"><strong>INPUT</strong> MULTIMODAL</div><i class="wisdo-core-arrow"></i><div class="wisdo-core-node"><strong>INTENT</strong> INTERPRET</div><i class="wisdo-core-arrow"></i><div class="wisdo-core-node guard"><strong>GUARD</strong> VALIDATE</div><i class="wisdo-core-arrow"></i><div class="wisdo-core-node"><strong>EA</strong> EXECUTE</div><i class="wisdo-core-arrow"></i><div class="wisdo-core-node"><strong>ACK</strong> VERIFY</div></div>
       <aside class="wisdo-command-side left">
         <section class="wisdo-command-card"><h3>ACCOUNT VAULT</h3><select id="wcAccountSelect"></select><h3 style="margin-top:12px">CAMPAIGNS</h3><div id="wcCampaignList" class="wisdo-command-list"></div></section>
@@ -275,9 +280,9 @@ export function startCampaignCommandCenter() {
     const el = document.getElementById('wcReceipt');
     if (!el) return;
     const r = latestReceipt;
-    if (!r) { el.textContent = 'No command sent.'; return; }
+    if (!r) { el.textContent = 'No command sent.'; const ack=document.getElementById('wcV6Ack'); if(ack) ack.textContent='NO COMMAND SENT · WISDO WILL NOT DISPLAY SUCCESS BEFORE EA ACKNOWLEDGES'; return; }
     const cls = r.status === 'completed' ? 'wisdo-command-ok' : r.status === 'failed' ? 'wisdo-command-error' : '';
-    el.innerHTML = `<div class="${cls}"><strong>${esc(String(r.status || 'pending').toUpperCase())}</strong></div><div>${esc(r.command || '')}</div><div>ID ${esc(r.commandId || '')}</div><div>REQUEST ${esc(r.requestedAt || '')}</div>${r.result?.message ? `<div>${esc(r.result.message)}</div>` : ''}${r.error ? `<div class="wisdo-command-error">${esc(r.error)}</div>` : ''}`;
+    const ack=document.getElementById('wcV6Ack'); if(ack) ack.textContent=`${String(r.status || 'pending').toUpperCase()} · ${r.command || 'COMMAND'}${r.result?.message ? ' · '+r.result.message : ''}${r.error ? ' · '+r.error : ''}`;\n    el.innerHTML = `<div class="${cls}"><strong>${esc(String(r.status || 'pending').toUpperCase())}</strong></div><div>${esc(r.command || '')}</div><div>ID ${esc(r.commandId || '')}</div><div>REQUEST ${esc(r.requestedAt || '')}</div>${r.result?.message ? `<div>${esc(r.result.message)}</div>` : ''}${r.error ? `<div class="wisdo-command-error">${esc(r.error)}</div>` : ''}`;
   }
 
   function renderState() {
@@ -289,7 +294,7 @@ export function startCampaignCommandCenter() {
     document.getElementById('wcScopeCampaign').textContent = c?.strategyName || c?.campaignId?.slice(0, 22) || '—';
     document.getElementById('wcScopeLink').textContent = commandState.executionHealth?.commandLinkReady ? 'READY' : 'DISABLED';
     const intentState = document.getElementById('wcIntentState');
-    if (intentState) intentState.textContent = commandState.executionHealth?.commandLinkReady ? 'OBSERVING · INPUT READY · EA LINK VERIFIED' : 'OBSERVING · INPUT READY · EA LINK DEGRADED';
+    if (intentState) intentState.textContent = commandState.executionHealth?.commandLinkReady ? 'OBSERVING · INPUT READY · EA LINK VERIFIED' : 'OBSERVING · INPUT READY · EA LINK DEGRADED';\n    const v6Campaign=document.getElementById('wcV6Campaign'); if(v6Campaign) v6Campaign.textContent=c ? `${c.symbol} · ${c.direction} · ${c.strategyName || 'CAMPAIGN'}` : 'STANDING BY';\n    const v6Objective=document.getElementById('wcV6Objective'); if(v6Objective) v6Objective.textContent=c ? `PROTECT ${c.stopLoss ?? '—'} · TARGET ${c.takeProfit ?? '—'}` : 'AWAITING LIVE STATE';\n    const v6Positions=document.getElementById('wcV6Positions'); if(v6Positions) v6Positions.textContent=String(c?.positionCount || 0);\n    const v6Floating=document.getElementById('wcV6Floating'); if(v6Floating) v6Floating.textContent=money(c?.floatingMoney || 0,commandState.financial?.currency);
 
     const accountSelect = document.getElementById('wcAccountSelect');
     accountSelect.innerHTML = (commandState.accounts || []).map((a) => `<option value="${esc(a.accountId)}" ${a.accountId === acct?.accountId ? 'selected' : ''}>${esc(a.nickname || a.accountId)}${a.shared ? ' · SHARED' : ''}</option>`).join('');
@@ -504,6 +509,33 @@ export function startCampaignCommandCenter() {
   document.getElementById('wcIntelToggle')?.addEventListener('click', () => toggleIntel());
   document.getElementById('wcDeckClose')?.addEventListener('click', () => toggleDeck(false));
   document.getElementById('wcCancelProposal')?.addEventListener('click', cancelProposal);
+
+  document.getElementById('wcIntentComposer')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const input=document.getElementById('wcIntentInput');
+    const raw=String(input?.value || '').trim();
+    if(!raw) return;
+    const normalized=raw.toUpperCase().replace(/[^A-Z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
+    const direct=[
+      [/^(PAUSE|PAUSE BOT)$/, 'PAUSE_BOT'],
+      [/^(RESUME|RESUME BOT)$/, 'RESUME_BOT'],
+      [/^(STOP NEW ENTRIES|LOCK ENTRIES)$/, 'STOP_NEW_ENTRIES'],
+      [/^(RESUME NEW ENTRIES|UNLOCK ENTRIES)$/, 'RESUME_NEW_ENTRIES'],
+      [/^(CLOSE CAMPAIGN|COLLECT CAMPAIGN)$/, 'CLOSE_CAMPAIGN'],
+      [/^(CLOSE PROFIT|COLLECT PROFIT)$/, 'CLOSE_PROFIT'],
+      [/^(BREAK EVEN|BREAKEVEN)$/, 'BREAK_EVEN'],
+      [/^(LOCK PROFIT|PROTECT PROFIT)$/, 'LOCK_PROFIT'],
+      [/^(STOP ADDS|HOLD ADDS)$/, 'STOP_ADDS'],
+      [/^(RESUME ADDS)$/, 'RESUME_ADDS'],
+      [/^(EMERGENCY STOP)$/, 'EMERGENCY_STOP']
+    ];
+    const match=direct.find(([re])=>re.test(normalized));
+    const state=document.getElementById('wcIntentState');
+    if(!match){ if(state) state.textContent='INTENT UNDERSTOOD AS LANGUAGE · NO SAFE LIVE MAPPING YET · NOTHING SENT'; return; }
+    if(state) state.textContent=`INTENT PREVIEW · ${match[1].replaceAll('_',' ')} · AWAITING SERVER PROPOSAL`;
+    arm(match[1]);
+    input.value='';
+  });
 
   overlay.querySelectorAll('[data-core-mode]').forEach((btn) => btn.addEventListener('click', () => {
     overlay.querySelectorAll('[data-core-mode]').forEach((node) => node.classList.toggle('active', node === btn));
