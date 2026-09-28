@@ -24,6 +24,8 @@ const CONTROL_DEFS = Object.freeze({
 
 export const GUARDIAN_CONTROL_STATES = Object.freeze(['idle','summoning','active:auto','active:protect','active:take_profit','retracting']);
 
+export const GUARDIAN_CONTROL_DEFS = CONTROL_DEFS;
+
 function normalizeControl(value) {
   const key = String(value || '').toUpperCase().replace(/\s+/g, '_');
   return CONTROL_DEFS[key] ? key : null;
@@ -43,6 +45,18 @@ function markup() {
     </div>
     <div class="wisdo-v10-control-truth" id="wcV10ControlTruth">SELECT A CONTROL · EXECUTION STILL REQUIRES VERIFIED PROPOSAL + HOLD</div>
   </section>`;
+}
+
+export function resolveGuardianControlAction(next, state = {}) {
+  const key = normalizeControl(next);
+  const campaign = state?.campaigns?.find((row) => row.campaignId === state?.selectedCampaignId) || state?.campaigns?.[0] || null;
+  if (key === 'AUTO') {
+    const botEnabled = campaign?.botEnabled ?? state?.bot?.enabled;
+    return botEnabled === false ? 'RESUME_BOT' : 'RESUME_NEW_ENTRIES';
+  }
+  if (key === 'PROTECT') return 'STOP_NEW_ENTRIES';
+  if (key === 'TAKE_PROFIT') return 'CLOSE_PROFIT';
+  return null;
 }
 
 export function createGuardianCommandDeck({ overlay, onRequest = null, onVisualState = null } = {}) {
@@ -110,17 +124,6 @@ export function createGuardianCommandDeck({ overlay, onRequest = null, onVisualS
     return control;
   }
 
-  function actionFor(next, state = lastState) {
-    const key = normalizeControl(next);
-    const campaign = state?.campaigns?.find((row) => row.campaignId === state?.selectedCampaignId) || state?.campaigns?.[0] || null;
-    if (key === 'AUTO') {
-      const botEnabled = campaign?.botEnabled ?? state?.bot?.enabled;
-      return botEnabled === false ? 'RESUME_BOT' : 'RESUME_NEW_ENTRIES';
-    }
-    if (key === 'PROTECT') return 'STOP_NEW_ENTRIES';
-    if (key === 'TAKE_PROFIT') return 'CLOSE_PROFIT';
-    return null;
-  }
 
   function setState(state = {}) {
     lastState = state;
@@ -142,7 +145,7 @@ export function createGuardianCommandDeck({ overlay, onRequest = null, onVisualS
     const key = normalizeControl(next);
     if (!key) return;
     setControl(key);
-    const action = actionFor(key, lastState);
+    const action = resolveGuardianControlAction(key, lastState);
     if (!action) {
       truth.textContent = 'NO VERIFIED COMMAND MAPPING · NOTHING SENT';
       return;
