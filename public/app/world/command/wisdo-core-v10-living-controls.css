@@ -1,0 +1,95 @@
+/* WISDO CORE V10 — Living Guardian Controls + Advanced WISDO Time */
+#wisdoCommandOverlay{--v10-cyan:#66e5ff;--v10-blue:#3698ff;--v10-teal:#59efc3;--v10-gold:#f0bd4d;--v10-white:#eafaff}
+.wisdo-v7-actions{display:none!important}
+.wisdo-command-deck{display:none!important}
+
+/* Guardian pose language */
+.wisdo-v8-character-chamber{transition:filter .45s ease}
+#wcV8Character{transform-origin:50% 82%;transition:transform .52s cubic-bezier(.2,.8,.2,1),filter .4s ease}
+.wisdo-v8-character-chamber[data-control="auto"] #wcV8Character{transform:translateY(-8px) scale(1.025);filter:drop-shadow(0 0 24px color-mix(in srgb,var(--rank-primary) 72%,transparent))}
+.wisdo-v8-character-chamber[data-control="protect"] #wcV8Character{transform:translate(-8px,-3px) rotate(-1.2deg) scale(1.015);filter:drop-shadow(-16px 4px 26px rgba(89,239,195,.34))}
+.wisdo-v8-character-chamber[data-control="take_profit"] #wcV8Character{transform:translate(8px,-3px) rotate(1.2deg) scale(1.018);filter:drop-shadow(16px 3px 28px rgba(240,189,77,.38))}
+.wisdo-v8-character-chamber[data-guardian-mode="summoning"] #wcV8Character{animation:v10GuardianSummon .48s ease both}
+.wisdo-v8-character-chamber[data-guardian-mode="retracting"] #wcV8Character{animation:v10GuardianRetract .5s ease both}
+.wisdo-v8-character-chamber[data-control="protect"] .wisdo-v8-aura{background:radial-gradient(circle at 42% 48%,rgba(89,239,195,.34),transparent 42%),radial-gradient(circle at 55% 64%,color-mix(in srgb,var(--rank-primary) 18%,transparent),transparent 62%)}
+.wisdo-v8-character-chamber[data-control="take_profit"] .wisdo-v8-aura{background:radial-gradient(circle at 58% 47%,rgba(240,189,77,.32),transparent 42%),radial-gradient(circle at 48% 66%,color-mix(in srgb,var(--rank-primary) 18%,transparent),transparent 62%)}
+
+/* Living projected deck */
+.wisdo-v10-control-deck{position:absolute;z-index:38;left:50%;bottom:16px;transform:translateX(-50%);width:min(660px,calc(100% - 520px));min-height:96px;padding:7px 12px 9px;border:1px solid rgba(82,193,245,.16);border-radius:23px;background:linear-gradient(180deg,rgba(2,10,16,.28),rgba(2,8,13,.74));backdrop-filter:blur(15px);box-shadow:0 20px 70px rgba(0,0,0,.5),inset 0 0 30px rgba(68,181,237,.025);overflow:visible}
+.wisdo-v10-control-deck:before{content:"";position:absolute;left:8%;right:8%;bottom:10px;height:52px;border-radius:50%;background:radial-gradient(ellipse at center,rgba(69,201,255,.11),transparent 66%);filter:blur(2px);pointer-events:none}
+.wisdo-v10-control-origin{position:absolute;left:50%;top:-39px;transform:translateX(-50%);display:grid;place-items:center;color:#668b9e;font-size:6px;letter-spacing:.2em;pointer-events:none}
+.wisdo-v10-control-origin i{display:block;width:7px;height:7px;margin-bottom:4px;border-radius:50%;background:var(--rank-accent);box-shadow:0 0 14px var(--rank-primary),0 0 28px var(--rank-primary)}
+.wisdo-v10-control-origin:after{content:"";position:absolute;top:8px;width:1px;height:32px;background:linear-gradient(var(--rank-accent),transparent);box-shadow:0 0 8px var(--rank-primary)}
+.wisdo-v10-control-field{position:relative;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;align-items:end}
+.wisdo-v10-floor-node{position:relative;min-height:72px;border:0;background:transparent;color:#9ebcca;cursor:pointer;isolation:isolate;transition:transform .34s ease,color .34s ease,opacity .34s ease;padding:0 4px 3px}
+.wisdo-v10-floor-node:before{content:"";position:absolute;z-index:-2;left:12%;right:12%;bottom:0;height:34px;border:1px solid rgba(88,190,235,.18);border-radius:50%;transform:perspective(80px) rotateX(64deg);background:repeating-conic-gradient(from 0deg,transparent 0 8deg,rgba(77,202,255,.12) 9deg 10deg);box-shadow:inset 0 0 18px rgba(71,194,247,.05)}
+.wisdo-v10-floor-node strong{display:block;margin-top:36px;color:#bcdce9;font-size:9px;letter-spacing:.13em}.wisdo-v10-floor-node em{display:block;margin-top:2px;color:#587687;font:600 6px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em}
+.wisdo-v10-node-ring{position:absolute;left:50%;top:7px;transform:translateX(-50%) scale(.72);display:grid;place-items:center;width:38px;height:38px;border:1px solid rgba(94,205,255,.28);border-radius:50%;background:rgba(4,18,28,.68);box-shadow:0 0 0 8px rgba(66,183,242,.025),0 0 18px rgba(66,183,242,.08);transition:.42s ease}
+.wisdo-v10-node-ring b{font-size:14px;color:var(--v10-cyan);text-shadow:0 0 10px currentColor}
+.wisdo-v10-node-beam{position:absolute;left:50%;top:-35px;transform:translateX(-50%) scaleY(0);transform-origin:bottom;width:16px;height:48px;clip-path:polygon(38% 0,62% 0,100% 100%,0 100%);background:linear-gradient(180deg,rgba(116,228,255,0),rgba(91,212,255,.23));filter:blur(.2px);transition:transform .42s ease,opacity .42s ease;opacity:0}
+.wisdo-v10-node-electric{position:absolute;left:14%;right:14%;bottom:7px;height:1px;background:linear-gradient(90deg,transparent,var(--v10-cyan),transparent);box-shadow:0 0 8px var(--v10-cyan);opacity:.15}
+.wisdo-v10-floor-node.protect .wisdo-v10-node-ring b{color:var(--v10-teal)}.wisdo-v10-floor-node.protect:before{border-color:rgba(89,239,195,.22)}
+.wisdo-v10-floor-node.profit .wisdo-v10-node-ring b{color:var(--v10-gold)}.wisdo-v10-floor-node.profit:before{border-color:rgba(240,189,77,.22)}
+.wisdo-v10-floor-node.summoning,.wisdo-v10-floor-node.active{transform:translateY(-7px);color:#e8f9ff}
+.wisdo-v10-floor-node.summoning .wisdo-v10-node-ring,.wisdo-v10-floor-node.active .wisdo-v10-node-ring{transform:translateX(-50%) scale(1);border-color:currentColor;box-shadow:0 0 0 10px rgba(83,202,255,.045),0 0 28px currentColor}
+.wisdo-v10-floor-node.summoning .wisdo-v10-node-beam,.wisdo-v10-floor-node.active .wisdo-v10-node-beam{transform:translateX(-50%) scaleY(1);opacity:1}
+.wisdo-v10-floor-node.active:before{animation:v10FloorPulse 1.7s ease-in-out infinite}
+.wisdo-v10-floor-node.active .wisdo-v10-node-electric{opacity:.85;animation:v10Electric 1.15s linear infinite}
+.wisdo-v10-control-deck.link-degraded .wisdo-v10-floor-node{opacity:.55}
+.wisdo-v10-control-truth{margin-top:5px;text-align:center;color:#59798a;font:600 6px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.07em}
+
+/* Advanced WISDO Time */
+#wcV7Window.wisdo-v10-time-host{width:350px;padding:0;overflow:hidden;border-color:rgba(90,197,246,.32);background:linear-gradient(145deg,rgba(3,14,23,.92),rgba(2,8,14,.84))}
+.wisdo-v10-time-engine{padding:14px 16px 13px}
+.wisdo-v10-time-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px}.wisdo-v10-time-head span{font-size:8px;letter-spacing:.19em;color:#9bc5d7}.wisdo-v10-time-head b{padding:4px 7px;border:1px solid rgba(93,217,255,.22);border-radius:999px;color:#68deff;font-size:6px;letter-spacing:.12em}
+.wisdo-v10-time-engine[data-temporal-mode="live"] .wisdo-v10-time-head b{color:#77f0bd;border-color:rgba(119,240,189,.3)}.wisdo-v10-time-engine[data-temporal-mode="smart"] .wisdo-v10-time-head b{color:#f0c65b;border-color:rgba(240,198,91,.3)}
+.wisdo-v10-time-core{position:relative;width:124px;height:124px;margin:0 auto 6px;display:grid;place-items:center}.wisdo-v10-time-core svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}.wisdo-v10-time-core circle{fill:none;stroke-width:5}.wisdo-v10-time-core .track{stroke:rgba(94,150,179,.12)}.wisdo-v10-time-core .progress{stroke:var(--rank-primary);stroke-linecap:round;filter:drop-shadow(0 0 6px var(--rank-primary));transition:stroke-dashoffset .5s linear}
+.wisdo-v10-time-core>div{text-align:center;z-index:1}.wisdo-v10-time-core strong{display:block;color:#f4fbff;font:800 24px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:-.05em}.wisdo-v10-time-core span{display:block;margin-top:5px;color:#7294a6;font-size:6px;letter-spacing:.13em}.wisdo-v10-time-core small{display:block;margin-top:4px;color:#d9b957;font-size:6px;letter-spacing:.09em}
+.wisdo-v10-time-meta{display:grid;grid-template-columns:1fr 1fr;gap:0 12px;border-top:1px solid rgba(108,171,203,.09)}.wisdo-v10-time-meta>div{display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid rgba(108,171,203,.07);font-size:6px}.wisdo-v10-time-meta span{color:#637e8d}.wisdo-v10-time-meta b{color:#b9d2de;font-weight:700;text-align:right}
+.wisdo-v10-clock-pair{display:flex;justify-content:space-between;margin:7px 0 5px;color:#617d8d;font-size:6px;letter-spacing:.08em}.wisdo-v10-clock-pair b{color:#cfe8f2;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.wisdo-v10-time-rail{padding-top:3px}.wisdo-v10-time-rail-line{position:relative;height:4px;border-radius:99px;background:linear-gradient(90deg,rgba(66,187,239,.16),rgba(240,189,77,.28),rgba(66,187,239,.16));box-shadow:inset 0 0 8px rgba(0,0,0,.5)}.wisdo-v10-time-rail-line i{position:absolute;top:50%;left:0;transform:translate(-50%,-50%);width:10px;height:10px;border:2px solid #dffaff;border-radius:50%;background:var(--rank-primary);box-shadow:0 0 12px var(--rank-primary);transition:left .5s linear}.wisdo-v10-time-labels{display:flex;justify-content:space-between;margin-top:4px;color:#587485;font-size:5px}
+
+/* Keep command composer, but make it secondary to the living deck. */
+.wisdo-v6-composer{bottom:122px!important;width:min(720px,calc(100% - 650px))!important}
+.wisdo-v8-evolution{bottom:176px!important;width:min(760px,calc(100% - 650px))!important}
+.wisdo-v8-perks{bottom:246px!important;width:min(480px,38vw)!important}
+.wisdo-v8-victories{bottom:180px!important}
+#wcV7Protocol{bottom:28px!important}
+.wisdo-v7-inputs{bottom:28px!important;width:190px!important}
+
+@keyframes v10GuardianSummon{0%{transform:translateY(10px) scale(.985);filter:brightness(.78)}55%{transform:translateY(-10px) scale(1.035);filter:brightness(1.25)}100%{transform:translateY(-6px) scale(1.02);filter:brightness(1)}}@keyframes v10GuardianRetract{0%{transform:translateY(-6px) scale(1.02)}100%{transform:translateY(4px) scale(.99);filter:brightness(.84)}}@keyframes v10FloorPulse{50%{box-shadow:inset 0 0 24px rgba(80,211,255,.12),0 0 24px rgba(80,211,255,.12)}}@keyframes v10Electric{0%{transform:translateX(-6%);opacity:.25}40%{opacity:1}100%{transform:translateX(6%);opacity:.2}}
+
+@media(max-width:1050px){
+ .wisdo-v10-control-deck{width:calc(100% - 500px)}
+ .wisdo-v6-composer{width:calc(100% - 510px)!important}
+ .wisdo-v8-evolution{width:calc(100% - 520px)!important}
+ #wcV7Window.wisdo-v10-time-host{width:290px}
+}
+
+@media(max-width:760px){
+ .wisdo-command-stage{min-height:1730px!important;padding-bottom:calc(110px + env(safe-area-inset-bottom))}
+ .wisdo-v8-character-chamber{top:215px!important;height:535px!important}
+ #wcV7State{top:730px!important}#wcV7Next{top:730px!important}
+ #wcV7Window.wisdo-v10-time-host{display:block!important;left:8px!important;right:8px!important;top:895px!important;bottom:auto!important;width:auto!important;max-width:none!important;z-index:35}
+ .wisdo-v10-time-engine{padding:12px 14px}.wisdo-v10-time-core{width:116px;height:116px}.wisdo-v10-time-core strong{font-size:22px}
+ #wcV7Protocol{display:block!important;top:1250px!important;bottom:auto!important;left:8px!important;right:8px!important;width:auto!important}
+ .wisdo-v8-perks{display:none!important}
+ .wisdo-v8-evolution{top:1342px!important;bottom:auto!important;width:calc(100% - 16px)!important}
+ .wisdo-v10-control-deck{top:1422px!important;bottom:auto!important;width:calc(100% - 16px)!important;min-height:98px;padding-bottom:10px}
+ .wisdo-v10-control-origin{top:-31px}.wisdo-v10-control-field{gap:4px}.wisdo-v10-floor-node{min-width:0}.wisdo-v10-floor-node strong{font-size:8px;letter-spacing:.07em}.wisdo-v10-floor-node em{font-size:5px}
+ .wisdo-v6-composer{top:1540px!important;bottom:auto!important;width:calc(100% - 16px)!important}
+ .wisdo-v7-inputs{display:none!important}.wisdo-v7-gesture{display:none!important}
+ .wisdo-v8-victories{display:none!important}
+ .wisdo-command-canvas{height:1180px!important}
+}
+
+@media(max-width:420px){
+ .wisdo-v10-time-meta{grid-template-columns:1fr}
+ .wisdo-v10-control-truth{font-size:5px}
+ .wisdo-v10-node-ring{width:34px;height:34px}
+ .wisdo-v10-floor-node strong{margin-top:34px;font-size:7px}
+}
+
+@media(prefers-reduced-motion:reduce){
+ .wisdo-v10-floor-node.active:before,.wisdo-v10-floor-node.active .wisdo-v10-node-electric,#wcV8Character{animation:none!important;transition:none!important}
+}

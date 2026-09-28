@@ -393,7 +393,7 @@
     // route to keep showing the old Member Desk command model while V7 existed elsewhere.
     root().innerHTML = '<div class="card loading-card">Opening WISDO CORE…</div>';
     try {
-      const { startCampaignCommandCenter } = await import('/app/world/command/command-center-runtime.js?v=20260928-rank-ascension');
+      const { startCampaignCommandCenter } = await import('/app/world/command/command-center-runtime.js?v=20260928-v10-living-guardian-time');
       const singularity = startCampaignCommandCenter();
       singularity.open();
       campaignCleanup = () => singularity.stop();

@@ -134,6 +134,44 @@ export function createCampaignCoreRenderer({ THREE, parent, position = [0, 0, 0]
   const botCore = new THREE.Mesh(new THREE.IcosahedronGeometry(.33, 2), mat.gold); botCore.position.set(-2.25, 1.28, 0); group.add(botCore);
   const accountCore = new THREE.Mesh(new THREE.IcosahedronGeometry(.28, 1), mat.cyan); accountCore.position.set(2.25, 1.28, 0); group.add(accountCore);
 
+  const guardianDeck3D = new THREE.Group();
+  guardianDeck3D.name = 'LivingGuardianFloorDeck';
+  group.add(guardianDeck3D);
+  const guardianNodes = {};
+  const guardianNodeDefs = {
+    AUTO: { x: 0, z: 3.18, color: 0x62ddff },
+    PROTECT: { x: -2.45, z: 2.42, color: 0x57e7c1 },
+    TAKE_PROFIT: { x: 2.45, z: 2.42, color: 0xe8bb51 },
+  };
+  Object.entries(guardianNodeDefs).forEach(([key, def]) => {
+    const node = new THREE.Group();
+    node.name = `GuardianControl_${key}`;
+    node.position.set(def.x, .78, def.z);
+    const discMat = new THREE.MeshBasicMaterial({ color: def.color, transparent: true, opacity: .16, toneMapped: false, depthWrite: false });
+    const ringMat = new THREE.MeshBasicMaterial({ color: def.color, transparent: true, opacity: .34, toneMapped: false, depthWrite: false });
+    const beamMat = new THREE.MeshBasicMaterial({ color: def.color, transparent: true, opacity: .04, toneMapped: false, depthWrite: false, side: THREE.DoubleSide });
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(.54,.68,.08,36), discMat);
+    const ringA = new THREE.Mesh(new THREE.TorusGeometry(.72,.028,7,72), ringMat); ringA.rotation.x=Math.PI/2; ringA.position.y=.08;
+    const ringB = new THREE.Mesh(new THREE.TorusGeometry(.94,.018,6,72), ringMat.clone()); ringB.rotation.x=Math.PI/2; ringB.position.y=.09;
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(.12,.48,2.3,24,1,true), beamMat); beam.position.y=1.18;
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(.17,1), new THREE.MeshBasicMaterial({ color:def.color, transparent:true, opacity:.55, toneMapped:false }));
+    core.position.y=.18;
+    node.add(disc,ringA,ringB,beam,core);
+    const path = new THREE.QuadraticBezierCurve3(new THREE.Vector3(0,2.85,.25), new THREE.Vector3(def.x*.45,2.0,def.z*.5), new THREE.Vector3(def.x,.92,def.z));
+    const lineGeo = new THREE.BufferGeometry().setFromPoints(path.getPoints(28));
+    const lineMat = new THREE.LineBasicMaterial({ color:def.color, transparent:true, opacity:.08, toneMapped:false });
+    const line = new THREE.Line(lineGeo,lineMat);
+    guardianDeck3D.add(node,line);
+    guardianNodes[key] = { node, disc, ringA, ringB, beam, core, line, target:0, current:0, color:def.color };
+  });
+  const temporalRingMat = new THREE.MeshBasicMaterial({ color:0x70e8ff, transparent:true, opacity:.12, toneMapped:false, depthWrite:false });
+  const temporalRing = new THREE.Mesh(new THREE.TorusGeometry(3.35,.035,8,128), temporalRingMat);
+  temporalRing.rotation.x=Math.PI/2; temporalRing.position.y=.88; group.add(temporalRing);
+  let guardianControl = null;
+  let guardianControlMode = 'idle';
+  let timePulseLevel = 0;
+  let temporalProgress = 0;
+
   const statusSurface = panelSurface(THREE);
   const statusPanel = new THREE.Mesh(new THREE.PlaneGeometry(5.7, 2.25), new THREE.MeshBasicMaterial({ map: statusSurface.texture, toneMapped: false, transparent: true }));
   statusPanel.visible=false; statusPanel.position.set(0, 3.75, .85); statusPanel.rotation.x = -12 * Math.PI / 180; group.add(statusPanel);
@@ -248,6 +286,35 @@ export function createCampaignCoreRenderer({ THREE, parent, position = [0, 0, 0]
     });
   }
 
+  function setGuardianControlState(control=null, mode='idle') {
+    const key = control ? String(control).toUpperCase() : null;
+    guardianControl = guardianNodes[key] ? key : null;
+    guardianControlMode = String(mode || 'idle').toLowerCase();
+    for (const [name, item] of Object.entries(guardianNodes)) {
+      const selected = name === guardianControl;
+      item.target = selected
+        ? guardianControlMode === 'retracting' ? 0 : guardianControlMode === 'summoning' ? .72 : 1
+        : 0;
+    }
+  }
+
+  function animateGuardianPose(mode='idle') {
+    guardianControlMode = String(mode || 'idle').toLowerCase();
+  }
+
+  function setFloorProjection(control, active=true) {
+    const key = control ? String(control).toUpperCase() : null;
+    if (key && guardianNodes[key]) guardianNodes[key].target = active ? 1 : 0;
+  }
+
+  function setTimePulse(level=0) {
+    timePulseLevel = clamp(Number(level)||0,0,1);
+  }
+
+  function setTemporalRing(progress=0) {
+    temporalProgress = clamp(Number(progress)||0,0,1);
+  }
+
   function setState(next = {}, { campaignId = null } = {}) {
     currentState = next || {};
     if (campaignId) selectedCampaignId = campaignId;
@@ -272,6 +339,23 @@ export function createCampaignCoreRenderer({ THREE, parent, position = [0, 0, 0]
     const ready = Boolean(currentState?.executionHealth?.commandLinkReady);
     healthRing.material = ready ? mat.cyanBasic : mat.muted;
     commandRing.children.forEach((child, index) => { if (child.material?.emissiveIntensity != null) child.material.emissiveIntensity = .25 + (Math.sin(elapsed * 1.6 + index) + 1) * .12; });
+    Object.values(guardianNodes).forEach((item,index) => {
+      item.current += (item.target - item.current) * (1 - Math.exp(-7 * dt));
+      const pulse = .86 + Math.sin(elapsed * (2.1 + index*.35)) * .14;
+      item.node.scale.setScalar(.64 + item.current * .36);
+      item.node.position.y = .46 + item.current * .32;
+      item.disc.material.opacity = .05 + item.current * .32;
+      item.ringA.material.opacity = .08 + item.current * .78 * pulse;
+      item.ringB.material.opacity = .05 + item.current * .46;
+      item.beam.material.opacity = item.current * .12 * pulse;
+      item.core.material.opacity = .16 + item.current * .78;
+      item.line.material.opacity = .025 + item.current * .62 * pulse;
+      item.ringA.rotation.z = elapsed * (index%2 ? -.85 : .95);
+      item.ringB.rotation.z = -elapsed * .52;
+    });
+    temporalRing.rotation.z = elapsed * (.12 + timePulseLevel*.34);
+    temporalRing.material.opacity = .08 + timePulseLevel*.26 + Math.sin(elapsed*2.2)*.025;
+    temporalRing.scale.setScalar(.88 + temporalProgress*.16);
   }
 
   function destroy() { disposeGroup(group); group.parent?.remove(group); }
@@ -283,6 +367,11 @@ export function createCampaignCoreRenderer({ THREE, parent, position = [0, 0, 0]
     setProposal,
     clearProposal,
     showReceipt,
+    setGuardianControlState,
+    animateGuardianPose,
+    setFloorProjection,
+    setTimePulse,
+    setTemporalRing,
     update,
     destroy,
     get selectedCampaignId() { return selectedCampaignId; },

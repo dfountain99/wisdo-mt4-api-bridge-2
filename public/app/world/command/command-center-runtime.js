@@ -2,6 +2,8 @@ import { THREE_MODULE_URL } from '../world-config.js';
 import { createCampaignCoreRenderer } from './campaign-core-renderer.js';
 import { createWorldCommandRuntime } from './command-runtime.js';
 import { createRankAscension } from './rank-ascension.js';
+import { createGuardianCommandDeck } from './guardian-command-deck.js';
+import { createWisdoTimeEngine } from './wisdo-time-engine.js';
 
 const money = (value, currency = 'USD') => {
   try { return new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: 2 }).format(Number(value || 0)); }
@@ -16,6 +18,7 @@ function ensureStyles() {
     ['/app/world/command/wisdo-core-v6.css?v=20260928-core-v6', 'wisdoCoreV6Css'],
     ['/app/world/command/wisdo-core-v7.css?v=20260928-singularity-route', 'wisdoCoreV7Css'],
     ['/app/world/command/wisdo-core-v8-rank-ascension.css?v=20260928-rank-ascension', 'wisdoCoreV8RankCss'],
+    ['/app/world/command/wisdo-core-v10-living-controls.css?v=20260928-v10-living-guardian-time', 'wisdoCoreV10Css'],
   ];
   for (const [href, key] of styles) {
     if (document.querySelector(`link[data-${key.replace(/[A-Z]/g, m => '-'+m.toLowerCase())}]`)) continue;
@@ -256,6 +259,8 @@ export function startCampaignCommandCenter() {
       core?.setState(state, { campaignId: selectedCampaignId });
       const activeCampaign = state?.campaigns?.find((row) => row.campaignId === selectedCampaignId) || state?.campaigns?.[0] || null;
       rankAscension.setCampaignState(state, activeCampaign);
+      guardianDeck.setState({ ...state, selectedCampaignId });
+      timeEngine.setState(state, activeCampaign);
       rankAscension.refresh(state?.account?.accountId || '').catch(() => {});
     },
     onStatus: ({ state }) => {
@@ -267,6 +272,7 @@ export function startCampaignCommandCenter() {
       renderReceipt();
       core?.showReceipt(receipt);
       rankAscension.onReceipt(receipt);
+      guardianDeck.receipt(receipt);
       if (['completed','failed','expired','cancelled'].includes(String(receipt?.status || '').toLowerCase())) runtime.refresh().catch(() => {});
     },
   });
@@ -289,6 +295,26 @@ export function startCampaignCommandCenter() {
   let dragging = false;
   let lastPointer = null;
   let opened = false;
+
+  const guardianDeck = createGuardianCommandDeck({
+    overlay,
+    onRequest: ({ action }) => arm(action),
+    onVisualState: ({ control, mode }) => {
+      rankAscension.setControlMode(control, mode);
+      const pose = control === 'PROTECT' ? 'protect' : control === 'TAKE_PROFIT' ? 'profit' : control === 'AUTO' ? 'auto' : 'idle';
+      rankAscension.setGuardianPose(pose);
+      core?.setGuardianControlState?.(control, mode);
+      core?.animateGuardianPose?.(pose);
+    },
+  });
+
+  const timeEngine = createWisdoTimeEngine(document.getElementById('wcV7Window'), {
+    resetWindowSeconds: 120,
+    onVisualState: ({ progress, live, paused }) => {
+      core?.setTemporalRing?.(progress);
+      core?.setTimePulse?.(live ? (paused ? 1 : .72) : .16);
+    },
+  });
 
   function campaign() {
     return commandState?.campaigns?.find((row) => row.campaignId === selectedCampaignId) || commandState?.campaigns?.[0] || null;
@@ -445,6 +471,9 @@ export function startCampaignCommandCenter() {
       materials: { black: roomFx.black, steel: roomFx.steel, glass: roomFx.glass, gold: roomFx.gold, goldGlow: roomFx.gold, cyan: roomFx.cyan, cyanBasic: roomFx.cyanBasic },
     });
     if (commandState) core.setState(commandState, { campaignId: selectedCampaignId });
+    const guardianVisual = guardianDeck.state;
+    core.setGuardianControlState?.(guardianVisual.control, guardianVisual.mode);
+    timeEngine.render();
     resize();
     last = performance.now();
     raf = requestAnimationFrame(frame);
@@ -527,6 +556,7 @@ export function startCampaignCommandCenter() {
     overlay.classList.remove('deck-open', 'intel-open');
     window.removeEventListener('keydown', blockKey, true);
     cancelProposal();
+    guardianDeck.retractAll();
   }
 
   document.getElementById('wisdoCommandLaunch')?.addEventListener('click', open);
@@ -607,6 +637,8 @@ export function startCampaignCommandCenter() {
     close,
     stop() {
       runtime.stop();
+      guardianDeck.destroy();
+      timeEngine.destroy();
       rankAscension.stop();
       cancelAnimationFrame(raf);
       renderer?.dispose?.();
