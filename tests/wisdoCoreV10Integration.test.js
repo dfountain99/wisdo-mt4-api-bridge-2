@@ -24,6 +24,6 @@ test('V10 route/cache versions prevent stale guardian UI from masking release', 
     fs.readFile(new URL('../public/js/workspace.js',import.meta.url),'utf8'),
     fs.readFile(new URL('../public/service-worker.js',import.meta.url),'utf8'),
   ]);
-  assert.match(workspace,/v=20260928-v10-living-guardian-time/);
-  assert.match(worker,/wisdo-static-v10\.0\.0-living-guardian-controls/);
+  assert.match(workspace,/v=20260928-v10-1-mobile-command-chamber/);
+  assert.match(worker,/wisdo-static-v10\.1\.0-mobile-command-chamber/);
 });
