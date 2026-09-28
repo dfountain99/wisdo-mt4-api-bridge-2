@@ -139,9 +139,9 @@ export function createCampaignCoreRenderer({ THREE, parent, position = [0, 0, 0]
   group.add(guardianDeck3D);
   const guardianNodes = {};
   const guardianNodeDefs = {
-    AUTO: { x: 0, z: 3.18, color: 0x62ddff },
-    PROTECT: { x: -2.45, z: 2.42, color: 0x57e7c1 },
-    TAKE_PROFIT: { x: 2.45, z: 2.42, color: 0xe8bb51 },
+    AUTO: { x: 0, z: 3.18, color: 0x62ddff, source: [0, 3.18, .2] },
+    PROTECT: { x: -2.45, z: 2.42, color: 0x57e7c1, source: [-.72, 3.0, .16] },
+    TAKE_PROFIT: { x: 2.45, z: 2.42, color: 0xe8bb51, source: [.72, 3.0, .16] },
   };
   Object.entries(guardianNodeDefs).forEach(([key, def]) => {
     const node = new THREE.Group();
@@ -157,12 +157,16 @@ export function createCampaignCoreRenderer({ THREE, parent, position = [0, 0, 0]
     const core = new THREE.Mesh(new THREE.IcosahedronGeometry(.17,1), new THREE.MeshBasicMaterial({ color:def.color, transparent:true, opacity:.55, toneMapped:false }));
     core.position.y=.18;
     node.add(disc,ringA,ringB,beam,core);
-    const path = new THREE.QuadraticBezierCurve3(new THREE.Vector3(0,2.85,.25), new THREE.Vector3(def.x*.45,2.0,def.z*.5), new THREE.Vector3(def.x,.92,def.z));
-    const lineGeo = new THREE.BufferGeometry().setFromPoints(path.getPoints(28));
+    const source = new THREE.Vector3(...def.source);
+    const sourceCore = new THREE.Mesh(new THREE.IcosahedronGeometry(.1,1), new THREE.MeshBasicMaterial({ color:def.color, transparent:true, opacity:.12, toneMapped:false }));
+    sourceCore.position.copy(source);
+    guardianDeck3D.add(sourceCore);
+    const path = new THREE.QuadraticBezierCurve3(source, new THREE.Vector3((def.x+source.x)*.45,2.0,def.z*.5), new THREE.Vector3(def.x,.92,def.z));
+    const lineGeo = new THREE.BufferGeometry().setFromPoints(path.getPoints(36));
     const lineMat = new THREE.LineBasicMaterial({ color:def.color, transparent:true, opacity:.08, toneMapped:false });
     const line = new THREE.Line(lineGeo,lineMat);
     guardianDeck3D.add(node,line);
-    guardianNodes[key] = { node, disc, ringA, ringB, beam, core, line, target:0, current:0, color:def.color };
+    guardianNodes[key] = { node, disc, ringA, ringB, beam, core, line, sourceCore, target:0, current:0, color:def.color };
   });
   const temporalRingMat = new THREE.MeshBasicMaterial({ color:0x70e8ff, transparent:true, opacity:.12, toneMapped:false, depthWrite:false });
   const temporalRing = new THREE.Mesh(new THREE.TorusGeometry(3.35,.035,8,128), temporalRingMat);
@@ -349,7 +353,9 @@ export function createCampaignCoreRenderer({ THREE, parent, position = [0, 0, 0]
       item.ringB.material.opacity = .05 + item.current * .46;
       item.beam.material.opacity = item.current * .12 * pulse;
       item.core.material.opacity = .16 + item.current * .78;
-      item.line.material.opacity = .025 + item.current * .62 * pulse;
+      item.line.material.opacity = .02 + item.current * .82 * pulse;
+      item.sourceCore.material.opacity = .08 + item.current * .9 * pulse;
+      item.sourceCore.scale.setScalar(.7 + item.current * .55);
       item.ringA.rotation.z = elapsed * (index%2 ? -.85 : .95);
       item.ringB.rotation.z = -elapsed * .52;
     });
