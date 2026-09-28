@@ -21,7 +21,13 @@ function ensureStyles() {
     ['/app/world/command/wisdo-core-v10-living-controls.css?v=20260928-v10-2-deterministic-mobile', 'wisdoCoreV10Css'],
   ];
   for (const [href, key] of styles) {
-    if (document.querySelector(`link[data-${key.replace(/[A-Z]/g, m => '-'+m.toLowerCase())}]`)) continue;
+    const attr = `data-${key.replace(/[A-Z]/g, m => '-'+m.toLowerCase())}`;
+    const existing = document.querySelector(`link[${attr}]`);
+    if (existing) {
+      const expected = new URL(href, location.href).href;
+      if (existing.href !== expected) existing.href = href;
+      continue;
+    }
     const link=document.createElement('link'); link.rel='stylesheet'; link.href=href; link.dataset[key]='1'; document.head.appendChild(link);
   }
 }
