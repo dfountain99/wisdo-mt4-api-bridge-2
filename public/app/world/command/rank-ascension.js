@@ -60,6 +60,8 @@ export function createRankAscension({ overlay }={}){
   let lastAccount='';
   let state=null;
   const victories=[];
+  const seenReceipts=new Set();
+  let lastGreenStreak=0;
 
   const q=id=>stage.querySelector(id);
 
@@ -118,6 +120,9 @@ export function createRankAscension({ overlay }={}){
       if(!r.ok) throw new Error('rank '+r.status);
       const body=await r.json();
       paintRank(body.recognition||null);
+      const streak=Number(body.recognition?.rank?.greenStreak||0);
+      if(streak>lastGreenStreak && lastGreenStreak>0){ graffiti('DISCIPLINE PAYS'); addVictory('GREEN STREAK',`${streak} equity advances`); }
+      lastGreenStreak=streak;
       const pending=body.recognition?.selected?.pendingMilestone;
       if(pending && Number(pending.milestonePercent)>0){
         const key=`milestone:${pending.accountId}:${pending.milestonePercent}`;
@@ -144,7 +149,10 @@ export function createRankAscension({ overlay }={}){
   }
 
   function onReceipt(receipt){
+    const receiptId=String(receipt?.commandId||receipt?.clientCommandId||'');
     const status=String(receipt?.status||'').toLowerCase();
+    if(receiptId && seenReceipts.has(`${receiptId}:${status}`)) return;
+    if(receiptId) seenReceipts.add(`${receiptId}:${status}`);
     if(status!=='completed') return;
     const command=String(receipt?.command||'').toUpperCase();
     if(command.includes('CLOSE') || command.includes('PROFIT')){
