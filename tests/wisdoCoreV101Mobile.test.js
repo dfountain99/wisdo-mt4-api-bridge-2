@@ -28,6 +28,7 @@ test('V10.2 runtime explicitly controls mobile chamber state from viewport width
   assert.match(runtime, /window\.visualViewport\?\.width/);
   assert.match(runtime, /viewportWidth <= 760/);
   assert.doesNotMatch(runtime, /wisdo-core-v10-1-mobile\.css/);
+  assert.match(runtime, /existing\.href !== expected/);
 });
 
 test('V10.2 mobile input modes stay collapsed behind the dedicated toggle', async () => {
