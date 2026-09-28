@@ -119,9 +119,9 @@ export function createCampaignCoreRenderer({ THREE, parent, position = [0, 0, 0]
     muted: new THREE.MeshStandardMaterial({ color: 0x53616b, emissive: 0x17232b, emissiveIntensity: .3 }),
   };
 
-  const singularity = new THREE.Group(); singularity.name='SingularityOrb'; group.add(singularity);
-  const coreSphere=new THREE.Mesh(new THREE.SphereGeometry(1.72,64,48),new THREE.MeshPhysicalMaterial({color:0x03111d,metalness:.55,roughness:.14,transparent:true,opacity:.92,clearcoat:1,emissive:0x063d5b,emissiveIntensity:.8})); coreSphere.position.y=2.35; singularity.add(coreSphere);
-  const innerSphere=new THREE.Mesh(new THREE.IcosahedronGeometry(1.08,4),new THREE.MeshStandardMaterial({color:0x02070c,metalness:.88,roughness:.2,emissive:0x0b3150,emissiveIntensity:.7})); innerSphere.position.y=2.35; singularity.add(innerSphere);
+  const singularity = new THREE.Group(); singularity.name='RankAscensionEnergyField'; group.add(singularity);
+  const coreSphere=new THREE.Mesh(new THREE.SphereGeometry(1.72,64,48),new THREE.MeshPhysicalMaterial({color:0x03111d,metalness:.55,roughness:.14,transparent:true,opacity:.92,clearcoat:1,emissive:0x063d5b,emissiveIntensity:.8})); coreSphere.position.y=2.35; coreSphere.visible=false; singularity.add(coreSphere);
+  const innerSphere=new THREE.Mesh(new THREE.IcosahedronGeometry(1.08,4),new THREE.MeshStandardMaterial({color:0x02070c,metalness:.88,roughness:.2,emissive:0x0b3150,emissiveIntensity:.7})); innerSphere.position.y=2.35; innerSphere.visible=false; singularity.add(innerSphere);
   const energyRings=[];
   [[2.0,.025,mat.cyanBasic,.25],[2.2,.018,mat.gold,.72],[2.42,.014,mat.cyanBasic,1.15],[1.86,.02,mat.gold,1.55]].forEach(([r,t,m,tilt],i)=>{const ring=new THREE.Mesh(new THREE.TorusGeometry(r,t,8,128),m);ring.position.y=2.35;ring.rotation.x=Math.PI/2+tilt;ring.rotation.y=tilt*.7;singularity.add(ring);energyRings.push(ring);});
   const energyGeo=new THREE.BufferGeometry(); const pts=[]; for(let i=0;i<520;i++){const a=Math.random()*Math.PI*2,b=Math.acos(2*Math.random()-1),r=1.75+Math.random()*.7;pts.push(Math.sin(b)*Math.cos(a)*r,2.35+Math.cos(b)*r,Math.sin(b)*Math.sin(a)*r);} energyGeo.setAttribute('position',new THREE.Float32BufferAttribute(pts,3)); const energyPoints=new THREE.Points(energyGeo,new THREE.PointsMaterial({color:0x63dfff,size:.025,transparent:true,opacity:.72,depthWrite:false,toneMapped:false})); singularity.add(energyPoints);
