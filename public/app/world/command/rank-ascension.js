@@ -67,6 +67,17 @@ function markup(){
   </section>
   <section class="wisdo-v8-character-chamber" id="wcV8CharacterChamber">
     <div class="wisdo-v8-aura"></div><div class="wisdo-v8-beam"></div><div class="wisdo-v8-plinth"><i></i><i></i></div><div id="wcV8Character"></div>
+    <div class="wisdo-v103-handoff-layer" aria-hidden="true">
+      <i class="wisdo-v103-body-anchor auto" data-guardian-anchor="AUTO"><b>A</b></i>
+      <i class="wisdo-v103-body-anchor protect" data-guardian-anchor="PROTECT"><b>⬡</b></i>
+      <i class="wisdo-v103-body-anchor profit" data-guardian-anchor="TAKE_PROFIT"><b>◆</b></i>
+      <span class="wisdo-v103-handoff-path auto"></span>
+      <span class="wisdo-v103-handoff-path protect"></span>
+      <span class="wisdo-v103-handoff-path profit"></span>
+      <span class="wisdo-v103-control-token auto">A</span>
+      <span class="wisdo-v103-control-token protect">⬡</span>
+      <span class="wisdo-v103-control-token profit">◆</span>
+    </div>
     <div class="wisdo-v8-trade-chip entry" id="wcV8EntryChip">ENTRY · —</div>
     <div class="wisdo-v8-trade-chip tp" id="wcV8TpChip">TP · —</div>
     <div class="wisdo-v8-trade-chip sl" id="wcV8SlChip">PROTECT · —</div>
@@ -198,6 +209,7 @@ export function createRankAscension({ overlay }={}){
       chamber.dataset.control=activeControl?activeControl.toLowerCase():'';
       chamber.classList.toggle('wisdo-v10-guardian-summoning',guardianMode==='summoning');
       chamber.classList.toggle('wisdo-v10-guardian-retracting',guardianMode==='retracting');
+      chamber.classList.toggle('wisdo-v103-control-active',Boolean(activeControl));
     }
   }
 
