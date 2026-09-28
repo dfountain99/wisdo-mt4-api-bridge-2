@@ -388,54 +388,21 @@
   async function drawCommandCenter() {
     campaignCleanup?.();
     campaignCleanup = null;
-    const active = selectedAccount();
-    const accountId = active?.id || '';
-    const stats = await api(`/api/v2/analyzer/portfolio?period=month${accountId ? `&account_id=${encodeURIComponent(accountId)}` : ''}`).catch(() => ({}));
-    const liveAccounts = accounts.filter((account) => account.reporter_connected || reporterFresh(account));
-    root().innerHTML = `
-      <div class="workspace-heading"><div><span class="eyebrow">WISDO operating system</span><h1>Command Center</h1><p class="muted">The central launch screen for accounts, relay execution, risk, analytics, education, signals, AI, and support.</p></div><div class="live-chip">${liveAccounts.length}/${accounts.length} Reporter accounts live</div></div>
-      ${accountMetrics(active)}
-
-      <section data-wisdo-command-os="integrated-v3"></section>
-
-      <details><summary class="btn ghost">Accounts, relay and other tools</summary><div class="command-hub">
-        <section class="card"><div class="card-head"><div><span class="eyebrow">System map</span><h3>Choose an operating lane</h3></div><a class="btn ghost" href="/app/dashboard?launch=1">Open live dashboard</a></div>
-          <div class="command-map">
-            <a class="command-module" href="/app/accounts"><strong>Account Desk</strong><small>Pair, sync, switch, and diagnose Reporter-backed accounts.</small></a>
-            <a class="command-module" href="/app/copier-engine"><strong>Culture Relay</strong><small>Build lead-to-follower lanes and govern close authority.</small></a>
-            <a class="command-module" href="/app/dashboard"><strong>Combined Portfolio Dashboard</strong><small>View each Culture Lane as one large account with collective equity, drawdown, exposure, and Harvest controls.</small></a>
-            <a class="command-module" href="/app/copier-engine"><strong>Multi-Account Lane Builder</strong><small>Select multiple receivers and highlight allowed leader symbols inside the real Copier Engine workflow.</small></a>
-            <a class="command-module" href="/app/lane-audit"><strong>Genome · Timeline · Passports</strong><small>Inspect configuration versions and immutable execution history.</small></a>
-            <a class="command-module" href="/app/lane-intelligence"><strong>Lane DNA + Intelligence</strong><small>Generate behavior metrics, observations, and recommendations.</small></a>
-            <a class="command-module" href="/app/compound-tracker"><strong>Compound Tracker</strong><small>Review finalized daily and weekly growth cycles.</small></a>
-            <a class="command-module" href="/app/trades"><strong>Trade Control</strong><small>Review open positions, history, and account-specific close actions.</small></a>
-            <a class="command-module" href="/app/analyzer"><strong>Insight Engine</strong><small>ROI, drawdown, win rate, equity curves, and performance heatmaps.</small></a>
-            <a class="command-module" href="/app/education"><strong>Adaptive Academy</strong><small>6,500 structured courses, interactive labs, and an AI tutor.</small></a>
-            <a class="command-module" href="/app/alerts"><strong>Alerts and Health</strong><small>Relay, risk, billing, and platform notifications.</small></a>
-            <a class="command-module" href="/member/signal-grid"><strong>Signal Grid</strong><small>Review and route controlled community trade opportunities.</small></a>
-            <a class="command-module" href="/member/simulator"><strong>Simulator</strong><small>Practice without placing live-money orders.</small></a>
-            <a class="command-module" href="/member/ai"><strong>WISDO AI</strong><small>Ask account-aware education and operating questions.</small></a>
-            <a class="command-module" href="/app/settings"><strong>Appearance and Settings</strong><small>Choose the color scheme, motion background, and profile controls.</small></a>
-            <a class="command-module" href="/app/affiliate"><strong>Affiliate Desk</strong><small>Referral links, activation, commissions, and payout readiness.</small></a>
-            <a class="command-module" href="/member/support/tickets"><strong>Support Desk</strong><small>Open a ticket with account and command context.</small></a>
-          </div>
-        </section>
-        <aside class="card"><span class="eyebrow">Desk pulse</span><h3>${active ? html(active.nickname || active.broker || active.account_number) : 'Portfolio overview'}</h3>
-          <div class="path-list">
-            <div class="path-item"><small class="muted">Reporter status</small><strong class="${active && (active.reporter_connected || reporterFresh(active)) ? 'green' : 'red'}">${active ? (active.reporter_connected || reporterFresh(active) ? 'Live' : 'Needs heartbeat') : `${liveAccounts.length} live accounts`}</strong></div>
-            <div class="path-item"><small class="muted">Monthly ROI view</small><strong>${Number(stats.roi || 0).toFixed(2)}%</strong></div>
-            <div class="path-item"><small class="muted">Maximum drawdown</small><strong class="${Number(stats.maxDrawdown || 0) > 10 ? 'red' : ''}">${Number(stats.maxDrawdown || 0).toFixed(2)}%</strong></div>
-            <div class="path-item"><small class="muted">Open positions</small><strong>${Number(active?.open_trades || 0)}</strong></div>
-          </div>
-          <div class="actions"><a class="btn primary" href="/app/copier-engine">Open relay controls</a><a class="btn ghost" href="/app/education">Continue learning</a></div>
-        </aside>
-      </div></details>`;
-
-    const campaignHost = document.querySelector('[data-wisdo-command-os]');
-    const { mountCampaignCommand } = await import('/js/campaign-command.js');
-    if (campaignHost.isConnected) campaignCleanup = mountCampaignCommand(campaignHost, {
-      accountId: active?.reporter_account_id || active?.id || '', api,
-    });
+    // Singularity is the canonical /app/command-center experience.
+    // Do not render the legacy SVG campaign canvas first: that caused the deployed
+    // route to keep showing the old Member Desk command model while V7 existed elsewhere.
+    root().innerHTML = '<div class="card loading-card">Opening WISDO CORE…</div>';
+    try {
+      const { startCampaignCommandCenter } = await import('/app/world/command/command-center-runtime.js?v=20260928-route-cutover');
+      const singularity = startCampaignCommandCenter();
+      singularity.open();
+      campaignCleanup = () => singularity.stop();
+      document.body.classList.add('wisdo-singularity-route');
+    } catch (error) {
+      document.body.classList.remove('wisdo-singularity-route');
+      root().innerHTML = `<section class="card"><span class="eyebrow">WISDO CORE</span><h2>Singularity could not start.</h2><p class="red">${html(error.message)}</p><button class="btn primary" onclick="location.reload()">Retry CORE</button></section>`;
+      throw error;
+    }
   }
 
   async function drawDashboard() {

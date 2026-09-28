@@ -9,23 +9,16 @@ const money = (value, currency = 'USD') => {
 const esc = (value = '') => String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
 
 function ensureStyles() {
-  if (document.querySelector('link[data-wisdo-command-css]')) return;
-  const link = document.createElement('link');
-  link.rel = 'stylesheet';
-  link.href = '/app/world/command/command-center.css?v=20260912-command-world-v4';
-  const coreLink = document.createElement('link');
-  coreLink.rel = 'stylesheet';
-  coreLink.href = '/app/world/command/wisdo-core-v5.css?v=20260928-core-v5';
-  const v6Link = document.createElement('link');
-  v6Link.rel = 'stylesheet';
-  v6Link.href = '/app/world/command/wisdo-core-v6.css?v=20260928-core-v6';
-  v6Link.dataset.wisdoCoreV6Css = '1';
-  document.head.appendChild(v6Link);
-  const v7Link=document.createElement('link'); v7Link.rel='stylesheet'; v7Link.href='/app/world/command/wisdo-core-v7.css?v=20260928-singularity'; v7Link.dataset.wisdoCoreV7Css='1'; document.head.appendChild(v7Link);
-  coreLink.dataset.wisdoCoreCss = '1';
-  document.head.appendChild(coreLink);
-  link.dataset.wisdoCommandCss = '1';
-  document.head.appendChild(link);
+  const styles = [
+    ['/app/world/command/command-center.css?v=20260928-base', 'wisdoCommandCss'],
+    ['/app/world/command/wisdo-core-v5.css?v=20260928-core-v5', 'wisdoCoreCss'],
+    ['/app/world/command/wisdo-core-v6.css?v=20260928-core-v6', 'wisdoCoreV6Css'],
+    ['/app/world/command/wisdo-core-v7.css?v=20260928-singularity-route', 'wisdoCoreV7Css'],
+  ];
+  for (const [href, key] of styles) {
+    if (document.querySelector(`link[data-${key.replace(/[A-Z]/g, m => '-'+m.toLowerCase())}]`)) continue;
+    const link=document.createElement('link'); link.rel='stylesheet'; link.href=href; link.dataset[key]='1'; document.head.appendChild(link);
+  }
 }
 
 function commandMarkup() {
