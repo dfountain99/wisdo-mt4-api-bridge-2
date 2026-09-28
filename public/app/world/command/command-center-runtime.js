@@ -13,6 +13,11 @@ function ensureStyles() {
   const link = document.createElement('link');
   link.rel = 'stylesheet';
   link.href = '/app/world/command/command-center.css?v=20260912-command-world-v4';
+  const coreLink = document.createElement('link');
+  coreLink.rel = 'stylesheet';
+  coreLink.href = '/app/world/command/wisdo-core-v5.css?v=20260928-core-v5';
+  coreLink.dataset.wisdoCoreCss = '1';
+  document.head.appendChild(coreLink);
   link.dataset.wisdoCommandCss = '1';
   document.head.appendChild(link);
 }
@@ -20,7 +25,7 @@ function ensureStyles() {
 function commandMarkup() {
   return `<section id="wisdoCommandOverlay" class="wisdo-command-overlay" hidden aria-label="WISDO Campaign Command Center">
     <header class="wisdo-command-top">
-      <div class="wisdo-command-brand"><span>WISDO WORLD</span><strong>CAMPAIGN COMMAND CENTER</strong></div>
+      <div class="wisdo-command-brand"><span>CONNECT · COPY · CONTROL</span><strong>WISDO <b>CORE</b></strong></div>
       <div class="wisdo-command-scope">
         <div><span>ACCOUNT</span><strong id="wcScopeAccount">—</strong></div>
         <div><span>SYMBOL</span><strong id="wcScopeSymbol">—</strong></div>
@@ -34,10 +39,14 @@ function commandMarkup() {
       </div>
     </header>
     <main class="wisdo-command-stage">
+      <nav class="wisdo-core-input-rail" aria-label="WISDO input modes"><button class="wisdo-core-mode active" data-core-mode="touch">TOUCH</button><button class="wisdo-core-mode" data-core-mode="spatial">SPATIAL</button><button class="wisdo-core-mode" data-core-mode="voice">VOICE</button><button class="wisdo-core-mode" data-core-mode="text">TEXT</button><button class="wisdo-core-mode" data-core-mode="keys">KEYS</button></nav>
+      <div class="wisdo-core-intent"><i></i><b>INTENT BUS</b><span id="wcIntentState">OBSERVING · INPUT READY · EXECUTION REQUIRES VERIFIED CONFIRMATION</span></div>
+      <div class="wisdo-core-time" aria-hidden="true"><span class="wisdo-core-time-label">WISDO TIME · <b>WINDOW LAYER</b></span></div>
       <canvas id="wcCanvas" class="wisdo-command-canvas"></canvas>
       <div class="wisdo-command-chart-note">LIVE CAMPAIGN DIGITAL TWIN · DRAG TO ORBIT · SCROLL TO ZOOM</div>
       <div class="wisdo-command-crosshair"></div>
-      <div class="wisdo-command-room-label"><span>LIVE EXECUTION ENVIRONMENT</span><strong>WISDO MARKET CORE</strong><i></i></div>
+      <div class="wisdo-command-room-label"><span>LIVE EXECUTION ENVIRONMENT</span><strong>WISDO CORE</strong><i></i></div>
+      <div class="wisdo-core-flow" aria-label="WISDO intent flow"><div class="wisdo-core-node active"><strong>INPUT</strong> MULTIMODAL</div><i class="wisdo-core-arrow"></i><div class="wisdo-core-node"><strong>INTENT</strong> INTERPRET</div><i class="wisdo-core-arrow"></i><div class="wisdo-core-node guard"><strong>GUARD</strong> VALIDATE</div><i class="wisdo-core-arrow"></i><div class="wisdo-core-node"><strong>EA</strong> EXECUTE</div><i class="wisdo-core-arrow"></i><div class="wisdo-core-node"><strong>ACK</strong> VERIFY</div></div>
       <aside class="wisdo-command-side left">
         <section class="wisdo-command-card"><h3>ACCOUNT VAULT</h3><select id="wcAccountSelect"></select><h3 style="margin-top:12px">CAMPAIGNS</h3><div id="wcCampaignList" class="wisdo-command-list"></div></section>
         <section class="wisdo-command-card gold"><h3>LIVE POSITION NODES</h3><div id="wcPositionList" class="wisdo-command-list"></div></section>
@@ -279,6 +288,8 @@ export function startCampaignCommandCenter() {
     document.getElementById('wcScopeSymbol').textContent = c?.symbol || '—';
     document.getElementById('wcScopeCampaign').textContent = c?.strategyName || c?.campaignId?.slice(0, 22) || '—';
     document.getElementById('wcScopeLink').textContent = commandState.executionHealth?.commandLinkReady ? 'READY' : 'DISABLED';
+    const intentState = document.getElementById('wcIntentState');
+    if (intentState) intentState.textContent = commandState.executionHealth?.commandLinkReady ? 'OBSERVING · INPUT READY · EA LINK VERIFIED' : 'OBSERVING · INPUT READY · EA LINK DEGRADED';
 
     const accountSelect = document.getElementById('wcAccountSelect');
     accountSelect.innerHTML = (commandState.accounts || []).map((a) => `<option value="${esc(a.accountId)}" ${a.accountId === acct?.accountId ? 'selected' : ''}>${esc(a.nickname || a.accountId)}${a.shared ? ' · SHARED' : ''}</option>`).join('');
@@ -493,6 +504,13 @@ export function startCampaignCommandCenter() {
   document.getElementById('wcIntelToggle')?.addEventListener('click', () => toggleIntel());
   document.getElementById('wcDeckClose')?.addEventListener('click', () => toggleDeck(false));
   document.getElementById('wcCancelProposal')?.addEventListener('click', cancelProposal);
+
+  overlay.querySelectorAll('[data-core-mode]').forEach((btn) => btn.addEventListener('click', () => {
+    overlay.querySelectorAll('[data-core-mode]').forEach((node) => node.classList.toggle('active', node === btn));
+    const intentState = document.getElementById('wcIntentState');
+    const mode = String(btn.dataset.coreMode || 'touch').toUpperCase();
+    if (intentState) intentState.textContent = `${mode} INPUT SELECTED · COMMANDS STILL REQUIRE PREVIEW + VERIFIED CONFIRMATION`;
+  }));
 
   const hold = document.getElementById('wcHold');
   hold?.addEventListener('pointerdown', (e) => { e.preventDefault(); hold.setPointerCapture?.(e.pointerId); startHold(); });
