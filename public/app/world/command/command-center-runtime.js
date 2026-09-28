@@ -18,7 +18,7 @@ function ensureStyles() {
     ['/app/world/command/wisdo-core-v6.css?v=20260928-core-v6', 'wisdoCoreV6Css'],
     ['/app/world/command/wisdo-core-v7.css?v=20260928-singularity-route', 'wisdoCoreV7Css'],
     ['/app/world/command/wisdo-core-v8-rank-ascension.css?v=20260928-rank-ascension', 'wisdoCoreV8RankCss'],
-    ['/app/world/command/wisdo-core-v10-living-controls.css?v=20260928-v10-2-deterministic-mobile', 'wisdoCoreV10Css'],
+    ['/app/world/command/wisdo-core-v10-living-controls.css?v=20260928-v10-3-guardian-handoff', 'wisdoCoreV10Css'],
   ];
   for (const [href, key] of styles) {
     const attr = `data-${key.replace(/[A-Z]/g, m => '-'+m.toLowerCase())}`;

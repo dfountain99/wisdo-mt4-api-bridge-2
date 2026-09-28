@@ -45,7 +45,7 @@ test('V10.2 release assets use fresh deterministic-mobile versions', async () =>
     fs.readFile(new URL('../public/service-worker.js', import.meta.url), 'utf8'),
     fs.readFile(new URL('../public/app/world/command/command-center-runtime.js', import.meta.url), 'utf8'),
   ]);
-  assert.match(workspace, /v=20260928-v10-2-deterministic-mobile/);
-  assert.match(worker, /wisdo-static-v10\.2\.0-deterministic-mobile/);
-  assert.match(runtime, /wisdo-core-v10-living-controls\.css\?v=20260928-v10-2-deterministic-mobile/);
+  assert.match(workspace, /v=20260928-v10-3-guardian-handoff/);
+  assert.match(worker, /wisdo-static-v10\.3\.0-guardian-handoff/);
+  assert.match(runtime, /wisdo-core-v10-living-controls\.css\?v=20260928-v10-3-guardian-handoff/);
 });

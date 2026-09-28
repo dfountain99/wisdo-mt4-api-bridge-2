@@ -50,8 +50,8 @@ function characterSvg(def,{mini=false}={}){
     ${tactical}
     <path d="M236 267 L289 305 L272 384 L236 424 L200 384 L183 305 Z" fill="#03080e" stroke="${def.accent}" stroke-width="4"/>
     <path d="M236 289 L260 323 L248 358 L236 374 L224 358 L212 323 Z" fill="${def.primary}" opacity=".26" stroke="${def.accent}" stroke-width="3"/>
-    <circle cx="236" cy="331" r="${level>=4?27:22}" fill="#03101a" stroke="${def.accent}" stroke-width="4" filter="url(#${id}g)"/>
-    <circle cx="236" cy="331" r="${level>=4?12:9}" fill="${def.accent}" filter="url(#${id}g)"/>
+    <circle class="guardian-chest-core" cx="236" cy="331" r="${level>=4?27:22}" fill="#03101a" stroke="${def.accent}" stroke-width="4" filter="url(#${id}g)"/>
+    <circle class="guardian-chest-core-light" cx="236" cy="331" r="${level>=4?12:9}" fill="${def.accent}" filter="url(#${id}g)"/>
     <path d="M177 403 L211 488 L236 540 L178 492 L145 449 Z M295 403 L261 488 L236 540 L294 492 L327 449 Z" fill="#02070c" stroke="${def.secondary}" stroke-width="3" opacity=".92"/>
     <path d="M136 348 L165 356 M336 348 L307 356 M155 409 L184 396 M317 409 L288 396" stroke="${def.accent}" stroke-width="4" opacity=".7"/>
     <g opacity=".95"><circle cx="113" cy="385" r="6" fill="${def.primary}"/><circle cx="359" cy="385" r="6" fill="${def.secondary}"/><circle cx="236" cy="566" r="7" fill="${def.accent}"/></g>
@@ -67,6 +67,17 @@ function markup(){
   </section>
   <section class="wisdo-v8-character-chamber" id="wcV8CharacterChamber">
     <div class="wisdo-v8-aura"></div><div class="wisdo-v8-beam"></div><div class="wisdo-v8-plinth"><i></i><i></i></div><div id="wcV8Character"></div>
+    <div class="wisdo-v103-handoff-layer" aria-hidden="true">
+      <i class="wisdo-v103-body-anchor auto" data-guardian-anchor="AUTO"><b>A</b></i>
+      <i class="wisdo-v103-body-anchor protect" data-guardian-anchor="PROTECT"><b>⬡</b></i>
+      <i class="wisdo-v103-body-anchor profit" data-guardian-anchor="TAKE_PROFIT"><b>◆</b></i>
+      <span class="wisdo-v103-handoff-path auto"></span>
+      <span class="wisdo-v103-handoff-path protect"></span>
+      <span class="wisdo-v103-handoff-path profit"></span>
+      <span class="wisdo-v103-control-token auto">A</span>
+      <span class="wisdo-v103-control-token protect">⬡</span>
+      <span class="wisdo-v103-control-token profit">◆</span>
+    </div>
     <div class="wisdo-v8-trade-chip entry" id="wcV8EntryChip">ENTRY · —</div>
     <div class="wisdo-v8-trade-chip tp" id="wcV8TpChip">TP · —</div>
     <div class="wisdo-v8-trade-chip sl" id="wcV8SlChip">PROTECT · —</div>
@@ -198,6 +209,7 @@ export function createRankAscension({ overlay }={}){
       chamber.dataset.control=activeControl?activeControl.toLowerCase():'';
       chamber.classList.toggle('wisdo-v10-guardian-summoning',guardianMode==='summoning');
       chamber.classList.toggle('wisdo-v10-guardian-retracting',guardianMode==='retracting');
+      chamber.classList.toggle('wisdo-v103-control-active',Boolean(activeControl));
     }
   }
 

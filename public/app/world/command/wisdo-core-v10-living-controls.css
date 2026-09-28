@@ -252,3 +252,78 @@ html.wisdo-core-mobile-active,html.wisdo-core-mobile-active body{overscroll-beha
   position:fixed!important;left:10px!important;right:10px!important;bottom:calc(98px + env(safe-area-inset-bottom))!important;
   width:auto!important;max-height:56vh!important;overflow:auto!important;z-index:180!important;
 }
+
+
+/* V10.3 — Guardian Control Handoff */
+.wisdo-v103-handoff-layer{position:absolute;z-index:9;inset:0;pointer-events:none}
+.wisdo-v103-body-anchor{position:absolute;display:grid;place-items:center;width:26px;height:26px;border:1px solid color-mix(in srgb,var(--rank-primary) 38%,transparent);border-radius:50%;background:rgba(3,12,20,.76);box-shadow:0 0 16px color-mix(in srgb,var(--rank-primary) 12%,transparent);opacity:.28;transition:opacity .25s ease,transform .3s ease,box-shadow .3s ease}
+.wisdo-v103-body-anchor b{font:800 10px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:#b8edff;text-shadow:0 0 8px currentColor}
+.wisdo-v103-body-anchor.auto{left:50%;top:43%;transform:translate(-50%,-50%)}
+.wisdo-v103-body-anchor.protect{left:31%;top:49%;transform:translate(-50%,-50%);border-color:rgba(89,239,195,.38)}.wisdo-v103-body-anchor.protect b{color:#77f0c4}
+.wisdo-v103-body-anchor.profit{left:69%;top:49%;transform:translate(-50%,-50%);border-color:rgba(240,189,77,.42)}.wisdo-v103-body-anchor.profit b{color:#f4cd69}
+
+.wisdo-v103-handoff-path{position:absolute;top:48%;height:40%;width:2px;transform-origin:top center;opacity:0;background:linear-gradient(180deg,currentColor,transparent 90%);filter:drop-shadow(0 0 5px currentColor);transition:opacity .28s ease}
+.wisdo-v103-handoff-path:after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(180deg,transparent 0 8px,currentColor 9px 11px,transparent 12px 19px);animation:v103Current 1.1s linear infinite}
+.wisdo-v103-handoff-path.auto{left:50%;color:#6ee7ff}
+.wisdo-v103-handoff-path.protect{left:31%;color:#5defc3;transform:rotate(10deg)}
+.wisdo-v103-handoff-path.profit{left:69%;color:#f0bd4d;transform:rotate(-10deg)}
+
+.wisdo-v103-control-token{position:absolute;z-index:11;display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:rgba(3,15,24,.92);border:1px solid currentColor;box-shadow:0 0 18px currentColor;color:#6ee7ff;font:900 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;opacity:0;transform:translate(-50%,-50%);will-change:transform,opacity}
+.wisdo-v103-control-token.auto{left:50%;top:43%;--tx:0px;--ty:230px}
+.wisdo-v103-control-token.protect{left:31%;top:49%;--tx:-34px;--ty:205px;color:#5defc3}
+.wisdo-v103-control-token.profit{left:69%;top:49%;--tx:34px;--ty:205px;color:#f0bd4d}
+
+.wisdo-v8-character-chamber[data-control="auto"] .wisdo-v103-body-anchor.auto,
+.wisdo-v8-character-chamber[data-control="protect"] .wisdo-v103-body-anchor.protect,
+.wisdo-v8-character-chamber[data-control="take_profit"] .wisdo-v103-body-anchor.profit{opacity:1;box-shadow:0 0 0 8px rgba(93,218,255,.035),0 0 28px currentColor}
+.wisdo-v8-character-chamber[data-control="auto"] .wisdo-v103-handoff-path.auto,
+.wisdo-v8-character-chamber[data-control="protect"] .wisdo-v103-handoff-path.protect,
+.wisdo-v8-character-chamber[data-control="take_profit"] .wisdo-v103-handoff-path.profit{opacity:.7}
+.wisdo-v8-character-chamber[data-control="auto"][data-guardian-mode="summoning"] .wisdo-v103-control-token.auto,
+.wisdo-v8-character-chamber[data-control="protect"][data-guardian-mode="summoning"] .wisdo-v103-control-token.protect,
+.wisdo-v8-character-chamber[data-control="take_profit"][data-guardian-mode="summoning"] .wisdo-v103-control-token.profit{animation:v103HandoffDown .48s cubic-bezier(.16,.78,.24,1) both}
+.wisdo-v8-character-chamber[data-control="auto"][data-guardian-mode^="active"] .wisdo-v103-control-token.auto,
+.wisdo-v8-character-chamber[data-control="protect"][data-guardian-mode^="active"] .wisdo-v103-control-token.protect,
+.wisdo-v8-character-chamber[data-control="take_profit"][data-guardian-mode^="active"] .wisdo-v103-control-token.profit{opacity:1;transform:translate(calc(-50% + var(--tx)),calc(-50% + var(--ty))) scale(.78);animation:v103TokenHover 1.5s ease-in-out infinite}
+.wisdo-v8-character-chamber[data-guardian-mode="retracting"] .wisdo-v103-control-token{animation:v103HandoffUp .5s cubic-bezier(.7,.05,.85,.35) both}
+
+/* Make the active floor station clearly receive the body control. */
+.wisdo-v10-floor-node.active{filter:brightness(1.16)}
+.wisdo-v10-floor-node.active .wisdo-v10-node-ring:after{content:"";position:absolute;inset:-12px;border:1px solid currentColor;border-radius:50%;opacity:.42;animation:v103ReceivePulse 1.35s ease-out infinite}
+.wisdo-v10-floor-node.active .wisdo-v10-node-beam{height:62px;top:-49px}
+.wisdo-v10-control-deck[data-control="auto"] .wisdo-v10-floor-node:not(.auto),
+.wisdo-v10-control-deck[data-control="protect"] .wisdo-v10-floor-node:not(.protect),
+.wisdo-v10-control-deck[data-control="take_profit"] .wisdo-v10-floor-node:not(.profit){opacity:.42}
+
+/* Body response reads as three different command zones. */
+.wisdo-v8-character-chamber[data-control="auto"] .wisdo-v8-character-svg .guardian-chest-core{filter:drop-shadow(0 0 12px #67e5ff)}
+.wisdo-v8-character-chamber[data-control="protect"]{filter:drop-shadow(-14px 8px 30px rgba(89,239,195,.18))}
+.wisdo-v8-character-chamber[data-control="take_profit"]{filter:drop-shadow(14px 8px 30px rgba(240,189,77,.2))}
+
+@keyframes v103HandoffDown{
+  0%{opacity:0;transform:translate(-50%,-50%) scale(.58)}
+  18%{opacity:1;transform:translate(-50%,-50%) scale(1.08)}
+  100%{opacity:1;transform:translate(calc(-50% + var(--tx)),calc(-50% + var(--ty))) scale(.78)}
+}
+@keyframes v103HandoffUp{
+  0%{opacity:1;transform:translate(calc(-50% + var(--tx,0px)),calc(-50% + var(--ty,210px))) scale(.78)}
+  100%{opacity:0;transform:translate(-50%,-50%) scale(.52)}
+}
+@keyframes v103TokenHover{
+  0%,100%{transform:translate(calc(-50% + var(--tx)),calc(-50% + var(--ty) - 2px)) scale(.78)}
+  50%{transform:translate(calc(-50% + var(--tx)),calc(-50% + var(--ty) + 3px)) scale(.84)}
+}
+@keyframes v103Current{to{background-position:0 38px}}
+@keyframes v103ReceivePulse{0%{transform:scale(.72);opacity:.55}100%{transform:scale(1.35);opacity:0}}
+
+/* V10.3 phone alignment keeps the handoff endpoint aimed at the projected deck. */
+#wisdoCommandOverlay.mobile-command-chamber .wisdo-v103-body-anchor{width:22px;height:22px}
+#wisdoCommandOverlay.mobile-command-chamber .wisdo-v103-control-token{width:26px;height:26px;font-size:9px}
+#wisdoCommandOverlay.mobile-command-chamber .wisdo-v103-control-token.auto{--ty:190px}
+#wisdoCommandOverlay.mobile-command-chamber .wisdo-v103-control-token.protect{--tx:-28px;--ty:170px}
+#wisdoCommandOverlay.mobile-command-chamber .wisdo-v103-control-token.profit{--tx:28px;--ty:170px}
+#wisdoCommandOverlay.mobile-command-chamber .wisdo-v103-handoff-path{height:37%}
+
+@media(prefers-reduced-motion:reduce){
+  .wisdo-v103-control-token,.wisdo-v103-handoff-path:after,.wisdo-v10-floor-node.active .wisdo-v10-node-ring:after{animation:none!important}
+}
