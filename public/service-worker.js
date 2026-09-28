@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wisdo-static-v10.2.0-deterministic-mobile';
+const CACHE_NAME = 'wisdo-static-v10.3.0-guardian-handoff';
 const STATIC_ASSETS = [
   '/js/workspace.js',
   '/js/wisdo-recognition.js',
