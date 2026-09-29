@@ -35,9 +35,8 @@ test('V11 guardian gestures are real pointer gestures and still use verified pro
   ]);
   assert.match(runtime,/beginGuardianGesture/);
   assert.match(runtime,/finishGuardianGesture/);
-  assert.match(runtime,/guardianDeck\.requestControl\('AUTO'\)/);
-  assert.match(runtime,/guardianDeck\.requestControl\('PROTECT'\)/);
-  assert.match(runtime,/guardianDeck\.requestControl\('TAKE_PROFIT'\)/);
+  assert.match(runtime,/requestGestureControl/);
+  assert.match(runtime,/guardianDeck\.requestControl\(control\)/);
   assert.match(deck,/requestControl,/);
   assert.match(runtime,/proposal = await runtime\.propose\(/);
   assert.match(runtime,/latestReceipt = await runtime\.execute\(/);
@@ -60,7 +59,7 @@ test('V11 release assets are cache-busted', async () => {
     fs.readFile(new URL('../public/service-worker.js',import.meta.url),'utf8'),
     fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8'),
   ]);
-  assert.match(workspace,/v=20260929-v11-truth-dock/);
-  assert.match(worker,/wisdo-static-v11\.0\.0-truth-dock-account-binding/);
-  assert.match(runtime,/wisdo-core-v11-truth-dock\.css\?v=20260929-v11-truth-dock/);
+  assert.match(workspace,/v=20260929-v12-connected-command-spine/);
+  assert.match(worker,/wisdo-static-v12\.0\.0-connected-command-spine/);
+  assert.match(runtime,/wisdo-core-v11-truth-dock\.css\?v=20260929-v12-connected-command-spine/);
 });
