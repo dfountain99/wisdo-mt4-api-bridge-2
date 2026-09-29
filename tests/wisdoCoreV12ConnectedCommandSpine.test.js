@@ -82,7 +82,7 @@ test('V12 release assets are cache-busted and stylesheet is last in CORE cascade
     fs.readFile(new URL('../public/service-worker.js',import.meta.url),'utf8'),
     fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8'),
   ]);
-  assert.match(workspace,/v=20260929-v12-connected-command-spine/);
-  assert.match(worker,/wisdo-static-v12\.0\.0-connected-command-spine/);
-  assert.match(runtime,/wisdo-core-v12-connected\.css\?v=20260929-v12-connected-command-spine/);
+  assert.match(workspace,/v=20260929-v12-1-live-session-command/);
+  assert.match(worker,/wisdo-static-v12\.1\.0-live-session-command/);
+  assert.match(runtime,/wisdo-core-v12-1-session-command\.css\?v=20260929-v12-1-live-session-command/);
 });
