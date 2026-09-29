@@ -425,7 +425,7 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
     } catch (error) {
       latestReceipt = { status: 'failed', command: action, error: error.message };
       renderReceipt();
-      throw error;
+      return null;
     }
   }
 
