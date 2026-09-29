@@ -47,5 +47,6 @@ test('V10.2 release assets use fresh deterministic-mobile versions', async () =>
   ]);
   assert.match(workspace, /v=20260929-v11-truth-dock/);
   assert.match(worker, /wisdo-static-v11\.0\.0-truth-dock-account-binding/);
-  assert.match(runtime, /wisdo-core-v10-living-controls\.css\?v=20260929-v11-truth-dock/);
+  assert.match(runtime, /wisdo-core-v10-living-controls\.css\?v=20260928-v10-3-guardian-handoff/);
+  assert.match(runtime, /wisdo-core-v11-truth-dock\.css\?v=20260929-v11-truth-dock/);
 });
