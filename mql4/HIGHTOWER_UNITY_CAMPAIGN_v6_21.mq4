@@ -990,6 +990,12 @@ enum HT5_SessionLaw
    SESSION_ADAPT_TO_LIQUIDITY_AND_SPREAD=2,
    SESSION_LEARN_BEST_HOURS_PER_SYMBOL=3
 };
+enum HT6_TradingWindowMode
+{
+   TIME_WINDOW_ALL_HOURS=0,
+   TIME_WINDOW_LONDON_AND_NEWYORK=1,
+   TIME_WINDOW_CUSTOM_TWO_WINDOWS=2
+};
 enum HT5_CollectionLaw
 {
    COLLECT_EXACT_COMPOUND_TARGET=0,
@@ -1169,6 +1175,13 @@ bool DirectUseLegacyBasketCompoundCollector=false; // permanently OFF in v6.10
 
 // MASTER + PRIMARY STRUCTURE
 input bool   DirectAllowNewEntries=true;
+// CHRONOS ENTRY WINDOW — broker-clock hard gate for NEW entries only.
+// Open positions remain managed outside the window. ALL_HOURS preserves legacy behavior.
+input HT6_TradingWindowMode DirectTradingWindowMode=TIME_WINDOW_ALL_HOURS;
+input int    DirectWindow1StartHour=7;
+input int    DirectWindow1EndHour=16;
+input int    DirectWindow2StartHour=16;
+input int    DirectWindow2EndHour=21;
 input bool   DirectAllowBuyPrimaries=true;
 input bool   DirectAllowSellPrimaries=true;
 input ENUM_TIMEFRAMES DirectSignalTimeframe=PERIOD_M5;
@@ -2743,6 +2756,35 @@ double HT6DirectOpenRiskCapPercent()
    return MathMax(HT6DirectRiskPercent(),MathMin(100.0,DirectMaximumOpenRiskPercent));
 }
 
+int HT6NormalizeHour(int hour)
+{
+   if(hour<0) return 0;
+   if(hour>23) return 23;
+   return hour;
+}
+
+bool HT6HourInWindow(int hour,int startHour,int endHour)
+{
+   hour=HT6NormalizeHour(hour);
+   startHour=HT6NormalizeHour(startHour);
+   endHour=HT6NormalizeHour(endHour);
+   if(startHour==endHour) return true; // explicit full-day window
+   if(startHour<endHour) return (hour>=startHour && hour<endHour);
+   return (hour>=startHour || hour<endHour); // overnight window
+}
+
+bool HT6DirectTradingWindowAllows(datetime now)
+{
+   int hour=TimeHour(now);
+   if(DirectTradingWindowMode==TIME_WINDOW_ALL_HOURS) return true;
+   if(DirectTradingWindowMode==TIME_WINDOW_LONDON_AND_NEWYORK)
+      return (hour>=7 && hour<21); // broker-clock London through New York
+   if(DirectTradingWindowMode==TIME_WINDOW_CUSTOM_TWO_WINDOWS)
+      return HT6HourInWindow(hour,DirectWindow1StartHour,DirectWindow1EndHour)
+          || HT6HourInWindow(hour,DirectWindow2StartHour,DirectWindow2EndHour);
+   return false;
+}
+
 void HT6ApplyDirectExecutionInputs()
 {
    // v6.10 ONE-WAY WIRING: no legacy preset or persisted phenotype may overwrite
@@ -2754,10 +2796,11 @@ void HT6ApplyDirectExecutionInputs()
    SignalTimeframe=DirectSignalTimeframe;
    SlippagePoints=MathMax(0,DirectSlippagePoints);
 
-   AllowNewEntries=DirectAllowNewEntries;
-   AllowBuy=(DirectAllowNewEntries && DirectAllowBuyPrimaries);
-   AllowSell=(DirectAllowNewEntries && DirectAllowSellPrimaries);
-   if(!DirectAllowNewEntries) MasterControl=MASTER_MANAGE_OPEN_TRADES_ONLY;
+   bool directTimeWindowAllowed=HT6DirectTradingWindowAllows(TimeCurrent());
+   AllowNewEntries=(DirectAllowNewEntries && directTimeWindowAllowed);
+   AllowBuy=(AllowNewEntries && DirectAllowBuyPrimaries);
+   AllowSell=(AllowNewEntries && DirectAllowSellPrimaries);
+   if(!AllowNewEntries) MasterControl=MASTER_MANAGE_OPEN_TRADES_ONLY;
    else if(DirectAllowBuyPrimaries && DirectAllowSellPrimaries) MasterControl=MASTER_BUY_AND_SELL;
    else if(DirectAllowBuyPrimaries) MasterControl=MASTER_BUY_ONLY;
    else if(DirectAllowSellPrimaries) MasterControl=MASTER_SELL_ONLY;
