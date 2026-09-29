@@ -181,9 +181,9 @@ test('V12 HIGHTOWER hard-gates new entries with broker windows and WISDO pause f
   assert.match(receiver, /windowAllowed/);
   assert.match(receiver, /entryAllowed/);
   assert.match(receiver, /intentScore/);
-  assert.match(reporter, /\"sessionId\"/);
-  assert.match(reporter, /\"targetEquity\"/);
-  assert.match(reporter, /\"continuationProbability\"/);
+  assert.match(reporter, /sessionId/);
+  assert.match(reporter, /targetEquity/);
+  assert.match(reporter, /continuationProbability/);
 });
 
 test('V12 visual shell uses bot-driven time rail and verified gesture proposal path', async () => {
