@@ -1,0 +1,62 @@
+/* WISDO CORE V12 — Connected Command Spine */
+#wisdoCommandOverlay{--v12-dock:344px;--v12-top:126px}
+#wisdoCommandOverlay .wisdo-v11-truth-dock{width:var(--v12-dock)}
+#wisdoCommandOverlay #wcV11EvolutionTop{right:calc(var(--v12-dock) + 32px);height:112px}
+#wisdoCommandOverlay:not(.mobile-command-chamber) .wisdo-v8-character-chamber{
+  top:132px!important;left:calc(50% - (var(--v12-dock)/2))!important;width:min(650px,50vw)!important;height:56vh!important
+}
+#wisdoCommandOverlay:not(.mobile-command-chamber) .wisdo-command-canvas{
+  right:calc(var(--v12-dock) + 22px)!important;top:120px!important;height:calc(100% - 124px)!important
+}
+#wisdoCommandOverlay:not(.mobile-command-chamber) .wisdo-v10-control-deck{
+  left:calc(50% - (var(--v12-dock)/2))!important;bottom:18px!important;width:min(620px,48vw)!important
+}
+#wisdoCommandOverlay:not(.mobile-command-chamber) #wcV7Window.wisdo-v10-time-host{
+  left:18px!important;bottom:18px!important;width:min(620px,42vw)!important;max-height:none!important
+}
+#wisdoCommandOverlay:not(.mobile-command-chamber) .wisdo-v6-composer{
+  left:calc(50% - (var(--v12-dock)/2))!important;bottom:126px!important;width:min(650px,50vw)!important
+}
+.wisdo-v12-time-layout{display:grid;grid-template-columns:132px 1fr;gap:14px;align-items:center}
+.wisdo-v12-session-core{min-width:0}
+.wisdo-v12-session-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.wisdo-v12-session-cards section{padding:7px 8px;border:1px solid rgba(86,190,235,.16);border-radius:9px;background:rgba(4,15,23,.55)}
+.wisdo-v12-session-cards span{display:block;color:#638493;font-size:5px;letter-spacing:.12em}
+.wisdo-v12-session-cards strong{display:block;margin-top:3px;color:#d9f5ff;font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wisdo-v12-session-cards small{display:block;margin-top:2px;color:#6e8997;font-size:5px}
+#wcV12EntryGate.allow{color:#64efb4}.wisdo-v12-session-cards #wcV12EntryGate.block{color:#ff7388}
+.wisdo-v12-day-labels{display:flex;justify-content:space-between;margin-top:9px;color:#587481;font-size:5px}
+.wisdo-v12-day-track{position:relative;height:14px;margin-top:3px;border:1px solid rgba(103,174,205,.14);border-radius:5px;overflow:visible;background:#07111a}
+.wisdo-v12-blocked-base{position:absolute;inset:0;border-radius:4px;background:linear-gradient(180deg,rgba(209,54,76,.7),rgba(111,19,35,.65))}
+.wisdo-v12-day-track[data-telemetry="missing"] .wisdo-v12-blocked-base{background:#14232b}
+.wisdo-v12-active-window{position:absolute;top:0;bottom:0;background:linear-gradient(180deg,#4ce0ff,#176c9c);box-shadow:0 0 10px rgba(71,211,255,.42)}
+.wisdo-v12-session-band{position:absolute;top:-4px;height:22px;border:1px solid #f0bd4d;border-radius:5px;box-shadow:0 0 9px rgba(240,189,77,.35);pointer-events:none}
+#wcV12NowMarker{position:absolute;top:-5px;width:2px;height:24px;background:#fff7c5;box-shadow:0 0 8px #fff1a0;transform:translateX(-1px)}
+.wisdo-v12-day-legend{display:flex;gap:14px;margin-top:7px;font-size:5px;color:#678590}
+.wisdo-v12-day-legend span:before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:4px}
+.wisdo-v12-day-legend .active:before{background:#49d9ff}.wisdo-v12-day-legend .blocked:before{background:#e23b53}
+.wisdo-v12-gesture-feedback{position:absolute;z-index:40;left:50%;bottom:2%;transform:translateX(-50%);max-width:90%;padding:6px 10px;border:1px solid rgba(91,205,249,.24);border-radius:999px;background:rgba(2,12,19,.82);color:#86b7c8;font:700 6px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;pointer-events:none}
+.wisdo-v12-gesture-feedback[data-tone="ok"]{color:#70efb8;border-color:rgba(112,239,184,.4)}
+.wisdo-v12-gesture-feedback[data-tone="error"]{color:#ff91a2;border-color:rgba(255,92,117,.4)}
+.wisdo-v12-gesture-feedback[data-tone="pending"]{color:#f2cd67;border-color:rgba(242,205,103,.4)}
+.wisdo-v12-gesture-feedback.pulse{animation:v12GesturePulse .55s ease}
+#wcV8CharacterChamber:after{display:none!important}
+@keyframes v12GesturePulse{0%{opacity:.3;transform:translateX(-50%) scale(.94)}60%{opacity:1;transform:translateX(-50%) scale(1.03)}100%{transform:translateX(-50%) scale(1)}}
+#wisdoCommandOverlay .wisdo-v11-dock-body #wcV7Progress,
+#wisdoCommandOverlay .wisdo-v11-dock-body #wcV7Sense,
+#wisdoCommandOverlay .wisdo-v11-dock-body #wcV7Protocol,
+#wisdoCommandOverlay .wisdo-v11-dock-body .wisdo-v8-victories{display:block!important}
+#wisdoCommandOverlay .wisdo-v11-dock-body #wcV7Sense .row b{max-width:54%;text-align:right;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:760px){
+ #wisdoCommandOverlay.mobile-command-chamber #wcV11EvolutionTop{height:116px!important}
+ #wisdoCommandOverlay.mobile-command-chamber .wisdo-v8-character-chamber{top:130px!important;height:500px!important}
+ #wisdoCommandOverlay.mobile-command-chamber .wisdo-v10-control-deck{top:632px!important}
+ #wisdoCommandOverlay.mobile-command-chamber #wcV7Window.wisdo-v10-time-host{top:752px!important;left:8px!important;right:8px!important;width:auto!important}
+ #wisdoCommandOverlay.mobile-command-chamber .wisdo-v12-time-layout{grid-template-columns:112px 1fr;gap:8px}
+ #wisdoCommandOverlay.mobile-command-chamber .wisdo-v12-session-cards{grid-template-columns:1fr}
+ #wisdoCommandOverlay.mobile-command-chamber .wisdo-v12-session-cards section{padding:5px 7px}
+ #wisdoCommandOverlay.mobile-command-chamber .wisdo-v6-composer{top:1120px!important}
+ #wisdoCommandOverlay.mobile-command-chamber .wisdo-v10-mobile-input-toggle{top:1120px!important}
+ .wisdo-v12-gesture-feedback{font-size:5px;bottom:0}
+}
+@media(max-width:420px){.wisdo-v12-day-legend{display:grid;gap:4px}.wisdo-v12-session-cards strong{font-size:7px}}

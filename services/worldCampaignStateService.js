@@ -172,7 +172,7 @@ function executionHealth(account = {}, snapshot = {}) {
     ageMs,
     terminalConnected,
     expertEnabled,
-    commandLinkReady: reporterState === 'LIVE' && terminalConnected !== false,
+    commandLinkReady: reporterState === 'LIVE' && terminalConnected !== false && expertEnabled !== false,
   };
 }
 
@@ -219,7 +219,9 @@ export class WorldCampaignStateService {
       account: {
         accountId: String(account.accountId),
         nickname: clean(account.nickname || account.accountName || snapshot.accountName || 'Trading Account', 80),
-        accountNumberMasked: account.accountNumber ? `****${String(account.accountNumber).slice(-4)}` : '',
+        accountNumberMasked: (account.mt4Login || account.accountNumber) ? `****${String(account.mt4Login || account.accountNumber).slice(-4)}` : '',
+        mt4Login: clean(account.mt4Login || account.accountNumber || snapshot.accountNumber, 32) || null,
+        brokerServer: clean(account.brokerServer || account.server || snapshot.brokerServer, 100) || null,
         accountType: snapshot.isDemo === true ? 'DEMO' : snapshot.isDemo === false ? 'LIVE' : clean(account.type || account.accountType || 'UNKNOWN', 16).toUpperCase(),
         shared: Boolean(account.shared),
         sharePermission: account.sharePermission || null,
@@ -237,6 +239,22 @@ export class WorldCampaignStateService {
         marginLevel: finite(snapshot.marginLevel, 0),
         currency,
       },
+      victoryEvents: (Array.isArray(snapshot.closedTradesToday) ? snapshot.closedTradesToday : [])
+        .map((trade) => {
+          const profit = finite(trade.profit, 0) + finite(trade.swap, 0) + finite(trade.commission, 0);
+          return {
+            ticket: trade.ticket == null ? null : String(trade.ticket),
+            symbol: clean(trade.symbol, 32).toUpperCase(),
+            direction: clean(trade.type || trade.direction, 12).toUpperCase(),
+            lots: finite(trade.lots, 0),
+            profit,
+            closeTime: trade.closeTime || trade.closedAt || null,
+            magicNumber: trade.magicNumber == null ? null : String(trade.magicNumber),
+          };
+        })
+        .filter((trade) => trade.ticket && trade.profit > 0)
+        .sort((a, b) => Date.parse(b.closeTime || 0) - Date.parse(a.closeTime || 0))
+        .slice(0, 12),
       campaignControl: (() => {
         const control = normalizeCampaignControl(snapshot.campaignControl);
         if (!control) return null;

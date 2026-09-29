@@ -21,6 +21,7 @@ function ensureStyles() {
     ['/app/world/command/wisdo-core-v8-rank-ascension.css?v=20260928-rank-ascension', 'wisdoCoreV8RankCss'],
     ['/app/world/command/wisdo-core-v10-living-controls.css?v=20260928-v10-3-guardian-handoff', 'wisdoCoreV10Css'],
     ['/app/world/command/wisdo-core-v11-truth-dock.css?v=20260929-v11-truth-dock', 'wisdoCoreV11Css'],
+    ['/app/world/command/wisdo-core-v12-connected.css?v=20260929-v12-connected-command-spine', 'wisdoCoreV12Css'],
   ];
   for (const [href, key] of styles) {
     const attr = `data-${key.replace(/[A-Z]/g, m => '-'+m.toLowerCase())}`;
@@ -57,7 +58,7 @@ function commandMarkup() {
       <section id="wcV7Progress" class="wisdo-v7-panel"><h3>CAMPAIGN PROGRESS</h3><strong class="big" id="wcV7ProgressText">LIVE STATE</strong><div class="wisdo-v7-progress"><i id="wcV7ProgressBar"></i></div><div class="row"><span>Current P/L</span><b class="good" id="wcV7PL">—</b></div><div class="row"><span>Entries</span><b id="wcV7Entries">0</b></div></section>
       <section id="wcV7State" class="wisdo-v7-panel"><h3>CURRENT STATE</h3><strong class="big" id="wcV7StateName">Observing</strong><div class="row"><span>Direction</span><b id="wcV7Direction">—</b></div><div class="row"><span>Entry Mode</span><b>EA Managed</b></div><div class="row"><span>Protection</span><b id="wcV7Protection">—</b></div></section>
       <section id="wcV7Window" class="wisdo-v7-panel"><h3>TRADING WINDOW</h3><strong class="big">WISDO TIME</strong><div class="row"><span>Schedule</span><b>NOT CONFIGURED</b></div><div class="row"><span>Enforcement</span><b>STANDBY</b></div></section>
-      <section id="wcV7Sense" class="wisdo-v7-panel"><h3>MARKET SENSE</h3><div class="row"><span>Symbol</span><b id="wcV7SenseSymbol">—</b></div><div class="row"><span>Direction</span><b id="wcV7SenseDirection">—</b></div><div class="row"><span>Reporter</span><b class="good" id="wcV7Reporter">—</b></div><div class="row"><span>EA Link</span><b id="wcV7Link">—</b></div><div class="row"><span>Market structure</span><b>NO VERIFIED FEED</b></div></section>
+      <section id="wcV7Sense" class="wisdo-v7-panel"><h3>MARKET SENSE</h3><div class="row"><span>Symbol</span><b id="wcV7SenseSymbol">—</b></div><div class="row"><span>Direction</span><b id="wcV7SenseDirection">—</b></div><div class="row"><span>Session</span><b id="wcV12SenseSession">NOT REPORTED</b></div><div class="row"><span>Entry Gate</span><b id="wcV12SenseEntry">UNKNOWN</b></div><div class="row"><span>Reporter</span><b class="good" id="wcV7Reporter">—</b></div><div class="row"><span>EA Link</span><b id="wcV7Link">—</b></div><div class="row"><span>Market structure</span><b>NO VERIFIED FEED</b></div></section>
       <section id="wcV7Next" class="wisdo-v7-panel"><h3>NEXT EXPECTED EVENT</h3><strong class="big" id="wcV7NextText">Waiting for live state</strong><div class="row"><span>Scan</span><b>●</b></div><div class="row"><span>Validate → Enter → Manage</span><b>○ ○ ○</b></div></section>
       <section id="wcV7Protocol" class="wisdo-v7-panel"><h3>ACTIVE PROTOCOL</h3><strong class="big">DIRECT CONTROL</strong><div class="row"><span>Flow engine</span><b>STANDBY</b></div><div class="row"><span>Next</span><b>Await intent</b></div></section>
       <div class="wisdo-v7-time" aria-hidden="true"></div>
@@ -359,18 +360,25 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
     if (!commandState) return;
     const acct = commandState.account;
     const c = campaign();
-    document.getElementById('wcScopeAccount').textContent = acct?.accountNumberMasked || acct?.nickname || '—';
-    document.getElementById('wcScopeSymbol').textContent = c?.symbol || '—';
-    document.getElementById('wcScopeCampaign').textContent = c?.strategyName || c?.campaignId?.slice(0, 22) || '—';
-    document.getElementById('wcScopeLink').textContent = commandState.executionHealth?.commandLinkReady ? 'READY' : 'DISABLED';
+    const control=commandState.campaignControl||null;
+    document.getElementById('wcScopeAccount').textContent = acct ? `${acct.accountNumberMasked || acct.nickname || 'ACCOUNT'} · LINKED` : 'SELECT ACCOUNT';
+    document.getElementById('wcScopeSymbol').textContent = c?.symbol || control?.symbol || '—';
+    document.getElementById('wcScopeCampaign').textContent = c?.strategyName || c?.campaignId?.slice(0, 22) || (control?.live ? `EA ${Math.trunc(Number(control.campaignId||0))}` : commandState.bot?.name || '—');
+    document.getElementById('wcScopeLink').textContent = commandState.executionHealth?.commandLinkReady ? 'EA VERIFIED' : 'NOT READY';
     const intentState = document.getElementById('wcIntentState');
     if (intentState) intentState.textContent = commandState.executionHealth?.commandLinkReady ? 'OBSERVING · INPUT READY · EA LINK VERIFIED' : 'OBSERVING · INPUT READY · EA LINK DEGRADED';
     const v7=(id,val)=>{const e=document.getElementById(id);if(e)e.textContent=val;};
-    const control=commandState.campaignControl||null;
-    const goal=Number(control?.goal||0);
-    const banked=Number(control?.banked||0);
-    const goalProgress=control?.live && Number.isFinite(goal) && goal>0 && Number.isFinite(banked) ? Math.max(0,Math.min(100,(banked/goal)*100)) : null;
-    v7('wcV7Symbol',c?.symbol||control?.symbol||'—'); v7('wcV7CampaignName',c?.strategyName||c?.campaignId?.slice(0,18)|| (control?.live?'EA campaign control live':'Campaign standing by')); v7('wcV7PL',money(c?.floatingMoney||0,commandState.financial?.currency)); v7('wcV7Entries',String(c?.positionCount||0)); v7('wcV7Direction',c?.direction|| (control?.direction===1?'BUY':control?.direction===-1?'SELL':'—')); v7('wcV7Protection',c?.stopLoss ? 'ACTIVE' : control?.live ? 'EA CONTROL LIVE' : 'NOT VERIFIED'); v7('wcV7SenseSymbol',c?.symbol||control?.symbol||'—'); v7('wcV7SenseDirection',c?.direction|| (control?.direction===1?'BUY':control?.direction===-1?'SELL':'—')); v7('wcV7Reporter',commandState.executionHealth?.reporter||'—'); v7('wcV7Link',commandState.executionHealth?.commandLinkReady?'VERIFIED':'DEGRADED'); v7('wcV7StateName',c?'Trading Campaign':control?.live?'EA Campaign Control':'Observing'); v7('wcV7NextText',c||control?.live?'Waiting for EA / market event':'Waiting for live campaign'); v7('wcV7ProgressText',goalProgress!=null?`${goalProgress.toFixed(0)}% OF EA GOAL`:c?'LIVE CAMPAIGN · GOAL NOT REPORTED':'LIVE STATE');
+    const campaignProgressState=control?.progress||null;
+    const campaignBase=Number(campaignProgressState?.campaignBase||0);
+    const targetEquity=Number(campaignProgressState?.targetEquity||0);
+    const campaignProfit=Number(campaignProgressState?.realized||0)+Number(campaignProgressState?.floating||0);
+    const campaignTargetGain=targetEquity-campaignBase;
+    const goalProgress=control?.live && campaignBase>0 && campaignTargetGain>0
+      ? Math.max(0,Math.min(100,(campaignProfit/campaignTargetGain)*100))
+      : null;
+    v7('wcV7Symbol',c?.symbol||control?.symbol||'—'); v7('wcV7CampaignName',c?.strategyName||c?.campaignId?.slice(0,18)|| (control?.live?'EA campaign control live':'Campaign standing by')); v7('wcV7PL',money(c?.floatingMoney??campaignProfit??0,commandState.financial?.currency)); v7('wcV7Entries',String(c?.positionCount??control?.positions?.length??0)); v7('wcV7Direction',c?.direction|| (control?.direction===1?'BUY':control?.direction===-1?'SELL':'—')); v7('wcV7Protection',c?.stopLoss ? 'ACTIVE' : control?.live ? 'EA CONTROL LIVE' : 'NOT VERIFIED'); v7('wcV7SenseSymbol',c?.symbol||control?.symbol||'—'); v7('wcV7SenseDirection',c?.direction|| (control?.direction===1?'BUY':control?.direction===-1?'SELL':'—')); v7('wcV7Reporter',commandState.executionHealth?.reporter||'—'); v7('wcV7Link',commandState.executionHealth?.commandLinkReady?'VERIFIED':'DEGRADED'); v7('wcV7StateName',c?'Trading Campaign':control?.live?'EA Campaign Control':'Observing'); v7('wcV7NextText',control?.paused?'EA PAUSED · WAITING FOR RESUME RULE':control?.session?.reported&&control.session.entryAllowed===false?'NEW ENTRIES BLOCKED BY EA TIME WINDOW':c||control?.live?'Waiting for EA / market event':'Waiting for live campaign'); v7('wcV7ProgressText',goalProgress!=null?`${goalProgress.toFixed(0)}% TO NEXT H620 MILESTONE`:control?.live?'EA CAMPAIGN · TARGET TELEMETRY NOT REPORTED':c?'LIVE CAMPAIGN':'LIVE STATE');
+    v7('wcV12SenseSession',control?.live&&control?.session?.reported?`${control.session.name} · Q ${Number(control.session.quality||0).toFixed(2)}`:'NOT REPORTED');
+    v7('wcV12SenseEntry',control?.live&&control?.session?.reported?(control.session.entryAllowed?'ALLOWED':'BLOCKED'):'UNKNOWN');
     const pbar=document.getElementById('wcV7ProgressBar'); if(pbar)pbar.style.width=goalProgress==null?'0%':`${goalProgress.toFixed(1)}%`;
     const v6Campaign=document.getElementById('wcV6Campaign'); if(v6Campaign) v6Campaign.textContent=c ? `${c.symbol} · ${c.direction} · ${c.strategyName || 'CAMPAIGN'}` : 'STANDING BY';
     const v6Objective=document.getElementById('wcV6Objective'); if(v6Objective) v6Objective.textContent=c ? `PROTECT ${c.stopLoss ?? '—'} · TARGET ${c.takeProfit ?? '—'}` : 'AWAITING LIVE STATE';
@@ -413,9 +421,11 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
       document.getElementById('wcProposal').hidden = false;
       overlay.classList.remove('deck-open', 'intel-open', 'mobile-input-open', 'truth-dock-open');
       syncToggleButtons();
+      return proposal;
     } catch (error) {
       latestReceipt = { status: 'failed', command: action, error: error.message };
       renderReceipt();
+      return null;
     }
   }
 
@@ -687,48 +697,54 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
   }));
 
   const guardianHost = document.getElementById('wcV8CharacterChamber');
-  const announceGesture = (text) => {
+  const gestureFeedback=document.createElement('div');
+  gestureFeedback.className='wisdo-v12-gesture-feedback';
+  gestureFeedback.textContent='SWIPE ↑ AUTO · ← PROTECT · → TAKE PROFIT · ↓ RETRACT';
+  guardianHost?.appendChild(gestureFeedback);
+  const announceGesture = (text,tone='') => {
     const intentState = document.getElementById('wcIntentState');
     if (intentState) intentState.textContent = text;
+    if(gestureFeedback){
+      gestureFeedback.textContent=text;
+      gestureFeedback.dataset.tone=tone;
+      gestureFeedback.classList.remove('pulse'); void gestureFeedback.offsetWidth; gestureFeedback.classList.add('pulse');
+    }
   };
   const beginGuardianGesture = (event) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     guardianGesture = { x: event.clientX, y: event.clientY, at: performance.now(), pointerId: event.pointerId };
+    guardianHost?.classList.add('gesture-tracking');
     guardianHost?.setPointerCapture?.(event.pointerId);
   };
-  const finishGuardianGesture = (event) => {
+  const requestGestureControl=async(control,label)=>{
+    announceGesture(`GESTURE RECOGNIZED · ${label} · OPENING VERIFIED PROPOSAL`,'pending');
+    const result=await guardianDeck.requestControl(control);
+    if(result?.ok) announceGesture(`${label} PROPOSAL OPEN · HOLD TO CONFIRM BEFORE EA COMMAND`,'ok');
+    else announceGesture(`${label} UNAVAILABLE · ${result?.reason||'EA LINK NOT READY'} · NOTHING SENT`,'error');
+  };
+  const finishGuardianGesture = async (event) => {
     if (!guardianGesture || guardianGesture.pointerId !== event.pointerId) return;
     const dx = event.clientX - guardianGesture.x;
     const dy = event.clientY - guardianGesture.y;
     const distance = Math.hypot(dx, dy);
     guardianGesture = null;
+    guardianHost?.classList.remove('gesture-tracking');
     if (distance < 38) {
       announceGesture('GUARDIAN READY · SWIPE ↑ AUTO · ← PROTECT · → TAKE PROFIT · ↓ RETRACT');
       return;
     }
-    if (Math.abs(dy) > Math.abs(dx) && dy < -38) {
-      announceGesture('GESTURE PREVIEW · AUTO · SERVER PROPOSAL REQUIRED');
-      guardianDeck.requestControl('AUTO');
-      return;
-    }
+    if (Math.abs(dy) > Math.abs(dx) && dy < -38) { await requestGestureControl('AUTO','AUTO'); return; }
     if (Math.abs(dy) > Math.abs(dx) && dy > 38) {
       guardianDeck.retractAll();
       announceGesture('GUARDIAN CONTROLS RETRACTED · NOTHING SENT');
       return;
     }
-    if (dx < -38) {
-      announceGesture('GESTURE PREVIEW · PROTECT · SERVER PROPOSAL REQUIRED');
-      guardianDeck.requestControl('PROTECT');
-      return;
-    }
-    if (dx > 38) {
-      announceGesture('GESTURE PREVIEW · TAKE PROFIT · SERVER PROPOSAL REQUIRED');
-      guardianDeck.requestControl('TAKE_PROFIT');
-    }
+    if (dx < -38) { await requestGestureControl('PROTECT','PROTECT'); return; }
+    if (dx > 38) await requestGestureControl('TAKE_PROFIT','TAKE PROFIT');
   };
   guardianHost?.addEventListener('pointerdown', beginGuardianGesture);
   guardianHost?.addEventListener('pointerup', finishGuardianGesture);
-  guardianHost?.addEventListener('pointercancel', () => { guardianGesture = null; });
+  guardianHost?.addEventListener('pointercancel', () => { guardianGesture = null; guardianHost?.classList.remove('gesture-tracking'); });
 
   const onWorkspaceAccountSelected = (event) => {
     const accountId = String(event.detail?.selectedAccountId || '');
