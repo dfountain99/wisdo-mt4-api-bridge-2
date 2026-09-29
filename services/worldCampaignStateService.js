@@ -239,6 +239,22 @@ export class WorldCampaignStateService {
         marginLevel: finite(snapshot.marginLevel, 0),
         currency,
       },
+      victoryEvents: (Array.isArray(snapshot.closedTradesToday) ? snapshot.closedTradesToday : [])
+        .map((trade) => {
+          const profit = finite(trade.profit, 0) + finite(trade.swap, 0) + finite(trade.commission, 0);
+          return {
+            ticket: trade.ticket == null ? null : String(trade.ticket),
+            symbol: clean(trade.symbol, 32).toUpperCase(),
+            direction: clean(trade.type || trade.direction, 12).toUpperCase(),
+            lots: finite(trade.lots, 0),
+            profit,
+            closeTime: trade.closeTime || trade.closedAt || null,
+            magicNumber: trade.magicNumber == null ? null : String(trade.magicNumber),
+          };
+        })
+        .filter((trade) => trade.ticket && trade.profit > 0)
+        .sort((a, b) => Date.parse(b.closeTime || 0) - Date.parse(a.closeTime || 0))
+        .slice(0, 12),
       campaignControl: (() => {
         const control = normalizeCampaignControl(snapshot.campaignControl);
         if (!control) return null;
