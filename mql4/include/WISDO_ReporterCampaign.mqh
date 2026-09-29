@@ -12,7 +12,15 @@ string BuildCampaignControlJson()
    j+=",\"direction\":"+DoubleToString(WcoRead(p,"direction"),0)+",\"rail\":"+DoubleToString(WcoRead(p,"rail"),8);
    j+=",\"goal\":"+DoubleToString(WcoRead(p,"goal"),0)+",\"paused\":"+BoolToJson(WcoRead(p,"paused")==1);
    j+=",\"remainingSeconds\":"+DoubleToString(MathMax(0,WcoRead(p,"until")-TimeGMT()),0);
-   j+=",\"banked\":"+DoubleToString(WcoRead(p,"banked"),0)+",\"ackId\":"+DoubleToString(WcoRead(p,"ack"),0);
+   j+=",\"banked\":"+DoubleToString(WcoRead(p,"banked"),0);
+   j+=",\"sessionId\":"+DoubleToString(WcoRead(p,"session"),0)+",\"sessionQuality\":"+DoubleToString(WcoRead(p,"sessionQuality"),4);
+   j+=",\"brokerHour\":"+DoubleToString(WcoRead(p,"brokerHour"),0)+",\"brokerMinute\":"+DoubleToString(WcoRead(p,"brokerMinute"),0);
+   j+=",\"windowMode\":"+DoubleToString(WcoRead(p,"windowMode"),0);
+   j+=",\"window1Start\":"+DoubleToString(WcoRead(p,"window1Start"),0)+",\"window1End\":"+DoubleToString(WcoRead(p,"window1End"),0);
+   j+=",\"window2Start\":"+DoubleToString(WcoRead(p,"window2Start"),0)+",\"window2End\":"+DoubleToString(WcoRead(p,"window2End"),0);
+   j+=",\"scheduleEnforced\":"+BoolToJson(WcoRead(p,"scheduleEnforced")==1);
+   j+=",\"windowAllowed\":"+BoolToJson(WcoRead(p,"windowAllowed")==1)+",\"entryAllowed\":"+BoolToJson(WcoRead(p,"entryAllowed")==1);
+   j+=",\"ackId\":"+DoubleToString(WcoRead(p,"ack"),0);
    j+=",\"ackStatus\":"+DoubleToString(WcoRead(p,"ackStatus"),0)+",\"pendingId\":"+DoubleToString(WcoRead(p,"slot"),0)+",\"levels\":[";
    int count=(int)MathMin(16,WcoRead(p,"levelCount"));
    for(int i=0;i<count;i++) {if(i>0)j+=",";string n=IntegerToString(i);j+="{\"id\":"+DoubleToString(WcoRead(p,"li"+n),0)+",\"price\":"+DoubleToString(WcoRead(p,"lp"+n),8)+"}";}
