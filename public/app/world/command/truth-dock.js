@@ -1,4 +1,6 @@
 const esc=(v='')=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+const money=(value,currency='USD')=>{try{return new Intl.NumberFormat(undefined,{style:'currency',currency,maximumFractionDigits:2}).format(Number(value||0));}catch{return `${Number(value||0).toFixed(2)}`;}};
+const protocolLabel=(goal,paused=false)=>({1:paused?'PAUSE TIMER':'PAUSE RULE',2:'AFTER COMPOUND → REVERSAL',3:'AFTER WIN → PAUSE',4:'WAIT OPPOSITE CANDLE',6:'TIMED CAMPAIGN END',7:'POST-CAMPAIGN PAUSE',8:'SONIC COMPLETE',9:'POST-CAMPAIGN WAIT',12:'SONIC WINDOW'}[Number(goal||0)]||'DIRECT CONTROL');
 
 function shell(){
   return `<div id="wcV11EvolutionTop" class="wisdo-v11-evolution-top"></div>
@@ -65,18 +67,18 @@ export function createTruthDock({overlay,onAccountChange=null}={}){
     const accounts=state.accounts||[];
     const current=account?.accountId||'';
     select.innerHTML=accounts.map((a)=>{
-      const value=a.legacyAccountId||a.accountId;
-      const selected=String(a.accountId)===String(current)||String(a.legacyAccountId||'')===String(current);
-      return `<option value="${esc(value)}" ${selected?'selected':''}>${esc(a.nickname||a.accountId)}${a.mt4Login?' · '+esc(a.mt4Login):''}${a.isPrimary?' · PRIMARY':''}</option>`;
+      const value=a.accountId;
+      const selected=String(a.accountId)===String(current);
+      return `<option value="${esc(value)}" ${selected?'selected':''}>${esc(a.nickname||a.accountId)}${a.mt4Login?' · MT4 '+esc(a.mt4Login):''}${a.isPrimary?' · PRIMARY':''}</option>`;
     }).join('');
     if(!select.value&&current)select.value=current;
     const health=state.executionHealth||{};
     const control=state.campaignControl||null;
-    dock.querySelector('#wcV11DockTitle').textContent=account ? (account.accountNumberMasked||account.nickname||'ACCOUNT LINK') : 'NO ACCOUNT SELECTED';
+    dock.querySelector('#wcV11DockTitle').textContent=account ? `${account.accountNumberMasked||account.nickname||'ACCOUNT'} · ${account.accountType||'MT4'}` : 'NO ACCOUNT SELECTED';
     dock.querySelector('#wcV11Reporter').textContent=health.reporter||'DISCONNECTED';
     dock.querySelector('#wcV11Terminal').textContent=health.terminalConnected===true?'CONNECTED':health.terminalConnected===false?'OFFLINE':'UNKNOWN';
     dock.querySelector('#wcV11Expert').textContent=health.expertEnabled===true?'ON':health.expertEnabled===false?'OFF':'UNKNOWN';
-    dock.querySelector('#wcV11Bot').textContent=state.bot?.name||'NOT REPORTED';
+    dock.querySelector('#wcV11Bot').textContent=state.bot?.name ? `${state.bot.name}${state.bot.version?' · v'+state.bot.version:''}` : 'NOT REPORTED';
     const reason=dock.querySelector('#wcV11LinkReason');
     if(!account) reason.textContent=accounts.length?'Select one authorized account to bind CORE.':'No authorized MT4 account is available to CORE.';
     else if(!health.commandLinkReady) reason.textContent=`Command link is not ready · Reporter ${health.reporter||'DISCONNECTED'}${health.terminalConnected===false?' · terminal offline':''}.`;
@@ -84,6 +86,27 @@ export function createTruthDock({overlay,onAccountChange=null}={}){
     else reason.textContent='Reporter + terminal + campaign control are verified for this account.';
     dock.classList.toggle('link-ready',Boolean(health.commandLinkReady));
     dock.classList.toggle('campaign-live',Boolean(control?.live));
+
+    const protocol=stage.querySelector('#wcV7Protocol');
+    if(protocol){
+      const title=protocol.querySelector('.big');
+      if(title)title.textContent=protocolLabel(control?.goal,control?.paused);
+      const rows=protocol.querySelectorAll('.row b');
+      if(rows[0])rows[0].textContent=control?.live?'EA VERIFIED':'STANDBY';
+      if(rows[1])rows[1].textContent=control?.paused&&control?.remainingSeconds>0
+        ? `Resume in ${Math.ceil(control.remainingSeconds)}s`
+        : control?.session?.reported
+          ? (control.session.entryAllowed?'Entry gate open':'Entry gate blocked')
+          : 'Await EA telemetry';
+    }
+
+    const victories=stage.querySelector('#wcV8Victories');
+    if(victories){
+      const events=Array.isArray(state.victoryEvents)?state.victoryEvents:[];
+      victories.innerHTML=events.length
+        ? events.map((event)=>`<div><b>✦ VERIFIED WIN</b><span>${esc(event.symbol)} · ${esc(event.direction)} · ${money(event.profit,state.financial?.currency||'USD')}</span><small>${event.closeTime?new Date(event.closeTime).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'BROKER'}</small></div>`).join('')
+        : '<small>No profitable closes reported today for this account.</small>';
+    }
   }
 
   function setReceipt(receipt){
