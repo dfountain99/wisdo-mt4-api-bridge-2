@@ -220,9 +220,12 @@ export function createWisdoTimeEngine(container,{resetWindowSeconds=120,onVisual
 
     if(sessionReported){
       const broker=brokerMinute(session,d.age);
-      const brokerHour=Math.floor((broker||0)/60),brokerMin=Math.floor((broker||0)%60);
+      const brokerHour=Math.floor((broker||0)/60),brokerMin=Math.floor((broker||0)%60),brokerSec=Math.floor(((broker||0)*60)%60);
+      const boundary=nextSessionBoundary(session,d.age);
+      q('#wcV121SessionTimer').textContent=boundary?fmtDuration(boundary.seconds):'ALL HOURS';
+      q('#wcV121SessionBoundary').textContent=boundary?.label||'NO BLOCKED WINDOW';
       q('#wcV10SessionSync').textContent='EA / BROKER CLOCK';
-      q('#wcV12BrokerClock').textContent=`${pad(brokerHour)}:${pad(brokerMin)}`;
+      q('#wcV12BrokerClock').textContent=`${pad(brokerHour)}:${pad(brokerMin)}:${pad(brokerSec)}`;
       q('#wcV12SessionName').textContent=session.name||'OTHER';
       q('#wcV12SessionQuality').textContent=`CHRONOS QUALITY ${Number(session.quality||0).toFixed(2)}`;
       q('#wcV12EntryGate').textContent=session.entryAllowed?'TRADING ACTIVE':'NEW ENTRIES BLOCKED';
@@ -231,6 +234,8 @@ export function createWisdoTimeEngine(container,{resetWindowSeconds=120,onVisual
       q('#wcV10Schedule').textContent=session.windowMode===0?'ALL HOURS':session.windowMode===1?'07:00–21:00 BROKER':'CUSTOM WINDOWS';
       q('#wcV10Enforcement').textContent=session.scheduleEnforced?(session.windowAllowed?'WINDOW OPEN':'WINDOW BLOCKED'):'ALL HOURS';
     }else{
+      q('#wcV121SessionTimer').textContent='—';
+      q('#wcV121SessionBoundary').textContent='EA HOURS NOT REPORTED';
       q('#wcV10SessionSync').textContent=d.live?'EA SESSION NOT REPORTED':'LOCAL / UTC';
       q('#wcV12BrokerClock').textContent='NOT REPORTED';
       q('#wcV12SessionName').textContent='EA SESSION NOT REPORTED';
