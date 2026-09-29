@@ -2797,7 +2797,8 @@ void HT6ApplyDirectExecutionInputs()
    SlippagePoints=MathMax(0,DirectSlippagePoints);
 
    bool directTimeWindowAllowed=HT6DirectTradingWindowAllows(TimeCurrent());
-   AllowNewEntries=(DirectAllowNewEntries && directTimeWindowAllowed);
+   bool wisdoTradingPaused=(GlobalVariableCheck("WISDO_TRADING_PAUSED") && GlobalVariableGet("WISDO_TRADING_PAUSED")>=0.5);
+   AllowNewEntries=(DirectAllowNewEntries && directTimeWindowAllowed && !wisdoTradingPaused);
    AllowBuy=(AllowNewEntries && DirectAllowBuyPrimaries);
    AllowSell=(AllowNewEntries && DirectAllowSellPrimaries);
    if(!AllowNewEntries) MasterControl=MASTER_MANAGE_OPEN_TRADES_ONLY;
