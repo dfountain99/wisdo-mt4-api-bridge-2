@@ -23,6 +23,10 @@ string BuildCampaignControlJson()
    j+=",\"window2Start\":"+DoubleToString(WcoRead(p,"window2Start"),0)+",\"window2End\":"+DoubleToString(WcoRead(p,"window2End"),0);
    j+=",\"scheduleEnforced\":"+BoolToJson(WcoRead(p,"scheduleEnforced")==1);
    j+=",\"windowAllowed\":"+BoolToJson(WcoRead(p,"windowAllowed")==1)+",\"entryAllowed\":"+BoolToJson(WcoRead(p,"entryAllowed")==1);
+   j+=",\"intentScore\":"+DoubleToString(WcoRead(p,"intentScore"),4);
+   j+=",\"continuationProbability\":"+DoubleToString(WcoRead(p,"continuationProbability"),4)+",\"reversalProbability\":"+DoubleToString(WcoRead(p,"reversalProbability"),4);
+   j+=",\"pressureBias\":"+DoubleToString(WcoRead(p,"pressureBias"),4)+",\"flowLeg\":"+DoubleToString(WcoRead(p,"flowLeg"),0);
+   j+=",\"continuationDefense\":"+BoolToJson(WcoRead(p,"continuationDefense")==1);
    j+=",\"ackId\":"+DoubleToString(WcoRead(p,"ack"),0);
    j+=",\"ackStatus\":"+DoubleToString(WcoRead(p,"ackStatus"),0)+",\"pendingId\":"+DoubleToString(WcoRead(p,"slot"),0)+",\"levels\":[";
    int count=(int)MathMin(16,WcoRead(p,"levelCount"));
