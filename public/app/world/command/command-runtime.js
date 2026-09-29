@@ -87,6 +87,17 @@ export function createWorldCommandRuntime({ onState = null, onStatus = null, onR
       positionId: options.positionId || undefined,
       symbol: options.symbol || undefined,
       clientCommandId: options.clientCommandId || undefined,
+      durationSeconds: options.durationSeconds,
+      burstCount: options.burstCount,
+      tickets: options.tickets,
+      levelId: options.levelId,
+      levelPrice: options.levelPrice,
+      eaCampaignId: options.eaCampaignId,
+      windowMode: options.windowMode,
+      window1Start: options.window1Start,
+      window1End: options.window1End,
+      window2Start: options.window2Start,
+      window2End: options.window2End,
     };
     const payload = await request('/api/world/command/propose', { method: 'POST', body: JSON.stringify(body) });
     return payload.proposal;
