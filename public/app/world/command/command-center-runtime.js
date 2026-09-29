@@ -306,6 +306,7 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
   let distance = window.matchMedia?.('(max-width: 620px)').matches ? 13.6 : 11.8;
   let dragging = false;
   let lastPointer = null;
+  let guardianGesture = null;
   let opened = false;
 
   const guardianDeck = createGuardianCommandDeck({
@@ -404,7 +405,7 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
       document.getElementById('wcProposalScope').textContent = `SCOPE ${proposal.scope} · ${proposal.campaign?.symbol || proposal.position?.symbol || ''} · ${proposal.affectedCount} POSITION${proposal.affectedCount === 1 ? '' : 'S'} AFFECTED`;
       document.getElementById('wcProposalEffect').textContent = `CURRENT FLOATING ${money(proposal.currentFloatingPL, proposal.currency)} · HOLD ${proposal.holdRequiredMs}ms TO SEND`;
       document.getElementById('wcProposal').hidden = false;
-      overlay.classList.remove('deck-open', 'intel-open', 'mobile-input-open');
+      overlay.classList.remove('deck-open', 'intel-open', 'mobile-input-open', 'truth-dock-open');
       syncToggleButtons();
     } catch (error) {
       latestReceipt = { status: 'failed', command: action, error: error.message };
@@ -546,17 +547,17 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
 
   function syncToggleButtons() {
     document.getElementById('wcDeckToggle')?.classList.toggle('active', overlay.classList.contains('deck-open'));
-    document.getElementById('wcIntelToggle')?.classList.toggle('active', overlay.classList.contains('intel-open'));
+    document.getElementById('wcIntelToggle')?.classList.toggle('active', overlay.classList.contains('truth-dock-open'));
   }
   function toggleDeck(force) {
     const next = typeof force === 'boolean' ? force : !overlay.classList.contains('deck-open');
     overlay.classList.toggle('deck-open', next);
-    if (next) overlay.classList.remove('intel-open');
+    if (next) overlay.classList.remove('truth-dock-open');
     syncToggleButtons();
   }
   function toggleIntel(force) {
-    const next = typeof force === 'boolean' ? force : !overlay.classList.contains('intel-open');
-    overlay.classList.toggle('intel-open', next);
+    const next = typeof force === 'boolean' ? force : !overlay.classList.contains('truth-dock-open');
+    overlay.classList.toggle('truth-dock-open', next);
     if (next) overlay.classList.remove('deck-open');
     syncToggleButtons();
   }
@@ -567,7 +568,7 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
       event.preventDefault();
       event.stopImmediatePropagation();
       if (overlay.classList.contains('deck-open')) { toggleDeck(false); return; }
-      if (overlay.classList.contains('intel-open')) { toggleIntel(false); return; }
+      if (overlay.classList.contains('truth-dock-open')) { toggleIntel(false); return; }
       close();
       return;
     }
@@ -580,6 +581,8 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
     overlay.hidden = false;
     overlay.classList.remove('deck-open', 'intel-open');
     syncViewportMode();
+    overlay.classList.toggle('truth-dock-open', !overlay.classList.contains('mobile-command-chamber'));
+    syncToggleButtons();
     syncToggleButtons();
     window.addEventListener('keydown', blockKey, true);
     ensure3D().catch((e) => {
