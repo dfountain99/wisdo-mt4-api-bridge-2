@@ -262,7 +262,8 @@
 }
 
 /* Gesture affordance: the guardian itself is the surface. */
-#wcV8CharacterChamber{touch-action:none}
+#wcV8CharacterChamber{touch-action:none;pointer-events:auto!important;cursor:grab}
+#wcV8CharacterChamber:active{cursor:grabbing}
 #wcV8CharacterChamber:after{
   content:"SWIPE GUARDIAN · ↑ AUTO · ← PROTECT · → TAKE PROFIT";
   position:absolute;left:50%;bottom:2%;transform:translateX(-50%);
