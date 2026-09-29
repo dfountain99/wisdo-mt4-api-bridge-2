@@ -49,7 +49,7 @@ bool ExecuteCampaignCommand(string json,string &message,int &ticket)
    int op=JsonGetInt(json,"operation",0),duration=JsonGetInt(json,"durationSeconds",0);
    if(!EnableCampaignControl || CampaignControlMagic<=0 || JsonGetString(json,"symbol","")!=CampaignControlSymbol || JsonGetInt(json,"magicNumber",0)!=CampaignControlMagic)
    {message="Campaign control scope is disabled or does not match Reporter inputs";return false;}
-   if(id<=0 || expires<TimeGMT() || expires>TimeGMT()+120 || op<1 || op>14 ||
+   if(id<=0 || expires<TimeGMT() || expires>TimeGMT()+120 || op<1 || op>15 ||
       ((op==1 || op==3 || op==6 || op==7 || op==12) && (duration<1 || duration>604800)))
    {message="Invalid or expired campaign instruction";return false;}
    if(WcoRead(p,"ack")>=id){message="Already processed by EA; inspect campaign acknowledgement";return true;}
@@ -63,6 +63,8 @@ bool ExecuteCampaignCommand(string json,string &message,int &ticket)
    WcoWrite(p,"burst",JsonGetInt(json,"burstCount",0));WcoWrite(p,"op",op);WcoWrite(p,"duration",duration);WcoWrite(p,"expires",expires);
    WcoWrite(p,"expected",JsonGetDouble(json,"eaCampaignId",-1));
    WcoWrite(p,"levelId",JsonGetDouble(json,"levelId",0));WcoWrite(p,"levelPrice",JsonGetDouble(json,"levelPrice",0));
+   WcoWrite(p,"windowMode",JsonGetInt(json,"windowMode",0));WcoWrite(p,"window1Start",JsonGetInt(json,"window1Start",0));WcoWrite(p,"window1End",JsonGetInt(json,"window1End",0));
+   WcoWrite(p,"window2Start",JsonGetInt(json,"window2Start",0));WcoWrite(p,"window2End",JsonGetInt(json,"window2End",0));
    string parts[];int count=StringSplit(JsonGetString(json,"tickets",""),StringGetCharacter(",",0),parts);
    if(count>12){WcoWrite(p,"slot",0);message="Too many selected trades";return false;}
    WcoWrite(p,"ticketCount",count);
