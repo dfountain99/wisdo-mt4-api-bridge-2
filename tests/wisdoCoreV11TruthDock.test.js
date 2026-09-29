@@ -61,5 +61,5 @@ test('V11 release assets are cache-busted', async () => {
   ]);
   assert.match(workspace,/v=20260929-v12-connected-command-spine/);
   assert.match(worker,/wisdo-static-v12\.0\.0-connected-command-spine/);
-  assert.match(runtime,/wisdo-core-v11-truth-dock\.css\?v=20260929-v12-connected-command-spine/);
+  assert.match(runtime,/wisdo-core-v11-truth-dock\.css\?v=20260929-v11-truth-dock/);
 });
