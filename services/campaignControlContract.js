@@ -10,6 +10,7 @@ export const CAMPAIGN_ACTIONS = Object.freeze({
   ARM_SONIC: { code: 12, label: 'Arm a bounded SONIC window under normal EA entry gates' },
   TRAIL_STRUCTURE: { code: 13, label: 'Use Structure Keeper on selected trades' },
   TRAIL_PROFIT: { code: 14, label: 'Use Profit Vault on selected trades' },
+  CONFIGURE_WINDOWS: { code: 15, label: 'Configure HIGHTOWER broker-time trading windows' },
   MOVE_TARGET: { code: 8, label: 'Move selected targets to a confirmed structure level' },
   PROTECT_RAIL: { code: 9, label: 'Tighten the campaign rail to confirmed structure' },
   ASSIGN_RUNNER: { code: 10, label: 'Assign selected trades as runners' },
@@ -80,6 +81,25 @@ export function campaignPacket(action, body, state) {
   const duration = Number(body.durationSeconds || 0);
   if ([1, 3, 6, 7, 12].includes(definition.code) && (!Number.isInteger(duration) || duration < 1 || duration > 604800)) fail('Choose a duration between 1 second and 7 days.');
   if ([2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14].includes(definition.code) && c.phase !== 1) fail('This instruction requires an active campaign.');
+  if (definition.code === 15) {
+    const windowMode = Number(body.windowMode);
+    const window1Start = Number(body.window1Start);
+    const window1End = Number(body.window1End);
+    const window2Start = Number(body.window2Start);
+    const window2End = Number(body.window2End);
+    const validHour = (value) => Number.isInteger(value) && value >= 0 && value <= 23;
+    if (![0,1,2].includes(windowMode)) fail('Choose ALL HOURS, LONDON + NEW YORK, or CUSTOM TWO WINDOWS.');
+    if (windowMode === 2 && ![window1Start,window1End,window2Start,window2End].every(validHour)) fail('Custom trading-window hours must be whole broker hours from 0 to 23.');
+    return {
+      operation: definition.code, burstCount: 0, durationSeconds: 0, eaCampaignId: c.campaignId,
+      symbol: c.symbol, magicNumber: c.magic, tickets: '', levelId: 0, levelPrice: 0,
+      windowMode,
+      window1Start: windowMode === 2 ? window1Start : (windowMode === 1 ? 7 : 0),
+      window1End: windowMode === 2 ? window1End : (windowMode === 1 ? 21 : 0),
+      window2Start: windowMode === 2 ? window2Start : 0,
+      window2End: windowMode === 2 ? window2End : 0,
+    };
+  }
   const burstCount = Number(body.burstCount || 0);
   if (definition.code === 12 && (!Number.isInteger(burstCount) || burstCount < 1 || burstCount > 10)) fail('A SONIC window allows 1 to 10 entries, each subject to the normal EA gates.');
   const tickets = [...new Set(Array.isArray(body.tickets) ? body.tickets.map(Number) : [])];
