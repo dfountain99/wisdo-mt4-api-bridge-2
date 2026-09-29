@@ -45,8 +45,8 @@ test('V10.2 release assets use fresh deterministic-mobile versions', async () =>
     fs.readFile(new URL('../public/service-worker.js', import.meta.url), 'utf8'),
     fs.readFile(new URL('../public/app/world/command/command-center-runtime.js', import.meta.url), 'utf8'),
   ]);
-  assert.match(workspace, /v=20260929-v12-connected-command-spine/);
-  assert.match(worker, /wisdo-static-v12\.0\.0-connected-command-spine/);
+  assert.match(workspace, /v=20260929-v12-1-live-session-command/);
+  assert.match(worker, /wisdo-static-v12\.1\.0-live-session-command/);
   assert.match(runtime, /wisdo-core-v10-living-controls\.css\?v=20260928-v10-3-guardian-handoff/);
   assert.match(runtime, /wisdo-core-v11-truth-dock\.css\?v=20260929-v11-truth-dock/);
 });
