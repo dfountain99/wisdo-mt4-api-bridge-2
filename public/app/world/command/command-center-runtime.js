@@ -680,6 +680,61 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
     if (intentState) intentState.textContent = `${mode} INPUT SELECTED · COMMANDS STILL REQUIRE PREVIEW + VERIFIED CONFIRMATION`;
   }));
 
+  const guardianHost = document.getElementById('wcV8CharacterChamber');
+  const announceGesture = (text) => {
+    const intentState = document.getElementById('wcIntentState');
+    if (intentState) intentState.textContent = text;
+  };
+  const beginGuardianGesture = (event) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    guardianGesture = { x: event.clientX, y: event.clientY, at: performance.now(), pointerId: event.pointerId };
+    guardianHost?.setPointerCapture?.(event.pointerId);
+  };
+  const finishGuardianGesture = (event) => {
+    if (!guardianGesture || guardianGesture.pointerId !== event.pointerId) return;
+    const dx = event.clientX - guardianGesture.x;
+    const dy = event.clientY - guardianGesture.y;
+    const distance = Math.hypot(dx, dy);
+    guardianGesture = null;
+    if (distance < 38) {
+      announceGesture('GUARDIAN READY · SWIPE ↑ AUTO · ← PROTECT · → TAKE PROFIT · ↓ RETRACT');
+      return;
+    }
+    if (Math.abs(dy) > Math.abs(dx) && dy < -38) {
+      announceGesture('GESTURE PREVIEW · AUTO · SERVER PROPOSAL REQUIRED');
+      guardianDeck.requestControl('AUTO');
+      return;
+    }
+    if (Math.abs(dy) > Math.abs(dx) && dy > 38) {
+      guardianDeck.retractAll();
+      announceGesture('GUARDIAN CONTROLS RETRACTED · NOTHING SENT');
+      return;
+    }
+    if (dx < -38) {
+      announceGesture('GESTURE PREVIEW · PROTECT · SERVER PROPOSAL REQUIRED');
+      guardianDeck.requestControl('PROTECT');
+      return;
+    }
+    if (dx > 38) {
+      announceGesture('GESTURE PREVIEW · TAKE PROFIT · SERVER PROPOSAL REQUIRED');
+      guardianDeck.requestControl('TAKE_PROFIT');
+    }
+  };
+  guardianHost?.addEventListener('pointerdown', beginGuardianGesture);
+  guardianHost?.addEventListener('pointerup', finishGuardianGesture);
+  guardianHost?.addEventListener('pointercancel', () => { guardianGesture = null; });
+
+  const onWorkspaceAccountSelected = (event) => {
+    const accountId = String(event.detail?.selectedAccountId || '');
+    if (!accountId || accountId === runtime.accountId) return;
+    sessionStorage.setItem('wisdo.selectedAccountId', accountId);
+    runtime.selectAccount(accountId).catch((error) => {
+      latestReceipt = { status: 'failed', command: 'ACCOUNT_BIND', error: error.message };
+      renderReceipt();
+    });
+  };
+  window.addEventListener('wisdo:account-selected', onWorkspaceAccountSelected);
+
   const hold = document.getElementById('wcHold');
   hold?.addEventListener('pointerdown', (e) => { e.preventDefault(); hold.setPointerCapture?.(e.pointerId); startHold(); });
   hold?.addEventListener('pointerup', finishHold);
@@ -727,6 +782,10 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
       window.removeEventListener('resize', resize);
       window.visualViewport?.removeEventListener('resize', resize);
       window.removeEventListener('keydown', blockKey, true);
+      window.removeEventListener('wisdo:account-selected', onWorkspaceAccountSelected);
+      guardianHost?.removeEventListener('pointerdown', beginGuardianGesture);
+      guardianHost?.removeEventListener('pointerup', finishGuardianGesture);
+      truthDock?.destroy();
       document.documentElement.classList.remove('wisdo-core-mobile-active');
       overlay.remove();
     },
