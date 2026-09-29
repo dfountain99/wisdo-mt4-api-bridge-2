@@ -1,0 +1,41 @@
+/* WISDO CORE V12.1 — Live EA Session Command */
+.wisdo-v12-session-cards{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+.wisdo-v121-boundary-card strong{color:#f1d16f!important}
+.wisdo-v10-time-engine[data-temporal-mode="smart"] .wisdo-v121-boundary-card strong{color:#69e9ff!important}
+.wisdo-v121-edit-hours{
+  width:100%;height:29px;margin-top:8px;border:1px solid rgba(92,201,244,.22);border-radius:8px;
+  background:rgba(5,17,25,.82);color:#9bd8e9;font:800 6px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+  letter-spacing:.12em;cursor:pointer
+}
+.wisdo-v121-edit-hours:disabled{opacity:.38;cursor:not-allowed}
+.wisdo-v121-hours-editor{
+  position:absolute;z-index:180;left:calc(100% + 10px);bottom:0;width:300px;padding:11px;
+  border:1px solid rgba(92,201,244,.24);border-radius:14px;background:linear-gradient(160deg,rgba(3,13,20,.99),rgba(2,8,13,.98));
+  box-shadow:0 28px 80px rgba(0,0,0,.72),0 0 28px rgba(74,196,242,.08);backdrop-filter:blur(18px)
+}
+.wisdo-v121-editor-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px}
+.wisdo-v121-editor-head span{color:#a6dced;font-size:7px;letter-spacing:.14em}
+.wisdo-v121-editor-head button{width:27px;height:27px;border:1px solid rgba(95,181,217,.18);border-radius:8px;background:#06131c;color:#91bece;font-size:15px}
+.wisdo-v121-hours-editor>label{display:grid;grid-template-columns:60px 1fr;align-items:center;gap:8px;color:#638493;font-size:6px;letter-spacing:.08em}
+.wisdo-v121-hours-editor select,.wisdo-v121-hours-editor input{
+  height:31px;border:1px solid rgba(91,184,224,.18);border-radius:8px;background:#06131c;color:#dcf5ff;padding:0 8px;font-size:8px
+}
+.wisdo-v121-window-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}
+.wisdo-v121-window-grid label{display:grid;gap:4px;color:#648391;font-size:5.5px;letter-spacing:.06em}
+#wcV121HoursTruth{margin:9px 0;padding:7px;border-radius:8px;background:rgba(74,178,219,.045);color:#809eab;font:600 5.7px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace}
+#wcV121HoursTruth[data-tone="error"]{color:#ff9b86;background:rgba(255,92,70,.06)}
+#wcV121HoursTruth[data-tone="pending"]{color:#efd06e}
+#wcV121HoursTruth[data-tone="ok"]{color:#70edb8}
+#wcV121PreviewHours{
+  width:100%;height:35px;border:1px solid rgba(240,195,76,.26);border-radius:9px;background:#120f06;color:#f0cd68;
+  font:800 6.5px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em
+}
+#wisdoCommandOverlay.truth-dock-open:not(.mobile-command-chamber) .wisdo-v121-hours-editor{left:auto;right:calc(100% + 10px)}
+#wisdoCommandOverlay.mobile-command-chamber .wisdo-v121-hours-editor{
+  position:fixed!important;left:8px!important;right:8px!important;bottom:calc(96px + env(safe-area-inset-bottom))!important;
+  width:auto!important;max-height:65vh;overflow:auto;z-index:250!important
+}
+@media(max-width:420px){
+ .wisdo-v121-window-grid{grid-template-columns:1fr 1fr}
+ .wisdo-v12-session-cards{grid-template-columns:1fr 1fr!important}
+}
