@@ -25,6 +25,7 @@ export function normalizeCampaignControl(value) {
   const levels = (Array.isArray(value.levels) ? value.levels : []).slice(0, 16)
     .filter(x => Number.isFinite(x.price) && x.price > 0 && Number.isInteger(x.id) && x.id > 0)
     .map(x => ({ id: x.id, price: x.price, kind: 'confirmed-pivot' }));
+  const sessionReported = Number.isFinite(value.sessionId) && Number.isFinite(value.windowMode);
   const sessionId = Math.max(0, Math.min(5, Math.trunc(num(value.sessionId, 5))));
   const windowMode = Math.max(0, Math.min(2, Math.trunc(num(value.windowMode, 0))));
   const configuredWindows = windowMode === 0
@@ -41,15 +42,16 @@ export function normalizeCampaignControl(value) {
     rail: num(value.rail), goal: num(value.goal), paused: value.paused === true,
     remainingSeconds: Math.max(0, num(value.remainingSeconds)), banked: num(value.banked),
     session: {
+      reported: sessionReported,
       id: sessionId,
       name: SESSION_NAMES[sessionId] || 'OTHER',
       quality: Math.max(0, num(value.sessionQuality, 0)),
       brokerHour: hour(value.brokerHour),
       brokerMinute: minute(value.brokerMinute),
       windowMode,
-      scheduleEnforced: bool(value.scheduleEnforced),
-      windowAllowed: bool(value.windowAllowed),
-      entryAllowed: bool(value.entryAllowed),
+      scheduleEnforced: sessionReported ? bool(value.scheduleEnforced) : null,
+      windowAllowed: sessionReported ? bool(value.windowAllowed) : null,
+      entryAllowed: sessionReported ? bool(value.entryAllowed) : null,
       windows: configuredWindows,
     },
     burstRemaining: num(value.burstRemaining),
