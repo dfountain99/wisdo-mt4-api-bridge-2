@@ -17,11 +17,11 @@ async function request(url, options = {}) {
   return payload;
 }
 
-export function createWorldCommandRuntime({ onState = null, onStatus = null, onReceipt = null, intervalMs = 2200 } = {}) {
+export function createWorldCommandRuntime({ onState = null, onStatus = null, onReceipt = null, intervalMs = 2200, initialAccountId = '' } = {}) {
   let stopped = false;
   let timer = null;
   let currentState = null;
-  let accountId = '';
+  let accountId = String(initialAccountId || '');
   let selectedCampaignId = null;
   let refreshing = null;
 
