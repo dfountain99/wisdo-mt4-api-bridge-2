@@ -45,7 +45,7 @@ void WcoPublish()
    bool chronosWindowAllowed=HT6DirectTradingWindowAllows(chronosNow);
    bool chronosEntryAllowed=(DirectAllowNewEntries && chronosWindowAllowed && !h620FuturePaused && !h620Quarantine);
    WcoWrite(p,"session",gHT5Session);WcoWrite(p,"sessionQuality",gHT5SessionQuality);
-   WcoWrite(p,"brokerHour",TimeHour(chronosNow));WcoWrite(p,"brokerMinute",TimeMinute(chronosNow));
+   WcoWrite(p,"brokerHour",TimeHour(chronosNow));WcoWrite(p,"brokerMinute",TimeMinute(chronosNow));WcoWrite(p,"brokerSecond",TimeSeconds(chronosNow));
    WcoWrite(p,"windowMode",HT6ActiveWindowMode());
    WcoWrite(p,"window1Start",HT6NormalizeHour(HT6ActiveWindow1Start()));WcoWrite(p,"window1End",HT6NormalizeHour(HT6ActiveWindow1End()));
    WcoWrite(p,"window2Start",HT6NormalizeHour(HT6ActiveWindow2Start()));WcoWrite(p,"window2End",HT6NormalizeHour(HT6ActiveWindow2End()));
