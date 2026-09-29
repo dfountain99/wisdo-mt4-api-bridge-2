@@ -37,6 +37,9 @@ void WcoPublish()
    string p=WcoEA();double revision=WcoRead(p,"revision");if((int)revision%2!=0)revision++;WcoWrite(p,"revision",revision+1);WcoWrite(p,"version",1);WcoWrite(p,"enabled",H620Enabled() && H620EnableFutureGoals && !h620Quarantine?1:0);
    WcoWrite(p,"campaign",h620Id);WcoWrite(p,"phase",h620Phase);WcoWrite(p,"direction",h620Dir);
    WcoWrite(p,"rail",h620Rail);WcoWrite(p,"banked",h620BankedLevel);
+   double campaignTargetEquity=(h620Base>0?h620Base*MathPow(1.0+H620GrowthMilestonePercent/100.0,h620BankedLevel+1):0);
+   WcoWrite(p,"campaignBase",h620Base);WcoWrite(p,"campaignRealized",h620Realized);WcoWrite(p,"campaignFloating",h620Floating);
+   WcoWrite(p,"milestonePercent",H620GrowthMilestonePercent);WcoWrite(p,"targetEquity",campaignTargetEquity);
    // CHRONOS truth: broker-clock session + the actual hard new-entry window.
    datetime chronosNow=TimeCurrent();
    bool chronosWindowAllowed=HT6DirectTradingWindowAllows(chronosNow);
