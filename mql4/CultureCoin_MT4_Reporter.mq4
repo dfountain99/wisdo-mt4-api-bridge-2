@@ -89,7 +89,7 @@ input color DashboardWarnColor = clrOrange;
 input color DashboardBadColor = clrTomato;
 input color DashboardTextColor = clrSilver;
 
-string REPORTER_VERSION = "1.59";
+string REPORTER_VERSION = "1.60";
 string STATUS_LABEL = "CultureCoinReporterStatus";
 string DASH_PREFIX = "CEM_WISDO_DASH_";
 string g_lastStatus = "Waiting";
