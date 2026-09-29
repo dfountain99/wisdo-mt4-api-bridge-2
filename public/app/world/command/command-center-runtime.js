@@ -334,6 +334,8 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
     onAccountChange: async (accountId) => {
       if (!accountId) return;
       sessionStorage.setItem('wisdo.selectedAccountId', accountId);
+      const workspaceSelector = document.querySelector('#mobile-account');
+      if (workspaceSelector && [...workspaceSelector.options].some((option) => option.value === accountId)) workspaceSelector.value = accountId;
       await runtime.selectAccount(accountId);
       window.dispatchEvent(new CustomEvent('wisdo:core-account-bound', { detail: { accountId } }));
     },
