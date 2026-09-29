@@ -1182,6 +1182,10 @@ input int    DirectWindow1StartHour=7;
 input int    DirectWindow1EndHour=16;
 input int    DirectWindow2StartHour=16;
 input int    DirectWindow2EndHour=21;
+// WISDO Time runtime override. -1 means use the visible MT4 inputs above.
+int gHT6RuntimeWindowMode=-1;
+int gHT6RuntimeWindow1Start=-1,gHT6RuntimeWindow1End=-1;
+int gHT6RuntimeWindow2Start=-1,gHT6RuntimeWindow2End=-1;
 input bool   DirectAllowBuyPrimaries=true;
 input bool   DirectAllowSellPrimaries=true;
 input ENUM_TIMEFRAMES DirectSignalTimeframe=PERIOD_M5;
@@ -2773,15 +2777,19 @@ bool HT6HourInWindow(int hour,int startHour,int endHour)
    return (hour>=startHour || hour<endHour); // overnight window
 }
 
+int HT6ActiveWindowMode(){return gHT6RuntimeWindowMode>=0?gHT6RuntimeWindowMode:(int)DirectTradingWindowMode;}
+int HT6ActiveWindow1Start(){return gHT6RuntimeWindowMode>=0?gHT6RuntimeWindow1Start:DirectWindow1StartHour;}
+int HT6ActiveWindow1End(){return gHT6RuntimeWindowMode>=0?gHT6RuntimeWindow1End:DirectWindow1EndHour;}
+int HT6ActiveWindow2Start(){return gHT6RuntimeWindowMode>=0?gHT6RuntimeWindow2Start:DirectWindow2StartHour;}
+int HT6ActiveWindow2End(){return gHT6RuntimeWindowMode>=0?gHT6RuntimeWindow2End:DirectWindow2EndHour;}
 bool HT6DirectTradingWindowAllows(datetime now)
 {
-   int hour=TimeHour(now);
-   if(DirectTradingWindowMode==TIME_WINDOW_ALL_HOURS) return true;
-   if(DirectTradingWindowMode==TIME_WINDOW_LONDON_AND_NEWYORK)
-      return (hour>=7 && hour<21); // broker-clock London through New York
-   if(DirectTradingWindowMode==TIME_WINDOW_CUSTOM_TWO_WINDOWS)
-      return HT6HourInWindow(hour,DirectWindow1StartHour,DirectWindow1EndHour)
-          || HT6HourInWindow(hour,DirectWindow2StartHour,DirectWindow2EndHour);
+   int hour=TimeHour(now),mode=HT6ActiveWindowMode();
+   if(mode==TIME_WINDOW_ALL_HOURS) return true;
+   if(mode==TIME_WINDOW_LONDON_AND_NEWYORK) return (hour>=7 && hour<21);
+   if(mode==TIME_WINDOW_CUSTOM_TWO_WINDOWS)
+      return HT6HourInWindow(hour,HT6ActiveWindow1Start(),HT6ActiveWindow1End())
+          || HT6HourInWindow(hour,HT6ActiveWindow2Start(),HT6ActiveWindow2End());
    return false;
 }
 
@@ -12796,6 +12804,12 @@ int H620Initialize()
    h620Started=(datetime)H620Get("started");h620FailureBar=(datetime)H620Get("failure");
    h620AddSerial=(int)H620Get("serial");h620Peak=H620Get("peak");h620BankedLevel=H620Get("banked");
    h620LastEntry=H620Get("lastentry");h620LastEntryTime=(datetime)H620Get("lasttime");
+   if(H620Get("windowOverride")==1)
+   {
+      gHT6RuntimeWindowMode=(int)H620Get("windowMode");
+      gHT6RuntimeWindow1Start=(int)H620Get("window1Start");gHT6RuntimeWindow1End=(int)H620Get("window1End");
+      gHT6RuntimeWindow2Start=(int)H620Get("window2Start");gHT6RuntimeWindow2End=(int)H620Get("window2End");
+   }
    if(TradeCount()==0 && h620Phase==1) H620ResetFlat("RESTORED FLAT - WAIT FRESH STRUCTURE");
    // Avoid guessing roles or campaign ownership of an already-running older EA.
    for(int i=OrdersTotal()-1;i>=0;i--)
