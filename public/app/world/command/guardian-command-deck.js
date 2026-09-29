@@ -159,6 +159,11 @@ export function createGuardianCommandDeck({ overlay, onRequest = null, onVisualS
     truth.textContent = `${key.replaceAll('_',' ')} · PREPARING VERIFIED ${action.replaceAll('_',' ')} PROPOSAL`;
     try {
       const result=await onRequest?.({ control: key, action });
+      if(!result){
+        const reason='Verified proposal did not open.';
+        truth.textContent = `${key.replaceAll('_',' ')} · ${reason} · NOTHING SENT`;
+        return { ok:false, action, reason };
+      }
       return { ok:true, action, result };
     } catch (error) {
       const reason=error?.message || 'PROPOSAL FAILED';
