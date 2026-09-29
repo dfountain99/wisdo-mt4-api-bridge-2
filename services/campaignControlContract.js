@@ -41,6 +41,13 @@ export function normalizeCampaignControl(value) {
     campaignId: num(value.campaignId), phase: num(value.phase), direction: num(value.direction),
     rail: num(value.rail), goal: num(value.goal), paused: value.paused === true,
     remainingSeconds: Math.max(0, num(value.remainingSeconds)), banked: num(value.banked),
+    progress: {
+      campaignBase: Math.max(0, num(value.campaignBase)),
+      realized: num(value.campaignRealized),
+      floating: num(value.campaignFloating),
+      milestonePercent: Math.max(0, num(value.milestonePercent)),
+      targetEquity: Math.max(0, num(value.targetEquity)),
+    },
     session: {
       reported: sessionReported,
       id: sessionId,
