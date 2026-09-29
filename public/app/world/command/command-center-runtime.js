@@ -4,6 +4,7 @@ import { createWorldCommandRuntime } from './command-runtime.js';
 import { createRankAscension } from './rank-ascension.js';
 import { createGuardianCommandDeck } from './guardian-command-deck.js';
 import { createWisdoTimeEngine } from './wisdo-time-engine.js';
+import { createTruthDock } from './truth-dock.js';
 
 const money = (value, currency = 'USD') => {
   try { return new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: 2 }).format(Number(value || 0)); }
@@ -19,6 +20,7 @@ function ensureStyles() {
     ['/app/world/command/wisdo-core-v7.css?v=20260928-singularity-route', 'wisdoCoreV7Css'],
     ['/app/world/command/wisdo-core-v8-rank-ascension.css?v=20260928-rank-ascension', 'wisdoCoreV8RankCss'],
     ['/app/world/command/wisdo-core-v10-living-controls.css?v=20260928-v10-3-guardian-handoff', 'wisdoCoreV10Css'],
+    ['/app/world/command/wisdo-core-v11-truth-dock.css?v=20260929-v11-truth-dock', 'wisdoCoreV11Css'],
   ];
   for (const [href, key] of styles) {
     const attr = `data-${key.replace(/[A-Z]/g, m => '-'+m.toLowerCase())}`;
@@ -69,10 +71,10 @@ function commandMarkup() {
       <div class="wisdo-command-room-label"><span>CAMPAIGN INTELLIGENCE</span><strong>WISDO CORE</strong><i></i></div>
       <aside class="wisdo-v6-status" aria-label="Live campaign truth"><section><span>CAMPAIGN</span><strong id="wcV6Campaign">STANDING BY</strong></section><section class="gold"><span>OBJECTIVE</span><strong id="wcV6Objective">AWAITING LIVE STATE</strong></section><section><span>POSITIONS</span><strong id="wcV6Positions">0</strong></section><section><span>FLOATING</span><strong id="wcV6Floating">—</strong></section></aside>
       <aside class="wisdo-v6-ack"><span>EA TRUTH LOOP</span><strong id="wcV6Ack">NO COMMAND SENT · WISDO WILL NOT DISPLAY SUCCESS BEFORE EA ACKNOWLEDGES</strong></aside>
-      <button id="wcMobileInputToggle" class="wisdo-v10-mobile-input-toggle" type="button" aria-expanded="false">INPUT · TOUCH</button>\n      <div class="wisdo-v7-inputs" id="wcMobileInputModes"><button type="button" data-mobile-input="touch"><b>⌁</b>Touch · Draw on screen</button><button type="button" data-mobile-input="spatial"><b>✋</b>Spatial · Hand gestures</button><button type="button" data-mobile-input="voice"><b>◉</b>Voice · Speak to WISDO</button><button type="button" data-mobile-input="keys"><b>⌨</b>Keys · Keyboard commands</button></div>
+      <button id="wcMobileInputToggle" class="wisdo-v10-mobile-input-toggle" type="button" aria-expanded="false">INPUT · GESTURE</button>\n      <div class="wisdo-v7-inputs" id="wcMobileInputModes"><button type="button" data-mobile-input="gesture"><b>↕</b>Touch / mouse · Swipe guardian</button><button type="button" disabled><b>◌</b>Camera gestures · NOT CONNECTED</button><button type="button" data-mobile-input="voice"><b>◉</b>Voice · Speak to WISDO</button><button type="button" data-mobile-input="keys"><b>⌨</b>Keys · Keyboard commands</button></div>
       <form id="wcIntentComposer" class="wisdo-v6-composer"><input id="wcIntentInput" autocomplete="off" placeholder="Tell WISDO what you want the campaign to do…" aria-label="WISDO intent"><button type="submit">INTERPRET</button></form>
       <div class="wisdo-v7-actions"><button data-command="RESUME_NEW_ENTRIES">BOOST<em>Entry control</em></button><button data-command="PAUSE_BOT">PAUSE<em>Bot</em></button><button data-command="LOCK_PROFIT">PROTECT<em>Profit</em></button><button data-command="CLOSE_CAMPAIGN">COLLECT<em>Campaign</em></button><button data-command="STOP_ADDS">STOP ADDS<em>New entries</em></button><button data-command="CLOSE_CAMPAIGN">CLOSE<em>Campaign</em></button></div>
-      <div class="wisdo-v7-gesture"><strong>GESTURE LANGUAGE</strong><div><span>☝ Select / inspect</span><span>✌ Adjust behavior</span><span>○ Reset timer</span><span>↑ Boost / extend</span></div></div>
+      <div class="wisdo-v7-gesture"><strong>LIVE GUARDIAN GESTURES</strong><div><span>↑ AUTO</span><span>← PROTECT</span><span>→ TAKE PROFIT</span><span>↓ RETRACT</span></div></div>
       <div class="wisdo-core-flow" aria-label="WISDO intent flow"><div class="wisdo-core-node active"><strong>INPUT</strong> MULTIMODAL</div><i class="wisdo-core-arrow"></i><div class="wisdo-core-node"><strong>INTENT</strong> INTERPRET</div><i class="wisdo-core-arrow"></i><div class="wisdo-core-node guard"><strong>GUARD</strong> VALIDATE</div><i class="wisdo-core-arrow"></i><div class="wisdo-core-node"><strong>EA</strong> EXECUTE</div><i class="wisdo-core-arrow"></i><div class="wisdo-core-node"><strong>ACK</strong> VERIFY</div></div>
       <aside class="wisdo-command-side left">
         <section class="wisdo-command-card"><h3>ACCOUNT VAULT</h3><select id="wcAccountSelect"></select><h3 style="margin-top:12px">CAMPAIGNS</h3><div id="wcCampaignList" class="wisdo-command-list"></div></section>
@@ -249,7 +251,7 @@ function controlButton(key, cap, tone = '') {
   return `<button class="wisdo-command-btn ${tone} ${cap?.connected === false ? 'wisdo-command-not-connected' : ''}" data-command="${esc(key)}" ${cap?.available ? '' : 'disabled'}>${esc(cap?.label || key.replaceAll('_',' '))}<em>${esc(reason)}</em></button>`;
 }
 
-export function startCampaignCommandCenter() {
+export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
   ensureStyles();
   if (!document.getElementById('wisdoCommandOverlay')) document.body.insertAdjacentHTML('beforeend', commandMarkup());
   appendLaunchButton();
@@ -257,7 +259,9 @@ export function startCampaignCommandCenter() {
   const overlay = document.getElementById('wisdoCommandOverlay');
   const canvas = document.getElementById('wcCanvas');
   const rankAscension = createRankAscension({ overlay });
+  let truthDock = null;
   const runtime = createWorldCommandRuntime({
+    initialAccountId,
     onState: (state, meta) => {
       commandState = state;
       selectedCampaignId = meta?.selectedCampaignId || state.selectedCampaignId || selectedCampaignId;
@@ -267,6 +271,7 @@ export function startCampaignCommandCenter() {
       rankAscension.setCampaignState(state, activeCampaign);
       guardianDeck.setState({ ...state, selectedCampaignId });
       timeEngine.setState(state, activeCampaign);
+      truthDock?.setState(state, activeCampaign);
       rankAscension.refresh(state?.account?.accountId || '').catch(() => {});
     },
     onStatus: ({ state }) => {
@@ -279,6 +284,7 @@ export function startCampaignCommandCenter() {
       core?.showReceipt(receipt);
       rankAscension.onReceipt(receipt);
       guardianDeck.receipt(receipt);
+      truthDock?.setReceipt(receipt);
       if (['completed','failed','expired','cancelled'].includes(String(receipt?.status || '').toLowerCase())) runtime.refresh().catch(() => {});
     },
   });
@@ -300,6 +306,7 @@ export function startCampaignCommandCenter() {
   let distance = window.matchMedia?.('(max-width: 620px)').matches ? 13.6 : 11.8;
   let dragging = false;
   let lastPointer = null;
+  let guardianGesture = null;
   let opened = false;
 
   const guardianDeck = createGuardianCommandDeck({
@@ -319,6 +326,18 @@ export function startCampaignCommandCenter() {
     onVisualState: ({ progress, live, paused }) => {
       core?.setTemporalRing?.(progress);
       core?.setTimePulse?.(live ? (paused ? 1 : .72) : .16);
+    },
+  });
+
+  truthDock = createTruthDock({
+    overlay,
+    onAccountChange: async (accountId) => {
+      if (!accountId) return;
+      sessionStorage.setItem('wisdo.selectedAccountId', accountId);
+      const workspaceSelector = document.querySelector('#mobile-account');
+      if (workspaceSelector && [...workspaceSelector.options].some((option) => option.value === accountId)) workspaceSelector.value = accountId;
+      await runtime.selectAccount(accountId);
+      window.dispatchEvent(new CustomEvent('wisdo:core-account-bound', { detail: { accountId } }));
     },
   });
 
@@ -347,8 +366,12 @@ export function startCampaignCommandCenter() {
     const intentState = document.getElementById('wcIntentState');
     if (intentState) intentState.textContent = commandState.executionHealth?.commandLinkReady ? 'OBSERVING · INPUT READY · EA LINK VERIFIED' : 'OBSERVING · INPUT READY · EA LINK DEGRADED';
     const v7=(id,val)=>{const e=document.getElementById(id);if(e)e.textContent=val;};
-    v7('wcV7Symbol',c?.symbol||'—'); v7('wcV7CampaignName',c?.strategyName||c?.campaignId?.slice(0,18)||'Campaign standing by'); v7('wcV7PL',money(c?.floatingMoney||0,commandState.financial?.currency)); v7('wcV7Entries',String(c?.positionCount||0)); v7('wcV7Direction',c?.direction||'—'); v7('wcV7Protection',c?.stopLoss ? 'ACTIVE' : 'NOT VERIFIED'); v7('wcV7SenseSymbol',c?.symbol||'—'); v7('wcV7SenseDirection',c?.direction||'—'); v7('wcV7Reporter',commandState.executionHealth?.reporter||'—'); v7('wcV7Link',commandState.executionHealth?.commandLinkReady?'VERIFIED':'DEGRADED'); v7('wcV7StateName',c?'Trading Campaign':'Observing'); v7('wcV7NextText',c?'Waiting for EA / market event':'Waiting for live campaign'); v7('wcV7ProgressText',c?'LIVE CAMPAIGN':'LIVE STATE');
-    const pbar=document.getElementById('wcV7ProgressBar'); if(pbar)pbar.style.width=c?.positionCount ? '68%' : '0%';
+    const control=commandState.campaignControl||null;
+    const goal=Number(control?.goal||0);
+    const banked=Number(control?.banked||0);
+    const goalProgress=control?.live && Number.isFinite(goal) && goal>0 && Number.isFinite(banked) ? Math.max(0,Math.min(100,(banked/goal)*100)) : null;
+    v7('wcV7Symbol',c?.symbol||control?.symbol||'—'); v7('wcV7CampaignName',c?.strategyName||c?.campaignId?.slice(0,18)|| (control?.live?'EA campaign control live':'Campaign standing by')); v7('wcV7PL',money(c?.floatingMoney||0,commandState.financial?.currency)); v7('wcV7Entries',String(c?.positionCount||0)); v7('wcV7Direction',c?.direction|| (control?.direction===1?'BUY':control?.direction===-1?'SELL':'—')); v7('wcV7Protection',c?.stopLoss ? 'ACTIVE' : control?.live ? 'EA CONTROL LIVE' : 'NOT VERIFIED'); v7('wcV7SenseSymbol',c?.symbol||control?.symbol||'—'); v7('wcV7SenseDirection',c?.direction|| (control?.direction===1?'BUY':control?.direction===-1?'SELL':'—')); v7('wcV7Reporter',commandState.executionHealth?.reporter||'—'); v7('wcV7Link',commandState.executionHealth?.commandLinkReady?'VERIFIED':'DEGRADED'); v7('wcV7StateName',c?'Trading Campaign':control?.live?'EA Campaign Control':'Observing'); v7('wcV7NextText',c||control?.live?'Waiting for EA / market event':'Waiting for live campaign'); v7('wcV7ProgressText',goalProgress!=null?`${goalProgress.toFixed(0)}% OF EA GOAL`:c?'LIVE CAMPAIGN · GOAL NOT REPORTED':'LIVE STATE');
+    const pbar=document.getElementById('wcV7ProgressBar'); if(pbar)pbar.style.width=goalProgress==null?'0%':`${goalProgress.toFixed(1)}%`;
     const v6Campaign=document.getElementById('wcV6Campaign'); if(v6Campaign) v6Campaign.textContent=c ? `${c.symbol} · ${c.direction} · ${c.strategyName || 'CAMPAIGN'}` : 'STANDING BY';
     const v6Objective=document.getElementById('wcV6Objective'); if(v6Objective) v6Objective.textContent=c ? `PROTECT ${c.stopLoss ?? '—'} · TARGET ${c.takeProfit ?? '—'}` : 'AWAITING LIVE STATE';
     const v6Positions=document.getElementById('wcV6Positions'); if(v6Positions) v6Positions.textContent=String(c?.positionCount || 0);
@@ -388,7 +411,7 @@ export function startCampaignCommandCenter() {
       document.getElementById('wcProposalScope').textContent = `SCOPE ${proposal.scope} · ${proposal.campaign?.symbol || proposal.position?.symbol || ''} · ${proposal.affectedCount} POSITION${proposal.affectedCount === 1 ? '' : 'S'} AFFECTED`;
       document.getElementById('wcProposalEffect').textContent = `CURRENT FLOATING ${money(proposal.currentFloatingPL, proposal.currency)} · HOLD ${proposal.holdRequiredMs}ms TO SEND`;
       document.getElementById('wcProposal').hidden = false;
-      overlay.classList.remove('deck-open', 'intel-open', 'mobile-input-open');
+      overlay.classList.remove('deck-open', 'intel-open', 'mobile-input-open', 'truth-dock-open');
       syncToggleButtons();
     } catch (error) {
       latestReceipt = { status: 'failed', command: action, error: error.message };
@@ -530,17 +553,17 @@ export function startCampaignCommandCenter() {
 
   function syncToggleButtons() {
     document.getElementById('wcDeckToggle')?.classList.toggle('active', overlay.classList.contains('deck-open'));
-    document.getElementById('wcIntelToggle')?.classList.toggle('active', overlay.classList.contains('intel-open'));
+    document.getElementById('wcIntelToggle')?.classList.toggle('active', overlay.classList.contains('truth-dock-open'));
   }
   function toggleDeck(force) {
     const next = typeof force === 'boolean' ? force : !overlay.classList.contains('deck-open');
     overlay.classList.toggle('deck-open', next);
-    if (next) overlay.classList.remove('intel-open');
+    if (next) overlay.classList.remove('truth-dock-open');
     syncToggleButtons();
   }
   function toggleIntel(force) {
-    const next = typeof force === 'boolean' ? force : !overlay.classList.contains('intel-open');
-    overlay.classList.toggle('intel-open', next);
+    const next = typeof force === 'boolean' ? force : !overlay.classList.contains('truth-dock-open');
+    overlay.classList.toggle('truth-dock-open', next);
     if (next) overlay.classList.remove('deck-open');
     syncToggleButtons();
   }
@@ -551,7 +574,7 @@ export function startCampaignCommandCenter() {
       event.preventDefault();
       event.stopImmediatePropagation();
       if (overlay.classList.contains('deck-open')) { toggleDeck(false); return; }
-      if (overlay.classList.contains('intel-open')) { toggleIntel(false); return; }
+      if (overlay.classList.contains('truth-dock-open')) { toggleIntel(false); return; }
       close();
       return;
     }
@@ -564,6 +587,8 @@ export function startCampaignCommandCenter() {
     overlay.hidden = false;
     overlay.classList.remove('deck-open', 'intel-open');
     syncViewportMode();
+    overlay.classList.toggle('truth-dock-open', !overlay.classList.contains('mobile-command-chamber'));
+    syncToggleButtons();
     syncToggleButtons();
     window.addEventListener('keydown', blockKey, true);
     ensure3D().catch((e) => {
@@ -661,6 +686,61 @@ export function startCampaignCommandCenter() {
     if (intentState) intentState.textContent = `${mode} INPUT SELECTED · COMMANDS STILL REQUIRE PREVIEW + VERIFIED CONFIRMATION`;
   }));
 
+  const guardianHost = document.getElementById('wcV8CharacterChamber');
+  const announceGesture = (text) => {
+    const intentState = document.getElementById('wcIntentState');
+    if (intentState) intentState.textContent = text;
+  };
+  const beginGuardianGesture = (event) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    guardianGesture = { x: event.clientX, y: event.clientY, at: performance.now(), pointerId: event.pointerId };
+    guardianHost?.setPointerCapture?.(event.pointerId);
+  };
+  const finishGuardianGesture = (event) => {
+    if (!guardianGesture || guardianGesture.pointerId !== event.pointerId) return;
+    const dx = event.clientX - guardianGesture.x;
+    const dy = event.clientY - guardianGesture.y;
+    const distance = Math.hypot(dx, dy);
+    guardianGesture = null;
+    if (distance < 38) {
+      announceGesture('GUARDIAN READY · SWIPE ↑ AUTO · ← PROTECT · → TAKE PROFIT · ↓ RETRACT');
+      return;
+    }
+    if (Math.abs(dy) > Math.abs(dx) && dy < -38) {
+      announceGesture('GESTURE PREVIEW · AUTO · SERVER PROPOSAL REQUIRED');
+      guardianDeck.requestControl('AUTO');
+      return;
+    }
+    if (Math.abs(dy) > Math.abs(dx) && dy > 38) {
+      guardianDeck.retractAll();
+      announceGesture('GUARDIAN CONTROLS RETRACTED · NOTHING SENT');
+      return;
+    }
+    if (dx < -38) {
+      announceGesture('GESTURE PREVIEW · PROTECT · SERVER PROPOSAL REQUIRED');
+      guardianDeck.requestControl('PROTECT');
+      return;
+    }
+    if (dx > 38) {
+      announceGesture('GESTURE PREVIEW · TAKE PROFIT · SERVER PROPOSAL REQUIRED');
+      guardianDeck.requestControl('TAKE_PROFIT');
+    }
+  };
+  guardianHost?.addEventListener('pointerdown', beginGuardianGesture);
+  guardianHost?.addEventListener('pointerup', finishGuardianGesture);
+  guardianHost?.addEventListener('pointercancel', () => { guardianGesture = null; });
+
+  const onWorkspaceAccountSelected = (event) => {
+    const accountId = String(event.detail?.selectedAccountId || '');
+    if (!accountId || accountId === runtime.accountId) return;
+    sessionStorage.setItem('wisdo.selectedAccountId', accountId);
+    runtime.selectAccount(accountId).catch((error) => {
+      latestReceipt = { status: 'failed', command: 'ACCOUNT_BIND', error: error.message };
+      renderReceipt();
+    });
+  };
+  window.addEventListener('wisdo:account-selected', onWorkspaceAccountSelected);
+
   const hold = document.getElementById('wcHold');
   hold?.addEventListener('pointerdown', (e) => { e.preventDefault(); hold.setPointerCapture?.(e.pointerId); startHold(); });
   hold?.addEventListener('pointerup', finishHold);
@@ -708,6 +788,10 @@ export function startCampaignCommandCenter() {
       window.removeEventListener('resize', resize);
       window.visualViewport?.removeEventListener('resize', resize);
       window.removeEventListener('keydown', blockKey, true);
+      window.removeEventListener('wisdo:account-selected', onWorkspaceAccountSelected);
+      guardianHost?.removeEventListener('pointerdown', beginGuardianGesture);
+      guardianHost?.removeEventListener('pointerup', finishGuardianGesture);
+      truthDock?.destroy();
       document.documentElement.classList.remove('wisdo-core-mobile-active');
       overlay.remove();
     },

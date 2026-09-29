@@ -191,12 +191,20 @@ export class WorldCampaignStateService {
   async snapshot(userId, { accountId = '' } = {}) {
     const accounts = await this.accessibleAccounts(userId);
     let account = null;
-    if (accountId) account = accounts.find((item) => String(item.accountId) === String(accountId)) || null;
-    else account = accounts.find((item) => item.isPrimary) || null;
+    if (accountId) {
+      const ref = String(accountId);
+      account = accounts.find((item) =>
+        String(item.accountId) === ref
+        || String(item.legacyAccountId || '') === ref
+        || String(item.mt4Login || '') === ref
+      ) || null;
+    } else {
+      account = accounts.find((item) => item.isPrimary) || (accounts.length === 1 ? accounts[0] : null);
+    }
     if (!account) {
       return {
         account: null,
-        accounts: accounts.map((item) => ({ accountId: item.accountId, nickname: item.nickname || item.accountName || 'Trading Account', isPrimary: Boolean(item.isPrimary), shared: Boolean(item.shared), sharePermission: item.sharePermission || null })),
+        accounts: accounts.map((item) => ({ accountId: item.accountId, legacyAccountId: item.legacyAccountId || null, mt4Login: item.mt4Login || null, nickname: item.nickname || item.accountName || 'Trading Account', isPrimary: Boolean(item.isPrimary), shared: Boolean(item.shared), sharePermission: item.sharePermission || null })),
         campaigns: [],
         selectedCampaignId: null,
         financial: null,
@@ -217,7 +225,7 @@ export class WorldCampaignStateService {
         sharePermission: account.sharePermission || null,
         ownerUserId: String(account.ownerUserId || account.discordUserId || userId),
       },
-      accounts: accounts.map((item) => ({ accountId: item.accountId, nickname: item.nickname || item.accountName || 'Trading Account', isPrimary: Boolean(item.isPrimary), shared: Boolean(item.shared), sharePermission: item.sharePermission || null })),
+      accounts: accounts.map((item) => ({ accountId: item.accountId, legacyAccountId: item.legacyAccountId || null, mt4Login: item.mt4Login || null, nickname: item.nickname || item.accountName || 'Trading Account', isPrimary: Boolean(item.isPrimary), shared: Boolean(item.shared), sharePermission: item.sharePermission || null })),
       campaigns,
       selectedCampaignId: campaigns[0]?.campaignId || null,
       financial: {

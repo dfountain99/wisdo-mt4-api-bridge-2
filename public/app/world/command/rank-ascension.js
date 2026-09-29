@@ -102,6 +102,7 @@ export function createRankAscension({ overlay }={}){
   if(!stage) return { refresh:async()=>{}, setCampaignState:()=>{}, onReceipt:()=>{}, stop:()=>{} };
   if(!stage.querySelector('.wisdo-v8-rank-head')) stage.insertAdjacentHTML('beforeend',markup());
   let currentKey='';
+  let rankBaselineEstablished=false;
   let lastFetch=0;
   let lastAccount='';
   let state=null;
@@ -138,7 +139,8 @@ export function createRankAscension({ overlay }={}){
     q('#wcV8RankMeta').textContent=maxed?`${growth.toFixed(1)}% account growth · highest rank`:`${growth.toFixed(1)}% growth · ${pct.toFixed(0)}% to ${rankVisual(record?.nextRank?.key).title}`;
     q('#wcV8Perks').innerHTML=def.perks.map(x=>`<b>${esc(x)}</b>`).join('');
     q('#wcV8Evolution').innerHTML=rankEvolution().map(item=>`<article class="${item.key===key?'current':''} ${rankIndex(item.key)>rankIndex(key)?'locked':''}" data-rank="${esc(item.key.toLowerCase())}">${characterSvg(item,{mini:true})}<strong>${esc(item.title)}</strong><small>${esc(item.character)} · LV.${item.level}</small></article>`).join('');
-    if(previous && rankIndex(key)>rankIndex(previous)) rankUp(def);
+    if(rankBaselineEstablished && previous && rankIndex(key)>rankIndex(previous)) rankUp(def);
+    if(recognition?.rank) rankBaselineEstablished=true;
   }
 
   function rankUp(def){

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wisdo-static-v10.3.0-guardian-handoff';
+const CACHE_NAME = 'wisdo-static-v11.0.0-truth-dock-account-binding';
 const STATIC_ASSETS = [
   '/js/workspace.js',
   '/js/wisdo-recognition.js',

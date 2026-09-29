@@ -184,6 +184,7 @@ export function createGuardianCommandDeck({ overlay, onRequest = null, onVisualS
     setState,
     setControl,
     setMode,
+    requestControl,
     receipt,
     retractAll: () => setControl(null),
     get state(){ return { control, mode }; },

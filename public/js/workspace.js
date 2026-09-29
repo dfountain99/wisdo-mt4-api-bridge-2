@@ -393,8 +393,9 @@
     // route to keep showing the old Member Desk command model while V7 existed elsewhere.
     root().innerHTML = '<div class="card loading-card">Opening WISDO CORE…</div>';
     try {
-      const { startCampaignCommandCenter } = await import('/app/world/command/command-center-runtime.js?v=20260928-v10-3-guardian-handoff');
-      const singularity = startCampaignCommandCenter();
+      const { startCampaignCommandCenter } = await import('/app/world/command/command-center-runtime.js?v=20260929-v11-truth-dock');
+      const initialAccountId = selectedAccountId() || sessionStorage.getItem('wisdo.selectedAccountId') || '';
+      const singularity = startCampaignCommandCenter({ initialAccountId });
       singularity.open();
       campaignCleanup = () => singularity.stop();
       document.body.classList.add('wisdo-singularity-route');
