@@ -56,6 +56,7 @@ export function normalizeCampaignControl(value) {
       quality: Math.max(0, num(value.sessionQuality, 0)),
       brokerHour: hour(value.brokerHour),
       brokerMinute: minute(value.brokerMinute),
+      brokerSecond: minute(value.brokerSecond),
       windowMode,
       scheduleEnforced: sessionReported ? bool(value.scheduleEnforced) : null,
       windowAllowed: sessionReported ? bool(value.windowAllowed) : null,
