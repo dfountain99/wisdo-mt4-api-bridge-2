@@ -16,16 +16,42 @@ export const CAMPAIGN_ACTIONS = Object.freeze({
   ASSIGN_COLLECTOR: { code: 11, label: 'Assign selected trades as collectors' },
 });
 const num = (v, fallback = 0) => typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+const bool = (v) => v === true;
+const hour = (v) => Math.max(0, Math.min(23, Math.trunc(num(v, 0))));
+const minute = (v) => Math.max(0, Math.min(59, Math.trunc(num(v, 0))));
+const SESSION_NAMES = Object.freeze(['ASIA','LONDON','NEW YORK','LONDON/NY OVERLAP','ROLLOVER','OTHER']);
 export function normalizeCampaignControl(value) {
   if (!value || value.version !== 1 || !/^[A-Za-z0-9_.#-]{1,24}$/.test(value.symbol || '') || !Number.isInteger(value.magic) || value.magic <= 0) return null;
   const levels = (Array.isArray(value.levels) ? value.levels : []).slice(0, 16)
     .filter(x => Number.isFinite(x.price) && x.price > 0 && Number.isInteger(x.id) && x.id > 0)
     .map(x => ({ id: x.id, price: x.price, kind: 'confirmed-pivot' }));
+  const sessionId = Math.max(0, Math.min(5, Math.trunc(num(value.sessionId, 5))));
+  const windowMode = Math.max(0, Math.min(2, Math.trunc(num(value.windowMode, 0))));
+  const configuredWindows = windowMode === 0
+    ? [{ startHour: 0, endHour: 0, label: 'ALL HOURS' }]
+    : windowMode === 1
+      ? [{ startHour: 7, endHour: 21, label: 'LONDON + NEW YORK' }]
+      : [
+          { startHour: hour(value.window1Start), endHour: hour(value.window1End), label: 'WINDOW 1' },
+          { startHour: hour(value.window2Start), endHour: hour(value.window2End), label: 'WINDOW 2' },
+        ];
   return { version: 1, symbol: value.symbol, magic: value.magic,
     ageSeconds: value.ageSeconds >= 0 ? num(value.ageSeconds, 999999) : 999999, enabled: value.enabled === true,
     campaignId: num(value.campaignId), phase: num(value.phase), direction: num(value.direction),
     rail: num(value.rail), goal: num(value.goal), paused: value.paused === true,
     remainingSeconds: Math.max(0, num(value.remainingSeconds)), banked: num(value.banked),
+    session: {
+      id: sessionId,
+      name: SESSION_NAMES[sessionId] || 'OTHER',
+      quality: Math.max(0, num(value.sessionQuality, 0)),
+      brokerHour: hour(value.brokerHour),
+      brokerMinute: minute(value.brokerMinute),
+      windowMode,
+      scheduleEnforced: bool(value.scheduleEnforced),
+      windowAllowed: bool(value.windowAllowed),
+      entryAllowed: bool(value.entryAllowed),
+      windows: configuredWindows,
+    },
     burstRemaining: num(value.burstRemaining),
     acknowledgements: (Array.isArray(value.acknowledgements) ? value.acknowledgements : []).slice(0, 12).filter(x => Number.isSafeInteger(x.id) && x.id > 0).map(x => ({ id: x.id, status: num(x.status), changed: num(x.changed), requested: num(x.requested) })),
     ackId: num(value.ackId), ackStatus: num(value.ackStatus), pendingId: num(value.pendingId),
