@@ -101,6 +101,7 @@ function markup(){
           <section><span>CURRENT SESSION</span><strong id="wcV12SessionName">EA SESSION NOT REPORTED</strong><small id="wcV12SessionQuality">CHRONOS TELEMETRY REQUIRED</small></section>
           <section><span>ENTRY GATE</span><strong id="wcV12EntryGate">UNKNOWN</strong><small id="wcV12WindowMode">SCHEDULE NOT REPORTED</small></section>
           <section><span>NEXT TRIGGER</span><strong id="wcV10NextTrigger">STANDBY</strong><small id="wcV10ResumeRule">NOT CONFIGURED</small></section>
+          <section class="wisdo-v121-boundary-card"><span>SESSION TIMER</span><strong id="wcV121SessionTimer">—</strong><small id="wcV121SessionBoundary">EA HOURS NOT REPORTED</small></section>
         </div>
         <div class="wisdo-v12-day-labels"><span>00</span><span>03</span><span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span><span>24</span></div>
         <div class="wisdo-v12-day-track" id="wcV12DayTrack">
