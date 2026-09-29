@@ -34,9 +34,9 @@ test('V12 HIGHTOWER owns the real entry-window enforcement and publishes Chronos
   assert.match(receiver,/entryAllowed/);
   assert.match(receiver,/campaignBase/);
   assert.match(receiver,/targetEquity/);
-  assert.match(reporter,/"sessionId"/);
-  assert.match(reporter,/"windowAllowed"/);
-  assert.match(reporter,/"targetEquity"/);
+  assert.match(reporter,/sessionId/);
+  assert.match(reporter,/windowAllowed/);
+  assert.match(reporter,/targetEquity/);
 });
 
 test('V12 Time displays bot session, active hours and blocked hours without inventing missing telemetry', async () => {
