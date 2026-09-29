@@ -37,6 +37,17 @@ void WcoPublish()
    string p=WcoEA();double revision=WcoRead(p,"revision");if((int)revision%2!=0)revision++;WcoWrite(p,"revision",revision+1);WcoWrite(p,"version",1);WcoWrite(p,"enabled",H620Enabled() && H620EnableFutureGoals && !h620Quarantine?1:0);
    WcoWrite(p,"campaign",h620Id);WcoWrite(p,"phase",h620Phase);WcoWrite(p,"direction",h620Dir);
    WcoWrite(p,"rail",h620Rail);WcoWrite(p,"banked",h620BankedLevel);
+   // CHRONOS truth: broker-clock session + the actual hard new-entry window.
+   datetime chronosNow=TimeCurrent();
+   bool chronosWindowAllowed=HT6DirectTradingWindowAllows(chronosNow);
+   bool chronosEntryAllowed=(DirectAllowNewEntries && chronosWindowAllowed && !h620FuturePaused && !h620Quarantine);
+   WcoWrite(p,"session",gHT5Session);WcoWrite(p,"sessionQuality",gHT5SessionQuality);
+   WcoWrite(p,"brokerHour",TimeHour(chronosNow));WcoWrite(p,"brokerMinute",TimeMinute(chronosNow));
+   WcoWrite(p,"windowMode",(int)DirectTradingWindowMode);
+   WcoWrite(p,"window1Start",HT6NormalizeHour(DirectWindow1StartHour));WcoWrite(p,"window1End",HT6NormalizeHour(DirectWindow1EndHour));
+   WcoWrite(p,"window2Start",HT6NormalizeHour(DirectWindow2StartHour));WcoWrite(p,"window2End",HT6NormalizeHour(DirectWindow2EndHour));
+   WcoWrite(p,"scheduleEnforced",DirectTradingWindowMode==TIME_WINDOW_ALL_HOURS?0:1);
+   WcoWrite(p,"windowAllowed",chronosWindowAllowed?1:0);WcoWrite(p,"entryAllowed",chronosEntryAllowed?1:0);
    int count=0;RefreshRates();
    for(int dir=-1;dir<=1;dir+=2)
    {
