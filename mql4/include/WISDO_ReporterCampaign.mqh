@@ -17,7 +17,7 @@ string BuildCampaignControlJson()
    j+=",\"campaignFloating\":"+DoubleToString(WcoRead(p,"campaignFloating"),2)+",\"milestonePercent\":"+DoubleToString(WcoRead(p,"milestonePercent"),4);
    j+=",\"targetEquity\":"+DoubleToString(WcoRead(p,"targetEquity"),2);
    j+=",\"sessionId\":"+DoubleToString(WcoRead(p,"session"),0)+",\"sessionQuality\":"+DoubleToString(WcoRead(p,"sessionQuality"),4);
-   j+=",\"brokerHour\":"+DoubleToString(WcoRead(p,"brokerHour"),0)+",\"brokerMinute\":"+DoubleToString(WcoRead(p,"brokerMinute"),0);
+   j+=",\"brokerHour\":"+DoubleToString(WcoRead(p,"brokerHour"),0)+",\"brokerMinute\":"+DoubleToString(WcoRead(p,"brokerMinute"),0)+",\"brokerSecond\":"+DoubleToString(WcoRead(p,"brokerSecond"),0);
    j+=",\"windowMode\":"+DoubleToString(WcoRead(p,"windowMode"),0);
    j+=",\"window1Start\":"+DoubleToString(WcoRead(p,"window1Start"),0)+",\"window1End\":"+DoubleToString(WcoRead(p,"window1End"),0);
    j+=",\"window2Start\":"+DoubleToString(WcoRead(p,"window2Start"),0)+",\"window2End\":"+DoubleToString(WcoRead(p,"window2End"),0);
