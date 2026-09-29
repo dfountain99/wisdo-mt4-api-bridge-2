@@ -51,6 +51,7 @@ export function normalizeSessionSchedule(input={},previous={}){
     lastCommandAt:prev.lastCommandAt||null,
     enforcementStatus:prev.enforcementStatus||'STANDBY',
     enforcementError:null,
+    retryCount:Number(prev.retryCount||0),
   };
 }
 
@@ -106,6 +107,7 @@ function publicSchedule(schedule,status={}){
     lastCommandAt:schedule.lastCommandAt||null,
     enforcementStatus:schedule.enforcementStatus||'STANDBY',
     enforcementError:schedule.enforcementError||null,
+    retryCount:Number(schedule.retryCount||0),
     updatedAt:schedule.updatedAt||null,
   };
 }
@@ -167,8 +169,25 @@ export class WorldSessionScheduleService {
     });
   }
 
+  async syncLastCommand(userId,accountId,schedule){
+    if(!schedule?.lastCommandId||!this.mt4CommandService?.getQueueStatus) return schedule;
+    try{
+      const queue=await this.mt4CommandService.getQueueStatus(String(userId),String(accountId));
+      const row=(queue?.recent||[]).find((item)=>String(item?.id||'')===String(schedule.lastCommandId));
+      if(!row) return schedule;
+      const nextStatus=String(row.status||'queued').toUpperCase();
+      const nextError=clean(row.errorMessage||row.result?.message||'',220)||null;
+      if(nextStatus!==schedule.enforcementStatus||nextError!==schedule.enforcementError){
+        await this.updateScheduleRecord(userId,accountId,{enforcementStatus:nextStatus,enforcementError:nextError});
+        return {...schedule,enforcementStatus:nextStatus,enforcementError:nextError};
+      }
+    }catch{}
+    return schedule;
+  }
+
   async status(userId,accountId){
-    const schedule=await this.record(userId,accountId);
+    let schedule=await this.record(userId,accountId);
+    schedule=await this.syncLastCommand(userId,accountId,schedule);
     return this.statusFor(schedule);
   }
 
@@ -188,7 +207,7 @@ export class WorldSessionScheduleService {
       proposalId,confirmationToken:token,holdRequiredMs:1200,
       expiresAt:new Date(expiresAtMs).toISOString(),
       accountId:String(accountId),
-      schedule:publicSchedule(normalized,this.statusFor(normalized)),
+      schedule:this.statusFor(normalized),
       executionNotice:'Nothing has been sent to MT4. Hold to arm this recurring server-side schedule.',
     };
   }
@@ -238,9 +257,12 @@ export class WorldSessionScheduleService {
 
   async enforceOne(userId,accountId,schedule,{force=false}={}){
     if(!schedule?.enabled||!schedule.windows?.length) return;
+    schedule=await this.syncLastCommand(userId,accountId,schedule);
     const status=evaluateSessionSchedule(schedule,new Date());
     const desired=status.active?'ACTIVE':'BLOCKED';
-    if(!force&&schedule.lastAppliedMode===desired) return;
+    const terminal=['COMPLETED','DELIVERED','PENDING','QUEUED'].includes(String(schedule.enforcementStatus||'').toUpperCase());
+    if(!force&&schedule.lastAppliedMode===desired&&terminal) return;
+    if(!force&&schedule.lastAppliedMode===desired&&Number(schedule.retryCount||0)>=2) return;
     const snapshot=await this.campaignState.snapshot(userId,{accountId});
     if(!snapshot.account){
       await this.updateScheduleRecord(userId,accountId,{enforcementStatus:'WAITING_ACCOUNT',enforcementError:'Authorized account is unavailable.'});
@@ -264,9 +286,10 @@ export class WorldSessionScheduleService {
     if(campaign?.magicNumber!=null) payload.magicNumber=campaign.magicNumber;
     if(campaign?.strategyName) payload.botName=campaign.strategyName;
     const record=await this.mt4CommandService.queueCommandForAccount(userId,snapshot.account.accountId,command,payload);
+    const sameTransition=schedule.lastAppliedMode===desired;
     await this.updateScheduleRecord(userId,accountId,{
-      lastAppliedMode:desired,lastTransitionAt:nowIso(),lastCommandId:record.id||null,lastCommandAt:nowIso(),
-      enforcementStatus:'QUEUED',enforcementError:null,
+      lastAppliedMode:desired,lastTransitionAt:sameTransition?schedule.lastTransitionAt||nowIso():nowIso(),lastCommandId:record.id||null,lastCommandAt:nowIso(),
+      enforcementStatus:'QUEUED',enforcementError:null,retryCount:sameTransition?Number(schedule.retryCount||0)+1:0,
     });
     this.eventEngine?.publish?.('command.schedule_transition',{userId},{
       eventId:`world-session:${record.id||randomUUID()}`,
