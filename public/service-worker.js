@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wisdo-static-v11.0.0-truth-dock-account-binding';
+const CACHE_NAME = 'wisdo-static-v11.1.0-live-session-engine';
 const STATIC_ASSETS = [
   '/js/workspace.js',
   '/js/wisdo-recognition.js',

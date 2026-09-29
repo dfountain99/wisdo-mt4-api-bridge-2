@@ -127,6 +127,37 @@ export function createWorldCommandRuntime({ onState = null, onStatus = null, onR
     return payload.receipts || [];
   }
 
+  async function proposeSessionSchedule(schedule = {}) {
+    const payload = await request('/api/world/command/session-schedule/propose', {
+      method: 'POST',
+      body: JSON.stringify({ accountId: accountId || currentState?.account?.accountId || '', schedule }),
+    });
+    return payload.proposal;
+  }
+
+  async function armSessionSchedule(proposal, heldForMs) {
+    if (!proposal?.proposalId || !proposal?.confirmationToken) throw new Error('Session schedule proposal is incomplete.');
+    const payload = await request('/api/world/command/session-schedule/arm', {
+      method: 'POST',
+      body: JSON.stringify({
+        proposalId: proposal.proposalId,
+        confirmationToken: proposal.confirmationToken,
+        heldForMs,
+      }),
+    });
+    await refresh().catch(() => null);
+    return payload.sessionSchedule;
+  }
+
+  async function disableSessionSchedule() {
+    const payload = await request('/api/world/command/session-schedule/disable', {
+      method: 'POST',
+      body: JSON.stringify({ accountId: accountId || currentState?.account?.accountId || '' }),
+    });
+    await refresh().catch(() => null);
+    return payload.sessionSchedule;
+  }
+
   const api = {
     start,
     stop,
@@ -137,6 +168,9 @@ export function createWorldCommandRuntime({ onState = null, onStatus = null, onR
     execute,
     watchReceipt,
     receipts,
+    proposeSessionSchedule,
+    armSessionSchedule,
+    disableSessionSchedule,
     get state() { return currentState; },
     get accountId() { return accountId; },
     get selectedCampaignId() { return selectedCampaignId; },

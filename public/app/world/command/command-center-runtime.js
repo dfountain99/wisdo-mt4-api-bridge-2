@@ -21,6 +21,7 @@ function ensureStyles() {
     ['/app/world/command/wisdo-core-v8-rank-ascension.css?v=20260928-rank-ascension', 'wisdoCoreV8RankCss'],
     ['/app/world/command/wisdo-core-v10-living-controls.css?v=20260928-v10-3-guardian-handoff', 'wisdoCoreV10Css'],
     ['/app/world/command/wisdo-core-v11-truth-dock.css?v=20260929-v11-truth-dock', 'wisdoCoreV11Css'],
+    ['/app/world/command/wisdo-core-v11-1-session.css?v=20260929-v11-1-live-session', 'wisdoCoreV111SessionCss'],
   ];
   for (const [href, key] of styles) {
     const attr = `data-${key.replace(/[A-Z]/g, m => '-'+m.toLowerCase())}`;
@@ -323,10 +324,14 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
 
   const timeEngine = createWisdoTimeEngine(document.getElementById('wcV7Window'), {
     resetWindowSeconds: 120,
-    onVisualState: ({ progress, live, paused }) => {
+    onVisualState: ({ progress, live, paused, sessionMode }) => {
       core?.setTemporalRing?.(progress);
-      core?.setTimePulse?.(live ? (paused ? 1 : .72) : .16);
+      const sessionPulse = sessionMode === 'ACTIVE' ? 1 : sessionMode === 'BLOCKED' ? .34 : null;
+      core?.setTimePulse?.(sessionPulse ?? (live ? (paused ? 1 : .72) : .16));
     },
+    onPreviewSchedule: (schedule) => runtime.proposeSessionSchedule(schedule),
+    onArmSchedule: (scheduleProposal, heldForMs) => runtime.armSessionSchedule(scheduleProposal, heldForMs),
+    onDisableSchedule: () => runtime.disableSessionSchedule(),
   });
 
   truthDock = createTruthDock({
