@@ -64,7 +64,11 @@ export function createTruthDock({overlay,onAccountChange=null}={}){
     const account=state.account||null;
     const accounts=state.accounts||[];
     const current=account?.accountId||'';
-    select.innerHTML=accounts.map((a)=>`<option value="${esc(a.accountId)}" ${String(a.accountId)===String(current)?'selected':''}>${esc(a.nickname||a.accountId)}${a.isPrimary?' · PRIMARY':''}</option>`).join('');
+    select.innerHTML=accounts.map((a)=>{
+      const value=a.legacyAccountId||a.accountId;
+      const selected=String(a.accountId)===String(current)||String(a.legacyAccountId||'')===String(current);
+      return `<option value="${esc(value)}" ${selected?'selected':''}>${esc(a.nickname||a.accountId)}${a.mt4Login?' · '+esc(a.mt4Login):''}${a.isPrimary?' · PRIMARY':''}</option>`;
+    }).join('');
     if(!select.value&&current)select.value=current;
     const health=state.executionHealth||{};
     const control=state.campaignControl||null;
