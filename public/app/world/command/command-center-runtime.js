@@ -4,6 +4,7 @@ import { createWorldCommandRuntime } from './command-runtime.js';
 import { createRankAscension } from './rank-ascension.js';
 import { createGuardianCommandDeck } from './guardian-command-deck.js';
 import { createWisdoTimeEngine } from './wisdo-time-engine.js';
+import { createTruthDock } from './truth-dock.js';
 
 const money = (value, currency = 'USD') => {
   try { return new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: 2 }).format(Number(value || 0)); }
@@ -19,6 +20,7 @@ function ensureStyles() {
     ['/app/world/command/wisdo-core-v7.css?v=20260928-singularity-route', 'wisdoCoreV7Css'],
     ['/app/world/command/wisdo-core-v8-rank-ascension.css?v=20260928-rank-ascension', 'wisdoCoreV8RankCss'],
     ['/app/world/command/wisdo-core-v10-living-controls.css?v=20260928-v10-3-guardian-handoff', 'wisdoCoreV10Css'],
+    ['/app/world/command/wisdo-core-v11-truth-dock.css?v=20260929-v11-truth-dock', 'wisdoCoreV11Css'],
   ];
   for (const [href, key] of styles) {
     const attr = `data-${key.replace(/[A-Z]/g, m => '-'+m.toLowerCase())}`;
@@ -249,7 +251,7 @@ function controlButton(key, cap, tone = '') {
   return `<button class="wisdo-command-btn ${tone} ${cap?.connected === false ? 'wisdo-command-not-connected' : ''}" data-command="${esc(key)}" ${cap?.available ? '' : 'disabled'}>${esc(cap?.label || key.replaceAll('_',' '))}<em>${esc(reason)}</em></button>`;
 }
 
-export function startCampaignCommandCenter() {
+export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
   ensureStyles();
   if (!document.getElementById('wisdoCommandOverlay')) document.body.insertAdjacentHTML('beforeend', commandMarkup());
   appendLaunchButton();
@@ -257,7 +259,9 @@ export function startCampaignCommandCenter() {
   const overlay = document.getElementById('wisdoCommandOverlay');
   const canvas = document.getElementById('wcCanvas');
   const rankAscension = createRankAscension({ overlay });
+  let truthDock = null;
   const runtime = createWorldCommandRuntime({
+    initialAccountId,
     onState: (state, meta) => {
       commandState = state;
       selectedCampaignId = meta?.selectedCampaignId || state.selectedCampaignId || selectedCampaignId;
@@ -267,6 +271,7 @@ export function startCampaignCommandCenter() {
       rankAscension.setCampaignState(state, activeCampaign);
       guardianDeck.setState({ ...state, selectedCampaignId });
       timeEngine.setState(state, activeCampaign);
+      truthDock?.setState(state, activeCampaign);
       rankAscension.refresh(state?.account?.accountId || '').catch(() => {});
     },
     onStatus: ({ state }) => {
@@ -279,6 +284,7 @@ export function startCampaignCommandCenter() {
       core?.showReceipt(receipt);
       rankAscension.onReceipt(receipt);
       guardianDeck.receipt(receipt);
+      truthDock?.setReceipt(receipt);
       if (['completed','failed','expired','cancelled'].includes(String(receipt?.status || '').toLowerCase())) runtime.refresh().catch(() => {});
     },
   });
@@ -319,6 +325,16 @@ export function startCampaignCommandCenter() {
     onVisualState: ({ progress, live, paused }) => {
       core?.setTemporalRing?.(progress);
       core?.setTimePulse?.(live ? (paused ? 1 : .72) : .16);
+    },
+  });
+
+  truthDock = createTruthDock({
+    overlay,
+    onAccountChange: async (accountId) => {
+      if (!accountId) return;
+      sessionStorage.setItem('wisdo.selectedAccountId', accountId);
+      await runtime.selectAccount(accountId);
+      window.dispatchEvent(new CustomEvent('wisdo:core-account-bound', { detail: { accountId } }));
     },
   });
 
