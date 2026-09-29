@@ -1,0 +1,278 @@
+/* WISDO CORE V11 — Truth Dock + Account Binding */
+#wisdoCommandOverlay{
+  --v11-dock:320px;
+  --v11-toprail:118px;
+}
+
+/* Remove the floating-card wall. The guardian owns the room. */
+#wisdoCommandOverlay .wisdo-v7-nav,
+#wisdoCommandOverlay .wisdo-v7-symbol,
+#wisdoCommandOverlay .wisdo-v7-states,
+#wisdoCommandOverlay #wcV7State,
+#wisdoCommandOverlay #wcV7Next,
+#wisdoCommandOverlay .wisdo-v6-status,
+#wisdoCommandOverlay .wisdo-v6-ack,
+#wisdoCommandOverlay .wisdo-core-flow,
+#wisdoCommandOverlay .wisdo-core-input-rail,
+#wisdoCommandOverlay .wisdo-command-room-label,
+#wisdoCommandOverlay .wisdo-v6-protocol,
+#wisdoCommandOverlay .wisdo-command-side,
+#wisdoCommandOverlay .wisdo-v7-gesture{
+  display:none!important;
+}
+
+/* Character Evolution is now the top identity rail. */
+#wcV11EvolutionTop{
+  position:absolute;
+  z-index:82;
+  left:20px;
+  right:calc(var(--v11-dock) + 30px);
+  top:12px;
+  height:104px;
+  display:grid;
+  grid-template-columns:210px minmax(0,1fr);
+  gap:10px;
+  align-items:stretch;
+  pointer-events:auto;
+}
+#wcV11EvolutionTop .wisdo-v8-rank-head{
+  position:relative!important;
+  inset:auto!important;
+  transform:none!important;
+  width:auto!important;
+  height:auto!important;
+  min-width:0;
+  padding:10px 13px!important;
+  border-radius:16px!important;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+}
+#wcV11EvolutionTop .wisdo-v8-rank-head>strong{font-size:16px!important}
+#wcV11EvolutionTop .wisdo-v8-rank-head small{font-size:6px!important}
+#wcV11EvolutionTop .wisdo-v8-evolution{
+  position:relative!important;
+  inset:auto!important;
+  transform:none!important;
+  width:auto!important;
+  height:104px!important;
+  padding:9px 10px!important;
+  border-radius:16px!important;
+  overflow:hidden!important;
+}
+#wcV11EvolutionTop #wcV8Evolution{
+  display:flex!important;
+  height:76px;
+  gap:6px!important;
+  overflow-x:auto!important;
+  overflow-y:hidden!important;
+  scrollbar-width:none;
+}
+#wcV11EvolutionTop #wcV8Evolution::-webkit-scrollbar{display:none}
+#wcV11EvolutionTop .wisdo-v8-evolution article{
+  flex:0 0 82px!important;
+  min-width:82px!important;
+  padding:5px 4px!important;
+  border-radius:10px!important;
+}
+#wcV11EvolutionTop .wisdo-v8-character-svg.mini{height:43px!important}
+#wcV11EvolutionTop .wisdo-v8-evolution strong{font-size:6px!important}
+#wcV11EvolutionTop .wisdo-v8-evolution small{font-size:5px!important}
+
+/* Right side is one live menu instead of many free-floating cards. */
+.wisdo-v11-truth-dock{
+  position:absolute;
+  z-index:110;
+  top:12px;
+  right:12px;
+  bottom:14px;
+  width:var(--v11-dock);
+  display:flex;
+  flex-direction:column;
+  border:1px solid rgba(96,205,249,.24);
+  border-radius:20px;
+  background:linear-gradient(165deg,rgba(3,12,19,.96),rgba(2,7,12,.91));
+  box-shadow:-20px 0 70px rgba(0,0,0,.4),inset 0 0 40px rgba(61,182,234,.025);
+  backdrop-filter:blur(18px);
+  overflow:hidden;
+  transform:translateX(calc(100% + 24px));
+  opacity:0;
+  pointer-events:none;
+  transition:transform .3s ease,opacity .25s ease;
+}
+#wisdoCommandOverlay.truth-dock-open .wisdo-v11-truth-dock{
+  transform:translateX(0);
+  opacity:1;
+  pointer-events:auto;
+}
+.wisdo-v11-truth-dock>header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  padding:13px 14px 10px;
+  border-bottom:1px solid rgba(111,193,228,.12);
+}
+.wisdo-v11-truth-dock>header span{
+  display:block;
+  color:#7293a3;
+  font-size:6px;
+  letter-spacing:.18em;
+}
+.wisdo-v11-truth-dock>header strong{
+  display:block;
+  margin-top:3px;
+  color:#e8f9ff;
+  font-size:12px;
+  letter-spacing:.06em;
+}
+.wisdo-v11-truth-dock>header button{
+  width:29px;height:29px;border:1px solid rgba(117,193,226,.2);border-radius:9px;
+  background:#07131c;color:#8fbccc;font-size:17px;cursor:pointer;
+}
+.wisdo-v11-link-card{padding:10px 13px;border-bottom:1px solid rgba(111,193,228,.1)}
+.wisdo-v11-link-card label{display:grid;gap:5px;color:#678797;font-size:6px;letter-spacing:.14em}
+#wcV11AccountSelect{
+  width:100%;height:34px;border:1px solid rgba(94,199,241,.24);border-radius:9px;
+  background:#06131d;color:#dcf5ff;padding:0 9px;font-size:8px;outline:none;
+}
+.wisdo-v11-link-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:5px 9px;margin-top:9px;
+}
+.wisdo-v11-link-grid span{
+  display:flex;justify-content:space-between;gap:6px;padding:5px 0;
+  color:#668593;font-size:6px;border-bottom:1px solid rgba(255,255,255,.035);
+}
+.wisdo-v11-link-grid b{color:#b9d8e5;font-size:6px}
+.wisdo-v11-truth-dock.link-ready #wcV11Reporter,
+.wisdo-v11-truth-dock.link-ready #wcV11Terminal{color:#72efb8}
+.wisdo-v11-truth-dock.campaign-live #wcV11Expert{color:#72efb8}
+.wisdo-v11-link-reason{
+  margin-top:8px;padding:7px 8px;border-radius:8px;background:rgba(255,184,74,.045);
+  color:#9eb4bf;font:600 6px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.wisdo-v11-truth-dock.link-ready .wisdo-v11-link-reason{background:rgba(80,226,171,.045)}
+
+.wisdo-v11-dock-body{
+  flex:1;overflow-y:auto;padding:8px;display:grid;gap:7px;align-content:start;
+  scrollbar-width:thin;scrollbar-color:#254654 transparent;
+}
+.wisdo-v11-dock-body .wisdo-v7-panel,
+.wisdo-v11-dock-body .wisdo-v8-victories{
+  position:relative!important;
+  inset:auto!important;
+  transform:none!important;
+  width:auto!important;
+  max-width:none!important;
+  min-height:0!important;
+  max-height:none!important;
+  margin:0!important;
+  padding:10px 11px!important;
+  border-radius:13px!important;
+  background:rgba(5,16,24,.72)!important;
+  box-shadow:none!important;
+  overflow:visible!important;
+  display:block!important;
+}
+.wisdo-v11-dock-body .wisdo-v7-panel:after{display:none!important}
+.wisdo-v11-dock-body h3,
+.wisdo-v11-command-receipt h3{
+  margin:0 0 7px;color:#789aaa;font-size:6px;letter-spacing:.16em;
+}
+.wisdo-v11-dock-body .big{font-size:14px!important}
+.wisdo-v11-dock-body .row{font-size:7px!important;padding:4px 0!important}
+.wisdo-v11-dock-body .wisdo-v8-victories #wcV8Victories{display:grid!important;gap:4px!important}
+.wisdo-v11-command-receipt{
+  padding:10px 11px;border:1px solid rgba(92,176,213,.14);border-radius:13px;background:rgba(5,16,24,.62);
+}
+.wisdo-v11-command-receipt .wisdo-command-receipt{font-size:6px;color:#8ea7b3}
+
+/* Center space is deliberately quiet. */
+#wisdoCommandOverlay:not(.mobile-command-chamber) .wisdo-v8-character-chamber{
+  top:126px!important;
+  left:calc(50% - (var(--v11-dock) / 2))!important;
+  width:min(620px,52vw)!important;
+  height:64vh!important;
+  transform:translateX(-50%)!important;
+}
+#wisdoCommandOverlay:not(.mobile-command-chamber) .wisdo-command-canvas{
+  left:12px!important;
+  right:calc(var(--v11-dock) + 22px)!important;
+  top:116px!important;
+  width:auto!important;
+  height:calc(100% - 120px)!important;
+  opacity:.43!important;
+}
+#wisdoCommandOverlay:not(.mobile-command-chamber) .wisdo-v10-control-deck{
+  left:calc(50% - (var(--v11-dock) / 2))!important;
+  width:min(620px,52vw)!important;
+}
+#wisdoCommandOverlay:not(.mobile-command-chamber) #wcV7Window.wisdo-v10-time-host{
+  left:20px!important;
+  bottom:20px!important;
+  width:290px!important;
+}
+#wisdoCommandOverlay:not(.mobile-command-chamber) .wisdo-v6-composer{
+  left:calc(50% - (var(--v11-dock) / 2))!important;
+  width:min(650px,54vw)!important;
+}
+#wisdoCommandOverlay:not(.mobile-command-chamber) .wisdo-v10-mobile-input-toggle{display:none!important}
+
+/* The old left/right account/campaign panes are now plumbing only. */
+.wisdo-v11-legacy-account-card{display:none!important}
+
+/* INTEL is the right menu control. */
+#wcIntelToggle.active{border-color:#65dcff!important;color:#dff9ff!important;box-shadow:0 0 16px rgba(69,199,247,.16)}
+
+/* Mobile: evolution stays at top; Truth Dock becomes a full-height drawer. */
+#wisdoCommandOverlay.mobile-command-chamber #wcV11EvolutionTop{
+  left:8px!important;right:8px!important;top:6px!important;height:112px!important;
+  grid-template-columns:118px minmax(0,1fr)!important;gap:6px!important;
+}
+#wisdoCommandOverlay.mobile-command-chamber #wcV11EvolutionTop .wisdo-v8-rank-head{
+  width:auto!important;padding:7px 8px!important;
+}
+#wisdoCommandOverlay.mobile-command-chamber #wcV11EvolutionTop .wisdo-v8-rank-head>strong{font-size:11px!important}
+#wisdoCommandOverlay.mobile-command-chamber #wcV11EvolutionTop .wisdo-v8-rank-head>div:not(.wisdo-v8-rank-progress){display:block!important;font-size:5px!important}
+#wisdoCommandOverlay.mobile-command-chamber #wcV11EvolutionTop .wisdo-v8-rank-head small{font-size:4.5px!important}
+#wisdoCommandOverlay.mobile-command-chamber #wcV11EvolutionTop .wisdo-v8-evolution{height:112px!important;padding:7px!important}
+#wisdoCommandOverlay.mobile-command-chamber #wcV11EvolutionTop #wcV8Evolution{height:82px!important}
+#wisdoCommandOverlay.mobile-command-chamber #wcV11EvolutionTop .wisdo-v8-evolution article{flex-basis:70px!important;min-width:70px!important}
+#wisdoCommandOverlay.mobile-command-chamber #wcV11EvolutionTop .wisdo-v8-character-svg.mini{height:48px!important}
+
+#wisdoCommandOverlay.mobile-command-chamber .wisdo-v11-truth-dock{
+  position:fixed!important;
+  top:72px!important;right:0!important;bottom:0!important;
+  width:min(88vw,360px)!important;border-radius:18px 0 0 18px!important;
+  z-index:190!important;
+}
+#wisdoCommandOverlay.mobile-command-chamber .wisdo-v8-character-chamber{
+  top:134px!important;height:520px!important;
+}
+#wisdoCommandOverlay.mobile-command-chamber .wisdo-v10-control-deck{top:656px!important}
+#wisdoCommandOverlay.mobile-command-chamber #wcV7Window.wisdo-v10-time-host{top:775px!important}
+#wisdoCommandOverlay.mobile-command-chamber .wisdo-v6-composer{top:1112px!important}
+#wisdoCommandOverlay.mobile-command-chamber .wisdo-v10-mobile-input-toggle{top:1112px!important}
+#wisdoCommandOverlay.mobile-command-chamber #wcV7Protocol{display:none!important}
+#wisdoCommandOverlay.mobile-command-chamber .wisdo-command-stage{
+  padding-bottom:calc(180px + env(safe-area-inset-bottom))!important;
+}
+#wisdoCommandOverlay.mobile-command-chamber .wisdo-command-proposal{
+  z-index:220!important;
+}
+
+/* Gesture affordance: the guardian itself is the surface. */
+#wcV8CharacterChamber{touch-action:none}
+#wcV8CharacterChamber:after{
+  content:"SWIPE GUARDIAN · ↑ AUTO · ← PROTECT · → TAKE PROFIT";
+  position:absolute;left:50%;bottom:2%;transform:translateX(-50%);
+  color:#537888;font:700 6px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+  letter-spacing:.06em;white-space:nowrap;opacity:.7;
+}
+@media(max-width:760px){
+  #wcV8CharacterChamber:after{font-size:5px;bottom:1%}
+}
+
+@media(prefers-reduced-motion:reduce){
+  .wisdo-v11-truth-dock{transition:none!important}
+}
