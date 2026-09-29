@@ -126,10 +126,23 @@ function markup(){
       <div class="wisdo-v10-time-rail-line"><i id="wcV10RailMarker"></i></div>
       <div class="wisdo-v10-time-labels"><span>00:00</span><span>00:30</span><span>01:00</span><span>01:30</span><span>02:00</span></div>
     </div>
+    <button id="wcV121EditHours" class="wisdo-v121-edit-hours" type="button">SESSION HOURS · BROKER TIME</button>
+    <section id="wcV121HoursEditor" class="wisdo-v121-hours-editor" hidden>
+      <div class="wisdo-v121-editor-head"><span>HIGHTOWER SESSION HOURS</span><button id="wcV121HoursClose" type="button">×</button></div>
+      <label>MODE<select id="wcV121WindowMode"><option value="0">ALL HOURS</option><option value="1">LONDON + NEW YORK · 07–21</option><option value="2">CUSTOM TWO WINDOWS</option></select></label>
+      <div class="wisdo-v121-window-grid">
+        <label>WINDOW 1 START<input id="wcV121W1S" type="number" min="0" max="23" step="1"></label>
+        <label>WINDOW 1 END<input id="wcV121W1E" type="number" min="0" max="23" step="1"></label>
+        <label>WINDOW 2 START<input id="wcV121W2S" type="number" min="0" max="23" step="1"></label>
+        <label>WINDOW 2 END<input id="wcV121W2E" type="number" min="0" max="23" step="1"></label>
+      </div>
+      <p id="wcV121HoursTruth">Broker-time hours. Preview opens the normal verified hold-to-confirm EA command.</p>
+      <button id="wcV121PreviewHours" type="button">PREVIEW EA HOURS</button>
+    </section>
   </div>`;
 }
 
-export function createWisdoTimeEngine(container,{resetWindowSeconds=120,onVisualState=null}={}){
+export function createWisdoTimeEngine(container,{resetWindowSeconds=120,onVisualState=null,onConfigureWindows=null}={}){
   if(!container)return {setState(){},render(){},destroy(){}};
   container.classList.add('wisdo-v10-time-host','wisdo-v12-time-host');
   container.innerHTML=markup();
@@ -139,7 +152,7 @@ export function createWisdoTimeEngine(container,{resetWindowSeconds=120,onVisual
   const progress=q('#wcV10TimeProgress');
   progress.style.strokeDasharray=String(circumference);
 
-  let state=null,campaign=null,stateReceivedAt=Date.now(),timer=0;
+  let state=null,campaign=null,stateReceivedAt=Date.now(),timer=0,editorSynced=false;
 
   function derived(){
     const control=state?.campaignControl||null;
