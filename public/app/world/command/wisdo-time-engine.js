@@ -254,10 +254,51 @@ export function createWisdoTimeEngine(container,{resetWindowSeconds=120,onVisual
     onVisualState?.({progress:pct,live:d.live,paused:d.paused,remaining:d.remaining,elapsed:d.elapsed,session:d.session,mode:root.dataset.temporalMode});
   }
 
+  function syncEditor(){
+    const session=state?.campaignControl?.session;
+    if(!session?.reported||editorSynced)return;
+    q('#wcV121WindowMode').value=String(session.windowMode??0);
+    const rows=Array.isArray(session.windows)?session.windows:[];
+    q('#wcV121W1S').value=rows[0]?.startHour??7;
+    q('#wcV121W1E').value=rows[0]?.endHour??16;
+    q('#wcV121W2S').value=rows[1]?.startHour??16;
+    q('#wcV121W2E').value=rows[1]?.endHour??21;
+    editorSynced=true;
+  }
+
+  function hoursPayload(){
+    const hour=(id)=>Math.max(0,Math.min(23,Math.trunc(Number(q(id).value)||0)));
+    return {
+      eaCampaignId:Number(state?.campaignControl?.campaignId||0),
+      windowMode:Number(q('#wcV121WindowMode').value||0),
+      window1Start:hour('#wcV121W1S'),window1End:hour('#wcV121W1E'),
+      window2Start:hour('#wcV121W2S'),window2End:hour('#wcV121W2E'),
+    };
+  }
+
+  q('#wcV121EditHours').addEventListener('click',()=>{syncEditor();q('#wcV121HoursEditor').hidden=false;});
+  q('#wcV121HoursClose').addEventListener('click',()=>{q('#wcV121HoursEditor').hidden=true;});
+  q('#wcV121WindowMode').addEventListener('change',()=>{editorSynced=true;});
+  ['#wcV121W1S','#wcV121W1E','#wcV121W2S','#wcV121W2E'].forEach((id)=>q(id).addEventListener('input',()=>{editorSynced=true;}));
+  q('#wcV121PreviewHours').addEventListener('click',async()=>{
+    const cap=state?.capabilities?.CONFIGURE_WINDOWS;
+    const truth=q('#wcV121HoursTruth');
+    if(!cap?.available){truth.textContent=cap?.reason||'Campaign EA link is not ready. Nothing sent.';truth.dataset.tone='error';return;}
+    if(!onConfigureWindows){truth.textContent='Window command handler is unavailable. Nothing sent.';truth.dataset.tone='error';return;}
+    truth.textContent='Building verified EA window proposal…';truth.dataset.tone='pending';
+    const proposal=await onConfigureWindows(hoursPayload()).catch(()=>null);
+    if(proposal){truth.textContent='Proposal opened. Hold to confirm before WISDO sends the hours to HIGHTOWER.';truth.dataset.tone='ok';q('#wcV121HoursEditor').hidden=true;}
+    else{truth.textContent='Proposal could not be opened. Nothing sent.';truth.dataset.tone='error';}
+  });
+
   function setState(next={},activeCampaign=null){
     state=next||{};
     campaign=activeCampaign||state?.campaigns?.[0]||null;
     stateReceivedAt=Date.now();
+    const cap=state?.capabilities?.CONFIGURE_WINDOWS;
+    q('#wcV121EditHours').disabled=!cap?.available;
+    q('#wcV121EditHours').title=cap?.available?'Configure HIGHTOWER broker-time windows':(cap?.reason||'Campaign EA link unavailable');
+    editorSynced=false;syncEditor();
     render();
   }
 
