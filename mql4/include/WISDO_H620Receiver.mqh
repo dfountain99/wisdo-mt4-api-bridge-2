@@ -46,11 +46,11 @@ void WcoPublish()
    bool wisdoTradingPaused=(GlobalVariableCheck("WISDO_TRADING_PAUSED") && GlobalVariableGet("WISDO_TRADING_PAUSED")>=0.5);
    bool chronosEntryAllowed=(DirectAllowNewEntries && chronosWindowAllowed && !wisdoTradingPaused && !h620FuturePaused && !h620Quarantine);
    WcoWrite(p,"session",gHT5Session);WcoWrite(p,"sessionQuality",gHT5SessionQuality);
-   WcoWrite(p,"brokerHour",TimeHour(chronosNow));WcoWrite(p,"brokerMinute",TimeMinute(chronosNow));
-   WcoWrite(p,"windowMode",(int)DirectTradingWindowMode);
-   WcoWrite(p,"window1Start",HT6NormalizeHour(DirectWindow1StartHour));WcoWrite(p,"window1End",HT6NormalizeHour(DirectWindow1EndHour));
-   WcoWrite(p,"window2Start",HT6NormalizeHour(DirectWindow2StartHour));WcoWrite(p,"window2End",HT6NormalizeHour(DirectWindow2EndHour));
-   WcoWrite(p,"scheduleEnforced",DirectTradingWindowMode==TIME_WINDOW_ALL_HOURS?0:1);
+   WcoWrite(p,"brokerHour",TimeHour(chronosNow));WcoWrite(p,"brokerMinute",TimeMinute(chronosNow));WcoWrite(p,"brokerSecond",TimeSeconds(chronosNow));
+   WcoWrite(p,"windowMode",HT6ActiveWindowMode());
+   WcoWrite(p,"window1Start",HT6NormalizeHour(HT6ActiveWindow1Start()));WcoWrite(p,"window1End",HT6NormalizeHour(HT6ActiveWindow1End()));
+   WcoWrite(p,"window2Start",HT6NormalizeHour(HT6ActiveWindow2Start()));WcoWrite(p,"window2End",HT6NormalizeHour(HT6ActiveWindow2End()));
+   WcoWrite(p,"scheduleEnforced",HT6ActiveWindowMode()==TIME_WINDOW_ALL_HOURS?0:1);
    WcoWrite(p,"windowAllowed",chronosWindowAllowed?1:0);WcoWrite(p,"entryAllowed",chronosEntryAllowed?1:0);
    // MARKET SENSE truth from the active HIGHTOWER organism. Numeric fields only;
    // the website labels them, while the EA remains the authority.
@@ -128,7 +128,7 @@ void H620FutureTick()
    if(wcoEvaluation>0) {if(WcoRead(p,"ackStatus")==4)WcoAck(wcoEvaluation,5);wcoEvaluation=0;}
    if(h620Quarantine && TradeCount()==0)h620Quarantine=false;
    WcoPublish();
-   if(!H620Enabled() || !H620EnableFutureGoals || h620Quarantine)return;
+   if(!H620Enabled() || h620Quarantine)return;
    // Campaign-scoped standing rules expire when the thesis changes; explicit pauses stay paused.
    if(h620FutureGoal!=0 && h620FutureGoal!=1 && h620FutureGoal!=7 && WcoRead(p,"goalCampaign")!=h620Id)
    {h620FutureGoal=0;h620FuturePaused=false;h620FutureUntil=0;WcoSaveGoal();}
@@ -139,9 +139,10 @@ void H620FutureTick()
    {
       int op=(int)WcoRead(p,"op"),duration=(int)WcoRead(p,"duration");
       bool valid=WcoRead(p,"expires")>=TimeGMT() && WcoRead(p,"expected")==h620Id && IsConnected() && IsExpertEnabled();
-      if(op<1 || op>14)valid=false;
+      if(op<1 || op>15)valid=false;
+      if(!H620EnableFutureGoals && op!=15)valid=false;
       if((op==1 || op==3 || op==6 || op==7 || op==12) && (duration<1 || duration>604800))valid=false;
-      if((op==2 || op==3 || op>=6) && h620Phase!=1)valid=false;
+      if((op==2 || op==3 || (op>=6 && op<=14)) && h620Phase!=1)valid=false;
       if(op==12 && (WcoRead(p,"burst")<1 || WcoRead(p,"burst")>10))valid=false;
       if(!valid){WcoAck(id,-1);return;}
       // A persisted processing marker prevents replay after a terminal crash.
@@ -149,6 +150,23 @@ void H620FutureTick()
       WcoWrite(p,"changed",0);WcoWrite(p,"requested",0);
       int result=1;
       if(op==4){wcoEvaluation=id;result=4;}
+      else if(op==15)
+      {
+         int mode=(int)WcoRead(p,"windowMode");
+         int w1s=(int)WcoRead(p,"window1Start"),w1e=(int)WcoRead(p,"window1End");
+         int w2s=(int)WcoRead(p,"window2Start"),w2e=(int)WcoRead(p,"window2End");
+         if(mode<0 || mode>2 || w1s<0 || w1s>23 || w1e<0 || w1e>23 || w2s<0 || w2s>23 || w2e<0 || w2e>23) result=-1;
+         else
+         {
+            gHT6RuntimeWindowMode=mode;
+            gHT6RuntimeWindow1Start=w1s;gHT6RuntimeWindow1End=w1e;
+            gHT6RuntimeWindow2Start=w2s;gHT6RuntimeWindow2End=w2e;
+            H620Set("windowOverride",1);H620Set("windowMode",mode);
+            H620Set("window1Start",w1s);H620Set("window1End",w1e);
+            H620Set("window2Start",w2s);H620Set("window2End",w2e);
+            WcoWrite(p,"changed",1);WcoWrite(p,"requested",1);GlobalVariablesFlush();result=1;
+         }
+      }
       else if((op>=8 && op<=11) || op==13 || op==14)
       {
          WcoWrite(p,"changed",0);WcoWrite(p,"requested",0);
@@ -168,6 +186,7 @@ void H620FutureTick()
       }
       WcoAck(id,result);
    }
+   if(!H620EnableFutureGoals)return;
    bool changed=false;
    if(h620FutureGoal==1 && TimeGMT()>=h620FutureUntil)
    {h620FutureGoal=0;h620FuturePaused=false;h620FutureUntil=0;changed=true;}
