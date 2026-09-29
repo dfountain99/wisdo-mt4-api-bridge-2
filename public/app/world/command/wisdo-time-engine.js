@@ -42,8 +42,38 @@ function windowPieces(startHour,endHour){
 
 function brokerMinute(session,ageSeconds){
   if(!session?.reported)return null;
-  const minute=(Number(session.brokerHour||0)*60)+Number(session.brokerMinute||0)+(ageSeconds/60);
+  const minute=(Number(session.brokerHour||0)*60)+Number(session.brokerMinute||0)+(Number(session.brokerSecond||0)/60)+(ageSeconds/60);
   return ((minute%1440)+1440)%1440;
+}
+
+function windowAllowsAt(session,secondOfDay){
+  if(!session?.reported)return null;
+  const mode=Number(session.windowMode||0);
+  if(mode===0)return true;
+  const hour=((secondOfDay%86400)+86400)%86400/3600;
+  const inWindow=(start,end)=>{
+    start=Number(start)||0;end=Number(end)||0;
+    if(start===end)return true;
+    return start<end?(hour>=start&&hour<end):(hour>=start||hour<end);
+  };
+  if(mode===1)return hour>=7&&hour<21;
+  const windows=Array.isArray(session.windows)?session.windows:[];
+  return windows.some((row)=>inWindow(row.startHour,row.endHour));
+}
+
+function nextSessionBoundary(session,ageSeconds){
+  if(!session?.reported||Number(session.windowMode||0)===0)return null;
+  const now=((Number(session.brokerHour||0)*3600)+(Number(session.brokerMinute||0)*60)+Number(session.brokerSecond||0)+ageSeconds)%86400;
+  const windows=Number(session.windowMode)===1?[{startHour:7,endHour:21}]:(Array.isArray(session.windows)?session.windows:[]);
+  if(windows.some((row)=>Number(row.startHour)===Number(row.endHour)))return null;
+  const boundaries=[...new Set(windows.flatMap((row)=>[Number(row.startHour)*3600,Number(row.endHour)*3600]))].filter(Number.isFinite);
+  const current=windowAllowsAt(session,now);
+  const candidates=boundaries.map((boundary)=>{
+    let delta=(boundary-now+86400)%86400;if(delta<.5)delta=86400;
+    return {seconds:delta,after:windowAllowsAt(session,(boundary+1)%86400)};
+  }).filter((row)=>row.after!==current).sort((a,b)=>a.seconds-b.seconds);
+  if(!candidates.length)return null;
+  return {...candidates[0],label:candidates[0].after?'ACTIVE HOURS BEGIN':'BLOCKED HOURS BEGIN'};
 }
 
 function sessionRanges(id){
