@@ -67,6 +67,40 @@ export function registerWorldCommandRoutes(app, {
     }
   });
 
+  app.post('/api/world/command/session-schedule/propose', requireWorldUser, async (req, res) => {
+    try {
+      if (!service) return res.status(503).json({ ok: false, error: 'World Command Center is unavailable.' });
+      const proposal = await service.proposeSessionSchedule(req.worldUser.id, req.body || {});
+      res.status(201).json({ ok: true, proposal });
+    } catch (error) {
+      res.status(statusFor(error)).json({ ok: false, error: error.message, code: error.code || null });
+    }
+  });
+
+  app.post('/api/world/command/session-schedule/arm', requireWorldUser, async (req, res) => {
+    try {
+      if (!service) return res.status(503).json({ ok: false, error: 'World Command Center is unavailable.' });
+      const sessionSchedule = await service.armSessionSchedule(req.worldUser.id, req.body || {});
+      res.status(200).json({
+        ok: true,
+        sessionSchedule,
+        executionNotice: 'WISDO Time is armed on the server. Session boundaries control new-entry permission through the MT4 command queue.',
+      });
+    } catch (error) {
+      res.status(statusFor(error)).json({ ok: false, error: error.message, code: error.code || null });
+    }
+  });
+
+  app.post('/api/world/command/session-schedule/disable', requireWorldUser, async (req, res) => {
+    try {
+      if (!service) return res.status(503).json({ ok: false, error: 'World Command Center is unavailable.' });
+      const sessionSchedule = await service.disableSessionSchedule(req.worldUser.id, req.body || {});
+      res.status(200).json({ ok: true, sessionSchedule });
+    } catch (error) {
+      res.status(statusFor(error)).json({ ok: false, error: error.message, code: error.code || null });
+    }
+  });
+
   app.get('/api/world/command/receipts', requireWorldUser, async (req, res, next) => {
     try {
       if (!service) return res.status(503).json({ ok: false, error: 'World Command Center is unavailable.' });
