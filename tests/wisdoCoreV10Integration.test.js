@@ -24,6 +24,6 @@ test('V10 route/cache versions prevent stale guardian UI from masking release', 
     fs.readFile(new URL('../public/js/workspace.js',import.meta.url),'utf8'),
     fs.readFile(new URL('../public/service-worker.js',import.meta.url),'utf8'),
   ]);
-  assert.match(workspace,/v=20260929-v12-connected-command-spine/);
-  assert.match(worker,/wisdo-static-v12\.0\.0-connected-command-spine/);
+  assert.match(workspace,/v=20260929-v12-1-live-session-command/);
+  assert.match(worker,/wisdo-static-v12\.1\.0-live-session-command/);
 });
