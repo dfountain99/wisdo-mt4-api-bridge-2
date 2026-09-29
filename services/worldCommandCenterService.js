@@ -1,6 +1,7 @@
 import { CAMPAIGN_ACTIONS, campaignPacket } from './campaignControlContract.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { WorldCampaignStateService } from './worldCampaignStateService.js';
+import { WorldSessionScheduleService } from './worldSessionScheduleService.js';
 
 const clean = (value, max = 160) => String(value ?? '').replace(/\u0000/g, '').trim().slice(0, max);
 const nowIso = () => new Date().toISOString();
@@ -70,6 +71,7 @@ export class WorldCommandCenterService {
     this.eventEngine = eventEngine;
     this.logger = logger;
     this.campaignState = new WorldCampaignStateService({ mt4SyncService });
+    this.sessionSchedule = new WorldSessionScheduleService({ mt4CommandService, campaignState: this.campaignState, eventEngine, logger });
     this.proposals = new Map();
     this.proposalTtlMs = Math.max(10_000, Math.min(120_000, Number(process.env.WISDO_WORLD_COMMAND_PROPOSAL_TTL_MS || 45_000)));
   }
@@ -97,16 +99,42 @@ export class WorldCommandCenterService {
 
   async state(userId, { accountId = '' } = {}) {
     const snapshot = await this.campaignState.snapshot(String(userId), { accountId });
+    const sessionSchedule = snapshot.account
+      ? await this.sessionSchedule.status(String(userId), snapshot.account.accountId)
+      : { configured:false, enabled:false, timezone:'UTC', windows:[], mode:'DISABLED', active:false, enforcementStatus:'STANDBY' };
     return {
       ...snapshot,
+      sessionSchedule,
       capabilities: this.capabilitiesFor(snapshot, userId),
       executionFromWorldEnabled: true,
       safetyModel: {
         level1: 'information',
         level2: 'live-setting-confirmation',
         level3: 'destructive-hold-confirmation',
+        recurringSchedule: 'preview-hold-arm-then-server-enforced',
       },
     };
+  }
+
+  async proposeSessionSchedule(userId, body = {}) {
+    const snapshot = await this.campaignState.snapshot(String(userId), { accountId: clean(body.accountId, 160) });
+    if (!snapshot.account) { const error = new Error('Select an authorized MT4 account before configuring WISDO Time.'); error.statusCode = 409; throw error; }
+    if (!canControlAccount(snapshot.account, userId)) { const error = new Error('This account is not authorized for automated session control.'); error.statusCode = 403; throw error; }
+    return this.sessionSchedule.propose(String(userId), {
+      accountId: snapshot.account.accountId,
+      schedule: body.schedule || {},
+    });
+  }
+
+  async armSessionSchedule(userId, body = {}) {
+    return this.sessionSchedule.arm(String(userId), body || {});
+  }
+
+  async disableSessionSchedule(userId, body = {}) {
+    const snapshot = await this.campaignState.snapshot(String(userId), { accountId: clean(body.accountId, 160) });
+    if (!snapshot.account) { const error = new Error('Select an authorized MT4 account before changing WISDO Time.'); error.statusCode = 409; throw error; }
+    if (!canControlAccount(snapshot.account, userId)) { const error = new Error('This account is not authorized for automated session control.'); error.statusCode = 403; throw error; }
+    return this.sessionSchedule.disable(String(userId), snapshot.account.accountId);
   }
 
   cleanupProposals() {
