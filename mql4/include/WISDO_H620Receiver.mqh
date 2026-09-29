@@ -51,6 +51,14 @@ void WcoPublish()
    WcoWrite(p,"window2Start",HT6NormalizeHour(DirectWindow2StartHour));WcoWrite(p,"window2End",HT6NormalizeHour(DirectWindow2EndHour));
    WcoWrite(p,"scheduleEnforced",DirectTradingWindowMode==TIME_WINDOW_ALL_HOURS?0:1);
    WcoWrite(p,"windowAllowed",chronosWindowAllowed?1:0);WcoWrite(p,"entryAllowed",chronosEntryAllowed?1:0);
+   // MARKET SENSE truth from the active HIGHTOWER organism. Numeric fields only;
+   // the website labels them, while the EA remains the authority.
+   WcoWrite(p,"intentScore",gHT6CampaignIntent);
+   WcoWrite(p,"continuationProbability",gHT5Brain.continuationProbability);
+   WcoWrite(p,"reversalProbability",gHT5Brain.reversalProbability);
+   WcoWrite(p,"pressureBias",gHT6Flow.pressureBias);
+   WcoWrite(p,"flowLeg",gHT6Flow.leg);
+   WcoWrite(p,"continuationDefense",gHT6Flow.continuationDefense?1:0);
    int count=0;RefreshRates();
    for(int dir=-1;dir<=1;dir+=2)
    {
