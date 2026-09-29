@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wisdo-static-v12.0.0-connected-command-spine';
+const CACHE_NAME = 'wisdo-static-v12.1.0-live-session-command';
 const STATIC_ASSETS = [
   '/js/workspace.js',
   '/js/wisdo-recognition.js',
