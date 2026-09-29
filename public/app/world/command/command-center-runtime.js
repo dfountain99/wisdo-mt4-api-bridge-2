@@ -328,6 +328,7 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
       core?.setTemporalRing?.(progress);
       core?.setTimePulse?.(live ? (paused ? 1 : .72) : .16);
     },
+    onConfigureWindows: (params) => arm('CONFIGURE_WINDOWS', params),
   });
 
   truthDock = createTruthDock({
