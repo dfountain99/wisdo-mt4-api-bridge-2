@@ -42,8 +42,38 @@ function windowPieces(startHour,endHour){
 
 function brokerMinute(session,ageSeconds){
   if(!session?.reported)return null;
-  const minute=(Number(session.brokerHour||0)*60)+Number(session.brokerMinute||0)+(ageSeconds/60);
+  const minute=(Number(session.brokerHour||0)*60)+Number(session.brokerMinute||0)+(Number(session.brokerSecond||0)/60)+(ageSeconds/60);
   return ((minute%1440)+1440)%1440;
+}
+
+function windowAllowsAt(session,secondOfDay){
+  if(!session?.reported)return null;
+  const mode=Number(session.windowMode||0);
+  if(mode===0)return true;
+  const hour=((secondOfDay%86400)+86400)%86400/3600;
+  const inWindow=(start,end)=>{
+    start=Number(start)||0;end=Number(end)||0;
+    if(start===end)return true;
+    return start<end?(hour>=start&&hour<end):(hour>=start||hour<end);
+  };
+  if(mode===1)return hour>=7&&hour<21;
+  const windows=Array.isArray(session.windows)?session.windows:[];
+  return windows.some((row)=>inWindow(row.startHour,row.endHour));
+}
+
+function nextSessionBoundary(session,ageSeconds){
+  if(!session?.reported||Number(session.windowMode||0)===0)return null;
+  const now=((Number(session.brokerHour||0)*3600)+(Number(session.brokerMinute||0)*60)+Number(session.brokerSecond||0)+ageSeconds)%86400;
+  const windows=Number(session.windowMode)===1?[{startHour:7,endHour:21}]:(Array.isArray(session.windows)?session.windows:[]);
+  if(windows.some((row)=>Number(row.startHour)===Number(row.endHour)))return null;
+  const boundaries=[...new Set(windows.flatMap((row)=>[Number(row.startHour)*3600,Number(row.endHour)*3600]))].filter(Number.isFinite);
+  const current=windowAllowsAt(session,now);
+  const candidates=boundaries.map((boundary)=>{
+    let delta=(boundary-now+86400)%86400;if(delta<.5)delta=86400;
+    return {seconds:delta,after:windowAllowsAt(session,(boundary+1)%86400)};
+  }).filter((row)=>row.after!==current).sort((a,b)=>a.seconds-b.seconds);
+  if(!candidates.length)return null;
+  return {...candidates[0],label:candidates[0].after?'ACTIVE HOURS BEGIN':'BLOCKED HOURS BEGIN'};
 }
 
 function sessionRanges(id){
@@ -71,6 +101,7 @@ function markup(){
           <section><span>CURRENT SESSION</span><strong id="wcV12SessionName">EA SESSION NOT REPORTED</strong><small id="wcV12SessionQuality">CHRONOS TELEMETRY REQUIRED</small></section>
           <section><span>ENTRY GATE</span><strong id="wcV12EntryGate">UNKNOWN</strong><small id="wcV12WindowMode">SCHEDULE NOT REPORTED</small></section>
           <section><span>NEXT TRIGGER</span><strong id="wcV10NextTrigger">STANDBY</strong><small id="wcV10ResumeRule">NOT CONFIGURED</small></section>
+          <section class="wisdo-v121-boundary-card"><span>SESSION TIMER</span><strong id="wcV121SessionTimer">—</strong><small id="wcV121SessionBoundary">EA HOURS NOT REPORTED</small></section>
         </div>
         <div class="wisdo-v12-day-labels"><span>00</span><span>03</span><span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span><span>24</span></div>
         <div class="wisdo-v12-day-track" id="wcV12DayTrack">
@@ -95,10 +126,23 @@ function markup(){
       <div class="wisdo-v10-time-rail-line"><i id="wcV10RailMarker"></i></div>
       <div class="wisdo-v10-time-labels"><span>00:00</span><span>00:30</span><span>01:00</span><span>01:30</span><span>02:00</span></div>
     </div>
+    <button id="wcV121EditHours" class="wisdo-v121-edit-hours" type="button">SESSION HOURS · BROKER TIME</button>
+    <section id="wcV121HoursEditor" class="wisdo-v121-hours-editor" hidden>
+      <div class="wisdo-v121-editor-head"><span>HIGHTOWER SESSION HOURS</span><button id="wcV121HoursClose" type="button">×</button></div>
+      <label>MODE<select id="wcV121WindowMode"><option value="0">ALL HOURS</option><option value="1">LONDON + NEW YORK · 07–21</option><option value="2">CUSTOM TWO WINDOWS</option></select></label>
+      <div class="wisdo-v121-window-grid">
+        <label>WINDOW 1 START<input id="wcV121W1S" type="number" min="0" max="23" step="1"></label>
+        <label>WINDOW 1 END<input id="wcV121W1E" type="number" min="0" max="23" step="1"></label>
+        <label>WINDOW 2 START<input id="wcV121W2S" type="number" min="0" max="23" step="1"></label>
+        <label>WINDOW 2 END<input id="wcV121W2E" type="number" min="0" max="23" step="1"></label>
+      </div>
+      <p id="wcV121HoursTruth">Broker-time hours. Preview opens the normal verified hold-to-confirm EA command.</p>
+      <button id="wcV121PreviewHours" type="button">PREVIEW EA HOURS</button>
+    </section>
   </div>`;
 }
 
-export function createWisdoTimeEngine(container,{resetWindowSeconds=120,onVisualState=null}={}){
+export function createWisdoTimeEngine(container,{resetWindowSeconds=120,onVisualState=null,onConfigureWindows=null}={}){
   if(!container)return {setState(){},render(){},destroy(){}};
   container.classList.add('wisdo-v10-time-host','wisdo-v12-time-host');
   container.innerHTML=markup();
@@ -108,7 +152,7 @@ export function createWisdoTimeEngine(container,{resetWindowSeconds=120,onVisual
   const progress=q('#wcV10TimeProgress');
   progress.style.strokeDasharray=String(circumference);
 
-  let state=null,campaign=null,stateReceivedAt=Date.now(),timer=0;
+  let state=null,campaign=null,stateReceivedAt=Date.now(),timer=0,editorSynced=false;
 
   function derived(){
     const control=state?.campaignControl||null;
@@ -176,9 +220,12 @@ export function createWisdoTimeEngine(container,{resetWindowSeconds=120,onVisual
 
     if(sessionReported){
       const broker=brokerMinute(session,d.age);
-      const brokerHour=Math.floor((broker||0)/60),brokerMin=Math.floor((broker||0)%60);
+      const brokerHour=Math.floor((broker||0)/60),brokerMin=Math.floor((broker||0)%60),brokerSec=Math.floor(((broker||0)*60)%60);
+      const boundary=nextSessionBoundary(session,d.age);
+      q('#wcV121SessionTimer').textContent=boundary?fmtDuration(boundary.seconds):'ALL HOURS';
+      q('#wcV121SessionBoundary').textContent=boundary?.label||'NO BLOCKED WINDOW';
       q('#wcV10SessionSync').textContent='EA / BROKER CLOCK';
-      q('#wcV12BrokerClock').textContent=`${pad(brokerHour)}:${pad(brokerMin)}`;
+      q('#wcV12BrokerClock').textContent=`${pad(brokerHour)}:${pad(brokerMin)}:${pad(brokerSec)}`;
       q('#wcV12SessionName').textContent=session.name||'OTHER';
       q('#wcV12SessionQuality').textContent=`CHRONOS QUALITY ${Number(session.quality||0).toFixed(2)}`;
       q('#wcV12EntryGate').textContent=session.entryAllowed?'TRADING ACTIVE':'NEW ENTRIES BLOCKED';
@@ -187,6 +234,8 @@ export function createWisdoTimeEngine(container,{resetWindowSeconds=120,onVisual
       q('#wcV10Schedule').textContent=session.windowMode===0?'ALL HOURS':session.windowMode===1?'07:00–21:00 BROKER':'CUSTOM WINDOWS';
       q('#wcV10Enforcement').textContent=session.scheduleEnforced?(session.windowAllowed?'WINDOW OPEN':'WINDOW BLOCKED'):'ALL HOURS';
     }else{
+      q('#wcV121SessionTimer').textContent='—';
+      q('#wcV121SessionBoundary').textContent='EA HOURS NOT REPORTED';
       q('#wcV10SessionSync').textContent=d.live?'EA SESSION NOT REPORTED':'LOCAL / UTC';
       q('#wcV12BrokerClock').textContent='NOT REPORTED';
       q('#wcV12SessionName').textContent='EA SESSION NOT REPORTED';
@@ -205,10 +254,51 @@ export function createWisdoTimeEngine(container,{resetWindowSeconds=120,onVisual
     onVisualState?.({progress:pct,live:d.live,paused:d.paused,remaining:d.remaining,elapsed:d.elapsed,session:d.session,mode:root.dataset.temporalMode});
   }
 
+  function syncEditor(){
+    const session=state?.campaignControl?.session;
+    if(!session?.reported||editorSynced)return;
+    q('#wcV121WindowMode').value=String(session.windowMode??0);
+    const rows=Array.isArray(session.windows)?session.windows:[];
+    q('#wcV121W1S').value=rows[0]?.startHour??7;
+    q('#wcV121W1E').value=rows[0]?.endHour??16;
+    q('#wcV121W2S').value=rows[1]?.startHour??16;
+    q('#wcV121W2E').value=rows[1]?.endHour??21;
+    editorSynced=true;
+  }
+
+  function hoursPayload(){
+    const hour=(id)=>Math.max(0,Math.min(23,Math.trunc(Number(q(id).value)||0)));
+    return {
+      eaCampaignId:Number(state?.campaignControl?.campaignId||0),
+      windowMode:Number(q('#wcV121WindowMode').value||0),
+      window1Start:hour('#wcV121W1S'),window1End:hour('#wcV121W1E'),
+      window2Start:hour('#wcV121W2S'),window2End:hour('#wcV121W2E'),
+    };
+  }
+
+  q('#wcV121EditHours').addEventListener('click',()=>{syncEditor();q('#wcV121HoursEditor').hidden=false;});
+  q('#wcV121HoursClose').addEventListener('click',()=>{q('#wcV121HoursEditor').hidden=true;});
+  q('#wcV121WindowMode').addEventListener('change',()=>{editorSynced=true;});
+  ['#wcV121W1S','#wcV121W1E','#wcV121W2S','#wcV121W2E'].forEach((id)=>q(id).addEventListener('input',()=>{editorSynced=true;}));
+  q('#wcV121PreviewHours').addEventListener('click',async()=>{
+    const cap=state?.capabilities?.CONFIGURE_WINDOWS;
+    const truth=q('#wcV121HoursTruth');
+    if(!cap?.available){truth.textContent=cap?.reason||'Campaign EA link is not ready. Nothing sent.';truth.dataset.tone='error';return;}
+    if(!onConfigureWindows){truth.textContent='Window command handler is unavailable. Nothing sent.';truth.dataset.tone='error';return;}
+    truth.textContent='Building verified EA window proposal…';truth.dataset.tone='pending';
+    const proposal=await onConfigureWindows(hoursPayload()).catch(()=>null);
+    if(proposal){truth.textContent='Proposal opened. Hold to confirm before WISDO sends the hours to HIGHTOWER.';truth.dataset.tone='ok';q('#wcV121HoursEditor').hidden=true;}
+    else{truth.textContent='Proposal could not be opened. Nothing sent.';truth.dataset.tone='error';}
+  });
+
   function setState(next={},activeCampaign=null){
     state=next||{};
     campaign=activeCampaign||state?.campaigns?.[0]||null;
     stateReceivedAt=Date.now();
+    const cap=state?.capabilities?.CONFIGURE_WINDOWS;
+    q('#wcV121EditHours').disabled=!cap?.available;
+    q('#wcV121EditHours').title=cap?.available?'Configure HIGHTOWER broker-time windows':(cap?.reason||'Campaign EA link unavailable');
+    editorSynced=false;syncEditor();
     render();
   }
 
