@@ -10,6 +10,11 @@ const nowIso = ()=>new Date().toISOString();
 
 function initialState(){ return { schedules:{} }; }
 function keyFor(userId,accountId){ return `${String(userId)}::${String(accountId)}`; }
+function canControlAccount(account={},userId=''){
+  if(!account) return false;
+  if(!account.shared) return String(account.ownerUserId||userId)===String(userId);
+  return ['control_allowed','admin'].includes(String(account.sharePermission||'').toLowerCase());
+}
 function validTime(value){ return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value||'')); }
 function timeMinute(value){ const [h,m]=String(value).split(':').map(Number); return h*60+m; }
 
@@ -218,6 +223,12 @@ export class WorldSessionScheduleService {
     if(!proposal||proposal.userId!==String(userId)){ const error=new Error('Session schedule proposal expired or not found.'); error.statusCode=409; throw error; }
     if(hash(clean(confirmationToken,200))!==proposal.tokenHash){ const error=new Error('Invalid schedule confirmation token.'); error.statusCode=403; throw error; }
     if(Number(heldForMs)<1200){ const error=new Error('Hold confirmation for at least 1200ms to arm WISDO Time.'); error.statusCode=409; throw error; }
+    const currentSnapshot=await this.campaignState.snapshot(String(userId),{accountId:proposal.accountId});
+    if(!currentSnapshot.account||!canControlAccount(currentSnapshot.account,userId)){
+      const error=new Error('Account control permission changed before WISDO Time was armed.');
+      error.statusCode=403;
+      throw error;
+    }
     const key=keyFor(userId,proposal.accountId);
     let saved;
     await this.store.update((state)=>{
@@ -266,6 +277,10 @@ export class WorldSessionScheduleService {
     const snapshot=await this.campaignState.snapshot(userId,{accountId});
     if(!snapshot.account){
       await this.updateScheduleRecord(userId,accountId,{enforcementStatus:'WAITING_ACCOUNT',enforcementError:'Authorized account is unavailable.'});
+      return;
+    }
+    if(!canControlAccount(snapshot.account,userId)){
+      await this.updateScheduleRecord(userId,accountId,{enforcementStatus:'PERMISSION_BLOCKED',enforcementError:'Account is no longer authorized for automated session control.'});
       return;
     }
     if(!snapshot.executionHealth?.commandLinkReady){
