@@ -143,23 +143,27 @@ export function createGuardianCommandDeck({ overlay, onRequest = null, onVisualS
 
   async function requestControl(next) {
     const key = normalizeControl(next);
-    if (!key) return;
+    if (!key) return { ok:false, reason:'Unsupported guardian control.' };
     setControl(key);
     const action = resolveGuardianControlAction(key, lastState);
     if (!action) {
       truth.textContent = 'NO VERIFIED COMMAND MAPPING · NOTHING SENT';
-      return;
+      return { ok:false, reason:'No verified command mapping.' };
     }
     const cap = lastState?.capabilities?.[action];
     if (!cap?.available) {
-      truth.textContent = `${key.replaceAll('_',' ')} · ${cap?.reason || 'COMMAND UNAVAILABLE'} · NOTHING SENT`;
-      return;
+      const reason=cap?.reason || 'COMMAND UNAVAILABLE';
+      truth.textContent = `${key.replaceAll('_',' ')} · ${reason} · NOTHING SENT`;
+      return { ok:false, action, reason };
     }
     truth.textContent = `${key.replaceAll('_',' ')} · PREPARING VERIFIED ${action.replaceAll('_',' ')} PROPOSAL`;
     try {
-      await onRequest?.({ control: key, action });
+      const result=await onRequest?.({ control: key, action });
+      return { ok:true, action, result };
     } catch (error) {
-      truth.textContent = `${key.replaceAll('_',' ')} · ${error?.message || 'PROPOSAL FAILED'} · NOTHING SENT`;
+      const reason=error?.message || 'PROPOSAL FAILED';
+      truth.textContent = `${key.replaceAll('_',' ')} · ${reason} · NOTHING SENT`;
+      return { ok:false, action, reason };
     }
   }
 
