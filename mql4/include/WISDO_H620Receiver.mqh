@@ -43,7 +43,8 @@ void WcoPublish()
    // CHRONOS truth: broker-clock session + the actual hard new-entry window.
    datetime chronosNow=TimeCurrent();
    bool chronosWindowAllowed=HT6DirectTradingWindowAllows(chronosNow);
-   bool chronosEntryAllowed=(DirectAllowNewEntries && chronosWindowAllowed && !h620FuturePaused && !h620Quarantine);
+   bool wisdoTradingPaused=(GlobalVariableCheck("WISDO_TRADING_PAUSED") && GlobalVariableGet("WISDO_TRADING_PAUSED")>=0.5);
+   bool chronosEntryAllowed=(DirectAllowNewEntries && chronosWindowAllowed && !wisdoTradingPaused && !h620FuturePaused && !h620Quarantine);
    WcoWrite(p,"session",gHT5Session);WcoWrite(p,"sessionQuality",gHT5SessionQuality);
    WcoWrite(p,"brokerHour",TimeHour(chronosNow));WcoWrite(p,"brokerMinute",TimeMinute(chronosNow));
    WcoWrite(p,"windowMode",(int)DirectTradingWindowMode);
