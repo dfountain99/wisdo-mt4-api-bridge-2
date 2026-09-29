@@ -22,6 +22,7 @@ function ensureStyles() {
     ['/app/world/command/wisdo-core-v10-living-controls.css?v=20260928-v10-3-guardian-handoff', 'wisdoCoreV10Css'],
     ['/app/world/command/wisdo-core-v11-truth-dock.css?v=20260929-v11-truth-dock', 'wisdoCoreV11Css'],
     ['/app/world/command/wisdo-core-v12-connected.css?v=20260929-v12-connected-command-spine', 'wisdoCoreV12Css'],
+    ['/app/world/command/wisdo-core-v12-1-session-command.css?v=20260929-v12-1-live-session-command', 'wisdoCoreV121SessionCss'],
   ];
   for (const [href, key] of styles) {
     const attr = `data-${key.replace(/[A-Z]/g, m => '-'+m.toLowerCase())}`;
@@ -328,6 +329,7 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
       core?.setTemporalRing?.(progress);
       core?.setTimePulse?.(live ? (paused ? 1 : .72) : .16);
     },
+    onConfigureWindows: (params) => arm('CONFIGURE_WINDOWS', params),
   });
 
   truthDock = createTruthDock({
