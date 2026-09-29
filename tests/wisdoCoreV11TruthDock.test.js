@@ -60,7 +60,7 @@ test('V11 release assets are cache-busted', async () => {
     fs.readFile(new URL('../public/service-worker.js',import.meta.url),'utf8'),
     fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8'),
   ]);
-  assert.match(workspace,/v=20260929-v11-truth-dock/);
-  assert.match(worker,/wisdo-static-v11\.0\.0-truth-dock-account-binding/);
-  assert.match(runtime,/wisdo-core-v11-truth-dock\.css\?v=20260929-v11-truth-dock/);
+  assert.match(workspace,/v=20260929-v11-1-live-session/);
+  assert.match(worker,/wisdo-static-v11\.1\.0-live-session-engine/);
+  assert.match(runtime,/wisdo-core-v11-1-session\.css\?v=20260929-v11-1-live-session/);
 });
