@@ -24,6 +24,6 @@ test('V10 route/cache versions prevent stale guardian UI from masking release', 
     fs.readFile(new URL('../public/js/workspace.js',import.meta.url),'utf8'),
     fs.readFile(new URL('../public/service-worker.js',import.meta.url),'utf8'),
   ]);
-  assert.match(workspace,/v=20260929-v11-truth-dock/);
-  assert.match(worker,/wisdo-static-v11\.0\.0-truth-dock-account-binding/);
+  assert.match(workspace,/v=20260929-v11-1-live-session/);
+  assert.match(worker,/wisdo-static-v11\.1\.0-live-session-engine/);
 });
