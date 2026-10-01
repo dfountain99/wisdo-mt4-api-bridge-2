@@ -1,6 +1,6 @@
 # WISDO live placeholder audit
 
-Repository snapshot: `main` after PR #106 (`6bfef316`). This is a code and Blueprint audit, not a claim that every deployed Render environment has the required credentials or that WebGL and external providers were exercised. The Blueprint declares a production Node service and a separate static `wisdo-world-lab` service. Service deployment settings and secrets are external to Git.
+Repository snapshot: `main` after PR #108 (`467ed6e`), with the party setup work in this branch. This is a code and Blueprint audit, not a claim that every deployed Render environment has the required credentials or that WebGL and external providers were exercised. The Blueprint declares a production Node service and a separate static `wisdo-world-lab` service. Service deployment settings and secrets are external to Git.
 
 ## Product-facing inventory
 
@@ -8,8 +8,8 @@ Repository snapshot: `main` after PR #106 (`6bfef316`). This is a code and Bluep
 | --- | --- | --- | --- |
 | `/app/kernel-control/` | Send button only printed “Command captured.” | Fixed in this branch: preview via authenticated `/api/kernel/v1/intents`, explicit confirmation before dispatch, real response/credential errors. | Test with an enrolled device and supported component; verify execution receipt. |
 | Aether Lobby | PLAY button, second portal, and cards were inert pointer-only controls; “ONLINE” was unconditional. | Fixed in this branch: semantic links to existing experiences/Genesis and `/api/world/me` session status. | Browser check signed-in and signed-out navigation. |
-| Aether Lobby PARTY/LOCKER/SHOP | Disabled “SOON” controls. | BLOCKED: there is no friend match/party, locker, or shop workflow behind these controls. Keep disabled. | Implement authorization, persistence, UI and tests for each. |
-| Street Sprint | Solo local race; no friend session, verified result, or wallet payout. | PARTIAL: PR #107 holds the City Circuit work in draft; the production branch remains solo. | Exact-SHA visual play, authoritative multiplayer result, server-side reward idempotency. |
+| Aether Lobby PARTY/LOCKER/SHOP | Party setup now has a database-backed four-member waiting room and in-app invitations; locker/shop remain disabled. | PARTIAL: invitations/ready state work, but no synchronized match host or phone notification. START RACE is disabled. | Test two authenticated accounts across service instances; add authoritative racing and opt-in push before claiming live multiplayer. |
+| Street Sprint | Solo local race; no verified result or wallet payout. | PARTIAL: PR #107 holds the City Circuit work in draft. Party setup is separate; its start route returns `race_match_host_unavailable`, and browser-reported results return `race_result_unverified` without ledger writes. | Exact-SHA visual play, authoritative multiplayer simulation/replay, server-side placement and reward idempotency. |
 | Other Aether quick games | Canvas target/quick games are local experiences. | PARTIAL, honestly labeled as local games. | Game-specific server match and result validation before social/rewards claims. |
 | Forge / personal world | Blueprint and manifest routes exist; UE and parity remain unverified. | PARTIAL. | Golden fixture browser evidence, UE 5.8 build/gameplay, renderer parity. |
 | Enter Unreal World | `WorldSessionService` returns `gpu_session_unavailable` without allocator and stream origin. | BLOCKED by GPU host/Pixel Streaming; fail closed is correct. | Certified package, stream host, allocator, local then remote playthrough. |

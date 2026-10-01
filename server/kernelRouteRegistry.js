@@ -17,6 +17,7 @@ import { registerWorldCommandRoutes } from './worldCommandRoutes.js';
 import { registerWorldRealtimeRoutes } from './worldRealtimeRoutes.js';
 import { registerWorldBuildRoutes } from './worldBuildRoutes.js';
 import { registerArcadeRoutes } from './arcadeRoutes.js';
+import { registerStreetSprintPartyRoutes } from './streetSprintPartyRoutes.js';
 import { registerOgMasterWisdoRoutes } from './ogMasterWisdoRoutes.js';
 
 /**
@@ -120,6 +121,7 @@ export function registerWisdoKernelRoutes(app, {
     pool: commandBusService.pool,
     logger,
   });
+  const raceParties = registerStreetSprintPartyRoutes(app, {pool:commandBusService.pool});
 
   // OG MASTER is an education/progression boundary. It consumes verified
   // Arcade progression for access gates but receives no MT4 execution service.
@@ -217,6 +219,7 @@ export function registerWisdoKernelRoutes(app, {
     world,
     worldBuild,
     arcade,
+    raceParties,
     ogMasterWisdo,
     worldLivingSystems,
     worldMarkets,
