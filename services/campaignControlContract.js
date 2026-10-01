@@ -19,6 +19,7 @@ export const CAMPAIGN_ACTIONS = Object.freeze({
   TRIM_CAMPAIGN: { code: 17, label: 'Trim a percentage from the active campaign' },
   ADD_IF_VALID: { code: 18, label: 'Ask HIGHTOWER to add one position under normal entry gates' },
   CLEAR_RUNTIME_OVERRIDES: { code: 19, label: 'Return live stop and trail settings to the visible EA inputs' },
+  WIDEN_EXISTING_STOPS: { code: 20, label: 'Intentionally widen existing live broker stops' },
 });
 const num = (v, fallback = 0) => typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 const bool = (v) => v === true;
@@ -100,14 +101,14 @@ export function campaignPacket(action, body, state) {
   if (!definition) fail('Unsupported campaign instruction.');
   const duration = Number(body.durationSeconds || 0);
   if ([1, 3, 6, 7, 12].includes(definition.code) && (!Number.isInteger(duration) || duration < 1 || duration > 604800)) fail('Choose a duration between 1 second and 7 days.');
-  if ([2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].includes(definition.code) && c.phase !== 1) fail('This instruction requires an active campaign.');
+  if ([2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20].includes(definition.code) && c.phase !== 1) fail('This instruction requires an active campaign.');
   const burstCount = Number(body.burstCount || 0);
   if (definition.code === 12 && (!Number.isInteger(burstCount) || burstCount < 1 || burstCount > 10)) fail('A SONIC window allows 1 to 10 entries, each subject to the normal EA gates.');
   const tickets = [...new Set(Array.isArray(body.tickets) ? body.tickets.map(Number) : [])];
   if ([8, 10, 11, 13, 14].includes(definition.code) && (!tickets.length || tickets.length > 12 || tickets.some(t => !c.positions.some(p => p.ticket === t && p.role !== 0)))) fail('Select up to 12 collectors or runners in this campaign; HOLD assignments stay protected.');
   if (definition.code === 17 && (tickets.length > 12 || tickets.some(t => !c.positions.some(p => p.ticket === t)))) fail('Trim targets must be active positions from this campaign.');
   let stopAtr = Number(body.stopAtr || 0);
-  if (definition.code === 15 && (!Number.isFinite(stopAtr) || stopAtr < 0.05 || stopAtr > 20)) fail('ATR stop multiplier must be between 0.05 and 20.');
+  if ([15, 20].includes(definition.code) && (!Number.isFinite(stopAtr) || stopAtr < 0.05 || stopAtr > 20)) fail('ATR stop multiplier must be between 0.05 and 20.');
   let trailStartAtr = Number(body.trailStartAtr || 0);
   let trailDistanceAtr = Number(body.trailDistanceAtr || 0);
   let trailStepAtr = Number(body.trailStepAtr || 0);
