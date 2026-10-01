@@ -12702,8 +12702,19 @@ void H620TrailAndExtend()
          }
          if(tp<=0) target=H620RoundTarget(dir,op+dir*initial*MathMax(H620MinimumRoomR,DirectAdaptiveTPMinimumR));
       }
+      // An explicitly confirmed WISDO widen command temporarily owns only
+      // this ticket's broker stop. Target/runner logic can continue, but automatic
+      // protection may not tighten the stop until normal EA stop authority is restored.
+      string manualWideKey=H620TicketKey(ticket,"manualWideStop");
+      if(GlobalVariableCheck(manualWideKey))
+      {
+         double manualWide=GlobalVariableGet(manualWideKey);
+         if(manualWide>0 && sl>0 && dir*(sl-manualWide)<-Point)
+         {manualWide=sl;GlobalVariableSet(manualWideKey,sl);} // respect an even-wider manual MT4 edit
+         if(manualWide>0 && dir*(quote-manualWide)>gap)candidate=manualWide;
+      }
       candidate=H620RoundStop(dir,candidate);
-      // Never loosen a broker stop, including after restart/adoption.
+      // Outside the explicit manual-wide authority, HIGHTOWER never loosens a stop.
       if(sl>0 && dir*(candidate-sl)<0) candidate=sl;
       if(candidate<=0 || dir*(quote-candidate)<=gap) candidate=sl;
       if(target>0 && dir*(target-quote)<=gap) target=tp;
