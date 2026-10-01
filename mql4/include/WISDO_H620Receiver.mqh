@@ -8,7 +8,7 @@ void WcoClearRuntime(bool force=false)
    string p=WcoEA();
    int scope=(int)WcoRead(p,"runtimeScope");
    if(!force && scope==2)return;
-   gWisdoRuntimeStopATR=0.0;
+   gWisdoRuntimeStopATR=0.0;StopATRMultiplierValue=MathMax(0.05,DirectATRStopMultiplier);
    gWisdoRuntimeTrailStartATR=0.0;
    gWisdoRuntimeTrailDistanceATR=0.0;
    gWisdoRuntimeTrailStepATR=0.0;
@@ -72,7 +72,7 @@ bool WcoTrimCampaign(string p)
 bool WcoApplyStopAtrNow(string p,double multiplier)
 {
    if(multiplier<0.05 || multiplier>20)return false;
-   gWisdoRuntimeStopATR=multiplier;int mask=(int)WcoRead(p,"runtimeOverrideMask");if(mask%2==0)mask+=1;
+   gWisdoRuntimeStopATR=multiplier;StopATRMultiplierValue=multiplier;int mask=(int)WcoRead(p,"runtimeOverrideMask");if(mask%2==0)mask+=1;
    int scope=(int)WcoRead(p,"runtimeScope");if(scope!=2)scope=1;
    WcoWrite(p,"runtimeOverrideMask",mask);WcoWrite(p,"runtimeScope",scope);WcoWrite(p,"runtimeCampaign",h620Id);WcoWrite(p,"runtimeStopAtr",multiplier);
    int requested=0,changed=0;double atr=H620ATR();RefreshRates();
