@@ -28,38 +28,29 @@ test('V11 Command Center inherits the workspace-selected account explicitly', as
   assert.match(state,/accounts\.length === 1 \? accounts\[0\] : null/);
 });
 
-test('V11 guardian gestures are real pointer gestures and still use verified proposals', async () => {
-  const [runtime,deck]=await Promise.all([
-    fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8'),
-    fs.readFile(new URL('../public/app/world/command/guardian-command-deck.js',import.meta.url),'utf8'),
-  ]);
-  assert.match(runtime,/beginGuardianGesture/);
-  assert.match(runtime,/finishGuardianGesture/);
-  assert.match(runtime,/requestGestureControl/);
-  assert.match(runtime,/guardianDeck\.requestControl\(control\)/);
-  assert.match(deck,/requestControl,/);
-  assert.match(runtime,/proposal = await runtime\.propose\(/);
-  assert.match(runtime,/latestReceipt = await runtime\.execute\(/);
+test('V15 active runtime removes guardian gestures and keeps verified proposals', async () => {
+  const runtime=await fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8');
+  assert.doesNotMatch(runtime,/beginGuardianGesture|finishGuardianGesture|guardianDeck|wcV8CharacterChamber/);
+  assert.match(runtime,/runtime\.propose\(/);
+  assert.match(runtime,/runtime\.execute\(/);
 });
 
-test('V11 removes misleading camera-gesture and hardcoded progress claims', async () => {
-  const [runtime,rank]=await Promise.all([
-    fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8'),
-    fs.readFile(new URL('../public/app/world/command/rank-ascension.js',import.meta.url),'utf8'),
-  ]);
-  assert.match(runtime,/Camera gestures · NOT CONNECTED/);
-  assert.doesNotMatch(runtime,/c\?\.positionCount \? '68%'/);
-  assert.match(runtime,/goalProgress/);
-  assert.match(rank,/rankBaselineEstablished/);
+test('V15 shows only live trading telemetry in the active Command Center', async () => {
+  const runtime=await fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8');
+  assert.doesNotMatch(runtime,/Camera gestures|CHARACTER EVOLUTION|guardian|rank ascension/i);
+  assert.match(runtime,/CAMPAIGN BASE/);
+  assert.match(runtime,/NEXT TARGET/);
+  assert.match(runtime,/Protection & Market Sense/);
 });
 
-test('V11 release assets are cache-busted', async () => {
+test('V15 release assets are cache-busted and load only the Live Manager stylesheet', async () => {
   const [workspace,worker,runtime]=await Promise.all([
     fs.readFile(new URL('../public/js/workspace.js',import.meta.url),'utf8'),
     fs.readFile(new URL('../public/service-worker.js',import.meta.url),'utf8'),
     fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8'),
   ]);
-  assert.match(workspace,/v=20260929-v12-connected-command-spine/);
-  assert.match(worker,/wisdo-static-v12\.0\.0-connected-command-spine/);
-  assert.match(runtime,/wisdo-core-v11-truth-dock\.css\?v=20260929-v11-truth-dock/);
+  assert.match(workspace,/v=20261001-v15-live-manager/);
+  assert.match(worker,/wisdo-static-v15\.0\.0-live-manager/);
+  assert.match(runtime,/wisdo-live-manager-v15\.css/);
+  assert.doesNotMatch(runtime,/wisdo-core-v11-truth-dock\.css|wisdo-core-v8-rank-ascension\.css/);
 });
