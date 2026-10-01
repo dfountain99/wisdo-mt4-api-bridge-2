@@ -6,8 +6,9 @@ const clean = (value, max = 160) => String(value ?? '').replace(/\u0000/g, '').t
 const nowIso = () => new Date().toISOString();
 const hash = (value) => createHash('sha256').update(String(value)).digest('hex');
 
+const DIRECT_MANAGER_ACTIONS = new Set(['SET_STOP_ATR','SET_TRAIL_ATR','TRIM_CAMPAIGN','CLEAR_RUNTIME_OVERRIDES']);
 const COMMAND_DEFINITIONS = Object.freeze({
-  ...Object.fromEntries(Object.entries(CAMPAIGN_ACTIONS).map(([key, value]) => [key, { command: 'WISDO_CAMPAIGN', level: 3, scope: 'CAMPAIGN', label: value.label }])),
+  ...Object.fromEntries(Object.entries(CAMPAIGN_ACTIONS).map(([key, value]) => [key, { command: 'WISDO_CAMPAIGN', level: DIRECT_MANAGER_ACTIONS.has(key) ? 2 : 3, directManager: DIRECT_MANAGER_ACTIONS.has(key), scope: 'CAMPAIGN', label: value.label }])),
   CLOSE_POSITION: { command: 'CLOSE_BY_TICKET', level: 3, scope: 'POSITION', label: 'Close Position', requires: ['position'] },
   CLOSE_CAMPAIGN: { command: 'CLOSE_BY_MAGIC', level: 3, scope: 'CAMPAIGN', label: 'Close Campaign', requires: ['campaignMagic'] },
   CLOSE_ALL: { command: 'CLOSE_ALL_TRADES', level: 3, scope: 'ACCOUNT', label: 'Close All', requires: [] },
@@ -143,7 +144,7 @@ export class WorldCommandCenterService {
     if (!capability?.available) {
       const error = new Error(capability?.reason || 'Command is unavailable.'); error.statusCode = 409; error.code = 'command_unavailable'; throw error;
     }
-    const packet = CAMPAIGN_ACTIONS[action] ? campaignPacket(action, body, snapshot) : null;
+    const packet = CAMPAIGN_ACTIONS[action] ? campaignPacket(action, { ...body, eaCampaignId: body.eaCampaignId ?? snapshot.campaignControl?.campaignId }, snapshot) : null;
     const affected = this.affectedFor(snapshot, action, body);
     if (action === 'CLOSE_POSITION' && !affected.position) { const error = new Error('The selected position is no longer open.'); error.statusCode = 409; throw error; }
     if (action === 'CLOSE_CAMPAIGN' && (!affected.campaign || !affected.campaign.canTargetByMagic || affected.campaign.magicNumber == null)) { const error = new Error('This campaign cannot be safely targeted by the current Reporter command contract.'); error.statusCode = 409; throw error; }
@@ -171,7 +172,7 @@ export class WorldCommandCenterService {
       expiresAt: new Date(expiresAtMs).toISOString(),
       expiresAtMs,
       clientCommandId,
-      holdRequiredMs: definition.level >= 3 ? 1800 : 700,
+      holdRequiredMs: definition.directManager ? 0 : definition.level >= 3 ? 1800 : 700,
       usedAt: null,
       snapshotGeneratedAt: snapshot.generatedAt,
       accountState: {
