@@ -6,8 +6,13 @@ string WcoEA(){return WcoPrefix(Symbol(),MagicNumber);}
 void WcoClearRuntime(bool force=false)
 {
    string p=WcoEA();
+   // Manual wide-stop authority is always ticket scoped and is cleared when the
+   // user explicitly returns control to the EA, independent of persistent ATR defaults.
+   for(int i=OrdersTotal()-1;i>=0;i--)
+      if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES) && H620OwnedSelected() && H620CampaignTicketSelected())
+         GlobalVariableDel(H620TicketKey(OrderTicket(),"manualWideStop"));
    int scope=(int)WcoRead(p,"runtimeScope");
-   if(!force && scope==2)return;
+   if(!force && scope==2){GlobalVariablesFlush();return;}
    gWisdoRuntimeStopATR=0.0;StopATRMultiplierValue=MathMax(0.05,DirectATRStopMultiplier);
    gWisdoRuntimeTrailStartATR=0.0;
    gWisdoRuntimeTrailDistanceATR=0.0;
@@ -81,6 +86,7 @@ bool WcoApplyStopAtrNow(string p,double multiplier)
    {
       if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES) || !H620OwnedSelected() || !H620CampaignTicketSelected())continue;
       int type=OrderType();if(type!=OP_BUY && type!=OP_SELL)continue;requested++;
+      GlobalVariableDel(H620TicketKey(OrderTicket(),"manualWideStop")); // normal stop authority resumes immediately
       int dir=(type==OP_BUY?DIR_BUY:DIR_SELL);double quote=(dir==DIR_BUY?Bid:Ask);
       double candidate=H620RoundStop(dir,quote-dir*atr*multiplier);
       double sl=OrderStopLoss();
@@ -92,25 +98,31 @@ bool WcoApplyStopAtrNow(string p,double multiplier)
 bool WcoWidenExistingStops(string p,double multiplier)
 {
    if(multiplier<0.05 || multiplier>20)return false;
-   int requested=0,changed=0;double atr=H620ATR();RefreshRates();
+   int protectedCount=0,requested=0,changed=0,alreadyWide=0,invalid=0;double atr=H620ATR();RefreshRates();
    double gap=MathMax(MarketInfo(Symbol(),MODE_STOPLEVEL),MarketInfo(Symbol(),MODE_FREEZELEVEL))*Point+2*Point;
    for(int i=OrdersTotal()-1;i>=0;i--)
    {
       if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES) || !H620OwnedSelected() || !H620CampaignTicketSelected())continue;
       int type=OrderType();if(type!=OP_BUY && type!=OP_SELL)continue;
-      double sl=OrderStopLoss();if(sl<=0)continue;
-      int dir=(type==OP_BUY?DIR_BUY:DIR_SELL);double quote=(dir==DIR_BUY?Bid:Ask);
+      double sl=OrderStopLoss();if(sl<=0)continue;protectedCount++;
+      int ticket=OrderTicket(),dir=(type==OP_BUY?DIR_BUY:DIR_SELL);double quote=(dir==DIR_BUY?Bid:Ask);
       double candidate=H620RoundStop(dir,quote-dir*atr*multiplier);
-      if(candidate<=0 || dir*(quote-candidate)<=gap)continue;
-      // This command has one purpose: explicitly move protection farther from price.
-      // If the live stop is already at least this wide, it is left unchanged.
-      if(dir*(candidate-sl)>=-Point)continue;
+      if(candidate<=0 || dir*(quote-candidate)<=gap){invalid++;continue;}
+      // If the broker stop is already this wide or wider, preserve its current
+      // location as the explicit manual-wide authority instead of tightening it.
+      if(dir*(candidate-sl)>=-Point)
+      {
+         GlobalVariableSet(H620TicketKey(ticket,"manualWideStop"),sl);alreadyWide++;continue;
+      }
       requested++;
-      if(H620Modify(OrderTicket(),candidate,OrderTakeProfit()))changed++;
+      if(H620Modify(ticket,candidate,OrderTakeProfit()))
+      {
+         GlobalVariableSet(H620TicketKey(ticket,"manualWideStop"),candidate);changed++;
+      }
    }
-   WcoWrite(p,"requested",requested);WcoWrite(p,"changed",changed);GlobalVariablesFlush();
-   // Zero requested means every protected ticket was already at least this wide.
-   return requested==0 || changed==requested;
+   WcoWrite(p,"requested",requested);WcoWrite(p,"changed",changed);WcoWrite(p,"wideAlready",alreadyWide);WcoWrite(p,"wideInvalid",invalid);GlobalVariablesFlush();
+   if(protectedCount<=0 || invalid>0)return false;
+   return changed==requested;
 }
 bool WcoApplyTrailAtr(string p,double startAtr,double distanceAtr,double stepAtr)
 {
