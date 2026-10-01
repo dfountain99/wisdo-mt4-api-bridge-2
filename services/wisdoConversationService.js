@@ -100,8 +100,12 @@ export class WisdoConversationService {
     const safetyLevel=this.safetyService.classify(intent,{multipleAccounts:false,increasesRisk:riskChange&&(!Number.isFinite(currentRisk)||requestedRisk>currentRisk)});
     if(this.safetyService.requiresConfirmation(safetyLevel)){
       const pending=await this.confirmationService.create({userId:input.userId,sessionId:session.session_id,deviceId:input.deviceId,actionType:intent.intent,accountIds:[id],parameters:{intent,rawText:text},safetyLevel});
-      const phrase=safetyLevel==='DANGEROUS'?'Confirm Coach, execute':'Confirm Coach, execute';
-      return {state:'awaiting_confirmation',confirmationId:pending.confirmation_id,text:`Coach understood your request to ${intent.intent.toLowerCase().replaceAll('_',' ')} on account ${accountLabel(resolved.account)}. Say â€œ${phrase}â€ to continue.`};
+      const phrase='Confirm Coach, execute';
+      if(intent.intent==='WIDEN_EXISTING_STOPS'){
+        const atr=Number(intent.parameters?.stopAtr);
+        return {state:'awaiting_confirmation',confirmationId:pending.confirmation_id,text:`Coach understood: intentionally widen the existing live broker stops on account ${accountLabel(resolved.account)} to ${Number.isFinite(atr)?atr.toFixed(2):'the requested'} ATR. This can increase the maximum loss on those open positions. Say “${phrase}” to execute, or say “cancel” to leave the stops unchanged.`};
+      }
+      return {state:'awaiting_confirmation',confirmationId:pending.confirmation_id,text:`Coach understood your request to ${intent.intent.toLowerCase().replaceAll('_',' ')} on account ${accountLabel(resolved.account)}. Say “${phrase}” to continue.`};
     }
     const queued=await this.executionService.queue({userId:input.userId,deviceId:input.deviceId,accountId:id,intent:intent.intent,commandName:intent.commandName,parameters:intent.parameters,rawText:text,safetyLevel,confirmationStatus:'NOT_REQUIRED'});
     return {state:'queued',commandId:queued.id,text:this.executionService.responseFor(queued)};

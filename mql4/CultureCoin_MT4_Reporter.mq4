@@ -89,7 +89,7 @@ input color DashboardWarnColor = clrOrange;
 input color DashboardBadColor = clrTomato;
 input color DashboardTextColor = clrSilver;
 
-string REPORTER_VERSION = "1.61";
+string REPORTER_VERSION = "1.62";
 string STATUS_LABEL = "CultureCoinReporterStatus";
 string DASH_PREFIX = "CEM_WISDO_DASH_";
 string g_lastStatus = "Waiting";
@@ -1191,6 +1191,7 @@ string CampaignAckMessage(string p,int status)
    if(op==17)return "EA verified trim on "+IntegerToString(changed)+" of "+IntegerToString(requested)+" requested position(s).";
    if(op==18)return status==6?"EA verified one HIGHTOWER add was opened under normal entry gates.":"HIGHTOWER evaluated the add request without opening exposure.";
    if(op==19)return "EA verified live stop/trail overrides were cleared; visible EA inputs are authoritative again.";
+   if(op==20)return "EA verified intentional stop widening to "+DoubleToString(WcoRead(p,"stopAtr"),2)+" ATR; "+IntegerToString(changed)+" existing broker stop(s) moved farther from price. Stops already at least that wide were unchanged.";
    if(status==6)return "EA verified the requested entry was opened.";
    if(status==5)return "EA verified the requested evaluation completed without a new entry.";
    return "EA verified campaign command execution.";

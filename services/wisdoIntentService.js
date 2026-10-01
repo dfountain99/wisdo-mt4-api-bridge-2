@@ -130,6 +130,11 @@ export class WisdoIntentService {
 
     // V13 live-manager language: deterministic phrases compile into the same verified campaign mailbox used by Command Center.
     const persistRuntime=/from now on|make (?:that|this) (?:my )?default|until i change/.test(ask);
+    let widenMatch=ask.match(/\b(?:intentionally\s+)?(?:widen|loosen)\b.*?\b(?:existing|current|open)?\s*(?:stops?|stop\s+loss(?:es)?)\b.*?(\d+(?:\.\d+)?)\s*atr\b/);
+    if(!widenMatch)widenMatch=ask.match(/\b(?:move\s+(?:my\s+)?(?:existing|current|open)?\s*(?:stops?|stop\s+loss(?:es)?)\s+(?:farther|further)|give\s+(?:my\s+)?(?:existing|current|open)?\s*(?:stops?|stop\s+loss(?:es)?)\s+more\s+room).*?(\d+(?:\.\d+)?)\s*atr\b/);
+    if(widenMatch)return command('WIDEN_EXISTING_STOPS','WISDO_CAMPAIGN',{action:'WIDEN_EXISTING_STOPS',stopAtr:Number(widenMatch[1])},0.995,{rawText:raw,riskIncreasing:true,requiresExplicitConfirmation:true});
+    if(/\b(?:intentionally\s+)?(?:widen|loosen)\b.*\b(?:existing|current|open)?\s*(?:stops?|stop\s+loss(?:es)?)\b/.test(ask))
+      return command('WIDEN_EXISTING_STOPS','WISDO_CAMPAIGN',{action:'WIDEN_EXISTING_STOPS',stopAtr:null},0.55,{rawText:raw,riskIncreasing:true,requiresExplicitConfirmation:true});
     let managerMatch=ask.match(/\b(?:set|change|move|switch|use).*?\bstop(?: loss| losses)?(?:.*?\b(?:to|at))?\s*(\d+(?:\.\d+)?)\s*atr\b/);
     if(managerMatch)return command('SET_STOP_ATR','WISDO_CAMPAIGN',{action:'SET_STOP_ATR',stopAtr:Number(managerMatch[1]),persistRuntime},0.99,{rawText:raw});
     managerMatch=ask.match(/\b(?:set|change|move|use).*?\b(?:trail|trailer|trailing)(?: distance)?(?:.*?\b(?:to|at))?\s*(\d+(?:\.\d+)?)\s*atr\b/);
@@ -146,7 +151,7 @@ export class WisdoIntentService {
     }
     if(/\b(?:add|boost)\b.*\b(?:position|trade|entry)\b/.test(ask))
       return command('ADD_POSITION_IF_VALID','WISDO_CAMPAIGN',{action:'ADD_IF_VALID'},0.98,{rawText:raw});
-    if(/\b(?:clear|remove|reset)\b.*\b(?:runtime|live manager|atr|trail|stop).*\b(?:override|overrides|settings?)\b|\bback to (?:the )?(?:ea|visible) inputs?\b/.test(ask))
+    if(/\b(?:clear|remove|reset)\b.*\b(?:runtime|live manager|atr|trail|stop).*\b(?:override|overrides|settings?)\b|\bback to (?:the )?(?:ea|visible) inputs?\b|\b(?:return|restore|resume)\b.*\bstops?\b.*\b(?:normal|ea|automatic)\b.*\b(?:management|control)?\b/.test(ask))
       return command('CLEAR_RUNTIME_OVERRIDES','WISDO_CAMPAIGN',{action:'CLEAR_RUNTIME_OVERRIDES'},0.98,{rawText:raw});
     if (/buy only|only allow buys|block sells/.test(ask)) return command('BUY_ONLY', 'CEM_SET_GLOBALS', { globals: { WISDO_ALLOW_BUYS: 1, WISDO_ALLOW_SELLS: 0 } }, 0.97, { rawText: raw });
     if (/sell only|only allow sells|block buys/.test(ask)) return command('SELL_ONLY', 'CEM_SET_GLOBALS', { globals: { WISDO_ALLOW_BUYS: 0, WISDO_ALLOW_SELLS: 1 } }, 0.97, { rawText: raw });

@@ -674,7 +674,9 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
     const spoken=raw.toLowerCase().replace(/\s+/g,' ').trim();
     const persistRuntime=/from now on|make (?:that|this) (?:my )?default|until i change/.test(spoken);
     let manager=null, mm=null;
-    if((mm=spoken.match(/\b(?:set|change|move|switch|use).*?\bstop(?: loss| losses)?(?:.*?\b(?:to|at))?\s*(\d+(?:\.\d+)?)\s*atr\b/)))
+    if((mm=spoken.match(/\b(?:intentionally\s+)?(?:widen|loosen)\b.*?\b(?:existing|current|open)?\s*(?:stops?|stop\s+loss(?:es)?)\b.*?(\d+(?:\.\d+)?)\s*atr\b/)))
+      manager={action:'WIDEN_EXISTING_STOPS',options:{stopAtr:Number(mm[1])}};
+    else if((mm=spoken.match(/\b(?:set|change|move|switch|use).*?\bstop(?: loss| losses)?(?:.*?\b(?:to|at))?\s*(\d+(?:\.\d+)?)\s*atr\b/)))
       manager={action:'SET_STOP_ATR',options:{stopAtr:Number(mm[1]),persistRuntime}};
     else if((mm=spoken.match(/\b(?:set|change|move|use).*?\b(?:trail|trailer|trailing)(?: distance)?(?:.*?\b(?:to|at))?\s*(\d+(?:\.\d+)?)\s*atr\b/)))
       manager={action:'SET_TRAIL_ATR',options:{trailDistanceAtr:Number(mm[1]),persistRuntime}};
@@ -686,7 +688,7 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
       const pct=/\bhalf\b/.test(spoken)?50:Number(spoken.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)/)?.[1]||0);
       const ticket=Number(spoken.match(/\bticket\s*(\d+)/)?.[1]||0);
       if(pct>0) manager={action:'TRIM_CAMPAIGN',options:{trimPercent:pct,tickets:ticket?[ticket]:[]}};
-    } else if(/\b(?:clear|remove|reset)\b.*\b(?:runtime|live manager|atr|trail|stop).*\b(?:override|overrides|settings?)\b|\bback to (?:the )?(?:ea|visible) inputs?\b/.test(spoken))
+    } else if(/\b(?:clear|remove|reset)\b.*\b(?:runtime|live manager|atr|trail|stop).*\b(?:override|overrides|settings?)\b|\bback to (?:the )?(?:ea|visible) inputs?\b|\b(?:return|restore|resume)\b.*\bstops?\b.*\b(?:normal|ea|automatic)\b/.test(spoken))
       manager={action:'CLEAR_RUNTIME_OVERRIDES',options:{}};
     else if(/\b(?:add|boost)\b.*\b(?:position|trade|entry)\b/.test(spoken))
       manager={action:'ADD_IF_VALID',options:{}};
@@ -694,8 +696,10 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
     const state=document.getElementById('wcIntentState');
     if(manager){
       input.value='';
-      if(manager.action==='ADD_IF_VALID'){
-        if(state) state.textContent='ADD REQUEST UNDERSTOOD · HIGHTOWER WILL REVALIDATE ENTRY GATES · HOLD TO CONFIRM';
+      if(manager.action==='ADD_IF_VALID' || manager.action==='WIDEN_EXISTING_STOPS'){
+        if(state) state.textContent=manager.action==='WIDEN_EXISTING_STOPS'
+          ? 'RISK-INCREASING STOP WIDEN REQUEST · REVIEW EXACT ATR · HOLD TO CONFIRM'
+          : 'ADD REQUEST UNDERSTOOD · HIGHTOWER WILL REVALIDATE ENTRY GATES · HOLD TO CONFIRM';
         await arm(manager.action,manager.options);
         return;
       }
