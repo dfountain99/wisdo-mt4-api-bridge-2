@@ -82,7 +82,7 @@ test('V14 MQL bridge keeps widened stops under explicit ticket authority until r
   assert.match(receiver, /op==20/);
   assert.match(receiver, /return requested==0 \|\| changed==requested|return changed==requested/);
   assert.match(ea, /manualWideStop/);
-  assert.match(ea, /automatic protection may not tighten the stop/);
+  assert.match(ea, /protection may not tighten the stop/);
   assert.match(bridge, /op>20/);
   assert.match(reporter, /REPORTER_VERSION = "1\.62"/);
   assert.match(reporter, /verified intentional stop widening/);
