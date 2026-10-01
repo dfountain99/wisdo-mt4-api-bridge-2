@@ -89,6 +89,29 @@ bool WcoApplyStopAtrNow(string p,double multiplier)
    }
    WcoWrite(p,"requested",requested);WcoWrite(p,"changed",changed);GlobalVariablesFlush();return true;
 }
+bool WcoWidenExistingStops(string p,double multiplier)
+{
+   if(multiplier<0.05 || multiplier>20)return false;
+   int requested=0,changed=0;double atr=H620ATR();RefreshRates();
+   double gap=MathMax(MarketInfo(Symbol(),MODE_STOPLEVEL),MarketInfo(Symbol(),MODE_FREEZELEVEL))*Point+2*Point;
+   for(int i=OrdersTotal()-1;i>=0;i--)
+   {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES) || !H620OwnedSelected() || !H620CampaignTicketSelected())continue;
+      int type=OrderType();if(type!=OP_BUY && type!=OP_SELL)continue;
+      double sl=OrderStopLoss();if(sl<=0)continue;
+      int dir=(type==OP_BUY?DIR_BUY:DIR_SELL);double quote=(dir==DIR_BUY?Bid:Ask);
+      double candidate=H620RoundStop(dir,quote-dir*atr*multiplier);
+      if(candidate<=0 || dir*(quote-candidate)<=gap)continue;
+      // This command has one purpose: explicitly move protection farther from price.
+      // If the live stop is already at least this wide, it is left unchanged.
+      if(dir*(candidate-sl)>=-Point)continue;
+      requested++;
+      if(H620Modify(OrderTicket(),candidate,OrderTakeProfit()))changed++;
+   }
+   WcoWrite(p,"requested",requested);WcoWrite(p,"changed",changed);GlobalVariablesFlush();
+   // Zero requested means every protected ticket was already at least this wide.
+   return requested==0 || changed==requested;
+}
 bool WcoApplyTrailAtr(string p,double startAtr,double distanceAtr,double stepAtr)
 {
    if(startAtr<0.05 || startAtr>20 || distanceAtr<0.05 || distanceAtr>20 || stepAtr<0.01 || stepAtr>5)return false;
@@ -240,9 +263,9 @@ void H620FutureTick()
    {
       int op=(int)WcoRead(p,"op"),duration=(int)WcoRead(p,"duration");
       bool valid=WcoRead(p,"expires")>=TimeGMT() && WcoRead(p,"expected")==h620Id && IsConnected() && IsExpertEnabled();
-      if(op<1 || op>19)valid=false;
+      if(op<1 || op>20)valid=false;
       if((op==1 || op==3 || op==6 || op==7 || op==12) && (duration<1 || duration>604800))valid=false;
-      if((op==2 || op==3 || (op>=6 && op<=18)) && h620Phase!=1)valid=false;
+      if((op==2 || op==3 || (op>=6 && op<=18) || op==20) && h620Phase!=1)valid=false;
       if(op==12 && (WcoRead(p,"burst")<1 || WcoRead(p,"burst")>10))valid=false;
       if(!valid){WcoAck(id,-1);return;}
       // A persisted processing marker prevents replay after a terminal crash.
@@ -258,6 +281,7 @@ void H620FutureTick()
          WcoWrite(p,"requested",1);bool opened=HT6EinsteinOpenContinuationAdd();WcoWrite(p,"changed",opened?1:0);GlobalVariablesFlush();result=opened?6:-1;
       }
       else if(op==19){WcoClearRuntime(true);WcoWrite(p,"requested",1);WcoWrite(p,"changed",1);result=1;}
+      else if(op==20){result=WcoWidenExistingStops(p,WcoRead(p,"stopAtr"))?1:(WcoRead(p,"changed")>0?3:-1);}
       else if((op>=8 && op<=11) || op==13 || op==14)
       {
          WcoWrite(p,"changed",0);WcoWrite(p,"requested",0);
