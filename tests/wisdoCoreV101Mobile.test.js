@@ -21,22 +21,19 @@ test('V10.2 portrait hierarchy is authored in the primary V10 stylesheet', async
   assert.ok(composer < protocol);
 });
 
-test('V10.2 runtime explicitly controls mobile chamber state from viewport width', async () => {
+test('V15 mobile layout is CSS-first and no longer maintains a character chamber viewport mode', async () => {
   const runtime = await fs.readFile(new URL('../public/app/world/command/command-center-runtime.js', import.meta.url), 'utf8');
-  assert.match(runtime, /function syncViewportMode\(\)/);
-  assert.match(runtime, /mobile-command-chamber/);
-  assert.match(runtime, /window\.visualViewport\?\.width/);
-  assert.match(runtime, /viewportWidth <= 760/);
-  assert.doesNotMatch(runtime, /wisdo-core-v10-1-mobile\.css/);
-  assert.match(runtime, /existing\.href !== expected/);
+  const css = await fs.readFile(new URL('../public/app/world/command/wisdo-live-manager-v15.css', import.meta.url), 'utf8');
+  assert.doesNotMatch(runtime, /syncViewportMode|mobile-command-chamber|visualViewport|wisdo-core-v10-1-mobile/);
+  assert.match(css, /@media\(max-width:650px\)/);
+  assert.match(css, /\.lm-grid\{grid-template-columns:1fr\}/);
 });
 
-test('V10.2 mobile input modes stay collapsed behind the dedicated toggle', async () => {
+test('V15 keeps one command composer on phone instead of a hidden multimodal character menu', async () => {
   const runtime = await fs.readFile(new URL('../public/app/world/command/command-center-runtime.js', import.meta.url), 'utf8');
-  const css = await fs.readFile(new URL('../public/app/world/command/wisdo-core-v10-living-controls.css', import.meta.url), 'utf8');
-  assert.match(runtime, /wcMobileInputToggle/);
-  assert.match(runtime, /mobile-input-open/);
-  assert.match(css, /mobile-command-chamber\.mobile-input-open \.wisdo-v7-inputs\{display:block!important\}/);
+  assert.match(runtime, /lmComposer/);
+  assert.match(runtime, /lmIntentInput/);
+  assert.doesNotMatch(runtime, /wcMobileInputToggle|mobile-input-open|data-mobile-input/);
 });
 
 test('V10.2 release assets use fresh deterministic-mobile versions', async () => {
@@ -45,8 +42,8 @@ test('V10.2 release assets use fresh deterministic-mobile versions', async () =>
     fs.readFile(new URL('../public/service-worker.js', import.meta.url), 'utf8'),
     fs.readFile(new URL('../public/app/world/command/command-center-runtime.js', import.meta.url), 'utf8'),
   ]);
-  assert.match(workspace, /v=20260929-v12-connected-command-spine/);
-  assert.match(worker, /wisdo-static-v12\.0\.0-connected-command-spine/);
-  assert.match(runtime, /wisdo-core-v10-living-controls\.css\?v=20260928-v10-3-guardian-handoff/);
-  assert.match(runtime, /wisdo-core-v11-truth-dock\.css\?v=20260929-v11-truth-dock/);
+  assert.match(workspace, /v=20261001-v15-live-manager/);
+  assert.match(worker, /wisdo-static-v15\.0\.0-live-manager/);
+  assert.match(runtime, /wisdo-live-manager-v15\.css\?v=20261001-v15/);
+  assert.doesNotMatch(runtime, /wisdo-core-v10-living-controls|wisdo-core-v11-truth-dock/);
 });

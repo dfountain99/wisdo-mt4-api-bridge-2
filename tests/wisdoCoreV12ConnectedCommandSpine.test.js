@@ -62,28 +62,26 @@ test('V12 right menu binds stable account IDs, verified broker victories and act
   assert.match(state,/expertEnabled !== false/);
 });
 
-test('V12 guardian swipe visibly opens the same verified proposal path', async () => {
-  const [runtime,deck]=await Promise.all([
-    fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8'),
-    fs.readFile(new URL('../public/app/world/command/guardian-command-deck.js',import.meta.url),'utf8'),
-  ]);
-  assert.match(runtime,/GESTURE RECOGNIZED/);
-  assert.match(runtime,/requestGestureControl\('AUTO','AUTO'\)/);
-  assert.match(runtime,/requestGestureControl\('PROTECT','PROTECT'\)/);
-  assert.match(runtime,/requestGestureControl\('TAKE_PROFIT','TAKE PROFIT'\)/);
-  assert.match(deck,/onRequest/);
-  assert.match(runtime,/proposal = await runtime\.propose\(/);
-  assert.match(runtime,/latestReceipt = await runtime\.execute\(/);
+test('V15 voice/text manager uses the same verified proposal and acknowledgement path without guardian controls', async () => {
+  const runtime=await fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8');
+  assert.match(runtime,/VOICE \+ TEXT → VERIFIED EA COMMANDS/);
+  assert.match(runtime,/WIDEN_EXISTING_STOPS/);
+  assert.match(runtime,/SET_TRAIL_ATR/);
+  assert.match(runtime,/TRIM_CAMPAIGN/);
+  assert.match(runtime,/runtime\.propose\(/);
+  assert.match(runtime,/runtime\.execute\(/);
   assert.match(runtime,/HOLD TO CONFIRM/);
+  assert.doesNotMatch(runtime,/GESTURE RECOGNIZED|guardianDeck|wcV8CharacterChamber/);
 });
 
-test('V12 release assets are cache-busted and stylesheet is last in CORE cascade', async () => {
+test('V15 release assets are cache-busted and the old CORE cascade is retired', async () => {
   const [workspace,worker,runtime]=await Promise.all([
     fs.readFile(new URL('../public/js/workspace.js',import.meta.url),'utf8'),
     fs.readFile(new URL('../public/service-worker.js',import.meta.url),'utf8'),
     fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8'),
   ]);
-  assert.match(workspace,/v=20260929-v12-connected-command-spine/);
-  assert.match(worker,/wisdo-static-v12\.0\.0-connected-command-spine/);
-  assert.match(runtime,/wisdo-core-v12-connected\.css\?v=20260929-v12-connected-command-spine/);
+  assert.match(workspace,/v=20261001-v15-live-manager/);
+  assert.match(worker,/wisdo-static-v15\.0\.0-live-manager/);
+  assert.match(runtime,/wisdo-live-manager-v15\.css\?v=20261001-v15/);
+  assert.doesNotMatch(runtime,/wisdo-core-v12-connected\.css|wisdo-core-v8-rank-ascension\.css/);
 });

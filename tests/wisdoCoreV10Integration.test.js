@@ -9,21 +9,20 @@ test('V10 browser modules import cleanly', async () => {
   assert.equal(typeof time.createWisdoTimeEngine,'function');
 });
 
-test('Command Center wires V10 through the existing safe proposal path', async () => {
+test('V15 Command Center keeps WISDO Time and the safe proposal path without guardian presentation', async () => {
   const runtime=await fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8');
-  assert.match(runtime,/createGuardianCommandDeck/);
+  assert.doesNotMatch(runtime,/createGuardianCommandDeck|createRankAscension|createCampaignCoreRenderer/);
   assert.match(runtime,/createWisdoTimeEngine/);
-  assert.match(runtime,/onRequest:\s*\(\{ action \}\) => arm\(action\)/);
-  assert.match(runtime,/proposal = await runtime\.propose\(/);
-  assert.match(runtime,/latestReceipt = await runtime\.execute\(/);
+  assert.match(runtime,/runtime\.propose\(/);
+  assert.match(runtime,/runtime\.execute\(/);
   assert.match(runtime,/HOLD TO CONFIRM/);
 });
 
-test('V10 route/cache versions prevent stale guardian UI from masking release', async () => {
+test('V15 route/cache versions prevent stale character UI from masking Live Manager', async () => {
   const [workspace,worker]=await Promise.all([
     fs.readFile(new URL('../public/js/workspace.js',import.meta.url),'utf8'),
     fs.readFile(new URL('../public/service-worker.js',import.meta.url),'utf8'),
   ]);
-  assert.match(workspace,/v=20260929-v12-connected-command-spine/);
-  assert.match(worker,/wisdo-static-v12\.0\.0-connected-command-spine/);
+  assert.match(workspace,/v=20261001-v15-live-manager/);
+  assert.match(worker,/wisdo-static-v15\.0\.0-live-manager/);
 });
