@@ -1,4 +1,5 @@
-const DANGEROUS = new Set(['CLOSE_ALL_TRADES','CLOSE_LOSING_TRADES','EMERGENCY_STOP','INCREASE_RISK','SET_FIXED_LOT','SET_MAX_OPEN_TRADES','RAISE_TRADE_LIMIT','ACTIVATE_LIVE_PLAN','MULTI_ACCOUNT_ACTION']);
+const DANGEROUS = new Set(['CLOSE_ALL_TRADES','CLOSE_LOSING_TRADES','EMERGENCY_STOP','INCREASE_RISK','SET_FIXED_LOT','SET_MAX_OPEN_TRADES','RAISE_TRADE_LIMIT','ACTIVATE_LIVE_PLAN','MULTI_ACCOUNT_ACTION','ADD_POSITION_IF_VALID']);
+const DIRECT_MANAGER = new Set(['TRIM_CAMPAIGN','SET_STOP_ATR','SET_TRAIL_ATR','CLEAR_RUNTIME_OVERRIDES']);
 const CONTROLLED = new Set(['GUARD_MODE','SET_CONTROL_MODE','STOP_NEW_ENTRIES','RESUME_TRADING','PAUSE_COPIER','RESUME_COPIER','BUY_ONLY','SELL_ONLY','BOTH_DIRECTIONS','SET_RISK_PERCENT','SET_EQUITY_FLOOR','CLOSE_PROFITABLE_TRADES']);
 
 export function voiceExecutionMode(value=process.env.WISDO_VOICE_EXECUTION_MODE){return String(value||'DISABLED').trim().toUpperCase();}
@@ -8,6 +9,7 @@ export class WisdoSafetyService {
   classify(intent, context = {}) {
     const names = [intent?.intent, intent?.commandName].map((value) => String(value || '').toUpperCase());
     if (names.some((name) => DANGEROUS.has(name) || name === 'CLOSE_ALL_LOSERS') || context.livePlan || context.multipleAccounts || (names.includes('SET_RISK_PERCENT') && context.increasesRisk)) return 'DANGEROUS';
+    if (names.some((name) => DIRECT_MANAGER.has(name))) return 'DIRECT_MANAGER';
     if (names.some((name) => CONTROLLED.has(name)) || intent?.type === 'ACTION') return 'CONTROLLED';
     return 'READ_ONLY';
   }
@@ -16,6 +18,7 @@ export class WisdoSafetyService {
   requiresStrongConfirmation(level) { return level === 'DANGEROUS'; }
 
   assertVoiceExecutionMode(accounts,mode=voiceExecutionMode()) {
+    if(!['DISABLED','DEMO_ONLY','LIVE_AUTHORIZED'].includes(mode))throw Object.assign(new Error('Unknown WISDO voice execution mode. Use DISABLED, DEMO_ONLY, or LIVE_AUTHORIZED.'),{code:'voice_execution_mode_invalid',statusCode:409});
     if(mode==='DISABLED')throw Object.assign(new Error('Voice execution is disabled for this deployment.'),{code:'voice_execution_disabled',statusCode:409});
     if(mode==='DEMO_ONLY'&&(!accounts?.length||accounts.some((account)=>!isProvenDemoAccount(account))))throw Object.assign(new Error('Demo-only protection blocked this voice action because every target was not proven to be a demo account. No changes were made.'),{code:'demo_only_live_blocked',statusCode:409});
     return true;
