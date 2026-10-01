@@ -88,5 +88,6 @@ test('V14 MQL bridge keeps widened stops under explicit ticket authority until r
   assert.match(reporter, /verified intentional stop widening/);
   assert.match(conversation, /increase the maximum loss/);
   assert.match(commandUi, /WIDEN_EXISTING_STOPS/);
-  assert.match(commandUi, /RISK-INCREASING STOP WIDEN REQUEST/);
+  assert.match(commandUi, /WIDEN_EXISTING_STOPS/);
+  assert.match(commandUi, /Intentional stop widening can increase maximum loss/);
 });
