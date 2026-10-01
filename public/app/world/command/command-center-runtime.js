@@ -674,7 +674,9 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
     const spoken=raw.toLowerCase().replace(/\s+/g,' ').trim();
     const persistRuntime=/from now on|make (?:that|this) (?:my )?default|until i change/.test(spoken);
     let manager=null, mm=null;
-    if((mm=spoken.match(/\b(?:set|change|move|switch|use).*?\bstop(?: loss| losses)?(?:.*?\b(?:to|at))?\s*(\d+(?:\.\d+)?)\s*atr\b/)))
+    if((mm=spoken.match(/\b(?:intentionally\s+)?(?:widen|loosen|give\s+(?:my\s+)?(?:existing|current|open)?\s*stops?\s+more\s+room).*?(\d+(?:\.\d+)?)\s*atr\b/)))
+      manager={action:'WIDEN_EXISTING_STOPS',options:{stopAtr:Number(mm[1])}};
+    else if((mm=spoken.match(/\b(?:set|change|move|switch|use).*?\bstop(?: loss| losses)?(?:.*?\b(?:to|at))?\s*(\d+(?:\.\d+)?)\s*atr\b/)))
       manager={action:'SET_STOP_ATR',options:{stopAtr:Number(mm[1]),persistRuntime}};
     else if((mm=spoken.match(/\b(?:set|change|move|use).*?\b(?:trail|trailer|trailing)(?: distance)?(?:.*?\b(?:to|at))?\s*(\d+(?:\.\d+)?)\s*atr\b/)))
       manager={action:'SET_TRAIL_ATR',options:{trailDistanceAtr:Number(mm[1]),persistRuntime}};
@@ -694,8 +696,10 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
     const state=document.getElementById('wcIntentState');
     if(manager){
       input.value='';
-      if(manager.action==='ADD_IF_VALID'){
-        if(state) state.textContent='ADD REQUEST UNDERSTOOD · HIGHTOWER WILL REVALIDATE ENTRY GATES · HOLD TO CONFIRM';
+      if(manager.action==='ADD_IF_VALID' || manager.action==='WIDEN_EXISTING_STOPS'){
+        if(state) state.textContent=manager.action==='WIDEN_EXISTING_STOPS'
+          ? 'RISK-INCREASING STOP WIDEN REQUEST · REVIEW EXACT ATR · HOLD TO CONFIRM'
+          : 'ADD REQUEST UNDERSTOOD · HIGHTOWER WILL REVALIDATE ENTRY GATES · HOLD TO CONFIRM';
         await arm(manager.action,manager.options);
         return;
       }
