@@ -261,6 +261,34 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
   const canvas = document.getElementById('wcCanvas');
   const rankAscension = createRankAscension({ overlay });
   let truthDock = null;
+  const announcedReceipts = new Set();
+  const armCommandNotifications = () => {
+    try {
+      if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch?.(() => {});
+    } catch {}
+  };
+  const announceVerifiedReceipt = (receipt) => {
+    const status=String(receipt?.status||'').toLowerCase();
+    if(!['completed','failed'].includes(status) || !receipt?.commandId || announcedReceipts.has(receipt.commandId)) return;
+    announcedReceipts.add(receipt.commandId);
+    const ok=status==='completed';
+    const detail=String(receipt?.result?.message||receipt?.error||'').trim();
+    const spoken=ok ? `WISDO. Command executed. ${detail}` : `WISDO. Command failed. ${detail}`;
+    try {
+      if('speechSynthesis' in window && localStorage.getItem('wisdo.commandVoiceAlerts')!=='off'){
+        const utterance=new SpeechSynthesisUtterance(spoken.slice(0,360));
+        utterance.rate=.92;utterance.pitch=.92;window.speechSynthesis.speak(utterance);
+      }
+    } catch {}
+    try {
+      if('Notification' in window && Notification.permission==='granted' && navigator.serviceWorker?.ready){
+        navigator.serviceWorker.ready.then((registration)=>registration.showNotification(ok?'WISDO · COMMAND EXECUTED':'WISDO · COMMAND FAILED',{
+          body:(detail||receipt.command||'Trading command receipt').slice(0,220),
+          tag:`wisdo-command-${receipt.commandId}`,renotify:true,data:{commandId:receipt.commandId,status}
+        })).catch(()=>{});
+      }
+    } catch {}
+  };
   const runtime = createWorldCommandRuntime({
     initialAccountId,
     onState: (state, meta) => {
@@ -286,6 +314,7 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
       rankAscension.onReceipt(receipt);
       guardianDeck.receipt(receipt);
       truthDock?.setReceipt(receipt);
+      announceVerifiedReceipt(receipt);
       if (['completed','failed','expired','cancelled'].includes(String(receipt?.status || '').toLowerCase())) runtime.refresh().catch(() => {});
     },
   });
@@ -637,6 +666,7 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
 
   document.getElementById('wcIntentComposer')?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    armCommandNotifications();
     const input=document.getElementById('wcIntentInput');
     const raw=String(input?.value || '').trim();
     if(!raw) return;
