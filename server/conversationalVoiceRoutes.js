@@ -31,7 +31,7 @@ export function registerConversationalVoiceRoutes(app,{commandBusService,voiceSe
   const educationService=new WisdoEducationService({pool});
   const auditService=new WisdoAuditService({pool});
   const getAuthorizedAccounts=async(userId)=>mt4SyncService?.repository?.getAccessibleMt4Accounts?mt4SyncService.repository.getAccessibleMt4Accounts(userId):[];
-  const executionService=new WisdoExecutionService({pool,mt4CommandService,copyTradingService,safetyService,auditService,getAuthorizedAccounts});
+  const executionService=new WisdoExecutionService({pool,mt4CommandService,mt4SyncService,copyTradingService,safetyService,auditService,getAuthorizedAccounts});
   const planMonitorService=new WisdoPlanMonitorService({pool,executionService,planService,notificationService,logger});
   mt4SyncService?.attachWisdoPlanMonitorService?.(planMonitorService);
   const capabilityService=new WisdoCapabilityContractService();
