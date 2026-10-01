@@ -674,7 +674,7 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
     const spoken=raw.toLowerCase().replace(/\s+/g,' ').trim();
     const persistRuntime=/from now on|make (?:that|this) (?:my )?default|until i change/.test(spoken);
     let manager=null, mm=null;
-    if((mm=spoken.match(/\b(?:intentionally\s+)?(?:widen|loosen|give\s+(?:my\s+)?(?:existing|current|open)?\s*stops?\s+more\s+room).*?(\d+(?:\.\d+)?)\s*atr\b/)))
+    if((mm=spoken.match(/\b(?:intentionally\s+)?(?:widen|loosen)\b.*?\b(?:existing|current|open)?\s*(?:stops?|stop\s+loss(?:es)?)\b.*?(\d+(?:\.\d+)?)\s*atr\b/)))
       manager={action:'WIDEN_EXISTING_STOPS',options:{stopAtr:Number(mm[1])}};
     else if((mm=spoken.match(/\b(?:set|change|move|switch|use).*?\bstop(?: loss| losses)?(?:.*?\b(?:to|at))?\s*(\d+(?:\.\d+)?)\s*atr\b/)))
       manager={action:'SET_STOP_ATR',options:{stopAtr:Number(mm[1]),persistRuntime}};
@@ -688,7 +688,7 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
       const pct=/\bhalf\b/.test(spoken)?50:Number(spoken.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)/)?.[1]||0);
       const ticket=Number(spoken.match(/\bticket\s*(\d+)/)?.[1]||0);
       if(pct>0) manager={action:'TRIM_CAMPAIGN',options:{trimPercent:pct,tickets:ticket?[ticket]:[]}};
-    } else if(/\b(?:clear|remove|reset)\b.*\b(?:runtime|live manager|atr|trail|stop).*\b(?:override|overrides|settings?)\b|\bback to (?:the )?(?:ea|visible) inputs?\b/.test(spoken))
+    } else if(/\b(?:clear|remove|reset)\b.*\b(?:runtime|live manager|atr|trail|stop).*\b(?:override|overrides|settings?)\b|\bback to (?:the )?(?:ea|visible) inputs?\b|\b(?:return|restore|resume)\b.*\bstops?\b.*\b(?:normal|ea|automatic)\b/.test(spoken))
       manager={action:'CLEAR_RUNTIME_OVERRIDES',options:{}};
     else if(/\b(?:add|boost)\b.*\b(?:position|trade|entry)\b/.test(spoken))
       manager={action:'ADD_IF_VALID',options:{}};
