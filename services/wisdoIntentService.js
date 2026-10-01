@@ -130,6 +130,10 @@ export class WisdoIntentService {
 
     // V13 live-manager language: deterministic phrases compile into the same verified campaign mailbox used by Command Center.
     const persistRuntime=/from now on|make (?:that|this) (?:my )?default|until i change/.test(ask);
+    let widenMatch=ask.match(/\b(?:intentionally\s+)?(?:widen|loosen|move\s+(?:my\s+)?(?:existing|current|open)?\s*stops?\s+(?:farther|further)|give\s+(?:my\s+)?(?:existing|current|open)?\s*stops?\s+more\s+room).*?(\d+(?:\.\d+)?)\s*atr\b/);
+    if(widenMatch)return command('WIDEN_EXISTING_STOPS','WISDO_CAMPAIGN',{action:'WIDEN_EXISTING_STOPS',stopAtr:Number(widenMatch[1])},0.995,{rawText:raw,riskIncreasing:true,requiresExplicitConfirmation:true});
+    if(/\b(?:intentionally\s+)?(?:widen|loosen)\b.*\b(?:existing|current|open)?\s*stops?\b/.test(ask))
+      return command('WIDEN_EXISTING_STOPS','WISDO_CAMPAIGN',{action:'WIDEN_EXISTING_STOPS',stopAtr:null},0.55,{rawText:raw,riskIncreasing:true,requiresExplicitConfirmation:true});
     let managerMatch=ask.match(/\b(?:set|change|move|switch|use).*?\bstop(?: loss| losses)?(?:.*?\b(?:to|at))?\s*(\d+(?:\.\d+)?)\s*atr\b/);
     if(managerMatch)return command('SET_STOP_ATR','WISDO_CAMPAIGN',{action:'SET_STOP_ATR',stopAtr:Number(managerMatch[1]),persistRuntime},0.99,{rawText:raw});
     managerMatch=ask.match(/\b(?:set|change|move|use).*?\b(?:trail|trailer|trailing)(?: distance)?(?:.*?\b(?:to|at))?\s*(\d+(?:\.\d+)?)\s*atr\b/);
