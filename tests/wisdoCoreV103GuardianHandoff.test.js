@@ -27,10 +27,11 @@ test('V10.3 Three.js projection paths originate from distinct guardian body zone
   assert.match(renderer,/sourceCore/);
 });
 
-test('V10.3 preserves safe proposal execution path', async () => {
+test('V15 retires guardian presentation from the active Command Center but preserves safe proposal execution', async () => {
   const runtime=await fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8');
-  assert.match(runtime,/onRequest:\s*\(\{ action \}\) => arm\(action\)/);
-  assert.match(runtime,/proposal = await runtime\.propose\(/);
-  assert.match(runtime,/latestReceipt = await runtime\.execute\(/);
+  assert.doesNotMatch(runtime,/createGuardianCommandDeck|createRankAscension|createCampaignCoreRenderer|THREE_MODULE_URL/);
+  assert.match(runtime,/runtime\.propose\(/);
+  assert.match(runtime,/runtime\.execute\(/);
   assert.match(runtime,/HOLD TO CONFIRM/);
+  assert.match(runtime,/WISDO <b>LIVE MANAGER<\/b>/);
 });
