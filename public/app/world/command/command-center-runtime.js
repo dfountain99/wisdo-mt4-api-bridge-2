@@ -635,12 +635,52 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
   document.getElementById('wcDeckClose')?.addEventListener('click', () => toggleDeck(false));
   document.getElementById('wcCancelProposal')?.addEventListener('click', cancelProposal);
 
-  document.getElementById('wcIntentComposer')?.addEventListener('submit', (e) => {
+  document.getElementById('wcIntentComposer')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const input=document.getElementById('wcIntentInput');
     const raw=String(input?.value || '').trim();
     if(!raw) return;
-    const normalized=raw.toUpperCase().replace(/[^A-Z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
+    const normalized=raw.toUpperCase().replace(/[^A-Z0-9 .%]+/g,' ').replace(/\s+/g,' ').trim();
+    const spoken=raw.toLowerCase().replace(/\s+/g,' ').trim();
+    const persistRuntime=/from now on|make (?:that|this) (?:my )?default|until i change/.test(spoken);
+    let manager=null, mm=null;
+    if((mm=spoken.match(/\b(?:set|change|move|switch|use).*?\bstop(?: loss| losses)?(?:.*?\b(?:to|at))?\s*(\d+(?:\.\d+)?)\s*atr\b/)))
+      manager={action:'SET_STOP_ATR',options:{stopAtr:Number(mm[1]),persistRuntime}};
+    else if((mm=spoken.match(/\b(?:set|change|move|use).*?\b(?:trail|trailer|trailing)(?: distance)?(?:.*?\b(?:to|at))?\s*(\d+(?:\.\d+)?)\s*atr\b/)))
+      manager={action:'SET_TRAIL_ATR',options:{trailDistanceAtr:Number(mm[1]),persistRuntime}};
+    else if(/(?:tighten|tighter).*\b(?:trail|trailer|trailing)\b|\b(?:trail|trailer|trailing).*?(?:tighten|tighter)/.test(spoken))
+      manager={action:'SET_TRAIL_ATR',options:{trailDeltaAtr:-0.25,persistRuntime}};
+    else if(/(?:loosen|looser|give).*\b(?:trail|trailer|trailing)\b|\b(?:trail|trailer|trailing).*?(?:loosen|looser|more room)/.test(spoken))
+      manager={action:'SET_TRAIL_ATR',options:{trailDeltaAtr:0.25,persistRuntime}};
+    else if(/\b(?:trim|reduce)\b/.test(spoken)){
+      const pct=/\bhalf\b/.test(spoken)?50:Number(spoken.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)/)?.[1]||0);
+      const ticket=Number(spoken.match(/\bticket\s*(\d+)/)?.[1]||0);
+      if(pct>0) manager={action:'TRIM_CAMPAIGN',options:{trimPercent:pct,tickets:ticket?[ticket]:[]}};
+    } else if(/\b(?:clear|remove|reset)\b.*\b(?:runtime|live manager|atr|trail|stop).*\b(?:override|overrides|settings?)\b|\bback to (?:the )?(?:ea|visible) inputs?\b/.test(spoken))
+      manager={action:'CLEAR_RUNTIME_OVERRIDES',options:{}};
+    else if(/\b(?:add|boost)\b.*\b(?:position|trade|entry)\b/.test(spoken))
+      manager={action:'ADD_IF_VALID',options:{}};
+
+    const state=document.getElementById('wcIntentState');
+    if(manager){
+      input.value='';
+      if(manager.action==='ADD_IF_VALID'){
+        if(state) state.textContent='ADD REQUEST UNDERSTOOD · HIGHTOWER WILL REVALIDATE ENTRY GATES · HOLD TO CONFIRM';
+        await arm(manager.action,manager.options);
+        return;
+      }
+      try{
+        if(state) state.textContent=`DIRECT MANAGER · ${manager.action.replaceAll('_',' ')} · REVALIDATING LIVE EA STATE`;
+        const p=await runtime.propose(manager.action,{campaignId:selectedCampaignId,...manager.options});
+        latestReceipt=await runtime.execute(p,0);
+        renderReceipt();
+        if(state) state.textContent='COMMAND DELIVERED · WAITING FOR HIGHTOWER VERIFIED ACKNOWLEDGEMENT';
+      }catch(error){
+        latestReceipt={status:'failed',command:manager.action,error:error.message};renderReceipt();
+        if(state) state.textContent=`COMMAND BLOCKED · ${error.message}`;
+      }
+      return;
+    }
     const direct=[
       [/^(PAUSE|PAUSE BOT)$/, 'PAUSE_BOT'],
       [/^(RESUME|RESUME BOT)$/, 'RESUME_BOT'],
@@ -655,7 +695,6 @@ export function startCampaignCommandCenter({ initialAccountId = '' } = {}) {
       [/^(EMERGENCY STOP)$/, 'EMERGENCY_STOP']
     ];
     const match=direct.find(([re])=>re.test(normalized));
-    const state=document.getElementById('wcIntentState');
     if(!match){ if(state) state.textContent='INTENT UNDERSTOOD AS LANGUAGE · NO SAFE LIVE MAPPING YET · NOTHING SENT'; return; }
     if(state) state.textContent=`INTENT PREVIEW · ${match[1].replaceAll('_',' ')} · AWAITING SERVER PROPOSAL`;
     arm(match[1]);
