@@ -186,21 +186,17 @@ test('V12 HIGHTOWER hard-gates new entries with broker windows and WISDO pause f
   assert.match(reporter, /continuationProbability/);
 });
 
-test('V12 visual shell uses bot-driven time rail and verified gesture proposal path', async () => {
-  const [time, runtime, guardian, truth] = await Promise.all([
+test('V15 Live Manager uses bot-driven time telemetry and verified command proposals without character UI', async () => {
+  const [time, runtime] = await Promise.all([
     fs.readFile(new URL('../public/app/world/command/wisdo-time-engine.js', import.meta.url), 'utf8'),
     fs.readFile(new URL('../public/app/world/command/command-center-runtime.js', import.meta.url), 'utf8'),
-    fs.readFile(new URL('../public/app/world/command/guardian-command-deck.js', import.meta.url), 'utf8'),
-    fs.readFile(new URL('../public/app/world/command/truth-dock.js', import.meta.url), 'utf8'),
   ]);
   assert.match(time, /wcV12DayTrack/);
   assert.match(time, /ACTIVE HOURS · BOT ALLOWS NEW ENTRIES/);
   assert.match(time, /NEW ENTRIES BLOCKED/);
-  assert.match(runtime, /GESTURE RECOGNIZED/);
+  assert.match(runtime, /Tell WISDO what to do/);
   assert.match(runtime, /runtime\.propose\(/);
   assert.match(runtime, /runtime\.execute\(/);
-  assert.match(guardian, /STOP_NEW_ENTRIES/);
-  assert.match(guardian, /CLOSE_PROFIT/);
-  assert.match(truth, /VERIFIED WIN/);
-  assert.match(truth, /protocolLabel/);
+  assert.match(runtime, /OPEN POSITIONS|Open Positions/);
+  assert.doesNotMatch(runtime, /guardian|CHARACTER EVOLUTION|rank ascension/i);
 });
