@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 430435)
-... 673161 bytes omitted ...
-
 //+------------------------------------------------------------------+
 //| HIGHTOWER UNITY CAMPAIGN TASK ENGINE v6.20                      |
 //| STRUCTURE FLOW • CONTINUATION POINTS • PRIMARY HOLD • ONE COMMANDER |
