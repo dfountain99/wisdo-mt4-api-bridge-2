@@ -2,6 +2,104 @@
 bool h620FuturePaused=false,h620Quarantine=false;
 double wcoEvaluation=0;
 string WcoEA(){return WcoPrefix(Symbol(),MagicNumber);}
+
+void WcoClearRuntime(bool force=false)
+{
+   string p=WcoEA();
+   int scope=(int)WcoRead(p,"runtimeScope");
+   if(!force && scope==2)return;
+   gWisdoRuntimeStopATR=0.0;StopATRMultiplierValue=MathMax(0.05,DirectATRStopMultiplier);
+   gWisdoRuntimeTrailStartATR=0.0;
+   gWisdoRuntimeTrailDistanceATR=0.0;
+   gWisdoRuntimeTrailStepATR=0.0;
+   WcoWrite(p,"runtimeOverrideMask",0);WcoWrite(p,"runtimeScope",0);WcoWrite(p,"runtimeCampaign",0);
+   WcoWrite(p,"runtimeStopAtr",0);WcoWrite(p,"runtimeTrailStartAtr",0);WcoWrite(p,"runtimeTrailDistanceAtr",0);WcoWrite(p,"runtimeTrailStepAtr",0);
+   GlobalVariablesFlush();
+}
+void WcoRestoreRuntime()
+{
+   string p=WcoEA();int mask=(int)WcoRead(p,"runtimeOverrideMask"),scope=(int)WcoRead(p,"runtimeScope");
+   if(scope==1 && WcoRead(p,"runtimeCampaign")!=h620Id){WcoClearRuntime(true);return;}
+   gWisdoRuntimeStopATR=((mask%2)==1?WcoRead(p,"runtimeStopAtr"):0.0);
+   gWisdoRuntimeTrailStartATR=(((mask/2)%2)==1?WcoRead(p,"runtimeTrailStartAtr"):0.0);
+   gWisdoRuntimeTrailDistanceATR=(((mask/2)%2)==1?WcoRead(p,"runtimeTrailDistanceAtr"):0.0);
+   gWisdoRuntimeTrailStepATR=(((mask/2)%2)==1?WcoRead(p,"runtimeTrailStepAtr"):0.0);
+}
+double WcoEffectiveStopATR(){return gWisdoRuntimeStopATR>0.0?gWisdoRuntimeStopATR:MathMax(0.05,DirectATRStopMultiplier);}
+double WcoEffectiveTrailStartATR(){return gWisdoRuntimeTrailStartATR>0.0?gWisdoRuntimeTrailStartATR:MathMax(0.05,DirectTrailStartATR);}
+double WcoEffectiveTrailDistanceATR(){return gWisdoRuntimeTrailDistanceATR>0.0?gWisdoRuntimeTrailDistanceATR:MathMax(0.05,DirectTrailDistanceATR);}
+double WcoEffectiveTrailStepATR(){return gWisdoRuntimeTrailStepATR>0.0?gWisdoRuntimeTrailStepATR:MathMax(0.01,DirectTrailStepATR);}
+
+int WcoLotDigits(double step)
+{
+   if(step>=1.0)return 0;if(step>=0.1)return 1;if(step>=0.01)return 2;if(step>=0.001)return 3;return 4;
+}
+double WcoTrimLots(double lots,double percent)
+{
+   double step=MarketInfo(Symbol(),MODE_LOTSTEP),minimum=MarketInfo(Symbol(),MODE_MINLOT);
+   if(step<=0 || minimum<=0 || lots<=minimum)return 0;
+   double closeLots=MathFloor((lots*percent/100.0)/step+0.0000001)*step;
+   closeLots=NormalizeDouble(closeLots,WcoLotDigits(step));
+   double remain=NormalizeDouble(lots-closeLots,WcoLotDigits(step));
+   if(closeLots<minimum || (remain>0 && remain<minimum))return 0;
+   return closeLots;
+}
+bool WcoTicketRequested(string p,int ticket,int count)
+{
+   if(count<=0)return true;
+   for(int i=0;i<count;i++)if((int)WcoRead(p,"t"+IntegerToString(i))==ticket)return true;
+   return false;
+}
+bool WcoTrimCampaign(string p)
+{
+   double percent=WcoRead(p,"trimPercent");int count=(int)WcoRead(p,"ticketCount");
+   if(percent<1 || percent>99 || count<0 || count>12)return false;
+   int requested=0,changed=0;
+   for(int i=OrdersTotal()-1;i>=0;i--)
+   {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES) || !H620OwnedSelected() || !H620CampaignTicketSelected())continue;
+      int ticket=OrderTicket();if(!WcoTicketRequested(p,ticket,count))continue;
+      int type=OrderType();if(type!=OP_BUY && type!=OP_SELL)continue;
+      requested++;
+      double lots=WcoTrimLots(OrderLots(),percent);if(lots<=0)continue;
+      RefreshRates();double price=(type==OP_BUY?Bid:Ask);bool old=h620Mutation;h620Mutation=true;
+      bool ok=OrderClose(ticket,lots,price,SlippagePoints,clrNONE);
+      h620Mutation=old;if(ok)changed++;
+   }
+   WcoWrite(p,"requested",requested);WcoWrite(p,"changed",changed);GlobalVariablesFlush();
+   H620Ledger();return requested>0 && changed==requested;
+}
+bool WcoApplyStopAtrNow(string p,double multiplier)
+{
+   if(multiplier<0.05 || multiplier>20)return false;
+   gWisdoRuntimeStopATR=multiplier;StopATRMultiplierValue=multiplier;int mask=(int)WcoRead(p,"runtimeOverrideMask");if(mask%2==0)mask+=1;
+   int scope=(int)WcoRead(p,"runtimeScope");if(scope!=2)scope=1;
+   WcoWrite(p,"runtimeOverrideMask",mask);WcoWrite(p,"runtimeScope",scope);WcoWrite(p,"runtimeCampaign",h620Id);WcoWrite(p,"runtimeStopAtr",multiplier);
+   int requested=0,changed=0;double atr=H620ATR();RefreshRates();
+   double gap=MathMax(MarketInfo(Symbol(),MODE_STOPLEVEL),MarketInfo(Symbol(),MODE_FREEZELEVEL))*Point+2*Point;
+   for(int i=OrdersTotal()-1;i>=0;i--)
+   {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES) || !H620OwnedSelected() || !H620CampaignTicketSelected())continue;
+      int type=OrderType();if(type!=OP_BUY && type!=OP_SELL)continue;requested++;
+      int dir=(type==OP_BUY?DIR_BUY:DIR_SELL);double quote=(dir==DIR_BUY?Bid:Ask);
+      double candidate=H620RoundStop(dir,quote-dir*atr*multiplier);
+      double sl=OrderStopLoss();
+      if(candidate<=0 || dir*(quote-candidate)<=gap || (sl>0 && dir*(candidate-sl)<=Point))continue; // Never loosen an existing broker stop.
+      if(H620Modify(OrderTicket(),candidate,OrderTakeProfit()))changed++;
+   }
+   WcoWrite(p,"requested",requested);WcoWrite(p,"changed",changed);GlobalVariablesFlush();return true;
+}
+bool WcoApplyTrailAtr(string p,double startAtr,double distanceAtr,double stepAtr)
+{
+   if(startAtr<0.05 || startAtr>20 || distanceAtr<0.05 || distanceAtr>20 || stepAtr<0.01 || stepAtr>5)return false;
+   gWisdoRuntimeTrailStartATR=startAtr;gWisdoRuntimeTrailDistanceATR=distanceAtr;gWisdoRuntimeTrailStepATR=stepAtr;
+   int mask=(int)WcoRead(p,"runtimeOverrideMask");if((mask/2)%2==0)mask+=2;
+   int scope=(int)WcoRead(p,"runtimeScope");if(scope!=2)scope=1;
+   WcoWrite(p,"runtimeOverrideMask",mask);WcoWrite(p,"runtimeScope",scope);WcoWrite(p,"runtimeCampaign",h620Id);
+   WcoWrite(p,"runtimeTrailStartAtr",startAtr);WcoWrite(p,"runtimeTrailDistanceAtr",distanceAtr);WcoWrite(p,"runtimeTrailStepAtr",stepAtr);
+   WcoWrite(p,"requested",0);WcoWrite(p,"changed",0);GlobalVariablesFlush();
+   H620TrailAndExtend();return true;
+}
 void WcoRestoreGoal()
 {
    string p=WcoEA();h620FutureGoal=(int)WcoRead(p,"goal");
@@ -60,6 +158,9 @@ void WcoPublish()
    WcoWrite(p,"pressureBias",gHT6Flow.pressureBias);
    WcoWrite(p,"flowLeg",gHT6Flow.leg);
    WcoWrite(p,"continuationDefense",gHT6Flow.continuationDefense?1:0);
+   WcoWrite(p,"runtimeOverrideMask",WcoRead(p,"runtimeOverrideMask"));
+   WcoWrite(p,"effectiveStopAtr",WcoEffectiveStopATR());
+   WcoWrite(p,"effectiveTrailStartAtr",WcoEffectiveTrailStartATR());WcoWrite(p,"effectiveTrailDistanceAtr",WcoEffectiveTrailDistanceATR());WcoWrite(p,"effectiveTrailStepAtr",WcoEffectiveTrailStepATR());
    int count=0;RefreshRates();
    for(int dir=-1;dir<=1;dir+=2)
    {
@@ -139,9 +240,9 @@ void H620FutureTick()
    {
       int op=(int)WcoRead(p,"op"),duration=(int)WcoRead(p,"duration");
       bool valid=WcoRead(p,"expires")>=TimeGMT() && WcoRead(p,"expected")==h620Id && IsConnected() && IsExpertEnabled();
-      if(op<1 || op>14)valid=false;
+      if(op<1 || op>19)valid=false;
       if((op==1 || op==3 || op==6 || op==7 || op==12) && (duration<1 || duration>604800))valid=false;
-      if((op==2 || op==3 || op>=6) && h620Phase!=1)valid=false;
+      if((op==2 || op==3 || (op>=6 && op<=18)) && h620Phase!=1)valid=false;
       if(op==12 && (WcoRead(p,"burst")<1 || WcoRead(p,"burst")>10))valid=false;
       if(!valid){WcoAck(id,-1);return;}
       // A persisted processing marker prevents replay after a terminal crash.
@@ -149,6 +250,14 @@ void H620FutureTick()
       WcoWrite(p,"changed",0);WcoWrite(p,"requested",0);
       int result=1;
       if(op==4){wcoEvaluation=id;result=4;}
+      else if(op==15){result=WcoApplyStopAtrNow(p,WcoRead(p,"stopAtr"))?1:-1;}
+      else if(op==16){result=WcoApplyTrailAtr(p,WcoRead(p,"trailStartAtr"),WcoRead(p,"trailDistanceAtr"),WcoRead(p,"trailStepAtr"))?1:-1;}
+      else if(op==17){result=WcoTrimCampaign(p)?1:(WcoRead(p,"changed")>0?3:-1);}
+      else if(op==18)
+      {
+         WcoWrite(p,"requested",1);bool opened=HT6EinsteinOpenContinuationAdd();WcoWrite(p,"changed",opened?1:0);GlobalVariablesFlush();result=opened?6:-1;
+      }
+      else if(op==19){WcoClearRuntime(true);WcoWrite(p,"requested",1);WcoWrite(p,"changed",1);result=1;}
       else if((op>=8 && op<=11) || op==13 || op==14)
       {
          WcoWrite(p,"changed",0);WcoWrite(p,"requested",0);

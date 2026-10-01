@@ -27,6 +27,12 @@ string BuildCampaignControlJson()
    j+=",\"continuationProbability\":"+DoubleToString(WcoRead(p,"continuationProbability"),4)+",\"reversalProbability\":"+DoubleToString(WcoRead(p,"reversalProbability"),4);
    j+=",\"pressureBias\":"+DoubleToString(WcoRead(p,"pressureBias"),4)+",\"flowLeg\":"+DoubleToString(WcoRead(p,"flowLeg"),0);
    j+=",\"continuationDefense\":"+BoolToJson(WcoRead(p,"continuationDefense")==1);
+   j+=",\"runtimeOverrideMask\":"+DoubleToString(WcoRead(p,"runtimeOverrideMask"),0);
+   j+=",\"runtimeScope\":"+DoubleToString(WcoRead(p,"runtimeScope"),0);
+   j+=",\"runtimeStopAtr\":"+DoubleToString(WcoRead(p,"effectiveStopAtr"),4);
+   j+=",\"runtimeTrailStartAtr\":"+DoubleToString(WcoRead(p,"effectiveTrailStartAtr"),4);
+   j+=",\"runtimeTrailDistanceAtr\":"+DoubleToString(WcoRead(p,"effectiveTrailDistanceAtr"),4);
+   j+=",\"runtimeTrailStepAtr\":"+DoubleToString(WcoRead(p,"effectiveTrailStepAtr"),4);
    j+=",\"ackId\":"+DoubleToString(WcoRead(p,"ack"),0);
    j+=",\"ackStatus\":"+DoubleToString(WcoRead(p,"ackStatus"),0)+",\"pendingId\":"+DoubleToString(WcoRead(p,"slot"),0)+",\"levels\":[";
    int count=(int)MathMin(16,WcoRead(p,"levelCount"));
@@ -53,7 +59,7 @@ bool ExecuteCampaignCommand(string json,string &message,int &ticket)
    int op=JsonGetInt(json,"operation",0),duration=JsonGetInt(json,"durationSeconds",0);
    if(!EnableCampaignControl || CampaignControlMagic<=0 || JsonGetString(json,"symbol","")!=CampaignControlSymbol || JsonGetInt(json,"magicNumber",0)!=CampaignControlMagic)
    {message="Campaign control scope is disabled or does not match Reporter inputs";return false;}
-   if(id<=0 || expires<TimeGMT() || expires>TimeGMT()+120 || op<1 || op>14 ||
+   if(id<=0 || expires<TimeGMT() || expires>TimeGMT()+120 || op<1 || op>19 ||
       ((op==1 || op==3 || op==6 || op==7 || op==12) && (duration<1 || duration>604800)))
    {message="Invalid or expired campaign instruction";return false;}
    if(WcoRead(p,"ack")>=id){message="Already processed by EA; inspect campaign acknowledgement";return true;}
@@ -67,6 +73,10 @@ bool ExecuteCampaignCommand(string json,string &message,int &ticket)
    WcoWrite(p,"burst",JsonGetInt(json,"burstCount",0));WcoWrite(p,"op",op);WcoWrite(p,"duration",duration);WcoWrite(p,"expires",expires);
    WcoWrite(p,"expected",JsonGetDouble(json,"eaCampaignId",-1));
    WcoWrite(p,"levelId",JsonGetDouble(json,"levelId",0));WcoWrite(p,"levelPrice",JsonGetDouble(json,"levelPrice",0));
+   WcoWrite(p,"stopAtr",JsonGetDouble(json,"stopAtr",0));WcoWrite(p,"trailStartAtr",JsonGetDouble(json,"trailStartAtr",0));
+   WcoWrite(p,"trailDistanceAtr",JsonGetDouble(json,"trailDistanceAtr",0));WcoWrite(p,"trailStepAtr",JsonGetDouble(json,"trailStepAtr",0));
+   WcoWrite(p,"trimPercent",JsonGetDouble(json,"trimPercent",0));
+   if(op==15 || op==16)WcoWrite(p,"runtimeScope",JsonGetInt(json,"runtimeScope",1));
    string parts[];int count=StringSplit(JsonGetString(json,"tickets",""),StringGetCharacter(",",0),parts);
    if(count>12){WcoWrite(p,"slot",0);message="Too many selected trades";return false;}
    WcoWrite(p,"ticketCount",count);

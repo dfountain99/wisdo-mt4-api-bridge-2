@@ -1,13 +1,27 @@
 import { randomUUID } from 'node:crypto';
+import { campaignPacket } from './campaignControlContract.js';
+import { WorldCampaignStateService } from './worldCampaignStateService.js';
 
 export class WisdoExecutionService {
-  constructor({ pool, mt4CommandService, copyTradingService = null, safetyService=null, auditService=null, getAuthorizedAccounts=async()=>[] } = {}) { Object.assign(this,{pool,mt4CommandService,copyTradingService,safetyService,auditService,getAuthorizedAccounts}); }
+  constructor({ pool, mt4CommandService, mt4SyncService=null, copyTradingService = null, safetyService=null, auditService=null, getAuthorizedAccounts=async()=>[] } = {}) {
+    Object.assign(this,{pool,mt4CommandService,mt4SyncService,copyTradingService,safetyService,auditService,getAuthorizedAccounts});
+    this.campaignState=mt4SyncService?.repository?new WorldCampaignStateService({mt4SyncService}):null;
+  }
 
   async queue({ userId, deviceId=null, accountId, intent, commandName, parameters={}, rawText='', safetyLevel='CONTROLLED', planId=null, confirmationStatus='CONFIRMED' }) {
     if (!accountId) throw Object.assign(new Error('An account must be selected before a trading command can be queued.'),{code:'account_required'});
     try{const accounts=await this.getAuthorizedAccounts(userId);const selected=accounts.filter((account)=>String(account.accountId||account.account_id||account.id)===String(accountId));this.safetyService?.assertAccountAccess([accountId],accounts);this.safetyService?.assertVoiceExecutionMode(selected);}catch(error){await this.auditService?.record({userId,actorType:'safety',eventType:'voice.execution_blocked',correlationId:planId||null,detail:{code:error.code||'execution_blocked',accountIds:[String(accountId)],intent}}).catch(()=>undefined);throw error;}
     const idempotencyKey=parameters.idempotencyKey||`${userId}:${accountId}:${intent}:${planId||rawText}`;
-    const payload={...parameters,deviceId,planId,rawText,safetyLevel,confirmation:confirmationStatus==='CONFIRMED'?'confirmed':undefined,idempotencyKey,dedupeKey:idempotencyKey};
+    let executable={...parameters};
+    if(String(commandName||'').toUpperCase()==='WISDO_CAMPAIGN'){
+      if(!this.campaignState)throw Object.assign(new Error('Live campaign state is unavailable; no command was queued.'),{code:'campaign_state_unavailable',statusCode:409});
+      const snapshot=await this.campaignState.snapshot(String(userId),{accountId:String(accountId)});
+      if(!snapshot?.campaignControl?.live)throw Object.assign(new Error('HIGHTOWER campaign telemetry is missing or stale; no command was queued.'),{code:'campaign_offline',statusCode:409});
+      const action=String(parameters.action||'').toUpperCase();
+      const packet=campaignPacket(action,{...parameters,eaCampaignId:snapshot.campaignControl.campaignId},snapshot);
+      executable={...parameters,...packet,requestId:Date.now()*1000+Math.floor(Math.random()*1000),expiresEpoch:Math.floor(Date.now()/1000)+90,source:'wisdo_live_manager'};
+    }
+    const payload={...executable,deviceId,planId,rawText,safetyLevel,confirmation:confirmationStatus==='CONFIRMED'?'confirmed':undefined,idempotencyKey,dedupeKey:idempotencyKey};
     const command=await this.mt4CommandService.queueCommandForAccount(userId,accountId,commandName,payload);
     await this.receipt({commandId:command.id,userId,accountId,planId,status:'PENDING',result:{intent,parameters,queuedAt:command.createdAt}});
     return command;

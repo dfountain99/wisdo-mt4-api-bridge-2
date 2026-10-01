@@ -2167,6 +2167,12 @@ int  gWisdoDirectionMode=0; // 0=AUTO, 1=BUY ONLY, 2=SELL ONLY, 3=MANAGE ONLY
 double gUnityStationPartialPercent=50.0;
 double gUnityGainTargetPercent=1.0;
 int gUnityStationMode=0;
+// V13 live-manager overrides. Zero means the visible Direct* input remains authoritative.
+// WISDO_H620Receiver persists/restores these through account+server+symbol+magic scoped terminal globals.
+double gWisdoRuntimeStopATR=0.0;
+double gWisdoRuntimeTrailStartATR=0.0;
+double gWisdoRuntimeTrailDistanceATR=0.0;
+double gWisdoRuntimeTrailStepATR=0.0;
 int gUnityMaxEntries=6;
 int gUnityConfirmTicks=2; // shared arrow + live BOS train-head confirmation
 string gWisdoLastAction="VOICE READY";
@@ -2815,6 +2821,7 @@ void HT6ApplyDirectExecutionInputs()
 
    StopATRPeriodValue=MathMax(1,DirectATRStopPeriod);
    StopATRMultiplierValue=MathMax(0.05,DirectATRStopMultiplier);
+   if(gWisdoRuntimeStopATR>0.0) StopATRMultiplierValue=MathMax(0.05,MathMin(20.0,gWisdoRuntimeStopATR));
    MinimumStopDistancePointsValue=MathMax(1.0,DirectMinimumStopDistancePoints);
    FixedStopDistancePointsValue=MathMax(MinimumStopDistancePointsValue,DirectFixedStopDistancePoints);
    TakeProfitSLRatioValue=MathMax(0.05,DirectTakeProfitRMultiple);
@@ -2842,7 +2849,7 @@ double HT6DirectInitialStopPrice(int dir,double openPrice)
    double minDist=MathMax(DirectMinimumStopDistancePoints*Point,brokerMin);
    double atr=MathMax(Point,HTExecutionATR(SignalTF,MathMax(1,DirectATRStopPeriod)));
    if(LiveATRStopFloorToStable) atr=MathMax(atr,HTStableATR(SignalTF,MathMax(1,DirectATRStopPeriod)));
-   double atrDist=MathMax(minDist,atr*MathMax(0.05,DirectATRStopMultiplier));
+   double atrDist=MathMax(minDist,atr*MathMax(0.05,StopATRMultiplierValue));
    double dist=atrDist;
 
    if(DirectStopLossMode==DIRECT_STOP_FIXED_POINTS)
@@ -12668,9 +12675,10 @@ void H620TrailAndExtend()
             double be=op+dir*MathMax(initial*DirectBreakEvenLockR,atr*H620CostReserveATR);
             if(sl<=0 || dir*(be-candidate)>0) candidate=be;
          }
-         if(trailMode!=1 && DirectUseATRTrailingStop && favorable>=atr*DirectTrailStartATR)
+         double liveTrailStart=WcoEffectiveTrailStartATR(),liveTrailDistance=WcoEffectiveTrailDistanceATR();
+         if(trailMode!=1 && DirectUseATRTrailingStop && favorable>=atr*liveTrailStart)
          {
-            double trail=quote-dir*atr*(role==2?H620RunnerTrailATR:DirectTrailDistanceATR);
+            double trail=quote-dir*atr*(role==2?H620RunnerTrailATR:liveTrailDistance);
             if(candidate<=0 || dir*(trail-candidate)>0) candidate=trail;
          }
          int ext=(int)GlobalVariableGet(H620TicketKey(ticket,"extensions"));
@@ -12699,7 +12707,7 @@ void H620TrailAndExtend()
       if(sl>0 && dir*(candidate-sl)<0) candidate=sl;
       if(candidate<=0 || dir*(quote-candidate)<=gap) candidate=sl;
       if(target>0 && dir*(target-quote)<=gap) target=tp;
-      bool stopChanged=candidate>0 && (sl<=0 || dir*(candidate-sl)>=MathMax(Point,atr*DirectTrailStepATR));
+      bool stopChanged=candidate>0 && (sl<=0 || dir*(candidate-sl)>=MathMax(Point,atr*WcoEffectiveTrailStepATR()));
       bool targetChanged=MathAbs(target-tp)>Point*.5;
       if(!stopChanged) candidate=sl;
       if((stopChanged || targetChanged) && H620Modify(ticket,candidate,target))
@@ -12714,6 +12722,7 @@ void H620TrailAndExtend()
 }
 void H620ResetFlat(string reason)
 {
+   WcoClearRuntime(false);
    h620Phase=0;h620Dir=0;h620Flip=0;h620Rail=0;h620Status=reason;
    HT6EndDoubleCampaignState(reason,true);HT6SequenceClear(reason);HT6EinsteinReset(reason);
    gHT6Flow.primaryDirection=DIR_FLAT;H620Persist();
@@ -12806,7 +12815,7 @@ int H620Initialize()
       {h620Quarantine=true;h620Phase=0;h620Dir=0;h620Flip=0;h620Status="LEGACY LIVE TICKETS DETECTED • H620 WAITING FOR A FLAT ACCOUNT";H620Persist();Print("H620 quarantine: legacy/untracked live tickets detected; EA remains loaded and will not adopt them.");}
    }
    if(h620Phase==1) gHT6Flow.primaryDirection=h620Dir;
-   WcoRestoreGoal();
+   WcoRestoreGoal();WcoRestoreRuntime();
    H620Ledger();return INIT_SUCCEEDED;
 }
 

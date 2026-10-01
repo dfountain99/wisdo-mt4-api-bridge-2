@@ -89,13 +89,16 @@ input color DashboardWarnColor = clrOrange;
 input color DashboardBadColor = clrTomato;
 input color DashboardTextColor = clrSilver;
 
-string REPORTER_VERSION = "1.60";
+string REPORTER_VERSION = "1.61";
 string STATUS_LABEL = "CultureCoinReporterStatus";
 string DASH_PREFIX = "CEM_WISDO_DASH_";
 string g_lastStatus = "Waiting";
 string g_lastError = "";
 string g_lastCommand = "";
 string g_lastCommandId = "";
+// Campaign commands are not reported completed until the HIGHTOWER mailbox writes a final acknowledgement.
+string g_pendingCampaignCommandId = "";
+double g_pendingCampaignRequestId = 0;
 string g_lastCopyMessage = "";
 int g_lastCopyTicket = -1;
 datetime g_lastSendAt = 0;
@@ -1178,6 +1181,33 @@ string SendCommandComplete(string commandId, bool success, string message, int t
    return "complete HTTP " + IntegerToString(httpCode);
 }
 
+string CampaignAckMessage(string p,int status)
+{
+   int op=(int)WcoRead(p,"op"),changed=(int)WcoRead(p,"changed"),requested=(int)WcoRead(p,"requested");
+   if(status<0)return "HIGHTOWER rejected the live manager command after revalidation.";
+   if(status==3)return "HIGHTOWER only completed part of the requested campaign change ("+IntegerToString(changed)+"/"+IntegerToString(requested)+").";
+   if(op==15)return "EA verified stop ATR policy at "+DoubleToString(WcoRead(p,"effectiveStopAtr"),2)+" ATR; tightened "+IntegerToString(changed)+" existing stop(s) without loosening protected stops.";
+   if(op==16)return "EA verified trailing policy "+DoubleToString(WcoRead(p,"effectiveTrailStartAtr"),2)+"/"+DoubleToString(WcoRead(p,"effectiveTrailDistanceAtr"),2)+"/"+DoubleToString(WcoRead(p,"effectiveTrailStepAtr"),2)+" ATR.";
+   if(op==17)return "EA verified trim on "+IntegerToString(changed)+" of "+IntegerToString(requested)+" requested position(s).";
+   if(op==18)return status==6?"EA verified one HIGHTOWER add was opened under normal entry gates.":"HIGHTOWER evaluated the add request without opening exposure.";
+   if(op==19)return "EA verified live stop/trail overrides were cleared; visible EA inputs are authoritative again.";
+   if(status==6)return "EA verified the requested entry was opened.";
+   if(status==5)return "EA verified the requested evaluation completed without a new entry.";
+   return "EA verified campaign command execution.";
+}
+void TryCompletePendingCampaignCommand()
+{
+   if(StringLen(g_pendingCampaignCommandId)==0 || g_pendingCampaignRequestId<=0)return;
+   string p=WcoPrefix(CampaignControlSymbol,CampaignControlMagic);
+   double ack=WcoRead(p,"ack");int status=(int)WcoRead(p,"ackStatus");
+   if(ack<g_pendingCampaignRequestId || status==-2 || status==4)return;
+   bool success=(status>0 && status!=3);string message=CampaignAckMessage(p,status);
+   string completeResult=SendCommandComplete(g_pendingCampaignCommandId,success,message,-1);
+   Print("CultureCoin campaign acknowledgement ",g_pendingCampaignCommandId," request=",DoubleToString(g_pendingCampaignRequestId,0)," status=",status," -> ",message," | ",completeResult);
+   g_lastCopyMessage=message;g_lastCopyTicket=-1;
+   g_pendingCampaignCommandId="";g_pendingCampaignRequestId=0;
+}
+
 
 bool IsSymbolTradable(string symbol)
 {
@@ -2211,6 +2241,9 @@ void PollAndExecuteCommands()
 {
    if(!ValidateInputs())
       return;
+   TryCompletePendingCampaignCommand();
+   if(StringLen(g_pendingCampaignCommandId)>0)
+      return;
 
    string pollUrl = ResolveCommandPollUrl();
    if(StringLen(pollUrl) == 0)
@@ -2300,6 +2333,20 @@ void PollAndExecuteCommands()
 
    g_lastCopyMessage = message;
    g_lastCopyTicket = ticket;
+
+   if(command == "WISDO_CAMPAIGN" && success)
+   {
+      double requestId=JsonGetDouble(response,"requestId",0);
+      string p=WcoPrefix(CampaignControlSymbol,CampaignControlMagic);
+      int ackStatus=(int)WcoRead(p,"ackStatus");
+      if(requestId>0 && (WcoRead(p,"ack")<requestId || ackStatus==-2 || ackStatus==4))
+      {
+         g_pendingCampaignCommandId=commandId;g_pendingCampaignRequestId=requestId;
+         g_lastCopyMessage="Delivered to HIGHTOWER; waiting for EA acknowledgement.";
+         Print("CultureCoin campaign command ",commandId," delivered; completion deferred until EA acknowledgement.");
+         UpdateStatusLabel();return;
+      }
+   }
 
    string completeResult = SendCommandComplete(commandId, success, message, ticket);
    Print("CultureCoin command ", originalCommand, " resolved ", command, " -> ", message, " | ", completeResult);
