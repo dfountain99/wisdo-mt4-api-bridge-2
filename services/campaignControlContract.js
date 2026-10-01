@@ -14,6 +14,11 @@ export const CAMPAIGN_ACTIONS = Object.freeze({
   PROTECT_RAIL: { code: 9, label: 'Tighten the campaign rail to confirmed structure' },
   ASSIGN_RUNNER: { code: 10, label: 'Assign selected trades as runners' },
   ASSIGN_COLLECTOR: { code: 11, label: 'Assign selected trades as collectors' },
+  SET_STOP_ATR: { code: 15, label: 'Apply a live ATR stop policy now' },
+  SET_TRAIL_ATR: { code: 16, label: 'Apply a live ATR trailing policy now' },
+  TRIM_CAMPAIGN: { code: 17, label: 'Trim a percentage from the active campaign' },
+  ADD_IF_VALID: { code: 18, label: 'Ask HIGHTOWER to add one position under normal entry gates' },
+  CLEAR_RUNTIME_OVERRIDES: { code: 19, label: 'Return live stop and trail settings to the visible EA inputs' },
 });
 const num = (v, fallback = 0) => typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 const bool = (v) => v === true;
@@ -69,6 +74,14 @@ export function normalizeCampaignControl(value) {
       flowLeg: Math.max(0, Math.trunc(num(value.flowLeg))),
       continuationDefense: bool(value.continuationDefense),
     },
+    runtime: {
+      overrideMask: Math.max(0, Math.trunc(num(value.runtimeOverrideMask))),
+      scope: Math.max(0, Math.min(2, Math.trunc(num(value.runtimeScope)))),
+      stopAtr: Math.max(0.05, num(value.runtimeStopAtr, 1.5)),
+      trailStartAtr: Math.max(0.05, num(value.runtimeTrailStartAtr, 1)),
+      trailDistanceAtr: Math.max(0.05, num(value.runtimeTrailDistanceAtr, 0.75)),
+      trailStepAtr: Math.max(0.01, num(value.runtimeTrailStepAtr, 0.15)),
+    },
     burstRemaining: num(value.burstRemaining),
     acknowledgements: (Array.isArray(value.acknowledgements) ? value.acknowledgements : []).slice(0, 12).filter(x => Number.isSafeInteger(x.id) && x.id > 0).map(x => ({ id: x.id, status: num(x.status), changed: num(x.changed), requested: num(x.requested) })),
     ackId: num(value.ackId), ackStatus: num(value.ackStatus), pendingId: num(value.pendingId),
@@ -87,11 +100,27 @@ export function campaignPacket(action, body, state) {
   if (!definition) fail('Unsupported campaign instruction.');
   const duration = Number(body.durationSeconds || 0);
   if ([1, 3, 6, 7, 12].includes(definition.code) && (!Number.isInteger(duration) || duration < 1 || duration > 604800)) fail('Choose a duration between 1 second and 7 days.');
-  if ([2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14].includes(definition.code) && c.phase !== 1) fail('This instruction requires an active campaign.');
+  if ([2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].includes(definition.code) && c.phase !== 1) fail('This instruction requires an active campaign.');
   const burstCount = Number(body.burstCount || 0);
   if (definition.code === 12 && (!Number.isInteger(burstCount) || burstCount < 1 || burstCount > 10)) fail('A SONIC window allows 1 to 10 entries, each subject to the normal EA gates.');
   const tickets = [...new Set(Array.isArray(body.tickets) ? body.tickets.map(Number) : [])];
   if ([8, 10, 11, 13, 14].includes(definition.code) && (!tickets.length || tickets.length > 12 || tickets.some(t => !c.positions.some(p => p.ticket === t && p.role !== 0)))) fail('Select up to 12 collectors or runners in this campaign; HOLD assignments stay protected.');
+  if (definition.code === 17 && (tickets.length > 12 || tickets.some(t => !c.positions.some(p => p.ticket === t)))) fail('Trim targets must be active positions from this campaign.');
+  let stopAtr = Number(body.stopAtr || 0);
+  if (definition.code === 15 && (!Number.isFinite(stopAtr) || stopAtr < 0.05 || stopAtr > 20)) fail('ATR stop multiplier must be between 0.05 and 20.');
+  let trailStartAtr = Number(body.trailStartAtr || 0);
+  let trailDistanceAtr = Number(body.trailDistanceAtr || 0);
+  let trailStepAtr = Number(body.trailStepAtr || 0);
+  if (definition.code === 16) {
+    if (Number.isFinite(Number(body.trailDeltaAtr)) && Number(body.trailDeltaAtr) !== 0) trailDistanceAtr = Number(c.runtime?.trailDistanceAtr || 0.75) + Number(body.trailDeltaAtr);
+    if (!trailDistanceAtr) trailDistanceAtr = Number(c.runtime?.trailDistanceAtr || 0.75);
+    if (!trailStartAtr) trailStartAtr = Number(c.runtime?.trailStartAtr || 1);
+    if (!trailStepAtr) trailStepAtr = Number(c.runtime?.trailStepAtr || 0.15);
+    if (![trailStartAtr, trailDistanceAtr].every(v => Number.isFinite(v) && v >= 0.05 && v <= 20) || !Number.isFinite(trailStepAtr) || trailStepAtr < 0.01 || trailStepAtr > 5) fail('ATR trail values are outside the supported live range.');
+  }
+  const trimPercent = Number(body.trimPercent || 0);
+  if (definition.code === 17 && (!Number.isFinite(trimPercent) || trimPercent < 1 || trimPercent > 99)) fail('Trim percent must be between 1 and 99.');
+  const runtimeScope = body.persistRuntime === true ? 2 : 1;
   let level = null;
   if ([8, 9].includes(definition.code)) {
     level = c.levels.find(x => x.id === Number(body.levelId));
@@ -100,5 +129,6 @@ export function campaignPacket(action, body, state) {
   }
   return { operation: definition.code, burstCount, durationSeconds: duration, eaCampaignId: c.campaignId,
     symbol: c.symbol, magicNumber: c.magic, tickets: tickets.join(','),
-    levelId: level?.id || 0, levelPrice: level?.price || 0 };
+    levelId: level?.id || 0, levelPrice: level?.price || 0,
+    stopAtr, trailStartAtr, trailDistanceAtr, trailStepAtr, trimPercent, runtimeScope };
 }
