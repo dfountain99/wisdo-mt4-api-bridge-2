@@ -8,7 +8,7 @@ const DEFAULT_WAKE_PHRASES = Object.freeze([
 const NUMBER_WORDS = Object.freeze({ zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twenty: 20, twentyfive: 25, fifty: 50, hundred: 100 });
 
 export const INTENT_SCHEMA_VERSION = '1.0';
-const MODEL_COMMAND_ALLOWLIST = new Set(['CLOSE_ALL_TRADES','CLOSE_ALL_WINNERS','CLOSE_ALL_LOSERS','EMERGENCY_STOP','SET_CONTROL_MODE','PAUSE_COPIER','RESUME_COPIER','STOP_ENTRIES','START_ENTRIES','SET_EQUITY_FLOOR','WISDO_PRESERVE_RUNNER','WISDO_TRAIL_RUNNER','WISDO_STOP_AFTER_NEXT','WISDO_STOP_AFTER_CURRENT','WISDO_SET_NEWS_AVOIDANCE','WISDO_LADDER_ACTION','WISDO_EXPLAIN_TRADE']);
+const MODEL_COMMAND_ALLOWLIST = new Set(['CLOSE_ALL_TRADES','CLOSE_ALL_WINNERS','CLOSE_ALL_LOSERS','EMERGENCY_STOP','SET_CONTROL_MODE','PAUSE_COPIER','RESUME_COPIER','STOP_ENTRIES','START_ENTRIES','SET_EQUITY_FLOOR','WISDO_PRESERVE_RUNNER','WISDO_TRAIL_RUNNER','WISDO_STOP_AFTER_NEXT','WISDO_STOP_AFTER_CURRENT','WISDO_SET_NEWS_AVOIDANCE','WISDO_LADDER_ACTION','WISDO_EXPLAIN_TRADE','WISDO_CAMPAIGN']);
 
 export function configuredWakePhrases(value = process.env.WISDO_WAKE_PHRASES) {
   const custom = String(value || '').split(/[;,]/).map((v) => v.trim().toLowerCase()).filter(Boolean);
@@ -127,6 +127,27 @@ export class WisdoIntentService {
     if (/resume (the )?copier/.test(ask)) return command('RESUME_COPIER', 'RESUME_COPIER', {}, 0.98, { rawText: raw });
     if (/pause trading|stop new entries|stop trading today/.test(ask)) return command('STOP_NEW_ENTRIES', 'STOP_ENTRIES', {}, 0.97, { rawText: raw });
     if (/resume trading|start new entries/.test(ask)) return command('RESUME_TRADING', 'START_ENTRIES', {}, 0.97, { rawText: raw });
+
+    // V13 live-manager language: deterministic phrases compile into the same verified campaign mailbox used by Command Center.
+    const persistRuntime=/from now on|make (?:that|this) (?:my )?default|until i change/.test(ask);
+    let managerMatch=ask.match(/\b(?:set|change|move|switch|use).*?\bstop(?: loss| losses)?(?:.*?\b(?:to|at))?\s*(\d+(?:\.\d+)?)\s*atr\b/);
+    if(managerMatch)return command('SET_STOP_ATR','WISDO_CAMPAIGN',{action:'SET_STOP_ATR',stopAtr:Number(managerMatch[1]),persistRuntime},0.99,{rawText:raw});
+    managerMatch=ask.match(/\b(?:set|change|move|use).*?\b(?:trail|trailer|trailing)(?: distance)?(?:.*?\b(?:to|at))?\s*(\d+(?:\.\d+)?)\s*atr\b/);
+    if(managerMatch)return command('SET_TRAIL_ATR','WISDO_CAMPAIGN',{action:'SET_TRAIL_ATR',trailDistanceAtr:Number(managerMatch[1]),persistRuntime},0.99,{rawText:raw});
+    if(/(?:tighten|tighter).*\b(?:trail|trailer|trailing)\b|\b(?:trail|trailer|trailing).*?(?:tighten|tighter)/.test(ask))
+      return command('SET_TRAIL_ATR','WISDO_CAMPAIGN',{action:'SET_TRAIL_ATR',trailDeltaAtr:-0.25,persistRuntime},0.97,{rawText:raw,managerStepAtr:0.25});
+    if(/(?:loosen|looser|give).*\b(?:trail|trailer|trailing)\b|\b(?:trail|trailer|trailing).*?(?:loosen|looser|more room)/.test(ask))
+      return command('SET_TRAIL_ATR','WISDO_CAMPAIGN',{action:'SET_TRAIL_ATR',trailDeltaAtr:0.25,persistRuntime},0.97,{rawText:raw,managerStepAtr:0.25});
+    if(/\btrim\b|\breduce\b.*\b(?:trade|position|campaign)\b/.test(ask)){
+      const half=/\bhalf\b/.test(ask),pct=half?50:(ask.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)/)?.[1] ? Number(ask.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)/)[1]) : null);
+      const singular=/\b(?:this|that)\s+(?:trade|position|loser)|\btrim\s+(?:it|this)\b/.test(ask);
+      const selected=context.selectedTicket||context.positionTicket||context.ticket||null;
+      return command('TRIM_CAMPAIGN','WISDO_CAMPAIGN',{action:'TRIM_CAMPAIGN',trimPercent:pct,tickets:singular?(selected?[Number(selected)]:null):[]},pct===null?0.45:0.98,{rawText:raw});
+    }
+    if(/\b(?:add|boost)\b.*\b(?:position|trade|entry)\b/.test(ask))
+      return command('ADD_POSITION_IF_VALID','WISDO_CAMPAIGN',{action:'ADD_IF_VALID'},0.98,{rawText:raw});
+    if(/\b(?:clear|remove|reset)\b.*\b(?:runtime|live manager|atr|trail|stop).*\b(?:override|overrides|settings?)\b|\bback to (?:the )?(?:ea|visible) inputs?\b/.test(ask))
+      return command('CLEAR_RUNTIME_OVERRIDES','WISDO_CAMPAIGN',{action:'CLEAR_RUNTIME_OVERRIDES'},0.98,{rawText:raw});
     if (/buy only|only allow buys|block sells/.test(ask)) return command('BUY_ONLY', 'CEM_SET_GLOBALS', { globals: { WISDO_ALLOW_BUYS: 1, WISDO_ALLOW_SELLS: 0 } }, 0.97, { rawText: raw });
     if (/sell only|only allow sells|block buys/.test(ask)) return command('SELL_ONLY', 'CEM_SET_GLOBALS', { globals: { WISDO_ALLOW_BUYS: 0, WISDO_ALLOW_SELLS: 1 } }, 0.97, { rawText: raw });
     if (/both directions|allow buys and sells/.test(ask)) return command('BOTH_DIRECTIONS', 'CEM_SET_GLOBALS', { globals: { WISDO_ALLOW_BUYS: 1, WISDO_ALLOW_SELLS: 1 } }, 0.97, { rawText: raw });
