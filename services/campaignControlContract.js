@@ -120,7 +120,7 @@ export function campaignPacket(action, body, state) {
   }
   const trimPercent = Number(body.trimPercent || 0);
   if (definition.code === 17 && (!Number.isFinite(trimPercent) || trimPercent < 1 || trimPercent > 99)) fail('Trim percent must be between 1 and 99.');
-  const runtimeScope = body.persistRuntime === true ? 2 : 1;
+  const runtimeScope = [15, 16].includes(definition.code) ? (body.persistRuntime === true ? 2 : 1) : 0;
   let level = null;
   if ([8, 9].includes(definition.code)) {
     level = c.levels.find(x => x.id === Number(body.levelId));
