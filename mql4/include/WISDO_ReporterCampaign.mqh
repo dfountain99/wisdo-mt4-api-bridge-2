@@ -75,7 +75,8 @@ bool ExecuteCampaignCommand(string json,string &message,int &ticket)
    WcoWrite(p,"levelId",JsonGetDouble(json,"levelId",0));WcoWrite(p,"levelPrice",JsonGetDouble(json,"levelPrice",0));
    WcoWrite(p,"stopAtr",JsonGetDouble(json,"stopAtr",0));WcoWrite(p,"trailStartAtr",JsonGetDouble(json,"trailStartAtr",0));
    WcoWrite(p,"trailDistanceAtr",JsonGetDouble(json,"trailDistanceAtr",0));WcoWrite(p,"trailStepAtr",JsonGetDouble(json,"trailStepAtr",0));
-   WcoWrite(p,"trimPercent",JsonGetDouble(json,"trimPercent",0));WcoWrite(p,"runtimeScope",JsonGetInt(json,"runtimeScope",1));
+   WcoWrite(p,"trimPercent",JsonGetDouble(json,"trimPercent",0));
+   if(op==15 || op==16)WcoWrite(p,"runtimeScope",JsonGetInt(json,"runtimeScope",1));
    string parts[];int count=StringSplit(JsonGetString(json,"tickets",""),StringGetCharacter(",",0),parts);
    if(count>12){WcoWrite(p,"slot",0);message="Too many selected trades";return false;}
    WcoWrite(p,"ticketCount",count);
