@@ -43,7 +43,7 @@ export class WisdoConversationService {
     const text=wake.matched?wake.command:String(input.text||'').trim();
     if(!text){await this.saveExchange(session,userId,input.text,COACH_RESPONSES.wake,null,'listening');return this.result(session,'listening',COACH_RESPONSES.wake);}
     try{
-      const context={...(session.context||{}),activePlanId:session.active_plan_id||session.context?.activePlanId,planMode:Boolean(session.active_plan_id||session.context?.planMode)};
+      const context={...(session.context||{}),activePlanId:session.active_plan_id||session.context?.activePlanId,planMode:Boolean(session.active_plan_id||session.context?.planMode),activeAccountId:input.accountId||session.context?.activeAccountId||null,symbol:input.symbol||session.context?.symbol||null,campaign_id:input.campaignId||session.context?.campaign_id||null,magic_number:input.magicNumber??session.context?.magic_number??null,selectedTicket:input.selectedTicket||session.context?.selectedTicket||null};
       const intent=await this.intentService.parse(text,context);
       await this.contextService.message({sessionId:session.session_id,userId,role:'user',content:String(input.text||text),intent});
       const handled=await this.handle({input,text,intent,session,context});
@@ -115,7 +115,7 @@ export class WisdoConversationService {
     if(!this.adaptiveFabricService)return {state:'unsupported',text:COACH_RESPONSES.unsupported};
     if(intent.confidence<this.intentService.confidenceThreshold)return {state:'clarification',text:'I understand that you want a behavior, but I need exact trigger, condition, action, and scope details.'};
     const accounts=await this.getAuthorizedAccounts(input.userId);
-    let compiled=this.adaptiveFabricService.compileNaturalBehavior(text,{owner_user_id:input.userId,accounts,account_id:input.accountId||context.activeAccountId||null},{owner_user_id:input.userId});
+    let compiled=this.adaptiveFabricService.compileNaturalBehavior(text,{owner_user_id:input.userId,accounts,account_id:input.accountId||context.activeAccountId||null,symbol:input.symbol||context.symbol||null,campaign_id:input.campaignId||context.campaign_id||null,magic_number:input.magicNumber??context.magic_number??null,last_symbol:input.symbol||context.symbol||null},{owner_user_id:input.userId});
     if(!compiled.validation.valid)return {state:'clarification',text:`I could not compile that safely: ${compiled.validation.errors.join(' ')} No trading change was made.`};
     let selected=null;const requested=String(compiled.scope.account_ref||input.accountId||context.activeAccountId||'').toLowerCase();
     if(requested)selected=accounts.find((a)=>[accountId(a),accountLabel(a),a?.nickname,a?.alias,a?.accountNumber,a?.account_number].some((value)=>String(value||'').toLowerCase()===requested));
