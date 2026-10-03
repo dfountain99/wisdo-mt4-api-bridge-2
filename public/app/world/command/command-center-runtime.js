@@ -102,8 +102,13 @@ function markup(){
           </section>
 
           <section class="lm-voice-note">
-            <strong>WISDO VOICE USES THE EXISTING VOICE SYSTEM</strong>
-            <p>Speak from your enrolled WISDO voice device. Voice and the text box above compile into the same verified command bus and HIGHTOWER acknowledgement path.</p>
+            <strong>ONE INTENT OS · VOICE + WEB + REPORTER</strong>
+            <p>Speak from your enrolled WISDO voice device or type naturally here. Both surfaces use the same server-side intent compiler, standing-behavior fabric, command bus and HIGHTOWER truth loop.</p>
+          </section>
+
+          <section class="lm-card">
+            <div class="lm-card-head"><div><span class="lm-label">STANDING INTENTIONS</span><h3>What WISDO Is Carrying For You</h3></div><small id="lmIntentionsStatus">SYNCING</small></div>
+            <div id="lmIntentions" class="lm-intentions"><div class="lm-intention empty">No standing intentions loaded.</div></div>
           </section>
 
           <section class="lm-card">
@@ -162,6 +167,8 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
   let holdStart=0;
   let holdTimer=0;
   let opened=false;
+  let intentSessionId=sessionStorage.getItem('wisdo.intentSessionId')||'';
+  let intentionsRefreshAt=0;
   const announced=new Set();
 
   const activeCampaign=()=>commandState?.campaigns?.find((row)=>String(row.campaignId)===String(selectedCampaignId))||commandState?.campaigns?.[0]||null;
@@ -277,7 +284,7 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
 
   const runtime=createWorldCommandRuntime({
     initialAccountId:initialAccountId||sessionStorage.getItem('wisdo.selectedAccountId')||'',
-    onState:(state,meta)=>{commandState=state;selectedCampaignId=meta?.selectedCampaignId||state?.selectedCampaignId||state?.campaigns?.[0]?.campaignId||null;renderState();},
+    onState:(state,meta)=>{commandState=state;selectedCampaignId=meta?.selectedCampaignId||state?.selectedCampaignId||state?.campaigns?.[0]?.campaignId||null;renderState();refreshIntentions();},
     onStatus:({state,error})=>{if(state==='degraded'&&error)setIntent(`Live state unavailable · ${error.message}`,'error');},
     onReceipt:(receipt)=>{latestReceipt=receipt;renderReceipt();announceReceipt(receipt);},
   });
@@ -316,35 +323,81 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     }
   }
 
-  function parseManager(raw){
-    const spoken=raw.toLowerCase().replace(/\s+/g,' ').trim();
-    const persistRuntime=/from now on|make (?:that|this) (?:my )?default|until i change/.test(spoken);
-    let m=null;
-    if((m=spoken.match(/\b(?:intentionally\s+)?(?:widen|loosen)\b.*?\b(?:existing|current|open)?\s*(?:stops?|stop\s+loss(?:es)?)\b.*?(\d+(?:\.\d+)?)\s*atr\b/)))return {action:'WIDEN_EXISTING_STOPS',options:{stopAtr:Number(m[1])}};
-    if((m=spoken.match(/\b(?:set|change|move|switch|use).*?\bstop(?: loss| losses)?(?:.*?\b(?:to|at))?\s*(\d+(?:\.\d+)?)\s*atr\b/)))return {action:'SET_STOP_ATR',options:{stopAtr:Number(m[1]),persistRuntime}};
-    if((m=spoken.match(/\b(?:set|change|move|use).*?\b(?:trail|trailer|trailing)(?: distance)?(?:.*?\b(?:to|at))?\s*(\d+(?:\.\d+)?)\s*atr\b/)))return {action:'SET_TRAIL_ATR',options:{trailDistanceAtr:Number(m[1]),persistRuntime}};
-    if(/(?:tighten|tighter).*\b(?:trail|trailer|trailing)\b|\b(?:trail|trailer|trailing).*?(?:tighten|tighter)/.test(spoken))return {action:'SET_TRAIL_ATR',options:{trailDeltaAtr:-0.25,persistRuntime}};
-    if(/(?:loosen|looser|give).*\b(?:trail|trailer|trailing)\b|\b(?:trail|trailer|trailing).*?(?:loosen|looser|more room)/.test(spoken))return {action:'SET_TRAIL_ATR',options:{trailDeltaAtr:0.25,persistRuntime}};
-    if(/\b(?:trim|reduce)\b/.test(spoken)){
-      const amount=/\bhalf\b/.test(spoken)?50:Number(spoken.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)/)?.[1]||0);
-      const ticket=Number(spoken.match(/\bticket\s*(\d+)/)?.[1]||0);
-      if(amount>0)return {action:'TRIM_CAMPAIGN',options:{trimPercent:amount,tickets:ticket?[ticket]:[]}};
+  async function intentRequest(textValue){
+    const response=await fetch('/api/world/intent',{
+      method:'POST',
+      credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text:textValue,sessionId:intentSessionId||null,accountId:runtime.accountId||selectedAccount()?.accountId||null}),
+    });
+    const payload=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(payload.error||payload.message||`Intent OS request failed: ${response.status}`);
+    if(payload.sessionId){intentSessionId=payload.sessionId;sessionStorage.setItem('wisdo.intentSessionId',intentSessionId);}
+    return payload;
+  }
+
+  function triggerLabel(trigger={}){
+    if(trigger.type==='event'&&trigger.event==='stop_loss_hit')return 'WAITING · STOP LOSS HIT';
+    if(trigger.type==='event'&&trigger.event==='campaign_closed')return 'WAITING · CAMPAIGN CLOSE';
+    if(trigger.type==='event'&&trigger.event==='new_entry')return 'WAITING · NEW ENTRY';
+    if(trigger.type==='metric')return `WAITING · ${String(trigger.metric||'METRIC').replaceAll('_',' ').toUpperCase()} ${trigger.operator||''} ${trigger.value??''}`;
+    if(trigger.type==='interval')return `EVERY ${trigger.interval_seconds||0}s`;
+    if(trigger.type==='resettable_inactivity_timer')return `RESETTABLE TIMER · ${trigger.timeout_seconds||0}s`;
+    return String(trigger.type||'MANUAL').replaceAll('_',' ').toUpperCase();
+  }
+
+  function renderIntentions(intentions=[]){
+    const host=q('#lmIntentions'),status=q('#lmIntentionsStatus');if(!host||!status)return;
+    const visible=(intentions||[]).filter((row)=>!['cancelled'].includes(String(row.status||'').toLowerCase()));
+    status.textContent=visible.length?`${visible.length} TRACKED`:'NONE';
+    host.innerHTML=visible.length?visible.slice(0,12).map((row)=>{
+      const runtimeState=row.lastRuntime||{};
+      const actions=(row.actions||[]).map((a)=>String(a.type||'').replaceAll('_',' ')).filter(Boolean).join(' → ');
+      const state=String(runtimeState.state||row.status||'armed').toUpperCase();
+      const detail=runtimeState.last_triggered_at?`LAST TRIGGER ${new Date(runtimeState.last_triggered_at).toLocaleString()}`:triggerLabel(row.trigger||{});
+      return `<article class="lm-intention" data-state="${esc(state.toLowerCase())}"><div><strong>${esc(row.purpose||row.name||'Standing intention')}</strong><small>${esc(actions||'Observe')}</small></div><span>${esc(state)}</span><em>${esc(detail)}</em></article>`;
+    }).join(''):'<div class="lm-intention empty">No standing intentions. Tell WISDO an “if / when / after” instruction and it can compile one.</div>';
+  }
+
+  async function refreshIntentions(force=false){
+    if(!force&&Date.now()<intentionsRefreshAt)return;
+    intentionsRefreshAt=Date.now()+4000;
+    try{
+      const response=await fetch('/api/world/intentions',{credentials:'same-origin',cache:'no-store'});
+      const payload=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(payload.error||'Intentions unavailable');
+      renderIntentions(payload.intentions||[]);
+    }catch(error){
+      const status=q('#lmIntentionsStatus');if(status)status.textContent='UNAVAILABLE';
+      const host=q('#lmIntentions');if(host)host.innerHTML=`<div class="lm-intention empty">${esc(error.message)}</div>`;
     }
-    if(/\b(?:clear|remove|reset)\b.*\b(?:runtime|live manager|atr|trail|stop).*\b(?:override|overrides|settings?)\b|\bback to (?:the )?(?:ea|visible) inputs?\b|\b(?:return|restore|resume)\b.*\bstops?\b.*\b(?:normal|ea|automatic)\b/.test(spoken))return {action:'CLEAR_RUNTIME_OVERRIDES',options:{}};
-    if(/\b(?:add|boost)\b.*\b(?:position|trade|entry)\b/.test(spoken))return {action:'ADD_IF_VALID',options:{}};
-    const normalized=spoken.toUpperCase().replace(/[^A-Z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
-    const exact=new Map([
-      ['PAUSE','PAUSE_BOT'],['PAUSE BOT','PAUSE_BOT'],['RESUME','RESUME_BOT'],['RESUME BOT','RESUME_BOT'],
-      ['STOP NEW ENTRIES','STOP_NEW_ENTRIES'],['LOCK ENTRIES','STOP_NEW_ENTRIES'],['RESUME NEW ENTRIES','RESUME_NEW_ENTRIES'],['UNLOCK ENTRIES','RESUME_NEW_ENTRIES'],
-      ['CLOSE CAMPAIGN','CLOSE_CAMPAIGN'],['COLLECT CAMPAIGN','CLOSE_CAMPAIGN'],['EMERGENCY STOP','EMERGENCY_STOP'],['PROTECT PROFIT','LOCK_PROFIT']
-    ]);
-    return exact.has(normalized)?{action:exact.get(normalized),options:{}}:null;
+  }
+
+  async function handleIntentResult(result){
+    if(result.state==='awaiting_confirmation'){
+      proposal={intentOs:true,holdRequiredMs:1800,result};
+      q('#lmProposalTitle').textContent=result.behaviorId?'ACTIVATE STANDING INTENTION':'CONFIRM WISDO INTENT';
+      q('#lmProposalScope').textContent=result.text||'Review the exact WISDO interpretation before execution.';
+      q('#lmProposalEffect').textContent=result.behaviorId?'This standing instruction remains armed after confirmation and wakes on verified Reporter events.':'Hold to send the explicit confirmation back through the same WISDO conversation session.';
+      q('#lmProposal').hidden=false;
+      setIntent(result.text||'WISDO is waiting for confirmation.','warn');
+      return;
+    }
+    if(result.commandId){
+      setIntent(result.text||'Command queued. Waiting for verified Reporter/HIGHTOWER truth.','live');
+      runtime.watchReceipt(result.commandId).catch(()=>undefined);
+    }else setIntent(result.text||'WISDO understood the intention.',result.ok===false?'error':'live');
+    await refreshIntentions(true);
   }
 
   async function submitText(raw){
-    const parsed=parseManager(raw);
-    if(!parsed){setIntent('No verified live mapping for that phrase yet. Nothing sent.','error');return;}
-    await arm(parsed.action,parsed.options);
+    try{
+      setIntent('WISDO is resolving your meaning against the live account and current conversation…','warn');
+      const result=await intentRequest(raw);
+      await handleIntentResult(result);
+    }catch(error){
+      setIntent(`Intent blocked · ${error.message}`,'error');
+    }
   }
 
   q('#lmComposer').addEventListener('submit',async(event)=>{
@@ -384,8 +437,16 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     const elapsed=performance.now()-holdStart;clearInterval(holdTimer);holdTimer=0;holdStart=0;
     if(elapsed<Number(proposal.holdRequiredMs||0)){q('#lmHold i').style.width='0%';return;}
     const active=proposal;q('#lmHold span').textContent='SENDING…';
-    try{latestReceipt=await runtime.execute(active,Math.round(elapsed));renderReceipt();setIntent('Command delivered. Waiting for HIGHTOWER verified acknowledgement.','live');cancelProposal();}
-    catch(error){latestReceipt={status:'failed',command:active.action,error:error.message};renderReceipt();setIntent(`Execution failed · ${error.message}`,'error');cancelProposal();}
+    try{
+      if(active.intentOs){
+        const result=await intentRequest('Confirm Coach, execute');
+        cancelProposal();
+        await handleIntentResult(result);
+      }else{
+        latestReceipt=await runtime.execute(active,Math.round(elapsed));renderReceipt();setIntent('Command delivered. Waiting for HIGHTOWER verified acknowledgement.','live');cancelProposal();
+      }
+    }
+    catch(error){latestReceipt={status:'failed',command:active.action||'WISDO_INTENT',error:error.message};renderReceipt();setIntent(`Execution failed · ${error.message}`,'error');cancelProposal();}
   };
   q('#lmHold').addEventListener('pointerup',finishHold);
   q('#lmHold').addEventListener('pointercancel',()=>{holdStart=0;clearInterval(holdTimer);q('#lmHold i').style.width='0%';});
@@ -394,6 +455,7 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
   function open(){
     opened=true;overlay.hidden=false;document.documentElement.classList.add('wisdo-live-manager-active');
     runtime.start().catch((error)=>setIntent(`Live Manager unavailable · ${error.message}`,'error'));
+    refreshIntentions(true);
   }
   function close(){
     opened=false;overlay.hidden=true;document.documentElement.classList.remove('wisdo-live-manager-active');cancelProposal();
