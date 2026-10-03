@@ -117,15 +117,16 @@ export class WisdoCommandBusService {
     const raw = clean(target.id || target.alias || '', 200);
     if (type === 'desktop' || type === 'device') {
       const deviceType = type === 'desktop' ? 'desktop-agent' : clean(target.deviceType || '', 50);
+      const allowOffline=target.allowOffline===true;
       const result = await this.pool.query(
         `SELECT device_id,device_name,device_type,capabilities,last_seen_at
            FROM wisdo_devices
           WHERE owner_user_id=$1 AND status='active'
             AND ($2='' OR device_type=$2)
             AND ($3='' OR device_id=$3 OR lower(device_name)=lower($3))
-            AND last_seen_at > NOW() - INTERVAL '90 seconds'
-          ORDER BY last_seen_at DESC LIMIT 1`,
-        [ownerUserId, deviceType, raw],
+            AND ($4::boolean OR last_seen_at > NOW() - INTERVAL '90 seconds')
+          ORDER BY last_seen_at DESC NULLS LAST LIMIT 1`,
+        [ownerUserId, deviceType, raw, allowOffline],
       );
       const device=result.rows[0];
       return device ? { type, id:device.device_id, desktopDeviceId:device.device_id, deviceType:device.device_type, deviceName:device.device_name, capabilities:json(device.capabilities), lastSeenAt:device.last_seen_at } : null;
