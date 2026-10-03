@@ -6,6 +6,7 @@ import json
 import os
 import platform
 import shutil
+import socket
 import subprocess
 import struct
 import threading
@@ -414,6 +415,40 @@ def poll_delivery(wait_ms=15000):
     return body.get('delivery') or body
 
 
+def wake_trading_workstation():
+    raw = os.getenv('WISDO_TRADING_WORKSTATION_MAC', '').replace(':','').replace('-','').strip()
+    if len(raw) != 12 or any(ch not in '0123456789abcdefABCDEF' for ch in raw):
+        raise RuntimeError('WISDO_TRADING_WORKSTATION_MAC is not configured with a valid 12-hex-digit MAC address.')
+    mac = bytes.fromhex(raw)
+    packet = b'\xff' * 6 + mac * 16
+    broadcast = os.getenv('WISDO_WOL_BROADCAST', '255.255.255.255').strip() or '255.255.255.255'
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sent = sock.sendto(packet, (broadcast, 9))
+        if sent != len(packet):
+            raise RuntimeError('Wake-on-LAN packet was not fully transmitted.')
+    finally:
+        sock.close()
+    return {'macSuffix': raw[-4:].upper(), 'broadcast': broadcast, 'bytes': len(packet)}
+
+def poll_device_commands():
+    response = requests.post(f'{CLOUD}/api/agent/v1/commands/lease', headers=headers(), json={'limit': 4}, timeout=10)
+    response.raise_for_status()
+    for command in response.json().get('commands', []):
+        intent = str(command.get('intent') or '').lower()
+        status, result, message = 'rejected', {}, f'Intent {intent} is not supported by this Pi edge device.'
+        if intent == 'wake_trading_workstation':
+            try:
+                result = wake_trading_workstation()
+                status, message = 'completed', 'Wake-on-LAN packet verified and sent to the configured trading workstation.'
+            except Exception as exc:
+                status, message = 'failed', str(exc)
+        requests.post(
+            f'{CLOUD}/api/agent/v1/commands/{command["command_id"]}/complete',
+            headers=headers(), json={'status':status,'result':result,'message':message}, timeout=10
+        ).raise_for_status()
+
 def console_utterance(text):
     # Console mode is diagnostic only; physical mode always sends recorded audio for server STT.
     response = requests.post(f'{CLOUD}/api/voice/v1/conversation', headers=headers(),
@@ -435,6 +470,7 @@ def main():
         try:
             if SESSION_ID and time.monotonic() - SESSION_TOUCHED > SESSION_IDLE_SECONDS:
                 SESSION_ID = None
+            poll_device_commands()
             if muted():
                 set_led('muted'); heartbeat(False); time.sleep(0.5); continue
             delivery = poll_delivery(0)
