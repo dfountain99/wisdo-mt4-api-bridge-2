@@ -508,8 +508,10 @@ def main():
         try:
             if SESSION_ID and time.monotonic() - SESSION_TOUCHED > SESSION_IDLE_SECONDS:
                 SESSION_ID = None
-            poll_device_commands()
             poll_presence()
+            # Presence can enqueue a Wake-on-LAN command for this Pi; lease it
+            # immediately before entering the microphone wait.
+            poll_device_commands()
             if muted():
                 set_led('muted'); heartbeat(False); time.sleep(0.5); continue
             delivery = poll_delivery(0)
