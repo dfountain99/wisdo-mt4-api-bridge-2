@@ -6,7 +6,7 @@ function openTrades(snapshot={},scope={}) { return (Array.isArray(snapshot.openT
 function ticketSet(trades=[]) { return [...new Set(trades.map((trade)=>String(trade.ticket||'')).filter(Boolean))].sort(); }
 function basketProfit(trades=[]) { return trades.reduce((sum,trade)=>sum+Number(trade.profit||0)+Number(trade.swap||0)+Number(trade.commission||0),0); }
 function tradeSide(trade={}) { const side=String(trade.type||trade.direction||'').toUpperCase();return side==='BUY'||side==='SELL'?side:''; }
-function stopLossHitEvent(snapshot={},scope={},priorTickets=[]) {
+export function stopLossHitEvent(snapshot={},scope={},priorTickets=[]) {
   if(!priorTickets.length)return null;
   const prior=new Set(priorTickets.map(String));
   const closed=openTrades({openTrades:Array.isArray(snapshot.closedTradesToday)?snapshot.closedTradesToday:[]},scope)
