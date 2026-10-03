@@ -25,3 +25,15 @@ test('City art pass retains the existing collision and quality budgets',()=>{
   assert.match(atmosphere,/const signs = quality === 'low' \? \[\]/);
   assert.match(atmosphere,/restoreLights\?\.\(\)/);
 });
+
+test('City phone review uses the stylized operator and reduces redundant street signage',()=>{
+  const city=read('public/app/world/world3d-production.js');
+  const signs=read('public/app/world/world-visual-fidelity-v2.js');
+  const entry=read('public/app/world/legacy.html');
+  const mobile=read('public/app/world/world-city-remaster.css');
+  assert.match(city,/asset\.id!=='wisdo-default-operator-v1'/);
+  assert.match(city,/Promise\.resolve\(null\)/);
+  assert.match(signs,/if\(!touchLike\)createSloganSigns/);
+  assert.match(entry,/world3d-production\.js\?v=2026\.09\.25\.city-phone-fix/);
+  assert.match(mobile,/\.wisdo-a112-launch\{display:none!important\}/);
+});

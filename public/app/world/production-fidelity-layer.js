@@ -1,8 +1,8 @@
 import { chooseAutoQuality, getWorldCapabilities } from './world-config.js?v=2026.09.15.visual-fidelity-v3';
 import { createMarketBillboardManager } from './markets/market-billboard-manager.js?v=2026.09.15.visual-fidelity-v3';
-import { installResilientCinematicWorldLayer } from './world-cinematic-recovery.js?v=2026.09.15.visual-fidelity-v3';
+import { installResilientCinematicWorldLayer } from './world-cinematic-recovery.js?v=2026.09.25.city-phone-fix';
 import { installResilientArcadeCityVerticalSlice } from './world-arcade-recovery.js?v=2026.09.15.visual-fidelity-v3';
-import { installWisdoVisualFidelityV2 } from './world-visual-fidelity-v2.js?v=2026.09.15.visual-fidelity-v3';
+import { installWisdoVisualFidelityV2 } from './world-visual-fidelity-v2.js?v=2026.09.25.city-phone-fix';
 import { installWisdoVisualFidelityV3 } from './world-visual-fidelity-v3.js?v=2026.09.15.visual-fidelity-v3';
 
 const FIDELITY_CLIENT_REVISION='2026.09.15.visual-fidelity-v3';
