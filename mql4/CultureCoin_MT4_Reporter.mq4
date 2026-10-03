@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.60"
+#property version   "1.63"
 #property description "Culture Coin MT4 Reporter - WISDO sync-account + close-authority copy/manual/profit dashboard"
 
 #include "include/WISDO_CampaignProtocol.mqh"
@@ -89,7 +89,7 @@ input color DashboardWarnColor = clrOrange;
 input color DashboardBadColor = clrTomato;
 input color DashboardTextColor = clrSilver;
 
-string REPORTER_VERSION = "1.62";
+string REPORTER_VERSION = "1.63";
 string STATUS_LABEL = "CultureCoinReporterStatus";
 string DASH_PREFIX = "CEM_WISDO_DASH_";
 string g_lastStatus = "Waiting";
@@ -1192,6 +1192,7 @@ string CampaignAckMessage(string p,int status)
    if(op==18)return status==6?"EA verified one HIGHTOWER add was opened under normal entry gates.":"HIGHTOWER evaluated the add request without opening exposure.";
    if(op==19)return "EA verified live stop/trail overrides were cleared; visible EA inputs are authoritative again.";
    if(op==20)return "EA verified intentional stop widening to "+DoubleToString(WcoRead(p,"stopAtr"),2)+" ATR; "+IntegerToString(changed)+" existing broker stop(s) moved farther from price. Stops already at least that wide were unchanged.";
+   if(op==21)return "EA verified the counter-campaign intention is armed at reference "+DoubleToString(WcoRead(p,"referencePrice"),Digits)+". No opposite order was forced; HIGHTOWER is waiting for its normal reversal proof, risk, spread and Commander gates.";
    if(status==6)return "EA verified the requested entry was opened.";
    if(status==5)return "EA verified the requested evaluation completed without a new entry.";
    return "EA verified campaign command execution.";
