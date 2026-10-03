@@ -212,6 +212,20 @@ export class WisdoIntentService {
     const validation = validateStructuredIntent(generated);
     if (!validation.ok) return deterministic;
     const parameters = Object.fromEntries(Object.entries(generated.parameters || {}).filter(([, value]) => value !== null));
+    if(String(generated.commandName||'').toUpperCase()==='WISDO_CAMPAIGN'){
+      const canonicalByAction={
+        SET_STOP_ATR:'SET_STOP_ATR',
+        SET_TRAIL_ATR:'SET_TRAIL_ATR',
+        TRIM_CAMPAIGN:'TRIM_CAMPAIGN',
+        ADD_IF_VALID:'ADD_POSITION_IF_VALID',
+        CLEAR_RUNTIME_OVERRIDES:'CLEAR_RUNTIME_OVERRIDES',
+        WIDEN_EXISTING_STOPS:'WIDEN_EXISTING_STOPS',
+      };
+      const action=String(parameters.action||'').toUpperCase();
+      if(!canonicalByAction[action])return deterministic;
+      generated.intent=canonicalByAction[action];
+    }
+    if(generated.type==='BEHAVIOR')parameters.naturalLanguage=String(parameters.naturalLanguage||text);
     return { ...generated, parameters, rawText: String(text) };
   }
 }
