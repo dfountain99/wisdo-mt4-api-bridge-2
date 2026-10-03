@@ -45,6 +45,9 @@ export class WisdoConversationService {
     try{
       const context={...(session.context||{}),activePlanId:session.active_plan_id||session.context?.activePlanId,planMode:Boolean(session.active_plan_id||session.context?.planMode),activeAccountId:input.accountId||session.context?.activeAccountId||null,symbol:input.symbol||session.context?.symbol||null,campaign_id:input.campaignId||session.context?.campaign_id||null,magic_number:input.magicNumber??session.context?.magic_number??null,selectedTicket:input.selectedTicket||session.context?.selectedTicket||null};
       const intent=await this.intentService.parse(text,context);
+      const liveContextPatch={activeAccountId:input.accountId||context.activeAccountId||null,symbol:input.symbol||context.symbol||null,campaign_id:input.campaignId||context.campaign_id||null,magic_number:input.magicNumber??context.magic_number??null,selectedTicket:input.selectedTicket||context.selectedTicket||null};
+      if(['ACTION','BEHAVIOR'].includes(intent.type)){liveContextPatch.lastIntent=intent.intent;liveContextPatch.lastCommandName=intent.commandName||null;liveContextPatch.lastParameters=intent.parameters||{};liveContextPatch.lastRawText=text;}
+      await this.contextService.touch(session.session_id,userId,{context:liveContextPatch});
       await this.contextService.message({sessionId:session.session_id,userId,role:'user',content:String(input.text||text),intent});
       const handled=await this.handle({input,text,intent,session,context});
       await this.contextService.message({sessionId:session.session_id,userId,role:'assistant',content:handled.text,intent,responseState:handled.state});
