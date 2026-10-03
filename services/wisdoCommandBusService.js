@@ -115,9 +115,20 @@ export class WisdoCommandBusService {
   async resolveTarget(ownerUserId, target = {}) {
     const type = clean(target.type || 'bot', 50);
     const raw = clean(target.id || target.alias || '', 200);
-    if (type === 'desktop') {
-      const result = await this.pool.query(`SELECT device_id FROM wisdo_devices WHERE owner_user_id=$1 AND device_type='desktop-agent' AND status='active' AND ($2='' OR device_id=$2 OR lower(device_name)=lower($2)) ORDER BY last_seen_at DESC LIMIT 1`, [ownerUserId, raw]);
-      return result.rows[0] ? { type, id: result.rows[0].device_id, desktopDeviceId: result.rows[0].device_id } : null;
+    if (type === 'desktop' || type === 'device') {
+      const deviceType = type === 'desktop' ? 'desktop-agent' : clean(target.deviceType || '', 50);
+      const result = await this.pool.query(
+        `SELECT device_id,device_name,device_type,capabilities,last_seen_at
+           FROM wisdo_devices
+          WHERE owner_user_id=$1 AND status='active'
+            AND ($2='' OR device_type=$2)
+            AND ($3='' OR device_id=$3 OR lower(device_name)=lower($3))
+            AND last_seen_at > NOW() - INTERVAL '90 seconds'
+          ORDER BY last_seen_at DESC LIMIT 1`,
+        [ownerUserId, deviceType, raw],
+      );
+      const device=result.rows[0];
+      return device ? { type, id:device.device_id, desktopDeviceId:device.device_id, deviceType:device.device_type, deviceName:device.device_name, capabilities:json(device.capabilities), lastSeenAt:device.last_seen_at } : null;
     }
     if (type === 'bot') {
       const result = await this.pool.query(
@@ -130,6 +141,30 @@ export class WisdoCommandBusService {
       return bot ? { type, id: bot.bot_id, desktopDeviceId: bot.desktop_device_id, accountId: bot.account_id, botName: bot.bot_name, capabilities: bot.capabilities, metadata:bot.metadata } : null;
     }
     return { type, id: raw || null, desktopDeviceId: null };
+  }
+
+  async issueSystemCommand(ownerUserId, input = {}) {
+    const intent=clean(input.intent,120);
+    if(!intent){const error=new Error('intent is required.');error.statusCode=400;throw error;}
+    const target=await this.resolveTarget(ownerUserId,json(input.target,{type:'desktop'}));
+    if(!target){const error=new Error('No online enrolled device matched this ambient action.');error.statusCode=409;error.code='ambient_device_offline';throw error;}
+    const required=clean(input.requiredCapability||intent,120);
+    const caps=json(target.capabilities);
+    if(required && caps[required]!==true){
+      const error=new Error(`The enrolled ${target.deviceName||target.id} does not advertise ${required}. No ambient action was queued.`);
+      error.statusCode=409;error.code='ambient_capability_missing';throw error;
+    }
+    const commandId=crypto.randomUUID();
+    const expiresAt=new Date(Date.now()+Math.max(10,Number(input.expiresInSeconds||60))*1000);
+    const result=await this.pool.query(
+      `INSERT INTO wisdo_commands
+        (command_id,owner_user_id,issued_by_device_id,source,intent,target_type,target_id,desktop_device_id,account_id,parameters,spoken_text,status,priority,attempts,expires_at,created_at,updated_at)
+       VALUES($1,$2,NULL,$3,$4,$5,$6,$7,NULL,$8::jsonb,$9,'pending',$10,0,$11,NOW(),NOW())
+       RETURNING *`,
+      [commandId,String(ownerUserId),clean(input.source||'presence',40),intent,target.type,target.id,target.desktopDeviceId,JSON.stringify(json(input.parameters)),clean(input.spokenText,1000)||null,Math.max(0,Math.min(100,Number(input.priority||70))),expiresAt],
+    );
+    await this.audit(commandId,'issued','system:presence',{target,requiredCapability:required});
+    return result.rows[0];
   }
 
   async issueCommand(device, input = {}) {
@@ -153,7 +188,7 @@ export class WisdoCommandBusService {
   }
 
   async leaseCommands(device, limit = 10) {
-    if (device.device_type !== 'desktop-agent') return [];
+    if (!['desktop-agent','pi-edge'].includes(device.device_type)) return [];
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
