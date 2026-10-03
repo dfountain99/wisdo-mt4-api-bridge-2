@@ -62,3 +62,17 @@ test('V16 removes fabricated education progress and future-feature copy',async()
   assert.doesNotMatch(source,/--ringValue:76%/);
   assert.match(source,/Available learning modules/);
 });
+
+test('V16 Street Sprint states local-mode limits without future placeholder controls',async()=>{
+  const html=await read('public/app/world/experiences/street-sprint.html');
+  assert.doesNotMatch(html,/not live yet|coming soon/i);
+  assert.match(html,/does not create multiplayer sessions, send phone alerts, or credit Culture Coin wallet rewards/);
+});
+
+test('V16 deterministic trade insight never masquerades as an AI fallback',async()=>{
+  const routes=await read('server/majorUpgradeRoutes.js');
+  assert.doesNotMatch(routes,/gateway_ready_rule_fallback|rule_fallback/);
+  assert.match(routes,/provider:'rule_engine'/);
+  assert.match(routes,/aiGenerated:false/);
+  assert.match(routes,/dataSource:'measured_trade_ledger'/);
+});
