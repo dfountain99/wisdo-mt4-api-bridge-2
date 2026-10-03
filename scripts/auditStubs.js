@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root=fileURLToPath(new URL('..',import.meta.url));
-const patterns=/TODO|FIXME|placeholder|coming soon|not implemented|website-buyer|active_manual|fake success|simulate/gi;
+const patterns=/TODO|FIXME|placeholder|coming soon|not implemented|not live yet|website-buyer|active_manual|fake success|rule_fallback|pending_hook|provider adapters can answer|adapter still needs|simulate/gi;
 const allowedExtensions=new Set(['.js','.json','.md','.html']);
 const excludedDirectories=new Set(['node_modules','.git','data','.venv','dist','build']);
 
