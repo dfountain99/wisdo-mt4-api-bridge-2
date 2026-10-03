@@ -6051,13 +6051,13 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
       releaseNotes: String(req.body?.releaseNotes || ''),
       forceUpdateRequired: Boolean(req.body?.forceUpdateRequired),
       educationRequiredBeforeActivation: Boolean(req.body?.educationRequiredBeforeActivation),
-      securityScan: { status: 'pending_hook', note: 'File validation hook placeholder. No uploaded executable is trusted until scanner integration passes.' },
+      securityScan: { status: 'unavailable', configured: false, trusted: false, note: 'Executable scanning is not configured. Uploaded bot files remain blocked from activation.' },
       createdAt: new Date().toISOString(),
     };
     state.botVersionsBySlug[slug] ||= [];
     state.botVersionsBySlug[slug].unshift(version);
     if (req.body?.fileName || req.body?.fileSha256) {
-      const file = { fileId: makeId('botfile'), botSlug: slug, versionId: version.versionId, fileName: String(req.body?.fileName || ''), fileSha256: String(req.body?.fileSha256 || ''), status: 'pending_scan', createdAt: new Date().toISOString() };
+      const file = { fileId: makeId('botfile'), botSlug: slug, versionId: version.versionId, fileName: String(req.body?.fileName || ''), fileSha256: String(req.body?.fileSha256 || ''), status: 'blocked_unscanned', trusted: false, createdAt: new Date().toISOString() };
       state.botFilesById[file.fileId] = file;
       version.fileId = file.fileId;
     }

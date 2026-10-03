@@ -1,34 +1,53 @@
 # WISDO live placeholder audit
 
-Repository snapshot: `main` after PR #106 (`6bfef316`). This is a code and Blueprint audit, not a claim that every deployed Render environment has the required credentials or that WebGL and external providers were exercised. The Blueprint declares a production Node service and a separate static `wisdo-world-lab` service. Service deployment settings and secrets are external to Git.
+Repository target: V16 Placeholder Truth cleanup.
 
-## Product-facing inventory
+This audit distinguishes three things:
 
-| Surface | Finding | Current disposition | Live completion gate |
-| --- | --- | --- | --- |
-| `/app/kernel-control/` | Send button only printed “Command captured.” | Fixed in this branch: preview via authenticated `/api/kernel/v1/intents`, explicit confirmation before dispatch, real response/credential errors. | Test with an enrolled device and supported component; verify execution receipt. |
-| Aether Lobby | PLAY button, second portal, and cards were inert pointer-only controls; “ONLINE” was unconditional. | Fixed in this branch: semantic links to existing experiences/Genesis and `/api/world/me` session status. | Browser check signed-in and signed-out navigation. |
-| Aether Lobby PARTY/LOCKER/SHOP | Disabled “SOON” controls. | BLOCKED: there is no friend match/party, locker, or shop workflow behind these controls. Keep disabled. | Implement authorization, persistence, UI and tests for each. |
-| Street Sprint | Solo local race; no friend session, verified result, or wallet payout. | PARTIAL: PR #107 holds the City Circuit work in draft; the production branch remains solo. | Exact-SHA visual play, authoritative multiplayer result, server-side reward idempotency. |
-| Other Aether quick games | Canvas target/quick games are local experiences. | PARTIAL, honestly labeled as local games. | Game-specific server match and result validation before social/rewards claims. |
-| Forge / personal world | Blueprint and manifest routes exist; UE and parity remain unverified. | PARTIAL. | Golden fixture browser evidence, UE 5.8 build/gameplay, renderer parity. |
-| Enter Unreal World | `WorldSessionService` returns `gpu_session_unavailable` without allocator and stream origin. | BLOCKED by GPU host/Pixel Streaming; fail closed is correct. | Certified package, stream host, allocator, local then remote playthrough. |
-| Automation Studio | Rules are stored; page says execution adapters can connect later. | PARTIAL. Do not imply enabled means actions execute. | Event consumers, per-action authorization, receipts, retry and trading safety tests. |
-| Kernel Intelligence Workspace | Uses real device API, but command dispatch needs enrolled device and live component. | CONDITIONAL. | Enrolled device, component heartbeat, authenticated receipt. |
-| Avatar scan | Camera scan has manual confirmation fallback and a saved configuration route. | CONDITIONAL; no claim of photoreal face replication. | Camera/browser QA and approved-asset review. |
+1. **Live** — a real authenticated/server path exists and success is based on a real dependency response.
+2. **Fail closed** — the capability depends on an external provider, credential, GPU host, browser feature, or device. WISDO reports the missing dependency and does not invent success.
+3. **Removed from product UI** — no execution backend exists, so the product does not show a disabled "soon" control or imply the feature is active.
 
-## External/provider gates
+## V16 corrections
 
-| Capability | Code evidence | Why it is not globally “live” from a merge |
+| Surface | Previous problem | V16 disposition |
 | --- | --- | --- |
-| Music and long audio | `/api/wisdo/media/*` returns `WISDO_MUSIC_NOT_CONFIGURED` / `WISDO_AUDIO_NOT_CONFIGURED` when ElevenLabs configuration is missing. | Provider credentials, voice settings and a real output playthrough are deployment-specific. |
-| Video generation | ComfyUI route returns `WISDO_COMFYUI_NOT_CONFIGURED`; external MP4 renderer also has explicit 503. | Needs provider/render host, job polling, storage and playback evidence. |
-| Checkout and subscriptions | Square routes return 503 without access token, location and webhook configuration. | Requires configured Square account and real sandbox webhook/checkout validation. |
-| Web push | VAPID routes return 503 when keys are absent. | Requires registered push subscription, permission and delivery proof. |
-| Historical candles | Market service refuses synthetic candles without Twelve Data or configured market feed. | Provider entitlement and live data source must be verified. |
-| Cross-instance realtime | `WorldRealtimeFabric` requires Redis when configured to require it; Blueprint defaults Redis off. | Multi-instance presence/matches need shared state and recovery proof. |
-| cTrader connection | OAuth route returns 503 when client credentials/redirect are absent. | Broker app credentials and callback validation are external. |
+| Aether Lobby PARTY / LOCKER / SHOP | Disabled "SOON" buttons with no backend | Removed from product navigation. Lobby now exposes only live destinations. |
+| Studio creation library | Audio/video/music requests could be written to local history before provider acceptance | A creation is recorded only after a real service accepts it or a real builder opens. Failed requests are not saved as creations. |
+| Workspace visual atmosphere | Browser dispatched a provider-adapter event and returned a synthetic pending result | Calls the real video route. 4xx/5xx stays failed; accepted jobs/results preserve the real response. |
+| Analyzer AI chat | Missing provider returned `ok:true` with `rule_fallback` canned copy | Removed. Missing AI config returns 503; upstream failure returns 502; empty provider responses fail. |
+| Living OS automations | Stored definitions could be marked enabled although no executor consumed them | Definitions remain disabled with `executionState=definition_only`. Attempts to enable return 409. Product navigation no longer presents them as active automation. |
+| Living OS devices | Manually entered metadata was labeled `paired` with a fake sync timestamp | Manual records are `registered`, have no heartbeat/sync claim, and Device Registry copy explains the distinction. |
+| Bot file scanner | Admin-created bot files used `pending_hook` / `pending_scan` despite no scanner integration | Files are explicitly `blocked_unscanned`, `trusted:false`; activation trust is not implied. |
+| Member Education | Hard-coded 76% ring, fabricated module progress bars, and "future AI layer" copy | Fabricated progress removed. Only real modules/navigation and current WISDO education entry are shown. |
+| Music bubble | UI said provider was ready before a request | Starts as provider-unverified/idle; real request decides readiness. |
 
-## Merge rule
+## Honest fail-closed integrations
 
-Do not replace disabled or unavailable states with optimistic text. A capability is live only when the authenticated route succeeds against its real dependency, the user flow has been exercised, and failures are surfaced without fake balances, players, media, trades, or rewards. Provider secrets belong in Render, never in Git. This audit identifies known high-impact placeholders and fail-closed integrations; it is not an exhaustive dynamic review of every deployed service.
+These are **not placeholders** and must stay unavailable until their real dependency exists:
+
+| Capability | Required live dependency |
+| --- | --- |
+| Unreal / Pixel Streaming entry | Certified Unreal package, GPU stream host, allocator and stream origin |
+| ElevenLabs music / long audio | Valid provider credential and enabled model/account access |
+| ComfyUI cinematic video | Reachable private `WISDO_COMFYUI_URL`, generation workflow and output retrieval |
+| Square checkout/subscriptions | Access token, location, plan variations, public URL and signed webhook |
+| Web Push | VAPID keys, browser permission and registered subscription |
+| Non-Coinbase historical symbols | Twelve Data entitlement or WISDO market-data bridge |
+| Cross-instance world realtime | Shared Redis/fabric configuration when multi-instance consistency is required |
+| cTrader | OAuth client credentials and valid callback configuration |
+| Browser speech/camera/WebGL | Supported browser/device permission/hardware |
+
+For all of these, the correct behavior is a specific unavailable/configuration state. WISDO must not substitute fake media, fake candles, fake payments, fake online users, fake device connections, or fake trading execution.
+
+## Regression rule
+
+`npm run audit:stubs` now also catches product-code regressions such as:
+
+- `not live yet`
+- `rule_fallback`
+- `pending_hook`
+- provider-adapter placeholder events/copy
+- "adapter still needs" fake integration language
+
+V16 tests additionally enforce the Aether, Studio, Living OS, scanner, AI-provider and education truth rules.

@@ -72,13 +72,16 @@ export function createAutomation(state,user,input={}){
   const allowedTriggers=['reporter_offline','drawdown_above','profit_above','mission_completed','account_connected','daily_time'];
   const allowedActions=['notify_dashboard','notify_discord','notify_email','pause_copier','activate_harvest','set_mode','create_mission'];
   const trigger=allowedTriggers.includes(input.trigger)?input.trigger:'reporter_offline'; const action=allowedActions.includes(input.action)?input.action:'notify_dashboard';
-  const rule={id:id('automation'),name:String(input.name||`${trigger} → ${action}`).slice(0,100),trigger,operator:String(input.operator||'gte'),value:input.value??'',action,actionValue:input.actionValue??'',enabled:input.enabled!==false,lastRunAt:null,runCount:0,createdAt:now(),updatedAt:now()};
+  const rule={id:id('automation'),name:String(input.name||`${trigger} → ${action}`).slice(0,100),trigger,operator:String(input.operator||'gte'),value:input.value??'',action,actionValue:input.actionValue??'',enabled:false,executionState:'definition_only',lastRunAt:null,runCount:0,createdAt:now(),updatedAt:now()};
   row.automations.push(rule); addTimeline(state,user,{type:'automation',title:`Automation created: ${rule.name}`}); return rule;
 }
 
 export function updateAutomation(state,user,ruleId,input={}){
   const row=getLivingUser(state,user); const rule=row.automations.find(x=>x.id===ruleId); if(!rule) throw new Error('Automation not found.');
-  if(input.enabled!==undefined) rule.enabled=Boolean(input.enabled); if(input.name) rule.name=String(input.name).slice(0,100); rule.updatedAt=now(); return rule;
+  if(input.enabled===true) throw new Error('Automation execution is not connected. This rule remains a saved definition and cannot be enabled.');
+  if(input.enabled===false) rule.enabled=false;
+  if(input.name) rule.name=String(input.name).slice(0,100);
+  rule.executionState='definition_only'; rule.updatedAt=now(); return rule;
 }
 
 export function rememberAiObservation(state,user,input={}){
@@ -88,8 +91,8 @@ export function rememberAiObservation(state,user,input={}){
 }
 
 export function pairDevice(state,user,input={}){
-  const row=getLivingUser(state,user); const device={id:id('device'),name:String(input.name||'Culture Device').slice(0,80),type:String(input.type||'band').slice(0,40),status:'paired',battery:input.battery==null?null:clamp(input.battery),firmware:String(input.firmware||'prototype'),permissions:Array.isArray(input.permissions)?input.permissions.slice(0,20):[],pairedAt:now(),lastSyncAt:now()};
-  row.devices.push(device); addTimeline(state,user,{type:'device',title:`Device paired: ${device.name}`}); return device;
+  const row=getLivingUser(state,user); const device={id:id('device'),name:String(input.name||'Culture Device').slice(0,80),type:String(input.type||'device_record').slice(0,40),status:'registered',battery:input.battery==null?null:clamp(input.battery),firmware:String(input.firmware||'unverified'),permissions:Array.isArray(input.permissions)?input.permissions.slice(0,20):[],registeredAt:now(),lastSyncAt:null};
+  row.devices.push(device); addTimeline(state,user,{type:'device',title:`Device record registered: ${device.name}`,detail:'Registration stores metadata only; it does not claim a live hardware connection.'}); return device;
 }
 
 export function calculateCultureScore(state,user,context={}){

@@ -39,7 +39,7 @@ test('Street Sprint is a WebGL race with checkpoints, mobile controls and honest
   assert.match(html,/value="15"/);
   assert.match(html,/data-key="ArrowUp"/);
   assert.match(html,/id="pause"/);
-  assert.match(html,/Friends, phone alerts and Culture Coin payouts are not live yet/);
+  assert.match(html,/does not create multiplayer sessions, send phone alerts, or credit Culture Coin wallet rewards/);
   assert.match(game,/THREE\.WebGLRenderer/);
   assert.match(game,/depositCheckpoint/);
   assert.match(game,/rankByBanked/);

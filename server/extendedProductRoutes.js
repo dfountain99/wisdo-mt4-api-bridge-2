@@ -1378,14 +1378,18 @@ export function registerExtendedProductRoutes(app, { config, loadEcosystemState,
   app.post('/api/v2/ai/analyzer-chat', requireUser, async (req, res) => {
     const messages = Array.isArray(req.body?.messages) ? req.body.messages.slice(-12) : [];
     const prompt = messages.map((message) => `${message.role || 'user'}: ${String(message.content || '').slice(0, 4000)}`).join('\n');
-    if (process.env.OPENAI_API_KEY) {
-      try {
-        const response = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: process.env.WISDO_AI_MODEL || 'gpt-4.1-mini', messages: [{ role: 'system', content: 'You are the WISDO trading education and account-risk analyst. Do not promise returns. Ground every answer in supplied account data and emphasize risk controls.' }, { role: 'user', content: prompt }], temperature: 0.2 }) });
-        const data = await response.json();
-        if (response.ok) return res.json({ ok: true, provider: 'openai', answer: data.choices?.[0]?.message?.content || '' });
-      } catch (error) { logger?.warn?.('AI gateway fallback', { message: error.message }); }
+    if (!process.env.OPENAI_API_KEY) return res.status(503).json({ ok:false, provider:'openai', providerReady:false, code:'WISDO_AI_NOT_CONFIGURED', error:'WISDO AI is not configured on this server. No fallback answer was generated.' });
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: process.env.WISDO_AI_MODEL || 'gpt-4.1-mini', messages: [{ role: 'system', content: 'You are the WISDO trading education and account-risk analyst. Do not promise returns. Ground every answer in supplied account data and emphasize risk controls.' }, { role: 'user', content: prompt }], temperature: 0.2 }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) return res.status(502).json({ ok:false, provider:'openai', providerReady:true, code:'WISDO_AI_PROVIDER_FAILED', error:data.error?.message || `OpenAI returned HTTP ${response.status}.` });
+      const answer = String(data.choices?.[0]?.message?.content || '').trim();
+      if (!answer) return res.status(502).json({ ok:false, provider:'openai', providerReady:true, code:'WISDO_AI_EMPTY_RESPONSE', error:'OpenAI returned no answer.' });
+      return res.json({ ok:true, provider:'openai', providerReady:true, answer });
+    } catch (error) {
+      logger?.warn?.('AI gateway unavailable', { message:error.message });
+      return res.status(502).json({ ok:false, provider:'openai', providerReady:true, code:'WISDO_AI_PROVIDER_UNAVAILABLE', error:'WISDO AI provider request failed.' });
     }
-    res.json({ ok: true, provider: 'rule_fallback', answer: 'The AI provider is not connected. Review the selected account’s equity, current drawdown, open risk, copier routes, symbol exposure, and daily-loss protection before changing risk.' });
   });
 
   app.get('/api/v2/admin/users', requireUser, adminGuard, async (req, res) => {
