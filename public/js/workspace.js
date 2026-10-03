@@ -106,12 +106,23 @@
   }
   function restoreAtmosphere(){const st=atmosphereState();if(st.videoUrl&&st.playing)applyAtmosphereVideo(st.videoUrl,st.prompt);}
   async function generateAtmosphere(prompt){
-    prompt=String(prompt||'').trim();if(!prompt)return;
-    saveAtmosphereState({prompt,status:'requested'});
-    window.dispatchEvent(new CustomEvent('wisdo:video-request',{detail:{prompt,purpose:'workspace-atmosphere',loop:true,muted:true}}));
-    toast('WISDO is shaping your visual atmosphere…');
-    // Provider adapters can answer this event or set a generated URL without coupling the UI to one vendor.
-    return {prompt,pending:true};
+    prompt=String(prompt||'').trim();if(!prompt)return null;
+    saveAtmosphereState({prompt,status:'checking',playing:false});
+    toast('WISDO is checking the visual generation service…');
+    const response=await fetch('/api/wisdo/media/video',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,purpose:'workspace-atmosphere',motion:'Slow cinematic drift',loop:true,muted:true})});
+    const body=await response.json().catch(()=>({}));
+    if(!response.ok){
+      const message=body.error||body.code||('VIDEO HTTP '+response.status);
+      saveAtmosphereState({prompt,status:'unavailable',playing:false,error:message});
+      throw new Error(message);
+    }
+    const url=body.url||body.asset?.url||body.videoUrl||'';
+    const status=String(body.status||'accepted').toLowerCase();
+    saveAtmosphereState({prompt,status,playing:Boolean(url),videoUrl:url||'',jobId:body.jobId||body.id||'',error:''});
+    if(url)applyAtmosphereVideo(url,prompt);
+    window.dispatchEvent(new CustomEvent('wisdo:video-requested',{detail:{prompt,purpose:'workspace-atmosphere',response:body}}));
+    toast(url?'WISDO visual atmosphere is live.':'WISDO accepted the visual generation request.');
+    return body;
   }
   function handleWisdoAtmosphereCommand(text){
     const n=String(text||'').toLowerCase().replace(/[^a-z0-9\s'-]/g,' ').replace(/\s+/g,' ').trim();if(!n)return false;
