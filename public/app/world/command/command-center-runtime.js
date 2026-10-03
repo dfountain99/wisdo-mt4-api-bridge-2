@@ -328,7 +328,7 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
       method:'POST',
       credentials:'same-origin',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({text:textValue,sessionId:intentSessionId||null,accountId:runtime.accountId||selectedAccount()?.accountId||null}),
+      body:JSON.stringify({text:textValue,sessionId:intentSessionId||null,accountId:runtime.accountId||selectedAccount()?.accountId||null,symbol:activeCampaign()?.symbol||commandState?.campaignControl?.symbol||null,campaignId:commandState?.campaignControl?.campaignId||activeCampaign()?.campaignId||null,magicNumber:commandState?.campaignControl?.magic||activeCampaign()?.magicNumber||null}),
     });
     const payload=await response.json().catch(()=>({}));
     if(!response.ok)throw new Error(payload.error||payload.message||`Intent OS request failed: ${response.status}`);
