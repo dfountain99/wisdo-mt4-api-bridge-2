@@ -25,6 +25,7 @@ export function registerWorldCommandRoutes(app, {
   mt4SyncService = null,
   mt4CommandService = null,
   eventEngine = null,
+  conversationalVoice = null,
   logger = console,
 } = {}) {
   if (!app?.get || !app?.post) throw new TypeError('Express app is required.');
@@ -34,6 +35,55 @@ export function registerWorldCommandRoutes(app, {
   } catch (error) {
     logger?.warn?.('WISDO World Command Center disabled.', { message: error.message });
   }
+
+  const conversationService = conversationalVoice?.conversationService || null;
+  const adaptiveFabricService = conversationalVoice?.adaptiveFabricService || null;
+  const intentPool = adaptiveFabricService?.pool || null;
+
+  app.post('/api/world/intent', requireWorldUser, async (req, res) => {
+    try {
+      if (!conversationService) return res.status(503).json({ ok:false, error:'WISDO Intent OS is unavailable.' });
+      const text = String(req.body?.text || '').trim();
+      if (!text) return res.status(400).json({ ok:false, error:'Tell WISDO what you want to happen.' });
+      const result = await conversationService.answer({
+        userId: String(req.worldUser.id),
+        discordUserId: String(req.worldUser.id),
+        channel: 'web',
+        sessionId: req.body?.sessionId || null,
+        accountId: req.body?.accountId || null,
+        symbol: req.body?.symbol || null,
+        campaignId: req.body?.campaignId || null,
+        magicNumber: req.body?.magicNumber ?? null,
+        selectedTicket: req.body?.selectedTicket || null,
+        text,
+      });
+      res.status(result.state === 'queued' ? 202 : 200).json({ ok: result.ok !== false, ...result });
+    } catch (error) {
+      res.status(statusFor(error)).json({ ok:false, error:error.message, code:error.code || null });
+    }
+  });
+
+  app.get('/api/world/intentions', requireWorldUser, async (req, res, next) => {
+    try {
+      if (!adaptiveFabricService || !intentPool) return res.status(503).json({ ok:false, error:'WISDO standing-intention fabric is unavailable.' });
+      const rows = await adaptiveFabricService.listBehaviors(String(req.worldUser.id), { limit: 60 });
+      const runtime = await intentPool.query(`SELECT behavior_id,account_id,state,open_tickets,deadline_at,last_checked_at,last_triggered_at,metadata,updated_at FROM wisdo_behavior_runtime_state WHERE owner_user_id=$1 ORDER BY updated_at DESC`,[String(req.worldUser.id)]);
+      const byBehavior = new Map(runtime.rows.map((row)=>[String(row.behavior_id),row]));
+      const intentions = rows.filter((row)=>row.status !== 'cancelled').map((row)=>({
+        behaviorId: row.behavior_id,
+        name: row.name,
+        purpose: row.purpose,
+        status: row.status,
+        scope: row.scope,
+        trigger: row.definition?.trigger || null,
+        actions: row.definition?.actions || [],
+        verification: row.definition?.verification || null,
+        lastRuntime: byBehavior.get(String(row.behavior_id)) || null,
+        updatedAt: row.updated_at,
+      }));
+      res.json({ ok:true, intentions });
+    } catch (error) { next(error); }
+  });
 
   app.get('/api/world/command/state', requireWorldUser, async (req, res, next) => {
     try {

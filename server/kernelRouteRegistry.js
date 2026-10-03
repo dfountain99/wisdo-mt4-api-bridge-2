@@ -152,6 +152,7 @@ export function registerWisdoKernelRoutes(app, {
     mt4SyncService,
     mt4CommandService,
     eventEngine: worldLivingSystems.eventEngine,
+    conversationalVoice,
   });
 
   app.get('/health/kernel', async (_req, res, next) => {

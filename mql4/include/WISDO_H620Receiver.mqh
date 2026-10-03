@@ -124,6 +124,23 @@ bool WcoWidenExistingStops(string p,double multiplier)
    if(protectedCount<=0 || invalid>0)return false;
    return changed==requested;
 }
+bool WcoArmCounterIfValid(string p,int dir,double referencePrice)
+{
+   if((dir!=DIR_BUY && dir!=DIR_SELL) || referencePrice<=0 || TradeCount()>0)return false;
+   if(h620Quarantine || gWisdoPaused || gWisdoEmergencyLatched || !AllowNewEntries)return false;
+   if(h620Phase!=0 && h620Phase!=3)return false;
+   // WISDO does not place the counter order. It only arms H620's existing
+   // reversal state machine. H620TryFlip still requires opposite closed-bar
+   // acceptance, distance, spread, risk, Commander and broker legality.
+   h620BrokenRail=referencePrice;
+   h620FailureBar=iTime(Symbol(),SignalTF,0);
+   h620Flip=dir;
+   h620Phase=3;
+   h620Status="WISDO COUNTER INTENT ARMED - WAIT HIGHTOWER REVERSAL PROOF";
+   WcoWrite(p,"requested",1);WcoWrite(p,"changed",1);
+   H620Persist();GlobalVariablesFlush();
+   return true;
+}
 bool WcoApplyTrailAtr(string p,double startAtr,double distanceAtr,double stepAtr)
 {
    if(startAtr<0.05 || startAtr>20 || distanceAtr<0.05 || distanceAtr>20 || stepAtr<0.01 || stepAtr>5)return false;
@@ -275,7 +292,7 @@ void H620FutureTick()
    {
       int op=(int)WcoRead(p,"op"),duration=(int)WcoRead(p,"duration");
       bool valid=WcoRead(p,"expires")>=TimeGMT() && WcoRead(p,"expected")==h620Id && IsConnected() && IsExpertEnabled();
-      if(op<1 || op>20)valid=false;
+      if(op<1 || op>21)valid=false;
       if((op==1 || op==3 || op==6 || op==7 || op==12) && (duration<1 || duration>604800))valid=false;
       if((op==2 || op==3 || (op>=6 && op<=18) || op==20) && h620Phase!=1)valid=false;
       if(op==12 && (WcoRead(p,"burst")<1 || WcoRead(p,"burst")>10))valid=false;
@@ -294,6 +311,7 @@ void H620FutureTick()
       }
       else if(op==19){WcoClearRuntime(true);WcoWrite(p,"requested",1);WcoWrite(p,"changed",1);result=1;}
       else if(op==20){result=WcoWidenExistingStops(p,WcoRead(p,"stopAtr"))?1:(WcoRead(p,"changed")>0?3:-1);}
+      else if(op==21){result=WcoArmCounterIfValid(p,(int)WcoRead(p,"counterDirection"),WcoRead(p,"referencePrice"))?1:-1;}
       else if((op>=8 && op<=11) || op==13 || op==14)
       {
          WcoWrite(p,"changed",0);WcoWrite(p,"requested",0);

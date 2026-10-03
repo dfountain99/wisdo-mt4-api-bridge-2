@@ -66,6 +66,35 @@ export class WisdoUniversalControlService {
     return executions;
   }
 
+  async leaseExecutions(device,limit=10) {
+    const client=await this.pool.connect();
+    try{
+      await client.query('BEGIN');
+      const rows=(await client.query(`SELECT e.*,c.name AS component_name,c.component_type,c.capabilities
+        FROM wisdo_control_executions e
+        JOIN wisdo_components c ON c.component_id=e.component_id
+        WHERE e.owner_user_id=$1 AND c.device_id=$2 AND c.status='online'
+          AND (e.status='queued' OR (e.status='leased' AND e.leased_at < NOW()-INTERVAL '45 seconds'))
+        ORDER BY e.risk_level DESC,e.created_at ASC
+        FOR UPDATE OF e SKIP LOCKED LIMIT $3`,[device.owner_user_id,device.device_id,Math.max(1,Math.min(50,Number(limit||10)))])).rows;
+      if(rows.length)await client.query(`UPDATE wisdo_control_executions SET status='leased',leased_at=NOW(),updated_at=NOW() WHERE execution_id=ANY($1::text[])`,[rows.map((row)=>row.execution_id)]);
+      await client.query('COMMIT');
+      return rows.map((row)=>({...row,status:'leased'}));
+    }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+  }
+
+  async completeExecution(device,executionId,input={}) {
+    const status=['completed','failed','rejected'].includes(String(input.status||''))?String(input.status):'failed';
+    const result=await this.pool.query(`UPDATE wisdo_control_executions e
+      SET status=$1,result=$2::jsonb,error=$3,completed_at=NOW(),updated_at=NOW()
+      FROM wisdo_components c
+      WHERE e.execution_id=$4 AND e.component_id=c.component_id
+        AND e.owner_user_id=$5 AND c.device_id=$6 AND e.status='leased'
+      RETURNING e.*`,[status,JSON.stringify(obj(input.result)),clean(input.error||input.message||'',500)||null,clean(executionId,200),device.owner_user_id,device.device_id]);
+    if(!result.rows[0]){const error=new Error('Control execution is not leased to this device.');error.statusCode=409;throw error;}
+    return result.rows[0];
+  }
+
   async publishWebsiteAction(device,input={}) {
     const eventId=crypto.randomUUID();
     const action=clean(input.action,120);

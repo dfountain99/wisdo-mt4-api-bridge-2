@@ -5,6 +5,12 @@ const ACTIONS=Object.freeze({
   resume_entries:{family:'entry_state',commandName:'START_ENTRIES',risk:'controlled'},
   guard_mode:{family:'control_mode',commandName:'SET_CONTROL_MODE',risk:'controlled'},
   notify:{family:'notification',commandName:null,risk:'read_only'},
+  set_stop_atr:{family:'protection',commandName:'WISDO_CAMPAIGN',campaignAction:'SET_STOP_ATR',risk:'controlled'},
+  set_trail_atr:{family:'protection',commandName:'WISDO_CAMPAIGN',campaignAction:'SET_TRAIL_ATR',risk:'controlled'},
+  trim_campaign:{family:'position_management',commandName:'WISDO_CAMPAIGN',campaignAction:'TRIM_CAMPAIGN',risk:'dangerous'},
+  add_if_valid:{family:'entry',commandName:'WISDO_CAMPAIGN',campaignAction:'ADD_IF_VALID',risk:'dangerous'},
+  counter_if_valid:{family:'reversal',commandName:'WISDO_CAMPAIGN',campaignAction:'COUNTER_IF_VALID',risk:'dangerous'},
+  clear_runtime_overrides:{family:'protection',commandName:'WISDO_CAMPAIGN',campaignAction:'CLEAR_RUNTIME_OVERRIDES',risk:'controlled'},
 });
 const OPPOSITES=new Set(['pause_entries:resume_entries','resume_entries:pause_entries']);
 const CURRENCIES=new Set(['USD','EUR','GBP','JPY','CHF','AUD','NZD','CAD']);
@@ -54,6 +60,16 @@ function parseActions(text='') {
   add(/resume|start new entr|allow new entr/,{type:'resume_entries',parameters:{}});
   add(/guard mode|safe mode|defensive mode/,{type:'guard_mode',parameters:{mode:'GUARD',allowNewTrades:false,maxTrades:1,riskPercent:.25}});
   add(/notify|alert|tell me|message me|wake me/,{type:'notify',parameters:{}});
+  const stopAtr=(t.match(/(?:stop(?: loss| losses)?).*?(?:to|at)\s*(\d+(?:\.\d+)?)\s*atr/)||[])[1];
+  if(stopAtr)add(/(?:set|change|move|use|tighten).*?stop/,{type:'set_stop_atr',parameters:{stopAtr:Number(stopAtr)}});
+  const trailAtr=(t.match(/(?:trail|trailer|trailing)(?: distance)?.*?(?:to|at)\s*(\d+(?:\.\d+)?)\s*atr/)||[])[1];
+  if(trailAtr)add(/(?:trail|trailer|trailing)/,{type:'set_trail_atr',parameters:{trailDistanceAtr:Number(trailAtr)}});
+  else if(/(?:tighten|tighter).*\b(?:trail|trailer|trailing)\b|\b(?:trail|trailer|trailing).*?(?:tighten|tighter)/.test(t))add(/(?:tighten|tighter)/,{type:'set_trail_atr',parameters:{trailDeltaAtr:-0.25}});
+  else if(/(?:loosen|looser|give).*\b(?:trail|trailer|trailing)\b|\b(?:trail|trailer|trailing).*?(?:loosen|looser|more room)/.test(t))add(/(?:loosen|looser|more room)/,{type:'set_trail_atr',parameters:{trailDeltaAtr:0.25}});
+  if(/\b(?:trim|reduce)\b/.test(t)){const trim=/\bhalf\b/.test(t)?50:Number((t.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)/)||[])[1]||0);if(trim>0)add(/\b(?:trim|reduce)\b/,{type:'trim_campaign',parameters:{trimPercent:trim}});}
+  add(/\b(?:add|boost)\b.*\b(?:position|trade|entry)\b/,{type:'add_if_valid',parameters:{}});
+  add(/\b(?:counter(?: trade| position| entry)?|reverse(?: me| it| the trade| the campaign)?|flip me|go the other way)\b/,{type:'counter_if_valid',parameters:{promoteNewCampaign:true}});
+  add(/\b(?:return|restore|resume)\b.*\bstops?\b.*\b(?:normal|ea|automatic)\b|\bback to (?:the )?(?:ea|visible) inputs?\b/,{type:'clear_runtime_overrides',parameters:{}});
   return matches.sort((a,b)=>a.index-b.index).map(({action})=>action).filter((action,index,list)=>list.findIndex((item)=>item.type===action.type)===index);
 }
 
@@ -67,11 +83,13 @@ export class WisdoBehaviorCompilerService {
     const every=text.match(/\bevery\s+(.+?)(?=\s+(?:if|when|unless|until|then|close|pause|resume|protect|notify|alert)|$)/);
     const interval=every?durationSeconds(every[1]):null;
     if(interval)trigger={type:'interval',interval_seconds:interval};
+    else if(/\b(?:stop(?: loss)? (?:is |gets? |was )?(?:hit|triggered)|stopped out|stops? me out|trade hits? (?:my |the )?stop|position hits? (?:my |the )?stop)\b/.test(text))trigger={type:'event',event:'stop_loss_hit'};
+    else if(/\b(?:campaign|basket) (?:closes?|closed|ends?|ended)\b/.test(text))trigger={type:'event',event:'campaign_closed'};
     else if(/\b(?:new|another)\b.{0,30}\b(?:entry|entries|position|trade)\b|\b(?:entry|position|trade) opens?\b/.test(text))trigger={type:'event',event:'new_entry'};
     const timerReset=/(?:every|each) new entr(?:y|ies).*(?:reset|restart).*(?:timer|clock)|(?:reset|restart).*(?:timer|clock).*(?:every|each) new entr(?:y|ies)/.test(text);
     if(timerReset)trigger={type:'resettable_inactivity_timer',event:'new_entry',timeout_seconds:durationSeconds(text)};
     if(trigger.type==='manual'){
-      const lead=(text.match(/(?:if|when)\s+(.+?)(?=\s+(?:then|close|pause|resume|protect|notify|alert|guard)\b)/)||[])[1];
+      const lead=(text.match(/(?:if|when)\s+(.+?)(?=\s+(?:then|close|pause|resume|protect|notify|alert|guard|counter|reverse|flip|trim|add|boost|tighten|loosen)\b)/)||[])[1];
       const metric=parseMetricClause(lead||text);if(metric)trigger=metric;
     }
     if(trigger.type==='manual'&&!/\bnow\b|immediately|manual/.test(text))warnings.push('No automatic trigger was found; this behavior is manual.');
@@ -82,7 +100,7 @@ export class WisdoBehaviorCompilerService {
     const terminationMetric=until?parseMetricClause(until):null;
     const termination=until?(/end of (?:the )?(?:day|session)|today/.test(until)?{type:'end_of_trading_day'}:terminationMetric):null;if(until&&!termination)errors.push('The UNTIL condition could not be compiled safely.');
     const conditions=[];
-    const ifClause=interval?(text.match(/\bif\s+(.+?)(?=\s+(?:then|close|pause|resume|protect|notify|alert|guard)\b)/)||[])[1]:null;const ifCondition=ifClause?parseMetricClause(ifClause):null;if(ifClause&&!ifCondition)errors.push('The IF condition could not be compiled safely.');if(ifCondition)conditions.push(ifCondition);
+    const ifClause=interval?(text.match(/\bif\s+(.+?)(?=\s+(?:then|close|pause|resume|protect|notify|alert|guard|counter|reverse|flip|trim|add|boost|tighten|loosen)\b)/)||[])[1]:null;const ifCondition=ifClause?parseMetricClause(ifClause):null;if(ifClause&&!ifCondition)errors.push('The IF condition could not be compiled safely.');if(ifCondition)conditions.push(ifCondition);
     if(actions.some((item)=>item.type==='protect_profit_full_basket'))conditions.push({type:'metric',metric:'basket_profit_money',operator:'>',value:0});
     return {schema_version:'2.0',name:this.title(action,trigger),purpose:source,scope,trigger,conditions,unless:unlessCondition?[unlessCondition]:[],actions,termination,mode:/\b(simulate|simulation|shadow|paper test|preview)\b/.test(text)?'shadow':'active',verification:{required:actions.some((item)=>Boolean(ACTIONS[item.type]?.commandName)),receipt:'mt4_reporter',success:actions.some((item)=>item.type.includes('basket'))?'all_target_tickets_closed':'command_completed'},failure_plan:{retry:'bounded',max_attempts:3,on_exhausted:'notify_and_disarm'},source:{type:'natural_language',spoken_text:source,confidence:errors.length?0.4:0.96},validation:{valid:errors.length===0,errors,warnings}};
   }
@@ -105,5 +123,17 @@ export class WisdoBehaviorCompilerService {
     return {wouldFire,mode:definition.mode||'active',triggerMatched,conditionsMatched,unlessMatched,terminated,metrics:values,actions:definition.actions||[],explanation:terminated?'The UNTIL condition ended the behavior.':!triggerMatched?'Trigger has not matched.':unlessMatched?'An UNLESS guard blocked the action.':!conditionsMatched?'A required condition blocked the action.':wouldFire?'Behavior would execute.':'Behavior remains armed.'};
   }
 
-  commandFor(action={}) { const contract=ACTIONS[action.type];return contract?.commandName?{intent:action.type.toUpperCase(),commandName:contract.commandName,parameters:{...(action.parameters||{})},safetyLevel:contract.risk==='dangerous'?'DANGEROUS':'CONTROLLED'}:null; }
+  commandFor(action={},context={}) {
+    const contract=ACTIONS[action.type];if(!contract?.commandName)return null;
+    const parameters={...(action.parameters||{})};
+    if(contract.campaignAction)parameters.action=contract.campaignAction;
+    if(action.type==='counter_if_valid'){
+      const closed=context.event?.closedTrade||{};
+      const side=String(closed.type||closed.direction||'').toUpperCase();
+      parameters.counterDirection=side==='BUY'?-1:side==='SELL'?1:Number(context.event?.counterDirection||0);
+      parameters.referencePrice=Number(closed.stopLoss??closed.sl??context.event?.referencePrice??closed.closePrice??0);
+      parameters.closedTicket=closed.ticket==null?null:String(closed.ticket);
+    }
+    return {intent:action.type.toUpperCase(),commandName:contract.commandName,parameters,safetyLevel:contract.risk==='dangerous'?'DANGEROUS':'CONTROLLED'};
+  }
 }

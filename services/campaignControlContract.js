@@ -20,6 +20,7 @@ export const CAMPAIGN_ACTIONS = Object.freeze({
   ADD_IF_VALID: { code: 18, label: 'Ask HIGHTOWER to add one position under normal entry gates' },
   CLEAR_RUNTIME_OVERRIDES: { code: 19, label: 'Return live stop and trail settings to the visible EA inputs' },
   WIDEN_EXISTING_STOPS: { code: 20, label: 'Intentionally widen existing live broker stops' },
+  COUNTER_IF_VALID: { code: 21, label: 'Arm an opposite HIGHTOWER campaign after a verified stop event' },
 });
 const num = (v, fallback = 0) => typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 const bool = (v) => v === true;
@@ -121,6 +122,14 @@ export function campaignPacket(action, body, state) {
   }
   const trimPercent = Number(body.trimPercent || 0);
   if (definition.code === 17 && (!Number.isFinite(trimPercent) || trimPercent < 1 || trimPercent > 99)) fail('Trim percent must be between 1 and 99.');
+  let counterDirection = Number(body.counterDirection || 0);
+  let referencePrice = Number(body.referencePrice || 0);
+  if (definition.code === 21) {
+    if (![1, -1].includes(counterDirection)) fail('Counter direction must be BUY or SELL.');
+    if (!Number.isFinite(referencePrice) || referencePrice <= 0) fail('A verified stop/close reference price is required before HIGHTOWER can arm a counter campaign.');
+    if (c.phase !== 0 && c.phase !== 3) fail('Counter intent can only arm after the prior campaign is flat or already waiting for reversal proof.');
+    if (c.positions?.length) fail('Counter intent requires the prior campaign to be flat before arming opposite exposure.');
+  }
   const runtimeScope = [15, 16].includes(definition.code) ? (body.persistRuntime === true ? 2 : 1) : 0;
   let level = null;
   if ([8, 9].includes(definition.code)) {
@@ -131,5 +140,5 @@ export function campaignPacket(action, body, state) {
   return { operation: definition.code, burstCount, durationSeconds: duration, eaCampaignId: c.campaignId,
     symbol: c.symbol, magicNumber: c.magic, tickets: tickets.join(','),
     levelId: level?.id || 0, levelPrice: level?.price || 0,
-    stopAtr, trailStartAtr, trailDistanceAtr, trailStepAtr, trimPercent, runtimeScope };
+    stopAtr, trailStartAtr, trailDistanceAtr, trailStepAtr, trimPercent, runtimeScope, counterDirection, referencePrice };
 }

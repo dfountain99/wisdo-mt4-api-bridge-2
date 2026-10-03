@@ -404,7 +404,7 @@
     // route to keep showing the old Member Desk command model while V7 existed elsewhere.
     root().innerHTML = '<div class="card loading-card">Opening WISDO CORE…</div>';
     try {
-      const { startCampaignCommandCenter } = await import('/app/world/command/command-center-runtime.js?v=20261001-v15-live-manager');
+      const { startCampaignCommandCenter } = await import('/app/world/command/command-center-runtime.js?v=20261002-v17-intent-os');
       const initialAccountId = selectedAccountId() || sessionStorage.getItem('wisdo.selectedAccountId') || '';
       const singularity = startCampaignCommandCenter({ initialAccountId });
       singularity.open();

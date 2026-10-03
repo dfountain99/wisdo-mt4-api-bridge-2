@@ -6,6 +6,8 @@ import json
 import os
 import platform
 import shutil
+import shlex
+import socket
 import subprocess
 import struct
 import threading
@@ -55,6 +57,8 @@ LED_STATE = 'idle'
 PLAYBACK = None
 PLAYBACK_LOCK = threading.Lock()
 PLAYBACK_INTERRUPTED = False
+PRESENCE_LAST = False
+PRESENCE_CHECKED_AT = 0.0
 def load_seen_deliveries():
     try: return deque((line.strip() for line in PLAYED_FILE.read_text(encoding='utf-8').splitlines() if line.strip()), maxlen=256)
     except OSError: return deque(maxlen=256)
@@ -414,6 +418,75 @@ def poll_delivery(wait_ms=15000):
     return body.get('delivery') or body
 
 
+def read_presence():
+    command = os.getenv('WISDO_PRESENCE_COMMAND', '').strip()
+    if not command:
+        return None
+    completed = subprocess.run(shlex.split(command), check=False, capture_output=True, text=True, timeout=4)
+    if completed.returncode != 0:
+        raise RuntimeError(f'Presence sensor command exited {completed.returncode}: {(completed.stderr or "").strip()[:180]}')
+    value = (completed.stdout or '').strip().lower()
+    if value in ('1','true','present','occupied','home','yes','on'):
+        return True
+    if value in ('0','false','absent','away','empty','no','off'):
+        return False
+    raise RuntimeError(f'Presence sensor returned unsupported value: {value[:80]}')
+
+def poll_presence():
+    global PRESENCE_LAST, PRESENCE_CHECKED_AT
+    interval = max(1.0, float(os.getenv('WISDO_PRESENCE_POLL_SECONDS', '2')))
+    now = time.monotonic()
+    if now - PRESENCE_CHECKED_AT < interval:
+        return
+    PRESENCE_CHECKED_AT = now
+    current = read_presence()
+    if current is None:
+        return
+    arrived = current and not PRESENCE_LAST
+    PRESENCE_LAST = current
+    if not arrived:
+        return
+    room = os.getenv('WISDO_PRESENCE_ROOM_ID', os.getenv('WISDO_ROOM_ID', 'trading-room')).strip() or 'trading-room'
+    response = requests.post(f'{CLOUD}/api/device/v1/presence/arrive', headers=headers(), json={'roomId':room}, timeout=12)
+    if response.status_code not in (202, 409):
+        response.raise_for_status()
+    body = response.json()
+    print('Wisdo presence arrival:', json.dumps(body, separators=(',',':')))
+
+def wake_trading_workstation():
+    raw = os.getenv('WISDO_TRADING_WORKSTATION_MAC', '').replace(':','').replace('-','').strip()
+    if len(raw) != 12 or any(ch not in '0123456789abcdefABCDEF' for ch in raw):
+        raise RuntimeError('WISDO_TRADING_WORKSTATION_MAC is not configured with a valid 12-hex-digit MAC address.')
+    mac = bytes.fromhex(raw)
+    packet = b'\xff' * 6 + mac * 16
+    broadcast = os.getenv('WISDO_WOL_BROADCAST', '255.255.255.255').strip() or '255.255.255.255'
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sent = sock.sendto(packet, (broadcast, 9))
+        if sent != len(packet):
+            raise RuntimeError('Wake-on-LAN packet was not fully transmitted.')
+    finally:
+        sock.close()
+    return {'macSuffix': raw[-4:].upper(), 'broadcast': broadcast, 'bytes': len(packet)}
+
+def poll_device_commands():
+    response = requests.post(f'{CLOUD}/api/agent/v1/commands/lease', headers=headers(), json={'limit': 4}, timeout=10)
+    response.raise_for_status()
+    for command in response.json().get('commands', []):
+        intent = str(command.get('intent') or '').lower()
+        status, result, message = 'rejected', {}, f'Intent {intent} is not supported by this Pi edge device.'
+        if intent == 'wake_trading_workstation':
+            try:
+                result = wake_trading_workstation()
+                status, message = 'completed', 'Wake-on-LAN packet verified and sent to the configured trading workstation.'
+            except Exception as exc:
+                status, message = 'failed', str(exc)
+        requests.post(
+            f'{CLOUD}/api/agent/v1/commands/{command["command_id"]}/complete',
+            headers=headers(), json={'status':status,'result':result,'message':message}, timeout=10
+        ).raise_for_status()
+
 def console_utterance(text):
     # Console mode is diagnostic only; physical mode always sends recorded audio for server STT.
     response = requests.post(f'{CLOUD}/api/voice/v1/conversation', headers=headers(),
@@ -435,6 +508,10 @@ def main():
         try:
             if SESSION_ID and time.monotonic() - SESSION_TOUCHED > SESSION_IDLE_SECONDS:
                 SESSION_ID = None
+            poll_presence()
+            # Presence can enqueue a Wake-on-LAN command for this Pi; lease it
+            # immediately before entering the microphone wait.
+            poll_device_commands()
             if muted():
                 set_led('muted'); heartbeat(False); time.sleep(0.5); continue
             delivery = poll_delivery(0)
