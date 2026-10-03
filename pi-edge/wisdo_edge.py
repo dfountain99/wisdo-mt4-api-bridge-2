@@ -6,6 +6,7 @@ import json
 import os
 import platform
 import shutil
+import shlex
 import socket
 import subprocess
 import struct
@@ -56,6 +57,8 @@ LED_STATE = 'idle'
 PLAYBACK = None
 PLAYBACK_LOCK = threading.Lock()
 PLAYBACK_INTERRUPTED = False
+PRESENCE_LAST = False
+PRESENCE_CHECKED_AT = 0.0
 def load_seen_deliveries():
     try: return deque((line.strip() for line in PLAYED_FILE.read_text(encoding='utf-8').splitlines() if line.strip()), maxlen=256)
     except OSError: return deque(maxlen=256)
@@ -415,6 +418,41 @@ def poll_delivery(wait_ms=15000):
     return body.get('delivery') or body
 
 
+def read_presence():
+    command = os.getenv('WISDO_PRESENCE_COMMAND', '').strip()
+    if not command:
+        return None
+    completed = subprocess.run(shlex.split(command), check=False, capture_output=True, text=True, timeout=4)
+    if completed.returncode != 0:
+        raise RuntimeError(f'Presence sensor command exited {completed.returncode}: {(completed.stderr or "").strip()[:180]}')
+    value = (completed.stdout or '').strip().lower()
+    if value in ('1','true','present','occupied','home','yes','on'):
+        return True
+    if value in ('0','false','absent','away','empty','no','off'):
+        return False
+    raise RuntimeError(f'Presence sensor returned unsupported value: {value[:80]}')
+
+def poll_presence():
+    global PRESENCE_LAST, PRESENCE_CHECKED_AT
+    interval = max(1.0, float(os.getenv('WISDO_PRESENCE_POLL_SECONDS', '2')))
+    now = time.monotonic()
+    if now - PRESENCE_CHECKED_AT < interval:
+        return
+    PRESENCE_CHECKED_AT = now
+    current = read_presence()
+    if current is None:
+        return
+    arrived = current and not PRESENCE_LAST
+    PRESENCE_LAST = current
+    if not arrived:
+        return
+    room = os.getenv('WISDO_PRESENCE_ROOM_ID', os.getenv('WISDO_ROOM_ID', 'trading-room')).strip() or 'trading-room'
+    response = requests.post(f'{CLOUD}/api/device/v1/presence/arrive', headers=headers(), json={'roomId':room}, timeout=12)
+    if response.status_code not in (202, 409):
+        response.raise_for_status()
+    body = response.json()
+    print('Wisdo presence arrival:', json.dumps(body, separators=(',',':')))
+
 def wake_trading_workstation():
     raw = os.getenv('WISDO_TRADING_WORKSTATION_MAC', '').replace(':','').replace('-','').strip()
     if len(raw) != 12 or any(ch not in '0123456789abcdefABCDEF' for ch in raw):
@@ -471,6 +509,7 @@ def main():
             if SESSION_ID and time.monotonic() - SESSION_TOUCHED > SESSION_IDLE_SECONDS:
                 SESSION_ID = None
             poll_device_commands()
+            poll_presence()
             if muted():
                 set_led('muted'); heartbeat(False); time.sleep(0.5); continue
             delivery = poll_delivery(0)
