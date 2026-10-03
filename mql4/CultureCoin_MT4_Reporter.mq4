@@ -608,6 +608,8 @@ string BuildClosedTradesTodayJson(double &dailyClosedPL, string &symbolsSeen, st
       trade += "\"lots\":" + DoubleToString(OrderLots(), 2) + ",";
       trade += "\"openPrice\":" + DoubleToString(OrderOpenPrice(), priceDigits) + ",";
       trade += "\"closePrice\":" + DoubleToString(OrderClosePrice(), priceDigits) + ",";
+      trade += "\"stopLoss\":" + DoubleToString(OrderStopLoss(), priceDigits) + ",";
+      trade += "\"takeProfit\":" + DoubleToString(OrderTakeProfit(), priceDigits) + ",";
       trade += "\"profit\":" + DoubleToString(OrderProfit(), 2) + ",";
       trade += "\"swap\":" + DoubleToString(OrderSwap(), 2) + ",";
       trade += "\"commission\":" + DoubleToString(OrderCommission(), 2) + ",";
