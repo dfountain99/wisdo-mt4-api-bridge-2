@@ -51,6 +51,10 @@ export function registerWorldCommandRoutes(app, {
         channel: 'web',
         sessionId: req.body?.sessionId || null,
         accountId: req.body?.accountId || null,
+        symbol: req.body?.symbol || null,
+        campaignId: req.body?.campaignId || null,
+        magicNumber: req.body?.magicNumber ?? null,
+        selectedTicket: req.body?.selectedTicket || null,
         text,
       });
       res.status(result.state === 'queued' ? 202 : 200).json({ ok: result.ok !== false, ...result });
