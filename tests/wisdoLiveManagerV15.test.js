@@ -14,15 +14,16 @@ test('V15 Command Center is a trading-first Live Manager with no character prese
   assert.doesNotMatch(runtime,/THREE_MODULE_URL|createCampaignCoreRenderer|createRankAscension|createGuardianCommandDeck|createTruthDock|wcV8CharacterChamber|CHARACTER EVOLUTION|LIVE GUARDIAN/i);
 });
 
-test('V15 puts new live-manager commands at the center of the UI', async () => {
+test('V17 puts natural intent and standing behavior truth at the center of Live Manager', async () => {
   const runtime=await fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8');
-  for(const command of ['SET_STOP_ATR','SET_TRAIL_ATR','TRIM_CAMPAIGN','ADD_IF_VALID','WIDEN_EXISTING_STOPS','CLEAR_RUNTIME_OVERRIDES']){
-    assert.match(runtime,new RegExp(command));
-  }
+  assert.match(runtime,/\/api\/world\/intent/);
+  assert.match(runtime,/\/api\/world\/intentions/);
+  assert.match(runtime,/STANDING INTENTIONS/);
   assert.match(runtime,/tighten the trailer a little/i);
   assert.match(runtime,/intentionally widen my existing stop losses to 2 ATR/i);
   assert.match(runtime,/return stops to normal EA management/i);
-  assert.match(runtime,/same verified command bus and HIGHTOWER acknowledgement path/i);
+  assert.match(runtime,/same server-side intent compiler/i);
+  assert.doesNotMatch(runtime,/function parseManager/);
 });
 
 test('V15 retains proposal confirmation and verified receipt semantics', async () => {
@@ -41,10 +42,10 @@ test('V15 loads one purpose-built stylesheet and fresh route cache keys', async 
     fs.readFile(new URL('../public/js/workspace.js',import.meta.url),'utf8'),
     fs.readFile(new URL('../public/service-worker.js',import.meta.url),'utf8'),
   ]);
-  assert.match(runtime,/wisdo-live-manager-v15\.css\?v=20261001-v15/);
+  assert.match(runtime,/wisdo-live-manager-v15\.css\?v=20261002-v17-intent-os/);
   assert.match(css,/\.lm-command-card/);
   assert.match(css,/\.lm-risk-grid/);
   assert.match(css,/\.wisdo-v12-time-layout/);
-  assert.match(workspace,/v=20261001-v15-live-manager/);
-  assert.match(worker,/wisdo-static-v15\.0\.0-live-manager/);
+  assert.match(workspace,/v=20261002-v17-intent-os/);
+  assert.match(worker,/wisdo-static-v17\.0\.0-intent-os/);
 });
