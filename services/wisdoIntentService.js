@@ -114,7 +114,7 @@ export class WisdoIntentService {
         rawText: raw,
       };
     }
-    if (/\b(if|when|unless|until|every)\b/.test(ask)&&/\b(close|flatten|protect|lock|pause|stop|resume|guard|notify|alert|message|wake)\b/.test(ask)) return {...base,type:'BEHAVIOR',intent:'GENERAL_CONDITIONAL_BEHAVIOR',confidence:0.94,parameters:{naturalLanguage:raw},rawText:raw};
+    if (/\b(if|when|unless|until|every|after)\b/.test(ask)&&/\b(close|flatten|protect|lock|pause|stop|resume|guard|notify|alert|message|wake|counter|reverse|flip|trim|reduce|add|boost|tighten|loosen)\b/.test(ask)) return {...base,type:'BEHAVIOR',intent:'GENERAL_CONDITIONAL_BEHAVIOR',confidence:0.96,parameters:{naturalLanguage:raw},rawText:raw};
     const planSignals = /daily profit|drawdown|runner|trail|account|allow buys|allow sells|stop trading|copier|risk/.test(ask);
     if (context.planMode && planSignals) return { ...base, type: 'PLAN', intent: 'ADD_PLAN_DETAILS', confidence: 0.9, parameters: this.extractPlanFields(raw) };
 
