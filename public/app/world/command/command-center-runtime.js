@@ -6,6 +6,11 @@ const finite=(value,fallback=0)=>Number.isFinite(Number(value))?Number(value):fa
 const money=(value,currency='USD')=>{try{return new Intl.NumberFormat(undefined,{style:'currency',currency,maximumFractionDigits:2}).format(finite(value));}catch{return `$${finite(value).toFixed(2)}`;}};
 const pct=(value)=>`${(finite(value)*100).toFixed(0)}%`;
 
+export const INTENT_OS_CAPABILITIES=Object.freeze([
+  'SET_STOP_ATR','SET_TRAIL_ATR','TRIM_CAMPAIGN','ADD_IF_VALID',
+  'WIDEN_EXISTING_STOPS','CLEAR_RUNTIME_OVERRIDES','COUNTER_IF_VALID',
+]);
+
 function ensureStyles(){
   const href='/app/world/command/wisdo-live-manager-v15.css?v=20261002-v17-intent-os';
   let link=document.querySelector('link[data-wisdo-live-manager-v15]');
