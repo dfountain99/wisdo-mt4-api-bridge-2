@@ -18,9 +18,10 @@ test('missions reward once and workspaces persist operating context',()=>{
 
 test('automation, memory and device layers appear in Nexus snapshot',()=>{
   const state={}; const user={id:'member-7'};
-  createAutomation(state,user,{trigger:'drawdown_above',value:5,action:'pause_copier'});
+  const rule=createAutomation(state,user,{trigger:'drawdown_above',value:5,action:'pause_copier',enabled:true});
   rememberAiObservation(state,user,{text:'Gold performs best during London.',confidence:88});
-  pairDevice(state,user,{name:'Culture Band Alpha',type:'culture_band',battery:95});
+  const device=pairDevice(state,user,{name:'Culture Band Alpha',type:'culture_band',battery:95});
   const snapshot=livingSnapshot(state,user);
-  assert.equal(snapshot.automations.length,1); assert.equal(snapshot.aiMemory.observations.length,1); assert.equal(snapshot.devices.length,1); assert.ok(snapshot.briefing.score.overall>=0);
+  assert.equal(snapshot.automations.length,1); assert.equal(rule.enabled,false); assert.equal(rule.executionState,'definition_only');
+  assert.equal(snapshot.aiMemory.observations.length,1); assert.equal(snapshot.devices.length,1); assert.equal(device.status,'registered'); assert.equal(device.lastSyncAt,null); assert.ok(snapshot.briefing.score.overall>=0);
 });
