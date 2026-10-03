@@ -7,7 +7,7 @@ const money=(value,currency='USD')=>{try{return new Intl.NumberFormat(undefined,
 const pct=(value)=>`${(finite(value)*100).toFixed(0)}%`;
 
 function ensureStyles(){
-  const href='/app/world/command/wisdo-live-manager-v15.css?v=20261001-v15';
+  const href='/app/world/command/wisdo-live-manager-v15.css?v=20261002-v17-intent-os';
   let link=document.querySelector('link[data-wisdo-live-manager-v15]');
   if(!link){link=document.createElement('link');link.rel='stylesheet';link.dataset.wisdoLiveManagerV15='1';document.head.appendChild(link);}
   link.href=href;
