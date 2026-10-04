@@ -20,6 +20,8 @@ export const CAMPAIGN_ACTIONS = Object.freeze({
   ADD_IF_VALID: { code: 18, label: 'Ask HIGHTOWER to add one position under normal entry gates' },
   CLEAR_RUNTIME_OVERRIDES: { code: 19, label: 'Return live stop and trail settings to the visible EA inputs' },
   WIDEN_EXISTING_STOPS: { code: 20, label: 'Intentionally widen existing live broker stops' },
+  ARM_COUNTER_ON_STOP: { code: 21, label: 'If this campaign stops out, let HIGHTOWER confirm and establish the opposite campaign' },
+  CLEAR_COUNTER_ON_STOP: { code: 22, label: 'Cancel the armed counter-on-stop intention' },
 });
 const num = (v, fallback = 0) => typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 const bool = (v) => v === true;
@@ -83,6 +85,15 @@ export function normalizeCampaignControl(value) {
       trailDistanceAtr: Math.max(0.05, num(value.runtimeTrailDistanceAtr, 0.75)),
       trailStepAtr: Math.max(0.01, num(value.runtimeTrailStepAtr, 0.15)),
     },
+    counterOnStop: {
+      armed: bool(value.counterOnStopArmed),
+      pending: bool(value.counterOnStopPending),
+      sourceCampaignId: num(value.counterSourceCampaign),
+      sourceDirection: num(value.counterSourceDirection),
+      lastStopTicket: Math.max(0, Math.trunc(num(value.counterLastStopTicket))),
+      pauseSecondsAfterFlip: Math.max(0, Math.trunc(num(value.counterPauseSeconds))),
+      confirmationBars: Math.max(1, Math.trunc(num(value.counterConfirmBars, 1))),
+    },
     burstRemaining: num(value.burstRemaining),
     acknowledgements: (Array.isArray(value.acknowledgements) ? value.acknowledgements : []).slice(0, 12).filter(x => Number.isSafeInteger(x.id) && x.id > 0).map(x => ({ id: x.id, status: num(x.status), changed: num(x.changed), requested: num(x.requested) })),
     ackId: num(value.ackId), ackStatus: num(value.ackStatus), pendingId: num(value.pendingId),
@@ -101,7 +112,7 @@ export function campaignPacket(action, body, state) {
   if (!definition) fail('Unsupported campaign instruction.');
   const duration = Number(body.durationSeconds || 0);
   if ([1, 3, 6, 7, 12].includes(definition.code) && (!Number.isInteger(duration) || duration < 1 || duration > 604800)) fail('Choose a duration between 1 second and 7 days.');
-  if ([2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20].includes(definition.code) && c.phase !== 1) fail('This instruction requires an active campaign.');
+  if ([2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 21].includes(definition.code) && c.phase !== 1) fail('This instruction requires an active campaign.');
   const burstCount = Number(body.burstCount || 0);
   if (definition.code === 12 && (!Number.isInteger(burstCount) || burstCount < 1 || burstCount > 10)) fail('A SONIC window allows 1 to 10 entries, each subject to the normal EA gates.');
   const tickets = [...new Set(Array.isArray(body.tickets) ? body.tickets.map(Number) : [])];
@@ -122,6 +133,8 @@ export function campaignPacket(action, body, state) {
   const trimPercent = Number(body.trimPercent || 0);
   if (definition.code === 17 && (!Number.isFinite(trimPercent) || trimPercent < 1 || trimPercent > 99)) fail('Trim percent must be between 1 and 99.');
   const runtimeScope = [15, 16].includes(definition.code) ? (body.persistRuntime === true ? 2 : 1) : 0;
+  const counterPauseSeconds = Number(body.counterPauseSeconds || 0);
+  if (definition.code === 21 && (!Number.isInteger(counterPauseSeconds) || counterPauseSeconds < 0 || counterPauseSeconds > 604800)) fail('Counter pause must be between 0 seconds and 7 days.');
   let level = null;
   if ([8, 9].includes(definition.code)) {
     level = c.levels.find(x => x.id === Number(body.levelId));
@@ -131,5 +144,5 @@ export function campaignPacket(action, body, state) {
   return { operation: definition.code, burstCount, durationSeconds: duration, eaCampaignId: c.campaignId,
     symbol: c.symbol, magicNumber: c.magic, tickets: tickets.join(','),
     levelId: level?.id || 0, levelPrice: level?.price || 0,
-    stopAtr, trailStartAtr, trailDistanceAtr, trailStepAtr, trimPercent, runtimeScope };
+    stopAtr, trailStartAtr, trailDistanceAtr, trailStepAtr, trimPercent, runtimeScope, counterPauseSeconds };
 }
