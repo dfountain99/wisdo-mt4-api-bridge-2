@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wisdo-static-v15.0.0-live-manager';
+const CACHE_NAME = 'wisdo-static-v17.0.0-continuity';
 const STATIC_ASSETS = [
   '/js/workspace.js',
   '/js/wisdo-recognition.js',
