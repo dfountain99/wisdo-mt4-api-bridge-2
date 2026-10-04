@@ -409,6 +409,21 @@ export class WisdoContinuityService {
     await this.event(owner,'continuity.reflex.saved',definition,'continuity',id);return definition;
   }
 
+  async observeVoiceIntent(owner,{text,intent,accountId='',deviceId=''}={}){
+    const meaning={intent:intent?.intent||null,type:intent?.type||null,parameters:intent?.parameters||{}};
+    await this.patchContext(owner,{...(accountId?{activeAccountId:String(accountId)}:{}),...(deviceId?{primaryDeviceId:String(deviceId)}:{}),currentIntent:{text:clean(text,4000),kind:'voice',meaning,updatedAt:now()}});
+    await this.event(owner,'continuity.voice.intent',{text:clean(text,1000),intent:meaning,deviceId:deviceId||null},'voice',deviceId||null);
+  }
+
+  async observeVoiceResult(owner,{handled={},intent=null,deviceId=''}={}){
+    const state=String(handled.state||'');
+    const waiting=state==='awaiting_confirmation'?{type:'confirmation',confirmationId:handled.confirmationId||null}
+      :state==='queued'?{type:'ea_acknowledgement',commandId:handled.commandId||null}
+      :state==='active'||state==='completed'||state==='cancelled'?null:undefined;
+    if(waiting!==undefined)await this.patchContext(owner,{waitingFor:waiting});
+    await this.event(owner,'continuity.voice.result',{state,commandId:handled.commandId||null,behaviorId:handled.behaviorId||null,intent:intent?.intent||null},'voice',deviceId||null,state==='failed'?'warning':'info');
+  }
+
   async onRoomTransition({device,room,event}){
     const owner=String(device.owner_user_id);const scenes=await this.scenes(owner);
     for(const row of scenes){
