@@ -95,6 +95,7 @@ export function createWorldCommandRuntime({ onState = null, onStatus = null, onR
       trimPercent: options.trimPercent,
       tickets: options.tickets,
       persistRuntime: options.persistRuntime === true,
+      counterPauseSeconds: options.counterPauseSeconds,
     };
     const payload = await request('/api/world/command/propose', { method: 'POST', body: JSON.stringify(body) });
     return payload.proposal;
