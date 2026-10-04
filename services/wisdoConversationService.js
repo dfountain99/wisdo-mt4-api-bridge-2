@@ -16,7 +16,8 @@ function isLive(a){return /live|real/i.test(String(a?.environment||a?.accountTyp
 function connected(a,staleMs){const date=a?.lastSyncAt||a?.last_sync_at||a?.updatedAt||a?.updated_at;return a?.status!=='offline'&&Boolean(date)&&Date.now()-new Date(date).getTime()<=staleMs;}
 
 export class WisdoConversationService {
-  constructor({intentService,contextService,safetyService,confirmationService,planService,executionService,educationService=null,auditService=null,capabilityService=null,adaptiveFabricService=null,getAuthorizedAccounts=async()=>[],getActiveAccount=async()=>null,menuProvider=async()=>({}),staleMs=Number(process.env.WISDO_TRADING_OFFLINE_MS||300000)}={}){Object.assign(this,{intentService,contextService,safetyService,confirmationService,planService,executionService,educationService,auditService,capabilityService,adaptiveFabricService,getAuthorizedAccounts,getActiveAccount,menuProvider,staleMs});}
+  constructor({intentService,contextService,safetyService,confirmationService,planService,executionService,educationService=null,auditService=null,capabilityService=null,adaptiveFabricService=null,continuityService=null,getAuthorizedAccounts=async()=>[],getActiveAccount=async()=>null,menuProvider=async()=>({}),staleMs=Number(process.env.WISDO_TRADING_OFFLINE_MS||300000)}={}){Object.assign(this,{intentService,contextService,safetyService,confirmationService,planService,executionService,educationService,auditService,capabilityService,adaptiveFabricService,continuityService,getAuthorizedAccounts,getActiveAccount,menuProvider,staleMs});}
+  setContinuityService(service){this.continuityService=service||null;return this;}
 
   async ensureSession({userId,deviceId=null,discordUserId=null,channel='device',sessionId=null,wakeMatched=false}){
     let session=sessionId?await this.contextService.get(sessionId,userId):await this.contextService.latest(userId,deviceId);
@@ -43,12 +44,16 @@ export class WisdoConversationService {
     const text=wake.matched?wake.command:String(input.text||'').trim();
     if(!text){await this.saveExchange(session,userId,input.text,COACH_RESPONSES.wake,null,'listening');return this.result(session,'listening',COACH_RESPONSES.wake);}
     try{
-      const context={...(session.context||{}),activePlanId:session.active_plan_id||session.context?.activePlanId,planMode:Boolean(session.active_plan_id||session.context?.planMode)};
+      const continuityWorkspace=this.continuityService?await this.continuityService.workspace(userId).catch(()=>null):null;
+      const continuityContext=continuityWorkspace?.active_context&&typeof continuityWorkspace.active_context==='object'?continuityWorkspace.active_context:{};
+      const context={...continuityContext,...(session.context||{}),activePlanId:session.active_plan_id||session.context?.activePlanId,planMode:Boolean(session.active_plan_id||session.context?.planMode),selectedTicket:continuityContext.focusedTicket||session.context?.selectedTicket||null};
       const intent=await this.intentService.parse(text,context);
+      await this.continuityService?.observeVoiceIntent(userId,{text,intent,accountId:input.accountId||context.activeAccountId||'',deviceId}).catch(()=>undefined);
       await this.contextService.message({sessionId:session.session_id,userId,role:'user',content:String(input.text||text),intent});
       const handled=await this.handle({input,text,intent,session,context});
       await this.contextService.message({sessionId:session.session_id,userId,role:'assistant',content:handled.text,intent,responseState:handled.state});
       await this.auditService?.record({userId,sessionId:session.session_id,actorType:'conversation',eventType:`conversation.${handled.state}`,correlationId:handled.commandId||handled.planId||session.session_id,detail:{intent,response:handled.text}});
+      await this.continuityService?.observeVoiceResult(userId,{handled,intent,deviceId}).catch(()=>undefined);
       return this.result(session,handled.state,handled.text,true,{...handled,intent});
     }catch(error){
       await this.auditService?.record({userId,sessionId:session.session_id,actorType:'system',eventType:'conversation.failed',detail:{code:error.code||'',message:error.message}}).catch(()=>undefined);
@@ -101,6 +106,9 @@ export class WisdoConversationService {
     if(this.safetyService.requiresConfirmation(safetyLevel)){
       const pending=await this.confirmationService.create({userId:input.userId,sessionId:session.session_id,deviceId:input.deviceId,actionType:intent.intent,accountIds:[id],parameters:{intent,rawText:text},safetyLevel});
       const phrase='Confirm Coach, execute';
+      if(intent.intent==='COUNTER_ON_STOP'){
+        return {state:'awaiting_confirmation',confirmationId:pending.confirmation_id,text:`Coach understood: if the current campaign is stopped out by the broker, arm HIGHTOWER to wait for its normal confirmed opposite structure and establish that opposite trade as the new campaign. No blind market reversal will be sent. Say “${phrase}” to arm it, or say “cancel”.`};
+      }
       if(intent.intent==='WIDEN_EXISTING_STOPS'){
         const atr=Number(intent.parameters?.stopAtr);
         return {state:'awaiting_confirmation',confirmationId:pending.confirmation_id,text:`Coach understood: intentionally widen the existing live broker stops on account ${accountLabel(resolved.account)} to ${Number.isFinite(atr)?atr.toFixed(2):'the requested'} ATR. This can increase the maximum loss on those open positions. Say “${phrase}” to execute, or say “cancel” to leave the stops unchanged.`};
