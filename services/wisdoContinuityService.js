@@ -99,12 +99,17 @@ export class WisdoContinuityService {
     return {campaign,position,symbol:clean(context.focusedSymbol||position?.symbol||campaign?.symbol||world?.campaignControl?.symbol||'',32).toUpperCase()||null};
   }
 
-  waitingState(world,behaviors=[],receipts=[]){
+  waitingState(world,behaviors=[],receipts=[],context={}){
     const counter=world?.campaignControl?.counterOnStop;
     if(counter?.pending)return {type:'market_confirmation',label:'HIGHTOWER is waiting for confirmed opposite structure before opening the counter campaign.',source:'ea',sinceCampaign:counter.sourceCampaignId,lastStopTicket:counter.lastStopTicket};
     if(counter?.armed)return {type:'broker_event',label:'Counter-on-stop is armed. WISDO is waiting for a real broker stop-out on this campaign.',source:'ea',sinceCampaign:counter.sourceCampaignId};
+    const intentAt=Date.parse(context.currentIntent?.updatedAt||0);
+    const related=intentAt?receipts.find((row)=>Date.parse(row.requestedAt||0)>=intentAt-1000):null;
+    if(related&&['pending','delivered','queued','processing'].includes(String(related.status||'').toLowerCase()))
+      return {type:'ea_acknowledgement',label:`Waiting for verified EA receipt: ${related.command||'command'}.`,source:'command',commandId:related.commandId};
     const pending=receipts.find((row)=>['pending','delivered','queued','processing'].includes(String(row.status||'').toLowerCase()));
     if(pending)return {type:'ea_acknowledgement',label:`Waiting for verified EA receipt: ${pending.command||'command'}.`,source:'command',commandId:pending.commandId};
+    if(context.waitingFor?.type==='confirmation')return {type:'confirmation',label:'WISDO understood the instruction. Nothing is sent until you confirm the live plan.',source:'continuity',proposalId:context.waitingFor.proposalId||null};
     const active=behaviors.find((row)=>row.status==='active');
     if(active)return {type:'behavior_trigger',label:`Standing instruction active: ${active.name}. WISDO is waiting for its verified trigger.`,source:'behavior',behaviorId:active.behavior_id};
     return null;
@@ -125,7 +130,7 @@ export class WisdoContinuityService {
     const focus=this.resolveFocus(world,context);
     const liveRooms=env.rooms.filter((room)=>room.occupied);
     const primary=context.primaryDeviceId?env.devices.find((d)=>String(d.device_id)===String(context.primaryDeviceId)):env.devices[0]||null;
-    const waiting=this.waitingState(world,behaviors,receipts);
+    const waiting=this.waitingState(world,behaviors,receipts,context);
     const verified=receipts.filter((row)=>['completed','failed','expired','cancelled'].includes(String(row.status||'').toLowerCase())).slice(0,12);
     return {
       ok:true,
@@ -184,6 +189,16 @@ export class WisdoContinuityService {
     return null;
   }
 
+  parseComponentAction(text){
+    const t=clean(text,1000).replace(/\s+/g,' ');
+    const m=t.match(/^\s*(?:wisdo[, ]+)?(?:please\s+)?(wake|turn on|power on|turn off|power off|lock|unlock)\s+(.+)$/i);
+    if(!m)return null;
+    const verb=m[1].toLowerCase();
+    const action=verb==='wake'?'wake':verb==='lock'?'lock':verb==='unlock'?'unlock':/off/.test(verb)?'power_off':'power_on';
+    const target=clean(m[2].replace(/^(?:my|the)\s+/i,''),160);
+    return {action,target,parameters:{},riskLevel:action==='unlock'?3:1};
+  }
+
   parsePresenceScene(text){
     const t=clean(text,1000).replace(/\s+/g,' ');
     const m=t.match(/\b(?:when|if)\s+i\s+(enter|walk into|come into|leave|walk out of)\s+(.+?)\s+(wake|turn on|power on|turn off|power off)\s+(.+)$/i);
@@ -224,6 +239,19 @@ export class WisdoContinuityService {
     const raw=clean(text,4000);if(!raw)throw Object.assign(new Error('Tell WISDO what you want.'),{statusCode:400});
     if(accountId||campaignId||ticket)await this.patchContext(owner,{...(accountId?{activeAccountId:String(accountId)}:{}),...(campaignId?{activeCampaignId:String(campaignId)}:{}),...(ticket?{focusedTicket:String(ticket)}:{})});
     const state=await this.state(owner,{accountId});
+    const componentAction=this.parseComponentAction(raw);
+    if(componentAction){
+      if(!this.universalControlService)throw Object.assign(new Error('Universal control plane is unavailable.'),{statusCode:503,code:'control_plane_unavailable'});
+      const targets=await this.universalControlService.resolveComponentsForOwner(owner,{alias:componentAction.target});
+      if(!targets.length)throw Object.assign(new Error(`No recently-online component matches "${componentAction.target}". Nothing was sent.`),{statusCode:409,code:'component_not_online'});
+      const capable=targets.filter((target)=>Array.isArray(target.capabilities?.actions)?target.capabilities.actions.includes(componentAction.action):Boolean(target.capabilities?.[componentAction.action]));
+      if(!capable.length)throw Object.assign(new Error(`The matched component does not advertise "${componentAction.action}". Nothing was sent.`),{statusCode:409,code:'component_capability_missing'});
+      const p=this.proposal(owner,'component_action',{...componentAction,targetIds:capable.map((x)=>x.component_id)},componentAction.riskLevel>=3?1800:700);
+      const intent={type:'ACTION',intent:'COMPONENT_ACTION',confidence:1,parameters:componentAction,rawText:raw};
+      await this.patchContext(owner,{currentIntent:{text:raw,kind:'component_action',meaning:componentAction,updatedAt:now()},waitingFor:{type:'confirmation',proposalId:p.proposalId}});
+      await this.recordInterpretation(owner,raw,intent,state.now,{type:'component_action',...componentAction},'awaiting_confirmation');
+      return {ok:true,kind:'continuity_proposal',proposal:p,meaning:`${componentAction.action} ${componentAction.target} using its registered WISDO component.`};
+    }
     const scene=this.parsePresenceScene(raw);
     if(scene){
       const targets=await this.validatePresenceScene(owner,scene);
@@ -297,6 +325,12 @@ export class WisdoContinuityService {
     if(hash(clean(confirmationToken,300))!==p.tokenHash)throw Object.assign(new Error('Invalid confirmation token.'),{statusCode:403});
     if(Number(heldForMs)<p.holdRequiredMs)throw Object.assign(new Error(`Hold confirmation for at least ${p.holdRequiredMs}ms.`),{statusCode:409,code:'hold_required'});
     this.proposals.delete(p.proposalId);
+    if(p.type==='component_action'){
+      const executions=await this.universalControlService.executeForOwner(String(owner),{target:{alias:p.payload.target},action:p.payload.action,parameters:p.payload.parameters||{},risk_level:p.payload.riskLevel||1},null);
+      await this.event(owner,'continuity.component.commanded',{action:p.payload.action,target:p.payload.target,executions:executions.map((x)=>({executionId:x.execution_id,componentId:x.component_id,status:x.status}))},'component');
+      await this.patchContext(owner,{waitingFor:null});
+      return {ok:true,status:'queued',message:`${p.payload.action} was queued only to the verified online component. Completion still requires the component agent result.`,executions};
+    }
     if(p.type==='activate_behavior'){
       const row=await this.adaptiveFabricService.activateBehavior(String(owner),p.payload.behaviorId,String(owner));
       if(!row)throw Object.assign(new Error('Standing instruction is no longer a confirmable draft.'),{statusCode:409});
