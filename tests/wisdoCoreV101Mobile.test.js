@@ -23,16 +23,16 @@ test('V10.2 portrait hierarchy is authored in the primary V10 stylesheet', async
 
 test('V15 mobile layout is CSS-first and no longer maintains a character chamber viewport mode', async () => {
   const runtime = await fs.readFile(new URL('../public/app/world/command/command-center-runtime.js', import.meta.url), 'utf8');
-  const css = await fs.readFile(new URL('../public/app/world/command/wisdo-live-manager-v15.css', import.meta.url), 'utf8');
+  const css = await fs.readFile(new URL('../public/app/world/command/wisdo-continuity-v17.css', import.meta.url), 'utf8');
   assert.doesNotMatch(runtime, /syncViewportMode|mobile-command-chamber|visualViewport|wisdo-core-v10-1-mobile/);
   assert.match(css, /@media\(max-width:650px\)/);
-  assert.match(css, /\.lm-grid\{grid-template-columns:1fr\}/);
+  assert.match(css, /\.c-layout\{grid-template-columns:1fr\}/);
 });
 
 test('V15 keeps one command composer on phone instead of a hidden multimodal character menu', async () => {
   const runtime = await fs.readFile(new URL('../public/app/world/command/command-center-runtime.js', import.meta.url), 'utf8');
-  assert.match(runtime, /lmComposer/);
-  assert.match(runtime, /lmIntentInput/);
+  assert.match(runtime, /cForm/);
+  assert.match(runtime, /cInput/);
   assert.doesNotMatch(runtime, /wcMobileInputToggle|mobile-input-open|data-mobile-input/);
 });
 
@@ -42,8 +42,8 @@ test('V10.2 release assets use fresh deterministic-mobile versions', async () =>
     fs.readFile(new URL('../public/service-worker.js', import.meta.url), 'utf8'),
     fs.readFile(new URL('../public/app/world/command/command-center-runtime.js', import.meta.url), 'utf8'),
   ]);
-  assert.match(workspace, /v=20261001-v15-live-manager/);
-  assert.match(worker, /wisdo-static-v15\.0\.0-live-manager/);
-  assert.match(runtime, /wisdo-live-manager-v15\.css\?v=20261001-v15/);
+  assert.match(workspace, /v=20261003-v17-continuity/);
+  assert.match(worker, /wisdo-static-v17\.0\.0-continuity/);
+  assert.match(runtime, /wisdo-continuity-v17\.css\?v=20261003-v17/);
   assert.doesNotMatch(runtime, /wisdo-core-v10-living-controls|wisdo-core-v11-truth-dock/);
 });
