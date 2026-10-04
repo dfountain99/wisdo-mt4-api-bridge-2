@@ -18,6 +18,7 @@ import { registerWorldRealtimeRoutes } from './worldRealtimeRoutes.js';
 import { registerWorldBuildRoutes } from './worldBuildRoutes.js';
 import { registerArcadeRoutes } from './arcadeRoutes.js';
 import { registerOgMasterWisdoRoutes } from './ogMasterWisdoRoutes.js';
+import { registerContinuityRoutes } from './continuityRoutes.js';
 
 /**
  * Registers the modern Wisdo Kernel services as one cohesive boundary.
@@ -39,7 +40,7 @@ export function registerWisdoKernelRoutes(app, {
     mt4CommandService,
   });
 
-  registerAdaptiveFabricRoutes(app, {
+  const adaptiveFabricService = registerAdaptiveFabricRoutes(app, {
     commandBusService,
     pool: commandBusService.pool,
     logger,
@@ -80,7 +81,7 @@ export function registerWisdoKernelRoutes(app, {
     logger,
   });
 
-  registerUniversalControlRoutes(app, {
+  const universalControlService = registerUniversalControlRoutes(app, {
     commandBusService,
     pool: commandBusService.pool,
     logger,
@@ -154,6 +155,15 @@ export function registerWisdoKernelRoutes(app, {
     eventEngine: worldLivingSystems.eventEngine,
   });
 
+  const continuity = registerContinuityRoutes(app, {
+    pool: commandBusService.pool,
+    worldCommandService: worldCommand.service,
+    adaptiveFabricService,
+    universalControlService,
+    logger,
+  });
+  roomStateService.setStateChangeHandler((transition) => continuity.onRoomTransition(transition));
+
   app.get('/health/kernel', async (_req, res, next) => {
     try {
       const commandBus = await commandBusService.health();
@@ -221,5 +231,6 @@ export function registerWisdoKernelRoutes(app, {
     worldLivingSystems,
     worldMarkets,
     worldCommand,
+    continuity,
   };
 }
