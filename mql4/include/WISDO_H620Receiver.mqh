@@ -165,6 +165,64 @@ double WcoLatestWin()
    }
    return ticket;
 }
+void WcoClearCounterOnStop(string p,bool preserveResult=false)
+{
+   WcoWrite(p,"counterOnStopArmed",0);WcoWrite(p,"counterOnStopPending",0);
+   WcoWrite(p,"counterSourceCampaign",0);WcoWrite(p,"counterSourceDirection",0);
+   WcoWrite(p,"counterPauseSeconds",0);
+   if(!preserveResult){WcoWrite(p,"counterLastStopTicket",0);WcoWrite(p,"counterResultCampaign",0);}
+   GlobalVariablesFlush();
+}
+bool WcoArmCounterOnStop(string p,int pauseSeconds)
+{
+   if(h620Phase!=1 || h620Id<=0 || h620Dir==DIR_FLAT || pauseSeconds<0 || pauseSeconds>604800)return false;
+   WcoWrite(p,"counterOnStopArmed",1);WcoWrite(p,"counterOnStopPending",0);
+   WcoWrite(p,"counterSourceCampaign",h620Id);WcoWrite(p,"counterSourceDirection",h620Dir);
+   WcoWrite(p,"counterPauseSeconds",pauseSeconds);WcoWrite(p,"counterLastStopTicket",0);WcoWrite(p,"counterResultCampaign",0);
+   WcoWrite(p,"requested",1);WcoWrite(p,"changed",1);GlobalVariablesFlush();return true;
+}
+bool WcoLatestCampaignStop(int &ticket,double &stopPrice,datetime &closeTime)
+{
+   ticket=0;stopPrice=0;closeTime=0;
+   for(int i=OrdersHistoryTotal()-1;i>=0;i--)
+   {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_HISTORY) || !OurOrder() || !H620CampaignTicketSelected())continue;
+      int type=OrderType();if(type!=OP_BUY && type!=OP_SELL)continue;
+      if(OrderCloseTime()<h620Started || TimeCurrent()-OrderCloseTime()>180)continue;
+      bool stopped=(StringFind(OrderComment(),"[sl]",0)>=0);
+      double sl=OrderStopLoss();
+      if(!stopped && sl>0.0)stopped=(MathAbs(OrderClosePrice()-sl)<=MathMax(TickSizePrice()*4.0,SpreadPoints()*Point*2.0));
+      if(!stopped)continue;
+      if(OrderCloseTime()>closeTime || (OrderCloseTime()==closeTime && OrderTicket()>ticket))
+      {ticket=OrderTicket();stopPrice=(sl>0?sl:OrderClosePrice());closeTime=OrderCloseTime();}
+   }
+   return ticket>0 && stopPrice>0;
+}
+bool WcoCounterRestoreFlat()
+{
+   string p=WcoEA();
+   if(WcoRead(p,"counterOnStopArmed")!=1 || WcoRead(p,"counterSourceCampaign")!=h620Id || h620Dir==DIR_FLAT)return false;
+   int ticket=0;double stopPrice=0;datetime closeTime=0;
+   if(!WcoLatestCampaignStop(ticket,stopPrice,closeTime))return false;
+   int priorDir=h620Dir;
+   h620BrokenRail=stopPrice;h620FailureBar=iTime(Symbol(),SignalTF,0);h620Flip=-priorDir;h620Phase=3;
+   h620Status="WISDO COUNTER ARMED • STOP VERIFIED • WAIT HIGHTOWER REVERSAL";
+   WcoWrite(p,"counterOnStopPending",1);WcoWrite(p,"counterLastStopTicket",ticket);
+   WcoWrite(p,"counterSourceDirection",priorDir);H620Persist();GlobalVariablesFlush();return true;
+}
+void WcoCounterTick(string p)
+{
+   if(WcoRead(p,"counterOnStopPending")==1 && WcoRead(p,"counterSourceCampaign")>0 &&
+      h620Phase==1 && h620Id!=WcoRead(p,"counterSourceCampaign"))
+   {
+      int pauseSeconds=(int)WcoRead(p,"counterPauseSeconds");
+      WcoWrite(p,"counterResultCampaign",h620Id);WcoWrite(p,"counterOnStopPending",0);WcoWrite(p,"counterOnStopArmed",0);
+      if(pauseSeconds>0){h620FutureGoal=1;h620FuturePaused=true;h620FutureUntil=TimeGMT()+pauseSeconds;WcoSaveGoal();}
+      GlobalVariablesFlush();return;
+   }
+   if(WcoRead(p,"counterOnStopArmed")==1 && WcoRead(p,"counterSourceCampaign")==h620Id &&
+      h620Phase==1 && TradeCount()==0)WcoCounterRestoreFlat();
+}
 void WcoPublish()
 {
    string p=WcoEA();double revision=WcoRead(p,"revision");if((int)revision%2!=0)revision++;WcoWrite(p,"revision",revision+1);WcoWrite(p,"version",1);WcoWrite(p,"enabled",H620Enabled() && H620EnableFutureGoals && !h620Quarantine?1:0);
@@ -196,6 +254,7 @@ void WcoPublish()
    WcoWrite(p,"runtimeOverrideMask",WcoRead(p,"runtimeOverrideMask"));
    WcoWrite(p,"effectiveStopAtr",WcoEffectiveStopATR());
    WcoWrite(p,"effectiveTrailStartAtr",WcoEffectiveTrailStartATR());WcoWrite(p,"effectiveTrailDistanceAtr",WcoEffectiveTrailDistanceATR());WcoWrite(p,"effectiveTrailStepAtr",WcoEffectiveTrailStepATR());
+   WcoWrite(p,"counterConfirmBars",MathMax(1,H620FlipConfirmBars));
    int count=0;RefreshRates();
    for(int dir=-1;dir<=1;dir+=2)
    {
@@ -263,6 +322,7 @@ void H620FutureTick()
    string p=WcoEA();
    if(wcoEvaluation>0) {if(WcoRead(p,"ackStatus")==4)WcoAck(wcoEvaluation,5);wcoEvaluation=0;}
    if(h620Quarantine && TradeCount()==0)h620Quarantine=false;
+   WcoCounterTick(p);
    WcoPublish();
    if(!H620Enabled() || !H620EnableFutureGoals || h620Quarantine)return;
    // Campaign-scoped standing rules expire when the thesis changes; explicit pauses stay paused.
@@ -275,9 +335,9 @@ void H620FutureTick()
    {
       int op=(int)WcoRead(p,"op"),duration=(int)WcoRead(p,"duration");
       bool valid=WcoRead(p,"expires")>=TimeGMT() && WcoRead(p,"expected")==h620Id && IsConnected() && IsExpertEnabled();
-      if(op<1 || op>20)valid=false;
+      if(op<1 || op>22)valid=false;
       if((op==1 || op==3 || op==6 || op==7 || op==12) && (duration<1 || duration>604800))valid=false;
-      if((op==2 || op==3 || (op>=6 && op<=18) || op==20) && h620Phase!=1)valid=false;
+      if((op==2 || op==3 || (op>=6 && op<=18) || op==20 || op==21) && h620Phase!=1)valid=false;
       if(op==12 && (WcoRead(p,"burst")<1 || WcoRead(p,"burst")>10))valid=false;
       if(!valid){WcoAck(id,-1);return;}
       // A persisted processing marker prevents replay after a terminal crash.
@@ -294,6 +354,8 @@ void H620FutureTick()
       }
       else if(op==19){WcoClearRuntime(true);WcoWrite(p,"requested",1);WcoWrite(p,"changed",1);result=1;}
       else if(op==20){result=WcoWidenExistingStops(p,WcoRead(p,"stopAtr"))?1:(WcoRead(p,"changed")>0?3:-1);}
+      else if(op==21){result=WcoArmCounterOnStop(p,(int)WcoRead(p,"counterPauseSeconds"))?1:-1;}
+      else if(op==22){WcoClearCounterOnStop(p);WcoWrite(p,"requested",1);WcoWrite(p,"changed",1);result=1;}
       else if((op>=8 && op<=11) || op==13 || op==14)
       {
          WcoWrite(p,"changed",0);WcoWrite(p,"requested",0);
