@@ -399,20 +399,20 @@
   async function drawCommandCenter() {
     campaignCleanup?.();
     campaignCleanup = null;
-    // Singularity is the canonical /app/command-center experience.
+    // WISDO Continuity is the canonical /app/command-center experience.
     // Do not render the legacy SVG campaign canvas first: that caused the deployed
     // route to keep showing the old Member Desk command model while V7 existed elsewhere.
-    root().innerHTML = '<div class="card loading-card">Opening WISDO CORE…</div>';
+    root().innerHTML = '<div class="card loading-card">Opening WISDO Continuity…</div>';
     try {
-      const { startCampaignCommandCenter } = await import('/app/world/command/command-center-runtime.js?v=20261001-v15-live-manager');
+      const { startCampaignCommandCenter } = await import('/app/world/command/command-center-runtime.js?v=20261003-v17-continuity');
       const initialAccountId = selectedAccountId() || sessionStorage.getItem('wisdo.selectedAccountId') || '';
-      const singularity = startCampaignCommandCenter({ initialAccountId });
-      singularity.open();
-      campaignCleanup = () => singularity.stop();
-      document.body.classList.add('wisdo-singularity-route');
+      const continuity = startCampaignCommandCenter({ initialAccountId });
+      continuity.open();
+      campaignCleanup = () => continuity.stop();
+      document.body.classList.add('wisdo-continuity-route');
     } catch (error) {
-      document.body.classList.remove('wisdo-singularity-route');
-      root().innerHTML = `<section class="card"><span class="eyebrow">WISDO CORE</span><h2>Singularity could not start.</h2><p class="red">${html(error.message)}</p><button class="btn primary" onclick="location.reload()">Retry CORE</button></section>`;
+      document.body.classList.remove('wisdo-continuity-route');
+      root().innerHTML = `<section class="card"><span class="eyebrow">WISDO CORE</span><h2>Continuity could not start.</h2><p class="red">${html(error.message)}</p><button class="btn primary" onclick="location.reload()">Retry Continuity</button></section>`;
       throw error;
     }
   }
