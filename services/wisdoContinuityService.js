@@ -70,7 +70,9 @@ export class WisdoContinuityService {
       this.pool.query(`SELECT component_id,device_id,component_type,name,aliases,capabilities,state,metadata,status,last_seen_at FROM wisdo_components WHERE owner_user_id=$1 AND status='online' AND last_seen_at>NOW()-INTERVAL '2 minutes' ORDER BY last_seen_at DESC LIMIT 100`,[String(owner)]),
       this.pool.query(`SELECT d.device_id,d.device_type,d.device_name,d.status,d.capabilities,d.last_seen_at,v.room_id,v.listening,v.muted,v.last_heartbeat_at
         FROM wisdo_devices d LEFT JOIN wisdo_voice_devices v ON v.device_id=d.device_id
-        WHERE d.owner_user_id=$1 AND d.status='active' ORDER BY COALESCE(v.last_heartbeat_at,d.last_seen_at) DESC NULLS LAST LIMIT 30`,[String(owner)]),
+        WHERE d.owner_user_id=$1 AND d.status='active'
+          AND COALESCE(v.last_heartbeat_at,d.last_seen_at)>NOW()-INTERVAL '5 minutes'
+        ORDER BY COALESCE(v.last_heartbeat_at,d.last_seen_at) DESC NULLS LAST LIMIT 30`,[String(owner)]),
     ]);
     return {rooms:rooms.rows,components:components.rows,devices:devices.rows};
   }
