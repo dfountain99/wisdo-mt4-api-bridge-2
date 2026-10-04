@@ -95,6 +95,15 @@ export class WisdoIntentService {
     if (/^(?:show|list|review|what are) (?:my )?(?:active )?(?:trading )?(?:behaviors|automations|rules)/.test(ask)) return { ...base, type: 'BEHAVIOR_CONTROL', intent: 'LIST_BEHAVIORS', confidence: 0.98 };
     const behaviorControl=ask.match(/\b(pause|resume|cancel|delete|stop)\s+(?:the\s+)?(?:behavior|automation|rule)(?:\s+(.+))?$/);
     if(behaviorControl)return {...base,type:'BEHAVIOR_CONTROL',intent:`${behaviorControl[1]==='resume'?'RESUME':behaviorControl[1]==='pause'?'PAUSE':'CANCEL'}_BEHAVIOR`,confidence:behaviorControl[2]?0.97:0.82,parameters:{reference:behaviorControl[2]||null}};
+    const counterOnStop=/\b(?:if|when|after)\b.*\b(?:stop(?:ped)?\s*out|hits?\s+(?:my\s+|the\s+)?stop(?:\s+loss)?|stop\s+loss\s+(?:is\s+|gets?\s+)?hit)\b.*\b(?:counter|reverse|flip|opposite|other\s+way)\b/.test(ask)
+      || /\b(?:counter|reverse|flip)\b.*\b(?:if|when|after)\b.*\b(?:stop(?:ped)?\s*out|stop\s+loss)\b/.test(ask);
+    if(counterOnStop){
+      const delay=ask.match(/(?:pause|wait|hold|dont add|do not add)[^0-9]{0,24}(\d+(?:\.\d+)?)\s*(second|minute|hour)s?/);
+      const unit=delay?.[2]||'second',multiplier=unit==='hour'?3600:unit==='minute'?60:1;
+      return command('COUNTER_ON_STOP','WISDO_CAMPAIGN',{action:'ARM_COUNTER_ON_STOP',counterPauseSeconds:delay?Math.round(Number(delay[1])*multiplier):0},0.995,{rawText:raw,riskIncreasing:true,requiresExplicitConfirmation:true,standingIntent:true});
+    }
+    if(/\b(?:cancel|clear|remove|disable|turn off)\b.*\b(?:counter|reverse|flip)\b.*\b(?:stop|stopped|stopout|stop out)\b/.test(ask))
+      return command('CLEAR_COUNTER_ON_STOP','WISDO_CAMPAIGN',{action:'CLEAR_COUNTER_ON_STOP'},0.99,{rawText:raw,standingIntent:true});
     if (/(every|each) new entr(y|ies).*(reset|restart).*(timer|clock)|(?:reset|restart).*(timer|clock).*(every|each) new entr(y|ies)/.test(ask)) {
       const duration = ask.match(/(\d+(?:\.\d+)?)\s*(second|minute|hour)s?/);
       const unit = duration?.[2] || 'minute';
