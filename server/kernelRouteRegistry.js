@@ -163,6 +163,7 @@ export function registerWisdoKernelRoutes(app, {
     logger,
   });
   roomStateService.setStateChangeHandler((transition) => continuity.onRoomTransition(transition));
+  conversationalVoice.conversationService?.setContinuityService?.(continuity);
 
   app.get('/health/kernel', async (_req, res, next) => {
     try {
