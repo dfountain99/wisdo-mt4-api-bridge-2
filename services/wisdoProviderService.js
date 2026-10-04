@@ -4,20 +4,31 @@ const INTENT_OUTPUT_SCHEMA = Object.freeze({
   required: ['schemaVersion', 'type', 'intent', 'commandName', 'confidence', 'parameters'],
   properties: {
     schemaVersion: { type: 'string' },
-    type: { type: 'string', enum: ['ACTION', 'QUERY', 'PLAN', 'CONVERSATION', 'CONFIRMATION', 'CANCEL', 'GOODBYE', 'CLARIFICATION'] },
+    type: { type: 'string', enum: ['ACTION', 'BEHAVIOR', 'BEHAVIOR_CONTROL', 'QUERY', 'PLAN', 'CONVERSATION', 'CONFIRMATION', 'CANCEL', 'GOODBYE', 'CLARIFICATION'] },
     intent: { type: 'string', minLength: 1 },
-    commandName: { type: ['string', 'null'], enum: [null, 'CLOSE_ALL_TRADES', 'CLOSE_ALL_WINNERS', 'CLOSE_ALL_LOSERS', 'EMERGENCY_STOP', 'PAUSE_COPIER', 'RESUME_COPIER', 'STOP_ENTRIES', 'START_ENTRIES', 'SET_EQUITY_FLOOR'] },
+    commandName: { type: ['string', 'null'], enum: [null, 'CLOSE_ALL_TRADES', 'CLOSE_ALL_WINNERS', 'CLOSE_ALL_LOSERS', 'EMERGENCY_STOP', 'SET_CONTROL_MODE', 'PAUSE_COPIER', 'RESUME_COPIER', 'STOP_ENTRIES', 'START_ENTRIES', 'SET_EQUITY_FLOOR', 'WISDO_CAMPAIGN'] },
     confidence: { type: 'number', minimum: 0, maximum: 1 },
     parameters: {
       type: 'object',
       additionalProperties: false,
-      required: ['accountId', 'botId', 'symbol', 'value', 'percent'],
+      required: ['accountId', 'botId', 'symbol', 'value', 'percent', 'action', 'stopAtr', 'trailStartAtr', 'trailDistanceAtr', 'trailStepAtr', 'trailDeltaAtr', 'trimPercent', 'tickets', 'persistRuntime', 'counterPauseSeconds', 'naturalLanguage'],
       properties: {
         accountId: { type: ['string', 'null'] },
         botId: { type: ['string', 'null'] },
         symbol: { type: ['string', 'null'] },
         value: { type: ['number', 'null'] },
         percent: { type: ['number', 'null'] },
+        action: { type: ['string', 'null'], enum: [null, 'SET_STOP_ATR', 'SET_TRAIL_ATR', 'TRIM_CAMPAIGN', 'ADD_IF_VALID', 'CLEAR_RUNTIME_OVERRIDES', 'WIDEN_EXISTING_STOPS', 'ARM_COUNTER_ON_STOP', 'CLEAR_COUNTER_ON_STOP', 'PAUSE_FOR', 'AFTER_COMPOUND', 'AFTER_WIN', 'END_AFTER', 'AFTER_CAMPAIGN', 'EVALUATE_ENTRY', 'CANCEL_GOAL'] },
+        stopAtr: { type: ['number', 'null'] },
+        trailStartAtr: { type: ['number', 'null'] },
+        trailDistanceAtr: { type: ['number', 'null'] },
+        trailStepAtr: { type: ['number', 'null'] },
+        trailDeltaAtr: { type: ['number', 'null'] },
+        trimPercent: { type: ['number', 'null'] },
+        tickets: { type: ['array', 'null'], items: { type: 'number' } },
+        persistRuntime: { type: ['boolean', 'null'] },
+        counterPauseSeconds: { type: ['number', 'null'] },
+        naturalLanguage: { type: ['string', 'null'] },
       },
     },
   },
@@ -36,7 +47,7 @@ export class WisdoProviderService {
     if (!this.configured()) return null;
     const response = await this.fetch('https://api.openai.com/v1/responses', {
       method: 'POST', headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: this.model, input: [{ role: 'system', content: `Extract one intent using schema ${schemaVersion}. Never return code or an MT4 command not supported by the supplied context.` }, { role: 'user', content: JSON.stringify({ text, context }) }], text: { format: { type: 'json_schema', name: 'wisdo_intent', strict: true, schema: INTENT_OUTPUT_SCHEMA } } }),
+      body: JSON.stringify({ model: this.model, input: [{ role: 'system', content: `Extract one intent using schema ${schemaVersion}. Resolve the user's meaning, references, and outcome even when their wording differs from examples. Never invent an MT4 command or campaign action: use only commands/actions explicitly listed in the supplied context. If the user describes a standing IF/WHEN rule rather than one immediate action, return BEHAVIOR with naturalLanguage instead of pretending it already executed.` }, { role: 'user', content: JSON.stringify({ text, context }) }], text: { format: { type: 'json_schema', name: 'wisdo_intent', strict: true, schema: INTENT_OUTPUT_SCHEMA } } }),
       signal: AbortSignal.timeout(Number(process.env.WISDO_AI_TIMEOUT_MS || 15000)),
     });
     if (!response.ok) throw new Error(`Conversation provider failed with HTTP ${response.status}.`);
