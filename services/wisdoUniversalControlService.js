@@ -29,27 +29,30 @@ export class WisdoUniversalControlService {
     return result.rows;
   }
 
-  async resolveComponents(device,selector={}) {
+  async resolveComponentsForOwner(ownerUserId,selector={}) {
     const raw=clean(selector.id||selector.alias||selector.name||'',200).toLowerCase();
     const type=clean(selector.type||'',60);
     const account=clean(selector.account_id||selector.accountId||'',200);
     const symbol=clean(selector.symbol||'',100).toUpperCase();
     const lane=clean(selector.lane_id||selector.laneId||'',200);
     const result=await this.pool.query(`SELECT * FROM wisdo_components WHERE owner_user_id=$1 AND status='online'
+      AND last_seen_at>NOW()-INTERVAL '2 minutes'
       AND ($2='' OR component_type=$2)
       AND ($3='' OR lower(component_id)= $3 OR lower(name)= $3 OR aliases ? $3)
       AND ($4='' OR metadata->>'account_id'=$4)
       AND ($5='' OR upper(metadata->>'canonical_symbol')=$5 OR upper(metadata->>'broker_symbol')=$5)
       AND ($6='' OR metadata->>'lane_id'=$6)
-      ORDER BY last_seen_at DESC LIMIT 250`,[device.owner_user_id,type,raw,account,symbol,lane]);
+      ORDER BY last_seen_at DESC LIMIT 250`,[String(ownerUserId),type,raw,account,symbol,lane]);
     return result.rows;
   }
 
-  async execute(device,input={}) {
+  async resolveComponents(device,selector={}) { return this.resolveComponentsForOwner(device.owner_user_id,selector); }
+
+  async executeForOwner(ownerUserId,input={},issuedByDeviceId=null) {
     const action=clean(input.action||input.intent,120);
     if(!action){const e=new Error('action is required.');e.statusCode=400;throw e;}
-    const targets=await this.resolveComponents(device,obj(input.target));
-    if(!targets.length){const e=new Error('No online component matched the requested scope.');e.statusCode=404;throw e;}
+    const targets=await this.resolveComponentsForOwner(ownerUserId,obj(input.target));
+    if(!targets.length){const e=new Error('No recently-online component matched the requested scope.');e.statusCode=404;e.code='component_offline_or_missing';throw e;}
     const executions=[];
     for(const target of targets){
       const caps=obj(target.capabilities,{actions:[]});
@@ -59,11 +62,18 @@ export class WisdoUniversalControlService {
       const row=(await this.pool.query(`INSERT INTO wisdo_control_executions
         (execution_id,owner_user_id,issued_by_device_id,component_id,action,parameters,risk_level,status,created_at,updated_at)
         VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,'queued',NOW(),NOW()) RETURNING *`,[
-        id,device.owner_user_id,device.device_id,target.component_id,action,JSON.stringify(obj(input.parameters)),
+        id,String(ownerUserId),issuedByDeviceId||null,target.component_id,action,JSON.stringify(obj(input.parameters)),
         Math.max(0,Math.min(5,Number(input.risk_level??input.riskLevel??1)))])).rows[0];
       executions.push(row);
     }
+    if(!executions.some((row)=>row.status==='queued')){
+      const e=new Error(`Matched component does not advertise capability "${action}".`);e.statusCode=409;e.code='component_capability_missing';e.executions=executions;throw e;
+    }
     return executions;
+  }
+
+  async execute(device,input={}) {
+    return this.executeForOwner(device.owner_user_id,input,device.device_id);
   }
 
   async publishWebsiteAction(device,input={}) {
