@@ -128,6 +128,44 @@ export function createWorldCommandRuntime({ onState = null, onStatus = null, onR
     return null;
   }
 
+  async function continuityState() {
+    const query=accountId?`?accountId=${encodeURIComponent(accountId)}`:'';
+    return request(`/api/wisdo/continuity/state${query}`);
+  }
+
+  async function interpretContinuity(text, options={}) {
+    return request('/api/wisdo/continuity/interpret',{method:'POST',body:JSON.stringify({
+      text,
+      accountId:options.accountId||accountId||currentState?.account?.accountId||'',
+      campaignId:options.campaignId||selectedCampaignId||'',
+      ticket:options.ticket||'',
+    })});
+  }
+
+  async function executeContinuity(proposal, heldForMs) {
+    return request('/api/wisdo/continuity/execute',{method:'POST',body:JSON.stringify({
+      proposalId:proposal?.proposalId,
+      confirmationToken:proposal?.confirmationToken,
+      heldForMs,
+    })});
+  }
+
+  async function focusContinuity(input={}) {
+    const payload=await request('/api/wisdo/continuity/focus',{method:'POST',body:JSON.stringify({
+      accountId:input.accountId||accountId||'',
+      campaignId:input.campaignId||'',
+      ticket:input.ticket||'',
+      symbol:input.symbol||'',
+    })});
+    if(input.campaignId)selectedCampaignId=String(input.campaignId);
+    return payload;
+  }
+
+  async function setContinuityMode(mode){return request('/api/wisdo/continuity/mode',{method:'POST',body:JSON.stringify({mode})});}
+  async function handoffContinuity(deviceId){return request('/api/wisdo/continuity/handoff',{method:'POST',body:JSON.stringify({deviceId})});}
+  async function continuityReflexes(){return request('/api/wisdo/continuity/reflexes');}
+  async function runContinuityReflex(key,options={}){return request(`/api/wisdo/continuity/reflexes/${encodeURIComponent(key)}/run`,{method:'POST',body:JSON.stringify({accountId:options.accountId||accountId||'',campaignId:options.campaignId||selectedCampaignId||'',ticket:options.ticket||''})});}
+
   async function receipts(limit = 40) {
     const query = new URLSearchParams();
     if (accountId) query.set('accountId', accountId);
@@ -146,6 +184,14 @@ export function createWorldCommandRuntime({ onState = null, onStatus = null, onR
     execute,
     watchReceipt,
     receipts,
+    continuityState,
+    interpretContinuity,
+    executeContinuity,
+    focusContinuity,
+    setContinuityMode,
+    handoffContinuity,
+    continuityReflexes,
+    runContinuityReflex,
     get state() { return currentState; },
     get accountId() { return accountId; },
     get selectedCampaignId() { return selectedCampaignId; },
