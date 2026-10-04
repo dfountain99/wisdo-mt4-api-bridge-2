@@ -33,6 +33,14 @@ string BuildCampaignControlJson()
    j+=",\"runtimeTrailStartAtr\":"+DoubleToString(WcoRead(p,"effectiveTrailStartAtr"),4);
    j+=",\"runtimeTrailDistanceAtr\":"+DoubleToString(WcoRead(p,"effectiveTrailDistanceAtr"),4);
    j+=",\"runtimeTrailStepAtr\":"+DoubleToString(WcoRead(p,"effectiveTrailStepAtr"),4);
+   j+=",\"counterOnStopArmed\":"+BoolToJson(WcoRead(p,"counterOnStopArmed")==1);
+   j+=",\"counterOnStopPending\":"+BoolToJson(WcoRead(p,"counterOnStopPending")==1);
+   j+=",\"counterSourceCampaign\":"+DoubleToString(WcoRead(p,"counterSourceCampaign"),0);
+   j+=",\"counterSourceDirection\":"+DoubleToString(WcoRead(p,"counterSourceDirection"),0);
+   j+=",\"counterLastStopTicket\":"+DoubleToString(WcoRead(p,"counterLastStopTicket"),0);
+   j+=",\"counterResultCampaign\":"+DoubleToString(WcoRead(p,"counterResultCampaign"),0);
+   j+=",\"counterPauseSeconds\":"+DoubleToString(WcoRead(p,"counterPauseSeconds"),0);
+   j+=",\"counterConfirmBars\":"+DoubleToString(WcoRead(p,"counterConfirmBars"),0);
    j+=",\"ackId\":"+DoubleToString(WcoRead(p,"ack"),0);
    j+=",\"ackStatus\":"+DoubleToString(WcoRead(p,"ackStatus"),0)+",\"pendingId\":"+DoubleToString(WcoRead(p,"slot"),0)+",\"levels\":[";
    int count=(int)MathMin(16,WcoRead(p,"levelCount"));
@@ -59,7 +67,7 @@ bool ExecuteCampaignCommand(string json,string &message,int &ticket)
    int op=JsonGetInt(json,"operation",0),duration=JsonGetInt(json,"durationSeconds",0);
    if(!EnableCampaignControl || CampaignControlMagic<=0 || JsonGetString(json,"symbol","")!=CampaignControlSymbol || JsonGetInt(json,"magicNumber",0)!=CampaignControlMagic)
    {message="Campaign control scope is disabled or does not match Reporter inputs";return false;}
-   if(id<=0 || expires<TimeGMT() || expires>TimeGMT()+120 || op<1 || op>20 ||
+   if(id<=0 || expires<TimeGMT() || expires>TimeGMT()+120 || op<1 || op>22 ||
       ((op==1 || op==3 || op==6 || op==7 || op==12) && (duration<1 || duration>604800)))
    {message="Invalid or expired campaign instruction";return false;}
    if(WcoRead(p,"ack")>=id){message="Already processed by EA; inspect campaign acknowledgement";return true;}
@@ -76,6 +84,7 @@ bool ExecuteCampaignCommand(string json,string &message,int &ticket)
    WcoWrite(p,"stopAtr",JsonGetDouble(json,"stopAtr",0));WcoWrite(p,"trailStartAtr",JsonGetDouble(json,"trailStartAtr",0));
    WcoWrite(p,"trailDistanceAtr",JsonGetDouble(json,"trailDistanceAtr",0));WcoWrite(p,"trailStepAtr",JsonGetDouble(json,"trailStepAtr",0));
    WcoWrite(p,"trimPercent",JsonGetDouble(json,"trimPercent",0));
+   WcoWrite(p,"counterPauseSeconds",JsonGetInt(json,"counterPauseSeconds",0));
    if(op==15 || op==16)WcoWrite(p,"runtimeScope",JsonGetInt(json,"runtimeScope",1));
    string parts[];int count=StringSplit(JsonGetString(json,"tickets",""),StringGetCharacter(",",0),parts);
    if(count>12){WcoWrite(p,"slot",0);message="Too many selected trades";return false;}
