@@ -6,7 +6,7 @@ const clean = (value, max = 160) => String(value ?? '').replace(/\u0000/g, '').t
 const nowIso = () => new Date().toISOString();
 const hash = (value) => createHash('sha256').update(String(value)).digest('hex');
 
-const DIRECT_MANAGER_ACTIONS = new Set(['SET_STOP_ATR','SET_TRAIL_ATR','TRIM_CAMPAIGN','CLEAR_RUNTIME_OVERRIDES']);
+const DIRECT_MANAGER_ACTIONS = new Set(['SET_STOP_ATR','SET_TRAIL_ATR','TRIM_CAMPAIGN','CLEAR_RUNTIME_OVERRIDES','CLEAR_COUNTER_ON_STOP']);
 const COMMAND_DEFINITIONS = Object.freeze({
   ...Object.fromEntries(Object.entries(CAMPAIGN_ACTIONS).map(([key, value]) => [key, { command: 'WISDO_CAMPAIGN', level: DIRECT_MANAGER_ACTIONS.has(key) ? 2 : 3, directManager: DIRECT_MANAGER_ACTIONS.has(key), scope: 'CAMPAIGN', label: value.label }])),
   CLOSE_POSITION: { command: 'CLOSE_BY_TICKET', level: 3, scope: 'POSITION', label: 'Close Position', requires: ['position'] },
