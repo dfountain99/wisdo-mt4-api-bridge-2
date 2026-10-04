@@ -91,6 +91,6 @@ test('V13 MQL bridge waits for HIGHTOWER acknowledgement and runtime overrides s
   assert.match(receiver, /Never loosen an existing broker stop/);
   assert.match(reporter, /TryCompletePendingCampaignCommand/);
   assert.match(reporter, /completion deferred until EA acknowledgement/);
-  assert.match(bridge, /op>20/);
+  assert.match(bridge, /op>22/);
   assert.match(bridge, /trimPercent/);
 });
