@@ -12731,6 +12731,9 @@ void H620TrailAndExtend()
 void H620ResetFlat(string reason)
 {
    WcoClearRuntime(false);
+   // One-shot counter authority belongs only to the campaign that armed it.
+   // A normal/manual flat reset or an expired reversal must not leak into a later campaign.
+   if(WcoRead(WcoEA(),"counterOnStopPending")!=1) WcoClearCounterOnStop(WcoEA(),true);
    h620Phase=0;h620Dir=0;h620Flip=0;h620Rail=0;h620Status=reason;
    HT6EndDoubleCampaignState(reason,true);HT6SequenceClear(reason);HT6EinsteinReset(reason);
    gHT6Flow.primaryDirection=DIR_FLAT;H620Persist();
