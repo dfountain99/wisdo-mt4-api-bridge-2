@@ -1,413 +1,307 @@
 import { createWorldCommandRuntime } from './command-runtime.js';
 import { createWisdoTimeEngine } from './wisdo-time-engine.js';
 
-const esc=(value='')=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
-const finite=(value,fallback=0)=>Number.isFinite(Number(value))?Number(value):fallback;
-const money=(value,currency='USD')=>{try{return new Intl.NumberFormat(undefined,{style:'currency',currency,maximumFractionDigits:2}).format(finite(value));}catch{return `$${finite(value).toFixed(2)}`;}};
-const pct=(value)=>`${(finite(value)*100).toFixed(0)}%`;
+const esc=(v='')=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+const finite=(v,f=0)=>Number.isFinite(Number(v))?Number(v):f;
+const money=(v,c='USD')=>{try{return new Intl.NumberFormat(undefined,{style:'currency',currency:c,maximumFractionDigits:2}).format(finite(v));}catch{return `$${finite(v).toFixed(2)}`;}};
+const ago=(value)=>{const t=Date.parse(value||'');if(!Number.isFinite(t))return '—';const s=Math.max(0,Math.floor((Date.now()-t)/1000));return s<60?`${s}s ago`:s<3600?`${Math.floor(s/60)}m ago`:`${Math.floor(s/3600)}h ago`;};
 
 function ensureStyles(){
-  const href='/app/world/command/wisdo-live-manager-v15.css?v=20261001-v15';
-  let link=document.querySelector('link[data-wisdo-live-manager-v15]');
-  if(!link){link=document.createElement('link');link.rel='stylesheet';link.dataset.wisdoLiveManagerV15='1';document.head.appendChild(link);}
+  const href='/app/world/command/wisdo-continuity-v17.css?v=20261003-v17';
+  let link=document.querySelector('link[data-wisdo-continuity-v17]');
+  if(!link){link=document.createElement('link');link.rel='stylesheet';link.dataset.wisdoContinuityV17='1';document.head.appendChild(link);}
   link.href=href;
 }
 
 function markup(){
-  return `<section id="wisdoCommandOverlay" class="wisdo-command-overlay" hidden aria-label="WISDO Live Manager">
-    <div class="lm-shell">
-      <header class="lm-top">
-        <div class="lm-brand"><span>CONNECT · COPY · CONTROL</span><strong>WISDO <b>LIVE MANAGER</b></strong></div>
-        <div class="lm-scope">
-          <div><span>ACCOUNT</span><strong id="lmScopeAccount">—</strong></div>
-          <div><span>SYMBOL</span><strong id="lmScopeSymbol">—</strong></div>
-          <div><span>CAMPAIGN</span><strong id="lmScopeCampaign">—</strong></div>
-          <div><span>EA LINK</span><strong id="lmScopeLink">—</strong></div>
+  return `<section id="wisdoCommandOverlay" class="wisdo-command-overlay" hidden aria-label="WISDO Continuity Live Manager">
+    <div class="c-shell">
+      <header class="c-top">
+        <div class="c-brand"><small>CONNECT · COPY · CONTROL</small><strong>WISDO <b>CONTINUITY</b></strong></div>
+        <div class="c-scope">
+          <div><span>ACCOUNT</span><b id="cAccount">—</b></div>
+          <div><span>SYMBOL</span><b id="cSymbol">—</b></div>
+          <div><span>CAMPAIGN</span><b id="cCampaign">—</b></div>
+          <div><span>EA LINK</span><b id="cLink">—</b></div>
         </div>
-        <button id="lmClose" class="lm-close" type="button">EXIT</button>
+        <button id="cMode" class="c-mode" type="button">DESK</button>
+        <button id="cExit" class="c-exit" type="button">EXIT</button>
       </header>
 
-      <div class="lm-grid">
-        <main class="lm-main">
-          <section class="lm-card lm-command-card">
-            <div class="lm-command-title">
-              <div><span class="lm-label">VOICE + TEXT → VERIFIED EA COMMANDS</span><h1>Tell WISDO what to do.</h1><p>No character. No game controls. This surface exists to manage the live campaign.</p></div>
-              <span id="lmLinkPill" class="lm-link-pill bad">LINK CHECKING</span>
+      <section class="c-command">
+        <div class="c-command-head">
+          <div><span class="c-label">THOUGHT → CONTEXT → PLAN → EXECUTION → TRUTH</span><h1>What do you want WISDO to do?</h1><p>Speak naturally from a connected WISDO voice device or type it here. WISDO resolves the live object and compiles only verified capabilities.</p></div>
+          <span id="cLinkPill" class="c-link">CHECKING LINK</span>
+        </div>
+        <form id="cForm" class="c-form">
+          <input id="cInput" autocomplete="off" placeholder="Protect this more… If I get stopped, counter me… When I enter my room, wake my laptop…" aria-label="Tell WISDO what you want">
+          <button class="c-send" type="submit">INTERPRET</button>
+        </form>
+        <div class="c-under"><span id="cStatus" class="c-status">Loading live context…</span><span id="cVoice" class="c-voice">VOICE · CHECKING DEVICE</span></div>
+      </section>
+
+      <section class="c-four">
+        <article class="c-story now"><span class="c-label">NOW</span><h2>Live situation</h2><div id="cNow"></div></article>
+        <article class="c-story intent"><span class="c-label">YOUR INTENT</span><h2>What WISDO understands</h2><div id="cIntent"><p>No active instruction yet.</p></div></article>
+        <article class="c-story waiting"><span class="c-label">WISDO IS WAITING FOR</span><h2>Next verified hinge</h2><div id="cWaiting"><p>Nothing pending.</p></div></article>
+        <article class="c-story verified"><span class="c-label">VERIFIED ACTIONS</span><h2>What actually happened</h2><div id="cVerified"><p>No verified receipts yet.</p></div></article>
+      </section>
+
+      <div class="c-layout">
+        <main class="c-main">
+          <section class="c-card">
+            <div class="c-card-head"><div><span class="c-label">LIVE CAMPAIGN</span><h3>Broker truth</h3></div><small id="cCampaignTruth">—</small></div>
+            <div class="c-metrics">
+              <div class="c-metric"><span>FLOATING</span><b id="cFloating">—</b></div>
+              <div class="c-metric"><span>POSITIONS</span><b id="cCount">0</b></div>
+              <div class="c-metric"><span>STOP ATR</span><b id="cStop">—</b></div>
+              <div class="c-metric"><span>TRAIL</span><b id="cTrail">—</b></div>
+              <div class="c-metric"><span>ENTRY GATE</span><b id="cGate">—</b></div>
             </div>
-            <form id="lmComposer" class="lm-composer">
-              <input id="lmIntentInput" autocomplete="off" placeholder="Example: tighten the trailer a little" aria-label="WISDO trading command">
-              <button class="lm-send" type="submit">SEND TO WISDO</button>
-            </form>
-            <div id="lmIntentState" class="lm-intent">Waiting for live account state.</div>
-            <div class="lm-examples" aria-label="Command examples">
-              <button class="lm-example" type="button" data-example="tighten the trailer a little">TIGHTEN TRAILER</button>
-              <button class="lm-example" type="button" data-example="move stop losses to 1.6 ATR">STOP 1.6 ATR</button>
-              <button class="lm-example" type="button" data-example="trim half of the campaign">TRIM HALF</button>
-              <button class="lm-example" type="button" data-example="add another position now">ADD IF VALID</button>
-              <button class="lm-example" type="button" data-example="intentionally widen my existing stop losses to 2 ATR">WIDEN STOPS</button>
-              <button class="lm-example" type="button" data-example="return stops to normal EA management">RETURN TO EA</button>
-            </div>
-            <div class="lm-quick">
-              <button class="lm-btn" type="button" data-live-action="PAUSE_BOT">PAUSE BOT<span>Stop trading activity</span></button>
-              <button class="lm-btn good" type="button" data-live-action="RESUME_BOT">RESUME BOT<span>Return to EA logic</span></button>
-              <button class="lm-btn" type="button" data-live-action="STOP_NEW_ENTRIES">STOP ENTRIES<span>Manage current trades only</span></button>
-              <button class="lm-btn good" type="button" data-live-action="RESUME_NEW_ENTRIES">ALLOW ENTRIES<span>Reopen entry gate</span></button>
-              <button class="lm-btn" type="button" data-manager-action="SET_TRAIL_ATR" data-delta="-0.25">TIGHTEN TRAIL<span>−0.25 ATR</span></button>
-              <button class="lm-btn" type="button" data-manager-action="TRIM_CAMPAIGN" data-trim="50">TRIM 50%<span>Current campaign</span></button>
-              <button class="lm-btn danger" type="button" data-live-action="CLOSE_CAMPAIGN">CLOSE CAMPAIGN<span>Hold confirmation</span></button>
-              <button class="lm-btn danger" type="button" data-live-action="EMERGENCY_STOP">EMERGENCY STOP<span>Hold confirmation</span></button>
-            </div>
+            <div class="c-table-wrap" style="margin-top:10px"><table class="c-table"><thead><tr><th>TICKET</th><th>SIDE</th><th>ROLE</th><th>LOTS</th><th>ENTRY</th><th>NOW</th><th>SL</th><th>TP</th><th>P/L</th></tr></thead><tbody id="cPositions"><tr><td colspan="9">Waiting for Reporter.</td></tr></tbody></table></div>
           </section>
 
-          <section class="lm-card">
-            <div class="lm-card-head"><div><span class="lm-label">CAMPAIGN</span><h2>Live Progress</h2></div><small id="lmCampaignStatus">STANDBY</small></div>
-            <div class="lm-metrics">
-              <div class="lm-metric"><small>FLOATING P/L</small><strong id="lmFloating">—</strong></div>
-              <div class="lm-metric"><small>POSITIONS</small><strong id="lmPositionsCount">0</strong></div>
-              <div class="lm-metric"><small>CAMPAIGN BASE</small><strong id="lmCampaignBase">—</strong></div>
-              <div class="lm-metric"><small>NEXT TARGET</small><strong id="lmTargetEquity">—</strong></div>
-            </div>
-            <div class="lm-progress"><i id="lmProgressBar"></i></div>
-          </section>
-
-          <section class="lm-card">
-            <div class="lm-card-head"><div><span class="lm-label">RUNTIME CONTROL</span><h2>Protection & Market Sense</h2></div><small id="lmRuntimeScope">EA INPUTS</small></div>
-            <div class="lm-risk-grid">
-              <div class="lm-data"><small>STOP ATR</small><b id="lmStopAtr">—</b></div>
-              <div class="lm-data"><small>TRAIL START</small><b id="lmTrailStart">—</b></div>
-              <div class="lm-data"><small>TRAIL DISTANCE</small><b id="lmTrailDistance">—</b></div>
-              <div class="lm-data"><small>TRAIL STEP</small><b id="lmTrailStep">—</b></div>
-            </div>
-            <div class="lm-sense-grid" style="margin-top:8px">
-              <div class="lm-data"><small>DIRECTION</small><b id="lmDirection">—</b></div>
-              <div class="lm-data"><small>SESSION</small><b id="lmSession">—</b></div>
-              <div class="lm-data"><small>ENTRY GATE</small><b id="lmEntryGate">—</b></div>
-              <div class="lm-data"><small>CONTINUE / REVERSE</small><b id="lmProbability">—</b></div>
-            </div>
-          </section>
-
-          <section class="lm-card lm-time-host" id="lmTimeHost"></section>
-
-          <section class="lm-card">
-            <div class="lm-card-head"><div><span class="lm-label">BROKER TRUTH</span><h2>Open Positions</h2></div><small id="lmPositionSummary">NO OPEN POSITIONS</small></div>
-            <div class="lm-table-wrap"><table class="lm-table"><thead><tr><th>TICKET</th><th>SIDE</th><th>LOTS</th><th>ENTRY</th><th>NOW</th><th>SL</th><th>TP</th><th>P/L</th></tr></thead><tbody id="lmPositionRows"><tr><td colspan="8">Waiting for Reporter.</td></tr></tbody></table></div>
-          </section>
+          <section class="c-card c-time-host" id="cTime"></section>
         </main>
 
-        <aside class="lm-side">
-          <section class="lm-card">
-            <div class="lm-card-head"><div><span class="lm-label">BOUND ACCOUNT</span><h3>Account & Campaign</h3></div></div>
-            <select id="lmAccountSelect" class="lm-account-select" aria-label="Trading account"></select>
-            <div id="lmCampaigns" class="lm-campaigns"></div>
+        <aside class="c-side">
+          <section class="c-card">
+            <div class="c-card-head"><div><span class="c-label">CONTEXT</span><h3>Account & campaign</h3></div></div>
+            <select id="cAccountSelect" class="c-select"></select>
+            <div id="cCampaigns" class="c-campaigns"></div>
           </section>
 
-          <section class="lm-voice-note">
-            <strong>WISDO VOICE USES THE EXISTING VOICE SYSTEM</strong>
-            <p>Speak from your enrolled WISDO voice device. Voice and the text box above compile into the same verified command bus and HIGHTOWER acknowledgement path.</p>
+          <section class="c-card">
+            <div class="c-card-head"><div><span class="c-label">REFLEXES</span><h3>Reusable verified intentions</h3></div><small>REAL ACTIONS ONLY</small></div>
+            <div id="cReflexes" class="c-reflexes"></div>
           </section>
 
-          <section class="lm-card">
-            <div class="lm-card-head"><div><span class="lm-label">EA TRUTH LOOP</span><h3>Last Verified Receipt</h3></div></div>
-            <div id="lmReceipt" class="lm-receipt">No command sent.</div>
+          <section class="c-card">
+            <div class="c-card-head"><div><span class="c-label">STANDING INTENTIONS</span><h3>Rules that keep watching</h3></div></div>
+            <div id="cStanding" class="c-standing"><div class="c-standing-item"><span>None active.</span></div></div>
           </section>
 
-          <section class="lm-card">
-            <div class="lm-card-head"><div><span class="lm-label">CONNECTION</span><h3>Execution Health</h3></div></div>
-            <div class="lm-sense-grid">
-              <div class="lm-data"><small>REPORTER</small><b id="lmReporter">—</b></div>
-              <div class="lm-data"><small>TERMINAL</small><b id="lmTerminal">—</b></div>
-              <div class="lm-data"><small>AUTOTRADING</small><b id="lmExpert">—</b></div>
-              <div class="lm-data"><small>BOT</small><b id="lmBot">—</b></div>
-            </div>
+          <section class="c-card">
+            <div class="c-card-head"><div><span class="c-label">LIFE / DEVICE CONTEXT</span><h3>Presence & handoff</h3></div></div>
+            <div id="cEnvironment" class="c-environment"></div>
           </section>
         </aside>
       </div>
     </div>
 
-    <section id="lmProposal" class="lm-proposal" hidden>
-      <span>CONFIRM LIVE COMMAND</span>
-      <h2 id="lmProposalTitle">—</h2>
-      <p id="lmProposalScope">—</p>
-      <p id="lmProposalEffect">Server and EA state will be revalidated before execution.</p>
-      <div class="lm-proposal-actions">
-        <button id="lmHold" class="lm-hold" type="button"><i></i><span>HOLD TO CONFIRM</span></button>
-        <button id="lmCancel" class="lm-close" type="button">CANCEL</button>
+    <section id="cProposal" class="c-proposal" hidden>
+      <span class="c-label">WISDO PLAN · NOTHING SENT YET</span>
+      <h2 id="cProposalTitle">Review live intention</h2>
+      <p id="cProposalMeaning">—</p>
+      <p id="cProposalScope">—</p>
+      <div class="c-proposal-actions">
+        <button id="cHold" class="c-hold" type="button"><i></i><span>HOLD TO CONFIRM</span></button>
+        <button id="cCancel" class="c-cancel" type="button">CANCEL</button>
       </div>
     </section>
   </section>`;
 }
 
 function appendLaunchButton(){
-  const nav=document.querySelector('.top-actions');
-  if(!nav||document.getElementById('wisdoCommandLaunch'))return;
-  const button=document.createElement('button');
-  button.id='wisdoCommandLaunch';
-  button.className='chip wisdo-command-launch';
-  button.textContent='Live Manager';
-  nav.prepend(button);
+  const nav=document.querySelector('.top-actions');if(!nav||document.getElementById('wisdoCommandLaunch'))return;
+  const button=document.createElement('button');button.id='wisdoCommandLaunch';button.className='chip wisdo-command-launch';button.textContent='Live Manager';nav.prepend(button);
 }
 
 export function startCampaignCommandCenter({initialAccountId=''}={}){
-  ensureStyles();
-  document.getElementById('wisdoCommandOverlay')?.remove();
-  document.body.insertAdjacentHTML('beforeend',markup());
-  appendLaunchButton();
-
-  const overlay=document.getElementById('wisdoCommandOverlay');
-  const q=(id)=>overlay.querySelector(id);
-  let commandState=null;
-  let selectedCampaignId=null;
-  let latestReceipt=null;
-  let proposal=null;
-  let holdStart=0;
-  let holdTimer=0;
-  let opened=false;
+  ensureStyles();document.getElementById('wisdoCommandOverlay')?.remove();document.body.insertAdjacentHTML('beforeend',markup());appendLaunchButton();
+  const overlay=document.getElementById('wisdoCommandOverlay'),q=(s)=>overlay.querySelector(s);
+  let world=null,continuity=null,selectedCampaignId=null,opened=false,refreshingContinuity=false,continuityTimer=0;
+  let activeProposal=null,holdStart=0,holdTimer=0;
   const announced=new Set();
-
-  const activeCampaign=()=>commandState?.campaigns?.find((row)=>String(row.campaignId)===String(selectedCampaignId))||commandState?.campaigns?.[0]||null;
-  const selectedAccount=()=>commandState?.account||null;
-  const capability=(action)=>commandState?.capabilities?.[action]||null;
-
-  const setIntent=(text,tone='')=>{
-    const el=q('#lmIntentState');
-    if(!el)return;
-    el.textContent=text;
-    el.className=`lm-intent ${tone}`.trim();
-  };
-
-  function announceReceipt(receipt){
-    const status=String(receipt?.status||'').toLowerCase();
-    if(!['completed','failed'].includes(status)||!receipt?.commandId||announced.has(receipt.commandId))return;
-    announced.add(receipt.commandId);
-    const detail=String(receipt?.result?.message||receipt?.error||receipt?.command||'Trading command').trim();
-    try{
-      if('speechSynthesis'in window&&localStorage.getItem('wisdo.commandVoiceAlerts')!=='off'){
-        const utterance=new SpeechSynthesisUtterance(status==='completed'?`WISDO. Command executed. ${detail}`:`WISDO. Command failed. ${detail}`);
-        utterance.rate=.92;utterance.pitch=.92;window.speechSynthesis.speak(utterance);
-      }
-    }catch{}
-    try{
-      if('Notification'in window&&Notification.permission==='granted'&&navigator.serviceWorker?.ready){
-        navigator.serviceWorker.ready.then((registration)=>registration.showNotification(status==='completed'?'WISDO · COMMAND EXECUTED':'WISDO · COMMAND FAILED',{body:detail.slice(0,220),tag:`wisdo-command-${receipt.commandId}`,renotify:true,data:{commandId:receipt.commandId,status}})).catch(()=>{});
-      }
-    }catch{}
-  }
-
-  function renderReceipt(){
-    const el=q('#lmReceipt');
-    if(!el)return;
-    const r=latestReceipt;
-    if(!r){el.className='lm-receipt';el.textContent='No command sent.';return;}
-    const status=String(r.status||'pending').toLowerCase();
-    el.className=`lm-receipt ${status==='completed'?'ok':status==='failed'?'fail':'pending'}`;
-    el.innerHTML=`<strong>${esc(status.toUpperCase())}</strong><br>${esc(r.command||'COMMAND')}<br><span>${esc(r.result?.message||r.error||'Waiting for HIGHTOWER acknowledgement.')}</span>${r.commandId?`<br><small>ID ${esc(r.commandId)}</small>`:''}`;
-  }
-
-  function renderState(){
-    if(!commandState)return;
-    const account=selectedAccount();
-    const campaign=activeCampaign();
-    const control=commandState.campaignControl||null;
-    const health=commandState.executionHealth||{};
-    const currency=commandState.financial?.currency||'USD';
-
-    q('#lmScopeAccount').textContent=account?.accountNumberMasked||account?.nickname||'SELECT ACCOUNT';
-    q('#lmScopeSymbol').textContent=campaign?.symbol||control?.symbol||'—';
-    q('#lmScopeCampaign').textContent=campaign?.strategyName||campaign?.campaignId|| (control?.live?`EA ${Math.trunc(finite(control.campaignId))}`:'—');
-    q('#lmScopeLink').textContent=health.commandLinkReady?'EA VERIFIED':'NOT READY';
-    q('#lmLinkPill').textContent=health.commandLinkReady?'EA VERIFIED':'LINK NOT READY';
-    q('#lmLinkPill').className=`lm-link-pill ${health.commandLinkReady?'live':'bad'}`;
-    setIntent(health.commandLinkReady?'Voice and text command paths are ready. HIGHTOWER acknowledgement required for success.':'Reporter/terminal command link is not ready. Nothing will be sent until the link is verified.',health.commandLinkReady?'live':'error');
-
-    const accounts=commandState.accounts||[];
-    q('#lmAccountSelect').innerHTML=accounts.map((row)=>`<option value="${esc(row.accountId)}" ${String(row.accountId)===String(account?.accountId)?'selected':''}>${esc(row.nickname||row.accountId)}${row.mt4Login?` · MT4 ${esc(row.mt4Login)}`:''}</option>`).join('');
-    const campaigns=commandState.campaigns||[];
-    q('#lmCampaigns').innerHTML=campaigns.length?campaigns.map((row)=>`<button type="button" class="lm-campaign ${String(row.campaignId)===String(campaign?.campaignId)?'active':''}" data-campaign-id="${esc(row.campaignId)}">${esc(row.symbol)} · ${esc(row.direction)} · ${row.positionCount||0}</button>`).join(''):'<small>No active campaigns.</small>';
-
-    const progress=control?.progress||{};
-    const base=finite(progress.campaignBase);
-    const realized=finite(progress.realized);
-    const floating=finite(progress.floating,campaign?.floatingMoney||0);
-    const target=finite(progress.targetEquity);
-    const progressRatio=target>base?Math.max(0,Math.min(1,(base+realized+floating-base)/(target-base))):0;
-    q('#lmFloating').textContent=money(campaign?.floatingMoney??commandState.financial?.floatingPL??floating,currency);
-    q('#lmFloating').className=finite(campaign?.floatingMoney??floating)>=0?'lm-profit':'lm-loss';
-    q('#lmPositionsCount').textContent=String(campaign?.positionCount||0);
-    q('#lmCampaignBase').textContent=base>0?money(base,currency):'—';
-    q('#lmTargetEquity').textContent=target>0?money(target,currency):'—';
-    q('#lmProgressBar').style.width=`${(progressRatio*100).toFixed(1)}%`;
-    q('#lmCampaignStatus').textContent=control?.live?(control.paused?'EA LIVE · PAUSED':'EA LIVE'):'CAMPAIGN TELEMETRY STANDBY';
-
-    const runtime=control?.runtime||{};
-    q('#lmStopAtr').textContent=Number.isFinite(Number(runtime.stopAtr))?`${Number(runtime.stopAtr).toFixed(2)} ATR`:'—';
-    q('#lmTrailStart').textContent=Number.isFinite(Number(runtime.trailStartAtr))?`${Number(runtime.trailStartAtr).toFixed(2)} ATR`:'—';
-    q('#lmTrailDistance').textContent=Number.isFinite(Number(runtime.trailDistanceAtr))?`${Number(runtime.trailDistanceAtr).toFixed(2)} ATR`:'—';
-    q('#lmTrailStep').textContent=Number.isFinite(Number(runtime.trailStepAtr))?`${Number(runtime.trailStepAtr).toFixed(2)} ATR`:'—';
-    q('#lmRuntimeScope').textContent=runtime.overrideMask? (runtime.scope===2?'LIVE OVERRIDE · PERSISTENT':'LIVE OVERRIDE · CAMPAIGN'):'VISIBLE EA INPUTS';
-    q('#lmDirection').textContent=control?.direction===1?'BUY':control?.direction===-1?'SELL':campaign?.direction||'—';
-    q('#lmSession').textContent=control?.session?.reported?control.session.name:'NOT REPORTED';
-    q('#lmEntryGate').textContent=control?.session?.reported?(control.session.entryAllowed?'OPEN':'BLOCKED'):'UNKNOWN';
-    q('#lmProbability').textContent=control?.marketSense?`${pct(control.marketSense.continuationProbability)} / ${pct(control.marketSense.reversalProbability)}`:'—';
-
-    q('#lmReporter').textContent=health.reporter||'DISCONNECTED';
-    q('#lmTerminal').textContent=health.terminalConnected===true?'CONNECTED':health.terminalConnected===false?'OFFLINE':'UNKNOWN';
-    q('#lmExpert').textContent=health.expertEnabled===true?'ON':health.expertEnabled===false?'OFF':'UNKNOWN';
-    q('#lmBot').textContent=commandState.bot?.name? `${commandState.bot.name}${commandState.bot.version?` · v${commandState.bot.version}`:''}`:'NOT REPORTED';
-
-    const positions=campaign?.positions||[];
-    q('#lmPositionSummary').textContent=positions.length?`${positions.length} OPEN · ${finite(campaign.totalLots).toFixed(2)} LOTS`:'NO OPEN POSITIONS';
-    q('#lmPositionRows').innerHTML=positions.length?positions.map((p)=>{
-      const pl=finite(p.floatingMoney);
-      return `<tr><td>${esc(p.ticket||'—')}</td><td>${esc(p.direction||'—')}</td><td>${finite(p.lots).toFixed(2)}</td><td>${p.entryPrice??'—'}</td><td>${p.currentPrice??'—'}</td><td>${p.stopLoss??'—'}</td><td>${p.takeProfit??'—'}</td><td class="${pl>=0?'lm-profit':'lm-loss'}">${money(pl,currency)}</td></tr>`;
-    }).join(''):'<tr><td colspan="8">No open positions in this campaign.</td></tr>';
-
-    overlay.querySelectorAll('[data-live-action]').forEach((button)=>{
-      const cap=capability(button.dataset.liveAction);
-      button.disabled=cap?cap.available===false:!health.commandLinkReady;
-      button.title=cap?.reason||'';
-    });
-    overlay.querySelectorAll('[data-manager-action]').forEach((button)=>{
-      const cap=capability(button.dataset.managerAction);
-      button.disabled=cap?cap.available===false:!control?.live;
-      button.title=cap?.reason||'';
-    });
-
-    timeEngine.setState(commandState,campaign);
-  }
+  const timeEngine=createWisdoTimeEngine(q('#cTime'),{resetWindowSeconds:120});
 
   const runtime=createWorldCommandRuntime({
     initialAccountId:initialAccountId||sessionStorage.getItem('wisdo.selectedAccountId')||'',
-    onState:(state,meta)=>{commandState=state;selectedCampaignId=meta?.selectedCampaignId||state?.selectedCampaignId||state?.campaigns?.[0]?.campaignId||null;renderState();},
-    onStatus:({state,error})=>{if(state==='degraded'&&error)setIntent(`Live state unavailable · ${error.message}`,'error');},
-    onReceipt:(receipt)=>{latestReceipt=receipt;renderReceipt();announceReceipt(receipt);},
+    onState:(state,meta)=>{world=state;selectedCampaignId=meta?.selectedCampaignId||state?.selectedCampaignId||state?.campaigns?.[0]?.campaignId||null;renderWorld();if(opened)refreshContinuity().catch(()=>{});},
+    onStatus:({state,error})=>{if(state==='degraded'&&error)setStatus(`Live state unavailable · ${error.message}`,'bad');},
+    onReceipt:(receipt)=>{announceReceipt(receipt);renderReceiptUpdate(receipt);setTimeout(()=>refreshContinuity().catch(()=>{}),250);},
   });
 
-  const timeEngine=createWisdoTimeEngine(q('#lmTimeHost'),{resetWindowSeconds:120});
+  function setStatus(text,tone=''){const el=q('#cStatus');el.textContent=text;el.className=`c-status ${tone}`.trim();}
+  const activeCampaign=()=>world?.campaigns?.find((row)=>String(row.campaignId)===String(selectedCampaignId))||world?.campaigns?.[0]||null;
+  const currency=()=>world?.financial?.currency||'USD';
 
-  function cancelProposal(){
-    proposal=null;holdStart=0;clearInterval(holdTimer);holdTimer=0;
-    q('#lmProposal').hidden=true;
-    const bar=q('#lmHold i');if(bar)bar.style.width='0%';
-    const label=q('#lmHold span');if(label)label.textContent='HOLD TO CONFIRM';
+  function meaningText(value){
+    if(!value)return 'No active instruction yet.';
+    if(typeof value==='string')return value;
+    if(value.label)return value.label;
+    if(value.action)return value.action.replaceAll('_',' ');
+    if(value.name)return value.name;
+    return 'WISDO has a structured live plan.';
   }
 
-  async function arm(action,options={}){
-    try{
-      setIntent(`Revalidating ${action.replaceAll('_',' ')} against the live account…`,'warn');
-      const next=await runtime.propose(action,{campaignId:selectedCampaignId,...options});
-      if(Number(next.holdRequiredMs||0)<=0){
-        latestReceipt=await runtime.execute(next,0);renderReceipt();
-        setIntent('Command delivered. Waiting for HIGHTOWER verified acknowledgement.','live');
-        return latestReceipt;
-      }
-      proposal=next;
-      q('#lmProposalTitle').textContent=next.label||action.replaceAll('_',' ');
-      q('#lmProposalScope').textContent=`${next.scope||'ACCOUNT'} · ${next.affectedCount??0} affected · hold ${(Number(next.holdRequiredMs)/1000).toFixed(1)}s`;
-      q('#lmProposalEffect').textContent=action==='WIDEN_EXISTING_STOPS'
-        ? `Intentional stop widening can increase maximum loss on open positions. Requested stop: ${Number(options.stopAtr).toFixed(2)} ATR.`
-        : 'Nothing has been sent yet. Release early to cancel.';
-      q('#lmProposal').hidden=false;
-      setIntent('Command understood. Review the live proposal and hold to confirm.','warn');
-      return next;
-    }catch(error){
-      latestReceipt={status:'failed',command:action,error:error.message};renderReceipt();
-      setIntent(`Blocked · ${error.message}`,'error');
-      return null;
+  function renderWorld(){
+    if(!world)return;const campaign=activeCampaign(),control=world.campaignControl||{},health=world.executionHealth||{},account=world.account;
+    q('#cAccount').textContent=account?.accountNumberMasked||account?.nickname||'SELECT ACCOUNT';
+    q('#cSymbol').textContent=campaign?.symbol||control.symbol||'—';
+    q('#cCampaign').textContent=campaign?.strategyName||campaign?.campaignId|| (control.live?`EA ${Math.trunc(finite(control.campaignId))}`:'—');
+    q('#cLink').textContent=health.commandLinkReady?'EA VERIFIED':'NOT READY';
+    q('#cLinkPill').textContent=health.commandLinkReady?'EA LINK VERIFIED':'EA LINK NOT READY';q('#cLinkPill').className=`c-link ${health.commandLinkReady?'live':''}`;
+    q('#cFloating').textContent=money(campaign?.floatingMoney??world.financial?.floatingPL??0,currency());q('#cFloating').className=finite(campaign?.floatingMoney??world.financial?.floatingPL)>=0?'c-good':'c-bad';
+    q('#cCount').textContent=String(campaign?.positionCount||0);
+    q('#cStop').textContent=control.runtime?.stopAtr?`${Number(control.runtime.stopAtr).toFixed(2)} ATR`:'—';
+    q('#cTrail').textContent=control.runtime?.trailDistanceAtr?`${Number(control.runtime.trailDistanceAtr).toFixed(2)} ATR`:'—';
+    q('#cGate').textContent=control.session?.reported?(control.session.entryAllowed?'OPEN':'BLOCKED'):'UNKNOWN';
+    q('#cGate').className=control.session?.entryAllowed?'c-good':control.session?.reported?'c-warn':'';
+    q('#cCampaignTruth').textContent=control.live?`${control.direction===1?'BUY':control.direction===-1?'SELL':'FLAT'} · REPORTER + EA LIVE`:'CAMPAIGN TELEMETRY NOT LIVE';
+
+    const accounts=world.accounts||[];q('#cAccountSelect').innerHTML=accounts.map((row)=>`<option value="${esc(row.accountId)}" ${String(row.accountId)===String(account?.accountId)?'selected':''}>${esc(row.nickname||row.accountId)}${row.mt4Login?` · MT4 ${esc(row.mt4Login)}`:''}</option>`).join('');
+    q('#cCampaigns').innerHTML=(world.campaigns||[]).length?(world.campaigns||[]).map((row)=>`<button type="button" class="c-campaign ${String(row.campaignId)===String(campaign?.campaignId)?'active':''}" data-campaign="${esc(row.campaignId)}">${esc(row.symbol)} · ${esc(row.direction)} · ${row.positionCount||0}</button>`).join(''):'<small>No active campaigns.</small>';
+
+    const selectedTicket=String(continuity?.continuity?.focus?.ticket||'');
+    q('#cPositions').innerHTML=(campaign?.positions||[]).length?campaign.positions.map((p)=>{
+      const pl=finite(p.floatingMoney);const role=control.positions?.find((x)=>String(x.ticket)===String(p.ticket))?.role;
+      const roleName=role===0?'HOLD':role===1?'COLLECTOR':role===2?'RUNNER':p.classification||'—';
+      return `<tr data-ticket="${esc(p.ticket)}" class="${selectedTicket===String(p.ticket)?'selected':''}"><td>${esc(p.ticket)}</td><td>${esc(p.direction)}</td><td>${esc(roleName)}</td><td>${finite(p.lots).toFixed(2)}</td><td>${p.entryPrice??'—'}</td><td>${p.currentPrice??'—'}</td><td>${p.stopLoss??'—'}</td><td>${p.takeProfit??'—'}</td><td class="${pl>=0?'profit':'loss'}">${money(pl,currency())}</td></tr>`;
+    }).join(''):'<tr><td colspan="9">No open positions in this campaign.</td></tr>';
+    timeEngine.setState(world,campaign);
+  }
+
+  function renderContinuity(){
+    if(!continuity)return;const nowState=continuity.now||{},counter=continuity.standing?.counterOnStop;
+    q('#cMode').textContent=nowState.operatingMode||'DESK';q('#cMode').className=`c-mode ${nowState.operatingMode==='AWAY'?'away':''}`;
+
+    const nowBits=[];
+    if(nowState.campaign)nowBits.push(`<div class="big ${finite(nowState.campaign.floatingMoney)>=0?'c-good':'c-bad'}">${money(nowState.campaign.floatingMoney,currency())}</div><p>${esc(nowState.campaign.symbol)} · ${esc(nowState.campaign.direction)} · ${nowState.campaign.positionCount||0} position${nowState.campaign.positionCount===1?'':'s'}</p>`);
+    else nowBits.push('<p>No active campaign.</p>');
+    nowBits.push(`<small>${nowState.executionHealth?.commandLinkReady?'Reporter and EA command link verified':'Execution link not ready'}</small>`);
+    q('#cNow').innerHTML=nowBits.join('');
+
+    const intent=continuity.intent;q('#cIntent').innerHTML=intent?`<p><b>${esc(intent.text||'Current intention')}</b></p><p>${esc(meaningText(intent.meaning))}</p><small>${esc(intent.kind||'intent')} · ${ago(intent.updatedAt)}</small>`:'<p>No active instruction yet.</p>';
+
+    const waiting=continuity.waiting;q('#cWaiting').innerHTML=waiting?`<p class="c-warn"><b>${esc(waiting.label)}</b></p><small>${esc(waiting.source||'continuity')}</small>`:'<p class="c-good">No unresolved execution or standing trigger right now.</p>';
+
+    const verified=continuity.verified||[];q('#cVerified').innerHTML=verified.length?`<ul>${verified.slice(0,5).map((r)=>`<li><b class="${String(r.status).toLowerCase()==='completed'?'c-good':'c-bad'}">${esc(String(r.status||'').toUpperCase())}</b> · ${esc(r.command||'COMMAND')}<br><small>${esc(r.result?.message||r.error||'Verified receipt')} · ${ago(r.completedAt||r.failedAt||r.requestedAt)}</small></li>`).join('')}</ul>`:'<p>No verified receipts yet.</p>';
+
+    const standing=[];
+    if(counter?.armed||counter?.pending)standing.push(`<div class="c-standing-item"><b>COUNTER ON STOP · ${counter.pending?'WAITING FOR REVERSAL':'ARMED'}</b><span>Source campaign ${esc(counter.sourceCampaignId||'—')} · HIGHTOWER confirmation ${counter.confirmationBars||1} bar(s)</span></div>`);
+    for(const b of continuity.standing?.behaviors||[])if(['active','paused','shadow'].includes(b.status))standing.push(`<div class="c-standing-item"><b>${esc(b.name)} · ${esc(String(b.status).toUpperCase())}</b><span>${esc(b.definition?.trigger?.type||b.purpose||'standing behavior')}</span></div>`);
+    for(const scene of continuity.standing?.presenceScenes||[])standing.push(`<div class="c-standing-item"><b>PRESENCE · ${esc(scene.content)}</b><span>Real component scene · ${ago(scene.updated_at)}</span></div>`);
+    q('#cStanding').innerHTML=standing.length?standing.join(''):'<div class="c-standing-item"><span>No standing instructions.</span></div>';
+
+    const reflexes=[...(continuity.continuity?.builtInReflexes||[]),...(continuity.continuity?.customReflexes||[]).map((r)=>({key:r.memory_id,name:r.content}))];
+    q('#cReflexes').innerHTML=reflexes.map((r)=>`<button class="c-reflex" type="button" data-reflex="${esc(r.key)}" title="${esc(r.description||'Verified saved reflex')}">${esc(r.name)}</button>`).join('')||'<small>No executable reflexes.</small>';
+
+    const env=[],room=nowState.room,device=continuity.continuity?.primaryDevice,components=continuity.continuity?.onlineComponents||[];
+    env.push(`<div class="c-env"><span>ROOM</span><b>${room?esc(room.room_id):'NO LIVE ROOM SENSOR'}</b></div>`);
+    env.push(`<div class="c-env"><span>PRIMARY DEVICE</span><b>${device?esc(device.device_name||device.device_id):'NO LIVE HANDOFF'}</b></div>`);
+    env.push(`<div class="c-env"><span>ONLINE COMPONENTS</span><b>${components.length}</b></div>`);
+    env.push(`<div class="c-env"><span>VOICE</span><b>${voiceDeviceLive()?'LIVE DEVICE':'NO RECENT VOICE HEARTBEAT'}</b></div>`);
+    q('#cEnvironment').innerHTML=env.join('');
+    q('#cVoice').textContent=voiceDeviceLive()?'VOICE · CONNECTED DEVICE · SAME VERIFIED INTENT PATH':'VOICE · NO RECENT ENROLLED DEVICE HEARTBEAT';
+    renderWorld();
+  }
+
+  function voiceDeviceLive(){
+    const devices=continuity?.continuity?.devices||[];return devices.some((d)=>d.last_heartbeat_at&&Date.now()-Date.parse(d.last_heartbeat_at)<120000&&!d.muted);
+  }
+
+  async function refreshContinuity(){
+    if(refreshingContinuity)return continuity;refreshingContinuity=true;
+    try{continuity=await runtime.continuityState();renderContinuity();return continuity;}
+    catch(error){setStatus(`Continuity unavailable · ${error.message}`,'bad');return continuity;}
+    finally{refreshingContinuity=false;}
+  }
+
+  function scheduleContinuity(){clearTimeout(continuityTimer);if(!opened)return;continuityTimer=setTimeout(async()=>{await refreshContinuity();scheduleContinuity();},3200);}
+
+  function renderReceiptUpdate(receipt){
+    const status=String(receipt?.status||'').toLowerCase();
+    if(status==='completed')setStatus(receipt.result?.message||'EA verified command execution.','good');
+    else if(status==='failed')setStatus(receipt.error||'EA reported command failure.','bad');
+    else setStatus('Command queued. Waiting for Reporter/HIGHTOWER acknowledgement.','warn');
+  }
+
+  function announceReceipt(receipt){
+    const status=String(receipt?.status||'').toLowerCase();if(!['completed','failed'].includes(status)||!receipt?.commandId||announced.has(receipt.commandId))return;
+    announced.add(receipt.commandId);const detail=String(receipt?.result?.message||receipt?.error||receipt?.command||'Trading command');
+    try{if('speechSynthesis'in window&&localStorage.getItem('wisdo.commandVoiceAlerts')!=='off'){const u=new SpeechSynthesisUtterance(status==='completed'?`WISDO. Command verified. ${detail}`:`WISDO. Command failed. ${detail}`);u.rate=.92;window.speechSynthesis.speak(u);}}catch{}
+    try{if('Notification'in window&&Notification.permission==='granted'&&navigator.serviceWorker?.ready)navigator.serviceWorker.ready.then((r)=>r.showNotification(status==='completed'?'WISDO · VERIFIED':'WISDO · FAILED',{body:detail.slice(0,220),tag:`wisdo-${receipt.commandId}`})).catch(()=>{});}catch{}
+  }
+
+  function cancelProposal(){activeProposal=null;holdStart=0;clearInterval(holdTimer);holdTimer=0;q('#cProposal').hidden=true;q('#cHold i').style.width='0%';q('#cHold span').textContent='HOLD TO CONFIRM';}
+
+  async function acceptWorldProposal(proposal,meaning=null){
+    if(Number(proposal.holdRequiredMs||0)<=0){
+      const receipt=await runtime.execute(proposal,0);renderReceiptUpdate(receipt);await refreshContinuity();return;
     }
+    activeProposal={kind:'world',proposal,meaning};showProposal();
+  }
+  async function acceptContinuityProposal(proposal,meaning=null){activeProposal={kind:'continuity',proposal,meaning};showProposal();}
+  function showProposal(){
+    const p=activeProposal?.proposal;if(!p)return;
+    q('#cProposalTitle').textContent=p.label||p.payload?.name||p.type?.replaceAll('_',' ')||'Confirm WISDO plan';
+    q('#cProposalMeaning').textContent=typeof activeProposal.meaning==='string'?activeProposal.meaning:meaningText(activeProposal.meaning||p.payload);
+    q('#cProposalScope').textContent=`${p.scope||p.type||'CONTINUITY'} · hold ${(Number(p.holdRequiredMs||0)/1000).toFixed(1)}s · WISDO will revalidate before execution`;
+    q('#cProposal').hidden=false;
   }
 
-  function parseManager(raw){
-    const spoken=raw.toLowerCase().replace(/\s+/g,' ').trim();
-    const persistRuntime=/from now on|make (?:that|this) (?:my )?default|until i change/.test(spoken);
-    let m=null;
-    if((m=spoken.match(/\b(?:intentionally\s+)?(?:widen|loosen)\b.*?\b(?:existing|current|open)?\s*(?:stops?|stop\s+loss(?:es)?)\b.*?(\d+(?:\.\d+)?)\s*atr\b/)))return {action:'WIDEN_EXISTING_STOPS',options:{stopAtr:Number(m[1])}};
-    if((m=spoken.match(/\b(?:set|change|move|switch|use).*?\bstop(?: loss| losses)?(?:.*?\b(?:to|at))?\s*(\d+(?:\.\d+)?)\s*atr\b/)))return {action:'SET_STOP_ATR',options:{stopAtr:Number(m[1]),persistRuntime}};
-    if((m=spoken.match(/\b(?:set|change|move|use).*?\b(?:trail|trailer|trailing)(?: distance)?(?:.*?\b(?:to|at))?\s*(\d+(?:\.\d+)?)\s*atr\b/)))return {action:'SET_TRAIL_ATR',options:{trailDistanceAtr:Number(m[1]),persistRuntime}};
-    if(/(?:tighten|tighter).*\b(?:trail|trailer|trailing)\b|\b(?:trail|trailer|trailing).*?(?:tighten|tighter)/.test(spoken))return {action:'SET_TRAIL_ATR',options:{trailDeltaAtr:-0.25,persistRuntime}};
-    if(/(?:loosen|looser|give).*\b(?:trail|trailer|trailing)\b|\b(?:trail|trailer|trailing).*?(?:loosen|looser|more room)/.test(spoken))return {action:'SET_TRAIL_ATR',options:{trailDeltaAtr:0.25,persistRuntime}};
-    if(/\b(?:trim|reduce)\b/.test(spoken)){
-      const amount=/\bhalf\b/.test(spoken)?50:Number(spoken.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)/)?.[1]||0);
-      const ticket=Number(spoken.match(/\bticket\s*(\d+)/)?.[1]||0);
-      if(amount>0)return {action:'TRIM_CAMPAIGN',options:{trimPercent:amount,tickets:ticket?[ticket]:[]}};
-    }
-    if(/\b(?:clear|remove|reset)\b.*\b(?:runtime|live manager|atr|trail|stop).*\b(?:override|overrides|settings?)\b|\bback to (?:the )?(?:ea|visible) inputs?\b|\b(?:return|restore|resume)\b.*\bstops?\b.*\b(?:normal|ea|automatic)\b/.test(spoken))return {action:'CLEAR_RUNTIME_OVERRIDES',options:{}};
-    if(/\b(?:add|boost)\b.*\b(?:position|trade|entry)\b/.test(spoken))return {action:'ADD_IF_VALID',options:{}};
-    const normalized=spoken.toUpperCase().replace(/[^A-Z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
-    const exact=new Map([
-      ['PAUSE','PAUSE_BOT'],['PAUSE BOT','PAUSE_BOT'],['RESUME','RESUME_BOT'],['RESUME BOT','RESUME_BOT'],
-      ['STOP NEW ENTRIES','STOP_NEW_ENTRIES'],['LOCK ENTRIES','STOP_NEW_ENTRIES'],['RESUME NEW ENTRIES','RESUME_NEW_ENTRIES'],['UNLOCK ENTRIES','RESUME_NEW_ENTRIES'],
-      ['CLOSE CAMPAIGN','CLOSE_CAMPAIGN'],['COLLECT CAMPAIGN','CLOSE_CAMPAIGN'],['EMERGENCY STOP','EMERGENCY_STOP'],['PROTECT PROFIT','LOCK_PROFIT']
-    ]);
-    return exact.has(normalized)?{action:exact.get(normalized),options:{}}:null;
+  async function handleResult(result){
+    if(result.kind==='world_proposal'){setStatus('Intent resolved to a verified trading plan. Review before execution.','warn');await acceptWorldProposal(result.proposal,result.meaning);return;}
+    if(result.kind==='continuity_proposal'){setStatus('Standing/device intention compiled. Review before activation.','warn');await acceptContinuityProposal(result.proposal,result.meaning);return;}
+    if(result.kind==='completed'){setStatus(result.message||'Continuity state updated.','good');await refreshContinuity();return;}
+    if(result.kind==='clarification'){setStatus(result.message||'One live detail is ambiguous. Nothing was sent.','warn');await refreshContinuity();return;}
+    if(result.kind==='unavailable'){setStatus(result.message||'That outcome has no verified executor. Nothing was sent.','bad');await refreshContinuity();return;}
+    setStatus(result.message||'No executable change was made.','warn');await refreshContinuity();
   }
 
-  async function submitText(raw){
-    const parsed=parseManager(raw);
-    if(!parsed){setIntent('No verified live mapping for that phrase yet. Nothing sent.','error');return;}
-    await arm(parsed.action,parsed.options);
-  }
-
-  q('#lmComposer').addEventListener('submit',async(event)=>{
-    event.preventDefault();
-    try{if('Notification'in window&&Notification.permission==='default')Notification.requestPermission().catch(()=>{});}catch{}
-    const input=q('#lmIntentInput');const raw=String(input.value||'').trim();if(!raw)return;input.value='';await submitText(raw);
+  q('#cForm').addEventListener('submit',async(event)=>{
+    event.preventDefault();try{if('Notification'in window&&Notification.permission==='default')Notification.requestPermission().catch(()=>{});}catch{}
+    const input=q('#cInput'),text=String(input.value||'').trim();if(!text)return;input.value='';
+    setStatus('WISDO is resolving your words against the live account, focused object, standing rules, and verified capabilities…','warn');
+    try{await handleResult(await runtime.interpretContinuity(text,{campaignId:selectedCampaignId,ticket:continuity?.continuity?.focus?.ticket||''}));}
+    catch(error){setStatus(`Nothing sent · ${error.message}`,'bad');}
   });
 
-  overlay.querySelectorAll('[data-example]').forEach((button)=>button.addEventListener('click',()=>{q('#lmIntentInput').value=button.dataset.example||'';q('#lmIntentInput').focus();}));
-  overlay.querySelectorAll('[data-live-action]').forEach((button)=>button.addEventListener('click',()=>arm(button.dataset.liveAction,{})));
-  overlay.querySelectorAll('[data-manager-action]').forEach((button)=>button.addEventListener('click',()=>{
-    const action=button.dataset.managerAction;
-    const options={};
-    if(button.dataset.delta)options.trailDeltaAtr=Number(button.dataset.delta);
-    if(button.dataset.trim)options.trimPercent=Number(button.dataset.trim);
-    arm(action,options);
-  }));
-
-  q('#lmAccountSelect').addEventListener('change',async(event)=>{
-    const accountId=String(event.target.value||'');
-    sessionStorage.setItem('wisdo.selectedAccountId',accountId);
-    selectedCampaignId=null;
-    await runtime.selectAccount(accountId).catch((error)=>setIntent(`Account bind failed · ${error.message}`,'error'));
+  q('#cAccountSelect').addEventListener('change',async(event)=>{
+    const id=String(event.target.value||'');sessionStorage.setItem('wisdo.selectedAccountId',id);selectedCampaignId=null;
+    try{await runtime.selectAccount(id);await runtime.focusContinuity({accountId:id});await refreshContinuity();}catch(error){setStatus(error.message,'bad');}
   });
-  q('#lmCampaigns').addEventListener('click',(event)=>{
-    const button=event.target.closest('[data-campaign-id]');if(!button)return;
-    selectedCampaignId=runtime.selectCampaign(button.dataset.campaignId);renderState();
+  q('#cCampaigns').addEventListener('click',async(event)=>{
+    const button=event.target.closest('[data-campaign]');if(!button)return;
+    selectedCampaignId=runtime.selectCampaign(button.dataset.campaign);
+    try{continuity=await runtime.focusContinuity({accountId:runtime.accountId,campaignId:selectedCampaignId});renderContinuity();setStatus('Campaign is now the conversational subject.','good');}catch(error){setStatus(error.message,'bad');}
+  });
+  q('#cPositions').addEventListener('click',async(event)=>{
+    const row=event.target.closest('[data-ticket]');if(!row)return;
+    try{continuity=await runtime.focusContinuity({accountId:runtime.accountId,campaignId:selectedCampaignId,ticket:row.dataset.ticket});renderContinuity();setStatus(`Ticket ${row.dataset.ticket} is now “this trade.”`,'good');}catch(error){setStatus(error.message,'bad');}
+  });
+  q('#cReflexes').addEventListener('click',async(event)=>{
+    const button=event.target.closest('[data-reflex]');if(!button)return;
+    try{const result=await runtime.runContinuityReflex(button.dataset.reflex,{campaignId:selectedCampaignId,ticket:continuity?.continuity?.focus?.ticket||''});await handleResult(result);}catch(error){setStatus(`Reflex blocked · ${error.message}`,'bad');}
+  });
+  q('#cMode').addEventListener('click',async()=>{
+    const current=continuity?.now?.operatingMode||'DESK',next=current==='DESK'?'AWAY':'DESK';
+    try{continuity=await runtime.setContinuityMode(next);renderContinuity();setStatus(`${next} mode active. Continuity state persists across connected interfaces.`,'good');}catch(error){setStatus(error.message,'bad');}
   });
 
-  q('#lmHold').addEventListener('pointerdown',(event)=>{
-    if(!proposal)return;
-    event.preventDefault();q('#lmHold').setPointerCapture?.(event.pointerId);holdStart=performance.now();clearInterval(holdTimer);
-    holdTimer=setInterval(()=>{const elapsed=performance.now()-holdStart;const required=Math.max(1,Number(proposal?.holdRequiredMs||1));q('#lmHold i').style.width=`${Math.min(100,(elapsed/required)*100)}%`;},30);
+  q('#cHold').addEventListener('pointerdown',(event)=>{
+    if(!activeProposal)return;event.preventDefault();q('#cHold').setPointerCapture?.(event.pointerId);holdStart=performance.now();clearInterval(holdTimer);
+    const required=Math.max(1,Number(activeProposal.proposal.holdRequiredMs||1));holdTimer=setInterval(()=>{q('#cHold i').style.width=`${Math.min(100,(performance.now()-holdStart)/required*100)}%`;},30);
   });
   const finishHold=async()=>{
-    if(!proposal||!holdStart)return;
-    const elapsed=performance.now()-holdStart;clearInterval(holdTimer);holdTimer=0;holdStart=0;
-    if(elapsed<Number(proposal.holdRequiredMs||0)){q('#lmHold i').style.width='0%';return;}
-    const active=proposal;q('#lmHold span').textContent='SENDING…';
-    try{latestReceipt=await runtime.execute(active,Math.round(elapsed));renderReceipt();setIntent('Command delivered. Waiting for HIGHTOWER verified acknowledgement.','live');cancelProposal();}
-    catch(error){latestReceipt={status:'failed',command:active.action,error:error.message};renderReceipt();setIntent(`Execution failed · ${error.message}`,'error');cancelProposal();}
+    if(!activeProposal||!holdStart)return;const elapsed=performance.now()-holdStart,required=Number(activeProposal.proposal.holdRequiredMs||0);holdStart=0;clearInterval(holdTimer);holdTimer=0;
+    if(elapsed<required){q('#cHold i').style.width='0%';return;}
+    const active=activeProposal;q('#cHold span').textContent='REVALIDATING…';
+    try{
+      if(active.kind==='world'){const receipt=await runtime.execute(active.proposal,Math.round(elapsed));renderReceiptUpdate(receipt);}
+      else {const result=await runtime.executeContinuity(active.proposal,Math.round(elapsed));setStatus(result.message||'Continuity plan activated.','good');}
+      cancelProposal();await refreshContinuity();
+    }catch(error){cancelProposal();setStatus(`Execution blocked · ${error.message}`,'bad');}
   };
-  q('#lmHold').addEventListener('pointerup',finishHold);
-  q('#lmHold').addEventListener('pointercancel',()=>{holdStart=0;clearInterval(holdTimer);q('#lmHold i').style.width='0%';});
-  q('#lmCancel').addEventListener('click',cancelProposal);
+  q('#cHold').addEventListener('pointerup',finishHold);q('#cHold').addEventListener('pointercancel',()=>{holdStart=0;clearInterval(holdTimer);q('#cHold i').style.width='0%';});q('#cCancel').addEventListener('click',()=>{cancelProposal();setStatus('Plan cancelled. Nothing was sent.','warn');});
 
-  function open(){
-    opened=true;overlay.hidden=false;document.documentElement.classList.add('wisdo-live-manager-active');
-    runtime.start().catch((error)=>setIntent(`Live Manager unavailable · ${error.message}`,'error'));
-  }
-  function close(){
-    opened=false;overlay.hidden=true;document.documentElement.classList.remove('wisdo-live-manager-active');cancelProposal();
-  }
-  const keyHandler=(event)=>{if(opened&&event.key==='Escape'){event.preventDefault();proposal?cancelProposal():close();}};
-  window.addEventListener('keydown',keyHandler,true);
-  document.getElementById('wisdoCommandLaunch')?.addEventListener('click',open);
-  q('#lmClose').addEventListener('click',close);
-
-  const workspaceHandler=(event)=>{
-    const accountId=String(event.detail?.selectedAccountId||'');if(!accountId||accountId===runtime.accountId)return;
-    sessionStorage.setItem('wisdo.selectedAccountId',accountId);runtime.selectAccount(accountId).catch(()=>{});
-  };
+  function open(){opened=true;overlay.hidden=false;document.documentElement.classList.add('wisdo-continuity-active');runtime.start().then(()=>refreshContinuity()).catch((error)=>setStatus(error.message,'bad'));scheduleContinuity();}
+  function close(){opened=false;overlay.hidden=true;clearTimeout(continuityTimer);cancelProposal();document.documentElement.classList.remove('wisdo-continuity-active');}
+  const keyHandler=(event)=>{if(opened&&event.key==='Escape'){event.preventDefault();activeProposal?cancelProposal():close();}};
+  window.addEventListener('keydown',keyHandler,true);document.getElementById('wisdoCommandLaunch')?.addEventListener('click',open);q('#cExit').addEventListener('click',close);
+  const workspaceHandler=(event)=>{const id=String(event.detail?.selectedAccountId||'');if(id&&id!==runtime.accountId)runtime.selectAccount(id).then(()=>runtime.focusContinuity({accountId:id})).then(()=>refreshContinuity()).catch(()=>{});};
   window.addEventListener('wisdo:account-selected',workspaceHandler);
 
-  return {open,close,stop(){runtime.stop();timeEngine.destroy();clearInterval(holdTimer);window.removeEventListener('keydown',keyHandler,true);window.removeEventListener('wisdo:account-selected',workspaceHandler);document.documentElement.classList.remove('wisdo-live-manager-active');overlay.remove();}};
+  return {open,close,stop(){opened=false;runtime.stop();timeEngine.destroy();clearTimeout(continuityTimer);clearInterval(holdTimer);window.removeEventListener('keydown',keyHandler,true);window.removeEventListener('wisdo:account-selected',workspaceHandler);document.documentElement.classList.remove('wisdo-continuity-active');overlay.remove();}};
 }
