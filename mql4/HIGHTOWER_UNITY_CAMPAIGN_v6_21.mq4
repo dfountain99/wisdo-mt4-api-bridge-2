@@ -12813,7 +12813,7 @@ int H620Initialize()
    h620Started=(datetime)H620Get("started");h620FailureBar=(datetime)H620Get("failure");
    h620AddSerial=(int)H620Get("serial");h620Peak=H620Get("peak");h620BankedLevel=H620Get("banked");
    h620LastEntry=H620Get("lastentry");h620LastEntryTime=(datetime)H620Get("lasttime");
-   if(TradeCount()==0 && h620Phase==1) H620ResetFlat("RESTORED FLAT - WAIT FRESH STRUCTURE");
+   if(TradeCount()==0 && h620Phase==1 && !WcoCounterRestoreFlat()) H620ResetFlat("RESTORED FLAT - WAIT FRESH STRUCTURE");
    // Avoid guessing roles or campaign ownership of an already-running older EA.
    for(int i=OrdersTotal()-1;i>=0;i--)
    {
