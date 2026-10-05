@@ -148,6 +148,90 @@ export class WisdoUniversalControlService {
     return result.rows[0];
   }
 
+  async updateComponentProfile(device,componentId,input={}) {
+    const name=clean(input.name||'',200);
+    const room=clean(input.room||input.room_id||input.roomId||'',120);
+    const aliases=[...new Set((Array.isArray(input.aliases)?input.aliases:[])
+      .map((value)=>clean(value,120).toLowerCase()).filter(Boolean))].slice(0,24);
+    if(!name&&!room&&!aliases.length){const error=new Error('Provide a name, room, or alias.');error.statusCode=400;throw error;}
+    const result=await this.pool.query(`UPDATE wisdo_components
+      SET name=CASE WHEN $1='' THEN name ELSE $1 END,
+          aliases=CASE WHEN $2::jsonb='[]'::jsonb THEN aliases ELSE $2::jsonb END,
+          metadata=CASE WHEN $3='' THEN metadata ELSE jsonb_set(metadata,'{room_id}',to_jsonb($3::text),true) END,
+          updated_at=NOW()
+      WHERE component_id=$4 AND owner_user_id=$5
+      RETURNING *`,[name,JSON.stringify(aliases),room,clean(componentId,200),device.owner_user_id]);
+    if(!result.rows[0]){const error=new Error('Component was not found.');error.statusCode=404;throw error;}
+    return result.rows[0];
+  }
+
+  async onboardingSnapshot(device) {
+    const [homes,bindings,components,edges]=await Promise.all([
+      this.listHomes(device),
+      this.listAdapterBindings(device),
+      this.pool.query(`SELECT * FROM wisdo_components WHERE owner_user_id=$1 ORDER BY approval_status,component_type,name`,[device.owner_user_id]),
+      this.pool.query(`SELECT device_id,device_name,device_type,status,capabilities,last_seen_at FROM wisdo_devices WHERE owner_user_id=$1 AND status='active' ORDER BY device_name`,[device.owner_user_id]),
+    ]);
+    const rows=components.rows;
+    const normalizeName=(value)=>String(value||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+    const duplicateMap=new Map();
+    for(const component of rows){
+      const metadata=obj(component.metadata);
+      const deviceClass=String(metadata.wisdo_device_class||component.component_type||'generic').toLowerCase();
+      const key=`${deviceClass}:${normalizeName(component.name)}`;
+      if(!normalizeName(component.name))continue;
+      const list=duplicateMap.get(key)||[];list.push(component);duplicateMap.set(key,list);
+    }
+    const possibleDuplicates=[...duplicateMap.entries()].filter(([,items])=>items.length>1).map(([key,items])=>({
+      key,
+      reason:'Same normalized device class and name. Review before approving; WISDO will not auto-merge.',
+      componentIds:items.map((item)=>item.component_id),
+      names:items.map((item)=>item.name),
+      adapters:[...new Set(items.map((item)=>item.adapter_id).filter(Boolean))],
+    }));
+    const sourceMap=new Map();
+    for(const component of rows){
+      const metadata=obj(component.metadata);
+      const sourceInstanceId=clean(metadata.source_instance_id||'',200);
+      if(!sourceInstanceId)continue;
+      const key=`${component.device_id||''}:${component.adapter_id||''}:${sourceInstanceId}`;
+      if(!sourceMap.has(key))sourceMap.set(key,{
+        edgeDeviceId:component.device_id||'',
+        adapterId:component.adapter_id||'unknown',
+        sourceInstanceId,
+        homeId:component.home_id||null,
+        componentCount:0,
+        pendingCount:0,
+        approvedCount:0,
+      });
+      const group=sourceMap.get(key);group.componentCount+=1;
+      if(component.approval_status==='pending')group.pendingCount+=1;
+      if(component.approval_status==='approved')group.approvedCount+=1;
+    }
+    const sources=[...sourceMap.values()].map((source)=>({
+      ...source,
+      bound:bindings.some((binding)=>binding.edge_device_id===source.edgeDeviceId&&binding.adapter_id===source.adapterId&&binding.source_instance_id===source.sourceInstanceId&&binding.status==='active'),
+    }));
+    return {
+      version:'22.0',
+      homes,
+      adapterBindings:bindings,
+      edgeDevices:edges.rows,
+      pending:rows.filter((row)=>row.approval_status==='pending'),
+      approved:rows.filter((row)=>row.approval_status==='approved'),
+      revoked:rows.filter((row)=>row.approval_status==='revoked'),
+      unavailable:rows.filter((row)=>row.status==='unavailable'||row.status==='offline'),
+      sources,
+      possibleDuplicates,
+      policy:{
+        discoveryDoesNotAuthorize:true,
+        proximityDoesNotAuthorize:true,
+        autoMergeDuplicates:false,
+        physicalSecurityRequiresConfirmation:true,
+      }
+    };
+  }
+
   compatibility(input={}) { return compatibilityPlan(input); }
   fabricManifest() { return {version:'21.0',deviceClasses:WISDO_DEVICE_CLASSES,protocols:WISDO_PROTOCOLS,adapters:WISDO_ADAPTERS}; }
 

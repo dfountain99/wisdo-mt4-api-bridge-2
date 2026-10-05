@@ -26,6 +26,7 @@ import { NotificationDeliveryService } from '../services/notificationDeliverySer
 import { closeNotificationText, finalizeCloseTracker, isCloseCommand, queueCloseEmail } from '../services/tradeCloseIntelligence.js';
 import { createRedisCommandBridge } from '../services/redisCommandBridge.js';
 import { getDatabaseRuntimeHealth } from '../services/persistenceAdapter.js';
+import { WisdoUniversalControlService } from '../services/wisdoUniversalControlService.js';
 import {
   DISCORD_ROLE_MAP,
   FUTURE_DISCORD_ROLE_MAP,
@@ -2726,6 +2727,7 @@ function htmlShell(title, body, active = 'home', options = {}) {
     ['marketplace', '/member/marketplace', 'Marketplace'],
     ['bots', '/member/bots', 'Bots'],
     ['devices', '/member/devices', 'Devices'],
+    ['smarthome', '/member/smart-home', 'Smart Home'],
     ['upgrades', '/member/upgrades', 'Special Upgrades'],
     ['sales', '/member/sales', 'Sales'],
     ['academy', '/member/academy', 'Academy'],
@@ -2766,6 +2768,21 @@ function wisdoAiDockScript() {
 
 function sectionHero(title, sub, right = '') {
   return `<div class="hero"><div><div class="title">${esc(title)}</div><div class="sub">${sub}</div></div><div>${right}</div></div>`;
+}
+
+function smartHomeTrustCenterPage() {
+  return `${sectionHero('Smart Home Trust Center', 'Discover broadly, trust carefully. Devices can appear here from approved hubs and adapters, but nothing becomes controllable until it is bound to your Home and explicitly approved.', '<span class="tag">Discovery ≠ authorization</span><span class="tag">Proximity ≠ ownership</span>')}
+  <div class="grid" id="homeMetrics"><section class="card"><h3>Pending</h3><div class="metric" id="pendingCount">—</div><div class="muted">Quarantined discoveries</div></section><section class="card"><h3>Approved</h3><div class="metric green" id="approvedCount">—</div><div class="muted">Controllable devices</div></section><section class="card"><h3>Sources</h3><div class="metric" id="sourceCount">—</div><div class="muted">Hub / adapter sources</div></section><section class="card"><h3>Duplicate Review</h3><div class="metric gold" id="duplicateCount">—</div><div class="muted">Never auto-merged</div></section></div>
+  <div class="grid2" style="margin-top:16px">
+    <section class="card"><h3>1. Create or select your WISDO Home</h3><p>Approval is tied to a home you own, not to nearby radio signals.</p><div class="row"><input id="homeName" placeholder="Example: Fountain Home" style="min-width:240px"><button class="btn primary" id="createHome" type="button">Create Home</button></div><div id="homesList" class="muted" style="margin-top:10px"></div></section>
+    <section class="card"><h3>2. Bind trusted hubs/controllers</h3><p>A discovered Home Assistant, Z-Wave, Zigbee, Matter, or other source must be bound to one of your Homes before its devices can be approved.</p><div id="sourceList" class="muted">Loading sources…</div></section>
+  </div>
+  <section class="card full" style="margin-top:16px"><div class="row" style="justify-content:space-between"><div><h3>3. Pending Device Inbox</h3><p>Rename, assign a room, add aliases, then approve only the devices you recognize.</p></div><div class="row"><select id="batchHome"></select><button class="btn primary" id="approveSelected" type="button">Approve Selected</button></div></div><div style="overflow:auto"><table><thead><tr><th></th><th>Device</th><th>Class / Adapter</th><th>Room</th><th>Aliases</th><th>State</th><th>Action</th></tr></thead><tbody id="pendingRows"><tr><td colspan="7">Loading…</td></tr></tbody></table></div></section>
+  <section class="card full" style="margin-top:16px"><h3>Approved Devices</h3><p class="muted">Approved devices can be resolved by WISDO voice/text/presence rules. Physical-security actions still require confirmation.</p><div style="overflow:auto"><table><thead><tr><th>Device</th><th>Class</th><th>Room</th><th>Adapter</th><th>Status</th><th>Action</th></tr></thead><tbody id="approvedRows"><tr><td colspan="6">Loading…</td></tr></tbody></table></div></section>
+  <section class="card full" style="margin-top:16px"><h3>Possible Duplicates</h3><p class="muted">WISDO flags likely duplicates but never merges them automatically.</p><div id="duplicatesBox">Loading…</div></section>
+  <section class="card full" style="margin-top:16px"><h3>Old / Unknown Device Compatibility Adviser</h3><p>Tell WISDO what kind of device and connection you have. It will recommend bridge paths without pretending unsupported hardware is directly controllable.</p><div class="row"><select id="compatClass"><option>THERMOSTAT</option><option>LIGHT</option><option>LOCK</option><option>GARAGE</option><option>FAN</option><option>MEDIA</option><option>IR_APPLIANCE</option><option>RF_APPLIANCE</option><option>RELAY</option><option>GENERIC</option></select><select id="compatProtocol"><option value="z-wave">Z-Wave</option><option value="zigbee">Zigbee</option><option value="matter">Matter</option><option value="thread">Thread</option><option value="wifi">Wi-Fi</option><option value="bluetooth">Bluetooth</option><option value="ir">IR</option><option value="rf">RF</option><option value="relay">Relay / dry contact</option><option value="modbus">Modbus</option><option value="bacnet">BACnet</option><option value="unknown">I don't know</option></select><button class="btn primary" id="checkCompatibility" type="button">Find Safe Path</button></div><pre id="compatibilityOut" class="checkout-result" style="display:block;min-height:72px">Choose a device class and protocol.</pre></section>
+  <section class="card ok full" style="margin-top:16px"><h3>Trust Policy</h3><p>Nearby devices are ignored unless an authenticated adapter exposes them. Adapter discovery still does not grant control. Approval requires an owned Home and a bound source. Locks, alarms, garages, sirens, cameras, and other sensitive actions keep their existing safety gates.</p></section>
+  <script src="/js/smart-home-trust-center.js" defer></script>`;
 }
 
 function accountCards(snapshotRecord, baseUrl) {
@@ -4731,6 +4748,32 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     commandRegistryAudit,
     publicRoot: path.join(__dirname, '..', 'public'),
   });
+  const memberSmartHomeService=new WisdoUniversalControlService({pool:commandBusService.pool,commandBusService,logger});
+  const memberSmartHomeActor=(req)=>{
+    const user=getCurrentUser(req);if(!user?.id)return null;
+    return {owner_user_id:String(user.id),device_id:`web:${String(user.id)}`};
+  };
+  const requireMemberSmartHome=(req,res)=>{
+    const actor=memberSmartHomeActor(req);
+    if(!actor){res.status(401).json({ok:false,error:'Login required.'});return null;}
+    return actor;
+  };
+  const requireSmartHomeMutation=(req,res)=>{
+    if(String(req.headers['x-wisdo-intent']||'')!=='member-smart-home'){res.status(403).json({ok:false,error:'Trusted same-origin smart-home intent header is required.'});return false;}
+    return true;
+  };
+  app.get('/member/smart-home',(req,res)=>{
+    const user=getCurrentUser(req);if(!user?.id)return res.redirect('/auth/discord?returnTo=/member/smart-home');
+    res.send(htmlShell('Smart Home Trust Center',smartHomeTrustCenterPage(),'smarthome'));
+  });
+  app.get('/api/member/smart-home/onboarding',async(req,res,next)=>{try{const actor=requireMemberSmartHome(req,res);if(!actor)return;res.json({ok:true,...await memberSmartHomeService.onboardingSnapshot(actor)});}catch(error){next(error);}});
+  app.post('/api/member/smart-home/homes',async(req,res,next)=>{try{if(!requireSmartHomeMutation(req,res))return;const actor=requireMemberSmartHome(req,res);if(!actor)return;res.status(201).json({ok:true,home:await memberSmartHomeService.createHome(actor,req.body||{})});}catch(error){next(error);}});
+  app.post('/api/member/smart-home/adapters/bind',async(req,res,next)=>{try{if(!requireSmartHomeMutation(req,res))return;if(String(req.body?.confirm||'')!=='BIND')return res.status(400).json({ok:false,error:'Explicit BIND confirmation is required.'});const actor=requireMemberSmartHome(req,res);if(!actor)return;res.status(201).json({ok:true,binding:await memberSmartHomeService.bindAdapter(actor,req.body||{})});}catch(error){next(error);}});
+  app.patch('/api/member/smart-home/components/:componentId/profile',async(req,res,next)=>{try{if(!requireSmartHomeMutation(req,res))return;const actor=requireMemberSmartHome(req,res);if(!actor)return;res.json({ok:true,component:await memberSmartHomeService.updateComponentProfile(actor,req.params.componentId,req.body||{})});}catch(error){next(error);}});
+  app.post('/api/member/smart-home/components/approve-batch',async(req,res,next)=>{try{if(!requireSmartHomeMutation(req,res))return;if(String(req.body?.confirm||'')!=='APPROVE')return res.status(400).json({ok:false,error:'Explicit APPROVE confirmation is required.'});const actor=requireMemberSmartHome(req,res);if(!actor)return;res.json({ok:true,components:await memberSmartHomeService.approveComponents(actor,req.body||{})});}catch(error){next(error);}});
+  app.post('/api/member/smart-home/components/:componentId/approve',async(req,res,next)=>{try{if(!requireSmartHomeMutation(req,res))return;if(String(req.body?.confirm||'')!=='APPROVE')return res.status(400).json({ok:false,error:'Explicit APPROVE confirmation is required.'});const actor=requireMemberSmartHome(req,res);if(!actor)return;res.json({ok:true,component:await memberSmartHomeService.approveComponent(actor,req.params.componentId,req.body||{})});}catch(error){next(error);}});
+  app.post('/api/member/smart-home/components/:componentId/revoke',async(req,res,next)=>{try{if(!requireSmartHomeMutation(req,res))return;if(String(req.body?.confirm||'')!=='REVOKE')return res.status(400).json({ok:false,error:'Explicit REVOKE confirmation is required.'});const actor=requireMemberSmartHome(req,res);if(!actor)return;res.json({ok:true,component:await memberSmartHomeService.revokeComponent(actor,req.params.componentId)});}catch(error){next(error);}});
+  app.post('/api/member/smart-home/compatibility',async(req,res,next)=>{try{if(!requireSmartHomeMutation(req,res))return;const actor=requireMemberSmartHome(req,res);if(!actor)return;res.json({ok:true,plan:memberSmartHomeService.compatibility(req.body||{})});}catch(error){next(error);}});
   app.get('/member/coach-operations', async (req, res, next) => {
     try {
       const sessionUser = getCurrentUser(req);
