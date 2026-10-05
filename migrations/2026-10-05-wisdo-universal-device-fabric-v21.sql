@@ -1,7 +1,7 @@
 -- WISDO V21 Universal Device Fabric
 -- Additive ownership/approval gate for smart-home discovery.
 
-ALTER TABLE IF EXISTS wisdo_components ADD COLUMN IF NOT EXISTS approval_status TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE IF EXISTS wisdo_components ADD COLUMN IF NOT EXISTS approval_status TEXT NOT NULL DEFAULT 'approved';
 ALTER TABLE IF EXISTS wisdo_components ADD COLUMN IF NOT EXISTS home_id TEXT;
 ALTER TABLE IF EXISTS wisdo_components ADD COLUMN IF NOT EXISTS adapter_id TEXT NOT NULL DEFAULT 'unknown';
 ALTER TABLE IF EXISTS wisdo_components ADD COLUMN IF NOT EXISTS protocols JSONB NOT NULL DEFAULT '[]'::jsonb;
@@ -10,8 +10,15 @@ ALTER TABLE IF EXISTS wisdo_components ADD COLUMN IF NOT EXISTS approved_by TEXT
 ALTER TABLE IF EXISTS wisdo_components ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;
 ALTER TABLE IF EXISTS wisdo_components ADD COLUMN IF NOT EXISTS discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
--- The ADD COLUMN default quarantines legacy rows on the first V21 migration.
--- This migration intentionally does not reset approval on later repeat runs.
+-- Legacy Home Assistant rows are quarantined exactly once: after the column
+-- appears they have no approval actor/timestamp. Later approvals/revocations
+-- retain their lifecycle on repeat migration runs.
+UPDATE wisdo_components
+SET approval_status='pending'
+WHERE approval_status='approved'
+  AND approved_at IS NULL
+  AND approved_by IS NULL
+  AND metadata->>'provider'='home_assistant';
 
 CREATE INDEX IF NOT EXISTS idx_wisdo_components_approval
   ON wisdo_components(owner_user_id,approval_status,home_id,component_type);
