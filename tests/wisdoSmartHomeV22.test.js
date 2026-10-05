@@ -40,13 +40,17 @@ test('V22 room and alias profile edits remain owner-scoped',async()=>{
 });
 
 test('V22 member portal exposes Trust Center without exposing a device bearer token',async()=>{
-  const source=await readFile(new URL('../server/apiServer.js',import.meta.url),'utf8');
-  assert.match(source,/\/member\/smart-home/);
-  assert.match(source,/\/api\/member\/smart-home\/onboarding/);
-  assert.match(source,/X-Wisdo-Intent/);
-  assert.match(source,/Discovery ≠ authorization/);
-  assert.match(source,/Approve Selected/);
-  assert.doesNotMatch(source,/localStorage\.setItem\([^\n]*(?:device-token|WISDO_HOME_ASSISTANT_TOKEN)/i);
+  const [server,client]=await Promise.all([
+    readFile(new URL('../server/apiServer.js',import.meta.url),'utf8'),
+    readFile(new URL('../public/js/smart-home-trust-center.js',import.meta.url),'utf8'),
+  ]);
+  assert.match(server,/\/member\/smart-home/);
+  assert.match(server,/\/api\/member\/smart-home\/onboarding/);
+  assert.match(server,/Discovery ≠ authorization/);
+  assert.match(server,/Approve Selected/);
+  assert.match(client,/X-Wisdo-Intent/);
+  assert.match(client,/member-smart-home/);
+  assert.doesNotMatch(server+client,/localStorage\.setItem\([^\n]*(?:device-token|WISDO_HOME_ASSISTANT_TOKEN)/i);
 });
 
 test('V22 adapter approval remains dependent on V21 home/source binding',async()=>{
