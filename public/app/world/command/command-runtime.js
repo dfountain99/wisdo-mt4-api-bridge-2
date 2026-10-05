@@ -93,6 +93,7 @@ export function createWorldCommandRuntime({ onState = null, onStatus = null, onR
       trailStepAtr: options.trailStepAtr,
       trailDeltaAtr: options.trailDeltaAtr,
       trimPercent: options.trimPercent,
+      durationSeconds: options.durationSeconds,
       tickets: options.tickets,
       persistRuntime: options.persistRuntime === true,
     };
