@@ -85,12 +85,12 @@ CREATE INDEX IF NOT EXISTS idx_wisdo_mission_truth_run ON wisdo_mission_truth_ev
 
 CREATE TABLE IF NOT EXISTS wisdo_life_context (
   owner_user_id TEXT NOT NULL,
-  home_id TEXT,
+  home_id TEXT NOT NULL DEFAULT '',
   current_mode TEXT NOT NULL,
   context JSONB NOT NULL DEFAULT '{}'::jsonb,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY(owner_user_id,home_id)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_wisdo_life_context_owner_home ON wisdo_life_context(owner_user_id,COALESCE(home_id,''));
 
 CREATE TABLE IF NOT EXISTS wisdo_local_routine_manifests (
   manifest_id TEXT PRIMARY KEY,
