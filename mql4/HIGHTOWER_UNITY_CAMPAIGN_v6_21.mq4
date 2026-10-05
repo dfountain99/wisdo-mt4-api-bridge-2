@@ -12622,6 +12622,17 @@ void H620Register(int ticket,int dir,double stop,int role)
       h620LastEntry=OrderOpenPrice();
    }
    h620LastEntryTime=TimeCurrent();H620Persist();
+   // Two-minute scalp watchdog: a broker-confirmed campaign entry is the reset
+   // event. Persist the new deadline immediately instead of waiting for a later tick.
+   if(h620FutureGoal==23)
+   {
+      string scalpPrefix=WcoEA();
+      int scalpReset=(int)WcoRead(scalpPrefix,"durationSaved");if(scalpReset<=0)scalpReset=120;
+      WcoWrite(scalpPrefix,"scalpBaselineEntry",(double)h620LastEntryTime);
+      WcoWrite(scalpPrefix,"scalpDirection",dir);
+      WcoWrite(scalpPrefix,"goalCampaign",h620Id);
+      h620FutureUntil=TimeGMT()+scalpReset;h620FuturePaused=false;WcoSaveGoal();
+   }
    if(gHT6SonicFlowOrderContext && h620FutureGoal==12){WcoWrite(WcoEA(),"burstRemaining",MathMax(0,WcoRead(WcoEA(),"burstRemaining")-1));GlobalVariablesFlush();}
    if(wcoEvaluation>0){WcoAck(wcoEvaluation,6);wcoEvaluation=0;}
    Print("H620 ASSIGN ticket=",ticket," campaign=",DoubleToString(h620Id,0)," role=",role," rail=",h620Rail);
