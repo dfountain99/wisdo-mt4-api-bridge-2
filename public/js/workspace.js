@@ -1158,17 +1158,135 @@ ${result.secret}`)}catch(error){status.className='form-status error';status.text
   async function drawSettings(page) {
     const me = await api('/api/v2/me'); const billing = page.includes('billing'); const profile = me.profile || {};
     if (profile.theme || profile.background) applyTheme(profile);
-    root().innerHTML = billing ? `<span class="eyebrow">Subscription</span><h1>Billing</h1><section class="card"><h3>Plan control</h3><p>Choose CFD or Futures, plan tier, account count, billing cycle, WISDO Insight Engine, and Dedicated Environment from the pricing configurator.</p><a class="btn primary" href="/pricing">Configure plan</a></section>` : `
-      <div class="workspace-heading"><div><span class="eyebrow">Profile, appearance, and security</span><h1>Settings</h1></div></div>
-      <section class="card"><form id="profile-form" class="grid2"><label>Full name<input class="input" name="full_name" value="${html(profile.full_name || '')}"></label><label>Country<input class="input" name="country" value="${html(profile.country || '')}"></label><label>Timezone<input class="input" name="timezone" value="${html(profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}"></label><label>Email<input class="input" name="email" type="email" value="${html(profile.email || me.user?.email || '')}"></label>
-      <div class="full appearance-panel"><div><span class="eyebrow">Color scheme</span><h3>Choose your command-center theme</h3></div><div class="theme-grid">${THEMES.map((theme) => `<label class="theme-choice ${theme}"><input type="radio" name="theme" value="${theme}" ${String(profile.theme || localStorage.getItem('wisdo.theme') || 'midnight') === theme ? 'checked' : ''}><span></span><strong>${theme}</strong></label>`).join('')}</div></div>
-      <div class="full appearance-panel"><div><span class="eyebrow">Background</span><h3>Choose motion or a focused workspace</h3></div><div class="segments">${BACKGROUNDS.map((background) => `<label class="background-choice"><input type="radio" name="background" value="${background}" ${String(profile.background || localStorage.getItem('wisdo.background') || 'mesh') === background ? 'checked' : ''}><span>${background.replace('-', ' ')}</span></label>`).join('')}</div></div>
-      <button class="btn primary full" type="submit">Save settings</button></form></section><section class="card danger-zone"><h3>Danger zone</h3><p>Account deletion removes the profile, connected account records, Culture Lanes, trades, and alerts owned by this user.</p><button class="btn danger" id="delete-profile">Delete WISDO account</button></section>`;
-    const form = document.querySelector('#profile-form');
-    if (form) {
-      form.querySelectorAll('input[name="theme"],input[name="background"]').forEach((input) => input.onchange = () => applyTheme(Object.fromEntries(new FormData(form))));
-      form.onsubmit = async (event) => { event.preventDefault(); const payload = Object.fromEntries(new FormData(event.target)); await api('/api/v2/profile', { method: 'PATCH', body: JSON.stringify(payload) }); applyTheme(payload); toast('Settings and appearance saved'); };
+    if (billing) {
+      root().innerHTML = `<span class="eyebrow">Subscription</span><h1>Billing</h1><section class="card"><h3>Plan control</h3><p>Choose CFD or Futures, plan tier, account count, billing cycle, WISDO Insight Engine, and Dedicated Environment from the pricing configurator.</p><a class="btn primary" href="/pricing">Configure plan</a></section>`;
+      return;
     }
+
+    const hub = await api('/api/settings/v1').catch((error) => ({ settings:{},devices:[],components:[],rooms:[],bots:[],scenes:[],accounts:[],recentExecutions:[],voiceExecutionMode:'UNKNOWN',error:error.message }));
+    const avatar = await api('/api/world/avatar/me').catch(() => ({configured:false,operator:null}));
+    const settings = hub.settings || {};
+    const presence = settings.presence || {}, workstation = settings.workstation || {}, mt4 = settings.mt4 || {}, smartHome = settings.smart_home || {}, voice = settings.voice_notifications || {}, authority = settings.authority || {};
+    const devices = hub.devices || [], desktops = devices.filter((d) => d.device_type === 'desktop-agent'), edges = devices.filter((d) => d.device_type === 'pi-edge');
+    const components = (hub.components || []).filter((c) => c.metadata?.provider === 'home_assistant');
+    const scenes = hub.scenes || [], accountsHub = hub.accounts || [], bots = hub.bots || [];
+    const operator = avatar.operator || {};
+    const status = (row) => row?.online || row?.fresh ? 'LIVE' : 'OFFLINE';
+    const option = (value,label,selected) => `<option value="${html(value || '')}" ${String(value||'')===String(selected||'')?'selected':''}>${html(label)}</option>`;
+    const sceneOptions = (selected) => `<option value="">No scene</option>${scenes.map((x)=>option(x.scene_id,x.name,selected)).join('')}`;
+    const deviceOptions = (rows,selected) => rows.map((d)=>option(d.device_id,`${d.device_name} · ${status(d)}`,selected)).join('');
+    const caps = (component) => Array.isArray(component.capabilities?.actions) ? component.capabilities.actions : [];
+    const actionLabel=(a)=>String(a||'').replaceAll('_',' ').toUpperCase();
+
+    const componentCards = components.length ? components.map((c) => {
+      const actions=caps(c);
+      const buttons=actions.slice(0,8).map((a)=>`<button class="btn ghost smart-action" type="button" data-component="${html(c.component_id)}" data-action="${html(a)}">${html(actionLabel(a))}</button>`).join('');
+      return `<article class="settings-device"><div><span class="eyebrow">${html(c.component_type)} · ${c.fresh?'LIVE':'STALE'}</span><h4>${html(c.name)}</h4><p class="muted">${html(c.metadata?.entity_id||c.component_id)} · ${html(c.state?.state||'unknown')}</p></div><div class="actions">${buttons}</div></article>`;
+    }).join('') : '<p class="muted">No fresh Home Assistant entities have been discovered yet. Pair a Pi edge bridge below; WISDO will only show entities the bridge actually reports.</p>';
+
+    const sceneBuilderRows = components.map((c)=>`<label class="scene-component"><input type="checkbox" value="${html(c.component_id)}" data-scene-component><span><strong>${html(c.name)}</strong><small>${html(c.component_type)}</small></span><select class="input" data-scene-action>${caps(c).map((a)=>option(a,actionLabel(a),'')).join('')}</select></label>`).join('');
+
+    root().innerHTML = `
+      <style>
+        .settings-tabs{display:flex;gap:8px;overflow:auto;margin:16px 0}.settings-tab{white-space:nowrap}.settings-tab.active{border-color:#62dfff;color:#aeeeff}.settings-panel[hidden]{display:none}.settings-stack{display:grid;gap:14px}.settings-device{display:flex;justify-content:space-between;gap:14px;align-items:center;padding:14px 0;border-bottom:1px solid #ffffff12}.settings-device:last-child{border-bottom:0}.settings-device h4{margin:4px 0}.settings-health{font-weight:900}.settings-health.live{color:#65efad}.settings-health.offline{color:#ff8f8f}.scene-component{display:grid;grid-template-columns:auto 1fr minmax(150px,220px);gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid #ffffff10}.scene-component small{display:block;color:var(--muted)}.settings-note{padding:12px;border:1px solid #ffffff18;border-radius:12px;background:#ffffff07}.settings-secret{color:#ffcf7b}.settings-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.settings-kpis>div{padding:12px;border:1px solid #ffffff12;border-radius:12px}.settings-kpis small{display:block;color:var(--muted)}.settings-kpis strong{display:block;margin-top:4px}
+      </style>
+      <div class="workspace-heading"><div><span class="eyebrow">WISDO Continuity Environment</span><h1>Settings</h1><p class="muted">Configure the environment once. Presence, workstations, MT4, voice, smart-home devices, scenes, and identity follow you through WISDO.</p></div></div>
+      ${hub.error?`<section class="card"><p class="red">Runtime Settings unavailable: ${html(hub.error)}</p></section>`:''}
+      <nav class="settings-tabs">
+        ${['profile','presence','workstations','mt4','smart-home','voice','character','authority'].map((tab,i)=>`<button class="btn ghost settings-tab ${i===0?'active':''}" data-settings-tab="${tab}" type="button">${tab.replace('-',' ').toUpperCase()}</button>`).join('')}
+      </nav>
+
+      <div class="settings-stack">
+        <section class="card settings-panel" data-settings-panel="profile">
+          <form id="profile-form" class="grid2"><label>Full name<input class="input" name="full_name" value="${html(profile.full_name || '')}"></label><label>Country<input class="input" name="country" value="${html(profile.country || '')}"></label><label>Timezone<input class="input" name="timezone" value="${html(profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}"></label><label>Email<input class="input" name="email" type="email" value="${html(profile.email || me.user?.email || '')}"></label>
+          <div class="full appearance-panel"><div><span class="eyebrow">Color scheme</span><h3>Choose your WISDO theme</h3></div><div class="theme-grid">${THEMES.map((theme) => `<label class="theme-choice ${theme}"><input type="radio" name="theme" value="${theme}" ${String(profile.theme || localStorage.getItem('wisdo.theme') || 'midnight') === theme ? 'checked' : ''}><span></span><strong>${theme}</strong></label>`).join('')}</div></div>
+          <div class="full appearance-panel"><div><span class="eyebrow">Background</span><h3>Choose motion or a focused workspace</h3></div><div class="segments">${BACKGROUNDS.map((background) => `<label class="background-choice"><input type="radio" name="background" value="${background}" ${String(profile.background || localStorage.getItem('wisdo.background') || 'mesh') === background ? 'checked' : ''}><span>${background.replace('-', ' ')}</span></label>`).join('')}</div></div>
+          <button class="btn primary full" type="submit">Save profile</button></form>
+        </section>
+
+        <section class="card settings-panel" data-settings-panel="presence" hidden>
+          <span class="eyebrow">Presence → environment</span><h2>Presence & Room Automation</h2>
+          <div class="settings-kpis"><div><small>Room sensors</small><strong>${(hub.rooms||[]).length}</strong></div><div><small>Edge devices</small><strong>${edges.length}</strong></div><div><small>Scenes</small><strong>${scenes.length}</strong></div></div>
+          <form id="presence-form" class="grid2" style="margin-top:14px">
+            <label>Presence edge<select class="input" name="edgeDeviceId"><option value="">Select Pi edge</option>${deviceOptions(edges,presence.edgeDeviceId)}</select></label>
+            <label>Trading workstation<select class="input" name="desktopDeviceId"><option value="">Select workstation</option>${deviceOptions(desktops,presence.desktopDeviceId||workstation.desktopDeviceId)}</select></label>
+            <label>Room ID<input class="input" name="roomId" value="${html(presence.roomId||'trading-room')}"></label>
+            <label>Arrival scene<select class="input" name="arrivalSceneId">${sceneOptions(presence.arrivalSceneId)}</select></label>
+            <label>Departure scene<select class="input" name="departureSceneId">${sceneOptions(presence.departureSceneId)}</select></label>
+            <label><input type="checkbox" name="enabled" ${presence.enabled!==false?'checked':''}> Presence automation enabled</label>
+            <label><input type="checkbox" name="wakeWorkstation" ${presence.wakeWorkstation!==false?'checked':''}> Wake workstation on arrival</label>
+            <label><input type="checkbox" name="prepareWorkspace" ${presence.prepareWorkspace!==false?'checked':''}> Open MT4 + Live Manager on arrival</label>
+            <button class="btn primary" type="submit">Save presence rules</button><button class="btn ghost" id="test-arrival" type="button">Test arrival now</button>
+          </form>
+          <div class="settings-note">Presence only runs actions against enrolled devices and discovered components. Failed/offline dependencies are returned as blocked actions rather than fake success.</div>
+        </section>
+
+        <section class="card settings-panel" data-settings-panel="workstations" hidden>
+          <span class="eyebrow">Local agents</span><h2>Trading Workstations</h2>
+          ${desktops.length?desktops.map((d)=>`<article class="settings-device"><div><span class="settings-health ${d.online?'live':'offline'}">${d.online?'LIVE':'OFFLINE'}</span><h4>${html(d.device_name)}</h4><p class="muted">${html(d.device_id)} · ${d.last_seen_at?new Date(d.last_seen_at).toLocaleString():'never seen'}</p></div><button class="btn ghost prepare-workstation" data-device="${html(d.device_id)}">PREPARE NOW</button></article>`).join(''):'<p class="muted">No desktop agent is enrolled.</p>'}
+          <form id="workstation-form" class="grid2" style="margin-top:14px"><label>Desktop agent<select class="input" name="deviceId" required><option value="">Select workstation</option>${deviceOptions(desktops,workstation.desktopDeviceId)}</select></label><label>MT4 executable path<input class="input" name="mt4Exe" value="${html(workstation.mt4Exe||'')}" placeholder="C:\\...\\terminal.exe"></label><label class="full">Live Manager URL<input class="input" name="liveManagerUrl" value="${html(workstation.liveManagerUrl||location.origin+'/app/command-center')}"></label><button class="btn primary full">Send configuration to workstation</button></form>
+        </section>
+
+        <section class="card settings-panel" data-settings-panel="mt4" hidden>
+          <span class="eyebrow">Reporter / HIGHTOWER binding</span><h2>MT4 Configuration</h2>
+          <form id="mt4-form" class="grid2"><label>Primary account<select class="input" name="accountId"><option value="">Select MT4 account</option>${accountsHub.map((a)=>option(a.accountId,`${a.nickname}${a.mt4Login?' · '+a.mt4Login:''}${a.brokerServer?' · '+a.brokerServer:''}`,mt4.accountId||accountsHub.find(x=>x.isPrimary)?.accountId)).join('')}</select></label><label>Bot / terminal<select class="input" name="botId"><option value="">Auto / detected</option>${bots.map((b)=>option(b.bot_id,`${b.bot_name} · ${b.status}`,mt4.botId)).join('')}</select></label><label>CampaignControlSymbol<input class="input" name="campaignControlSymbol" value="${html(mt4.campaignControlSymbol||'')}" placeholder="Exact broker symbol, e.g. XAUUSD"></label><label>CampaignControlMagic<input class="input" name="campaignControlMagic" value="${html(mt4.campaignControlMagic||'')}" placeholder="HIGHTOWER magic number"></label><button class="btn primary full">Save MT4 binding</button></form>
+          <p class="muted">Account selection changes WISDO's real primary MT4 account. Symbol/magic are saved as the expected campaign binding and are compared against Reporter/HIGHTOWER telemetry; they do not pretend to rewrite EA input fields.</p>
+        </section>
+
+        <section class="card settings-panel" data-settings-panel="smart-home" hidden>
+          <span class="eyebrow">Local Home Assistant bridge</span><h2>Smart Home, Lighting & Scenes</h2>
+          <div class="settings-kpis"><div><small>Discovered entities</small><strong>${components.length}</strong></div><div><small>Fresh entities</small><strong>${components.filter(c=>c.fresh).length}</strong></div><div><small>Saved scenes</small><strong>${scenes.length}</strong></div></div>
+          <form id="ha-form" class="grid2" style="margin-top:14px"><label>Pi edge bridge<select class="input" name="deviceId" required><option value="">Select Pi edge</option>${deviceOptions(edges,smartHome.edgeDeviceId)}</select></label><label>Home Assistant URL<input class="input" name="url" required placeholder="http://homeassistant.local:8123"></label><label class="full">Long-lived access token<input class="input" name="token" type="password" required autocomplete="new-password" placeholder="Sent once through encrypted edge-secret channel"></label><button class="btn primary full">Verify & Pair Home Assistant</button></form>
+          <div class="settings-note settings-secret">The Home Assistant token is encrypted in transit through WISDO's one-time edge-secret table, can be claimed only by the selected enrolled Pi, and the cloud ciphertext is erased when claimed.</div>
+          <h3 style="margin-top:20px">Discovered devices</h3><div id="smart-components">${componentCards}</div>
+          <h3 style="margin-top:20px">Build a scene</h3>
+          <form id="scene-form"><div class="grid2"><label>Scene name<input class="input" name="name" required placeholder="Trading Room Focus"></label><label>Room ID<input class="input" name="roomId" value="${html(presence.roomId||'trading-room')}"></label><label>Light brightness for SET BRIGHTNESS actions<input class="input" name="brightness" type="number" min="1" max="100" value="35"></label></div><div>${sceneBuilderRows||'<p class="muted">Pair Home Assistant first.</p>'}</div><button class="btn primary" type="submit">Save real device scene</button></form>
+          <h3 style="margin-top:20px">Saved scenes</h3>${scenes.length?scenes.map(x=>`<article class="settings-device"><div><h4>${html(x.name)}</h4><p class="muted">${html(x.room_id||'any room')} · ${Array.isArray(x.actions)?x.actions.length:0} actions</p></div><div class="actions"><button class="btn ghost run-scene" data-scene="${html(x.scene_id)}">RUN</button><button class="btn danger delete-scene" data-scene="${html(x.scene_id)}">DELETE</button></div></article>`).join(''):'<p class="muted">No scenes saved.</p>'}
+        </section>
+
+        <section class="card settings-panel" data-settings-panel="voice" hidden>
+          <span class="eyebrow">Everywhere response</span><h2>Voice & Notifications</h2><p>Deployment voice execution mode: <strong>${html(hub.voiceExecutionMode||'UNKNOWN')}</strong></p>
+          <form id="voice-form" class="grid2"><label><input type="checkbox" name="voiceAlerts" ${voice.voiceAlerts!==false?'checked':''}> Speak verified command receipts</label><label><input type="checkbox" name="pushAlerts" ${voice.pushAlerts!==false?'checked':''}> Browser/push notifications</label><label><input type="checkbox" name="commandReceipts" ${voice.commandReceipts!==false?'checked':''}> Command completion receipts</label><button class="btn primary full">Save notification preferences</button></form>
+        </section>
+
+        <section class="card settings-panel" data-settings-panel="character" hidden>
+          <span class="eyebrow">World identity</span><h2>Character Customization</h2>
+          <form id="character-form" class="grid2"><label>Head<select class="input" name="headPreset">${['standard','soft','angular','oval','round'].map(x=>option(x,x,operator.headPreset||'standard')).join('')}</select></label><label>Skin material<select class="input" name="skinMaterial">${['neutral-1','neutral-2','neutral-3','neutral-4','neutral-5','neutral-6','neutral-7','neutral-8'].map(x=>option(x,x,operator.skinMaterial||'neutral-4')).join('')}</select></label><label>Hair<select class="input" name="hairPreset">${['none','close','fade','short-curls','medium-curls','waves','locs-short','locs-long','braids','straight-short','straight-long','bun'].map(x=>option(x,x,operator.hairPreset||'close')).join('')}</select></label><label>Facial hair<select class="input" name="facialHairPreset">${['none','stubble','mustache','goatee','short-beard','full-beard'].map(x=>option(x,x,operator.facialHairPreset||'none')).join('')}</select></label><label>Body<select class="input" name="bodyPreset">${['slim','balanced','athletic','broad'].map(x=>option(x,x,operator.bodyPreset||'balanced')).join('')}</select></label><label>Height<select class="input" name="heightSetting">${['short','medium','tall'].map(x=>option(x,x,operator.heightSetting||'medium')).join('')}</select></label><label>Outfit<select class="input" name="outfit">${['cem-operator-black-gold','cem-operator-midnight','cem-operator-formal'].map(x=>option(x,x,operator.outfit||'cem-operator-black-gold')).join('')}</select></label><button class="btn primary full">Save character</button></form>
+          <a class="btn ghost" href="/world/avatar-scan">Open private avatar scan</a>
+        </section>
+
+        <section class="card settings-panel" data-settings-panel="authority" hidden>
+          <span class="eyebrow">Safety & autonomy</span><h2>WISDO Authority</h2>
+          <form id="authority-form"><label><input type="checkbox" name="allowPresenceHighRisk" ${authority.allowPresenceHighRisk?'checked':''}> Allow saved presence scenes to include high-risk home actions such as unlocking/opening.</label><p class="muted">Voice-initiated unlock/open actions still require explicit confirmation. Presence high-risk authority is off by default.</p><button class="btn primary">Save authority</button></form>
+          <section class="danger-zone" style="margin-top:22px"><h3>Danger zone</h3><p>Account deletion removes the profile, connected account records, Culture Lanes, trades, and alerts owned by this user.</p><button class="btn danger" id="delete-profile">Delete WISDO account</button></section>
+        </section>
+      </div>`;
+
+    const switchTab=(name)=>{document.querySelectorAll('[data-settings-tab]').forEach(b=>b.classList.toggle('active',b.dataset.settingsTab===name));document.querySelectorAll('[data-settings-panel]').forEach(p=>p.hidden=p.dataset.settingsPanel!==name);};
+    document.querySelectorAll('[data-settings-tab]').forEach((button)=>button.onclick=()=>switchTab(button.dataset.settingsTab));
+    const boolPayload=(form)=>{const raw=Object.fromEntries(new FormData(form));form.querySelectorAll('input[type="checkbox"]').forEach(x=>raw[x.name]=x.checked);return raw;};
+
+    const form = document.querySelector('#profile-form');
+    if (form) { form.querySelectorAll('input[name="theme"],input[name="background"]').forEach((input) => input.onchange = () => applyTheme(Object.fromEntries(new FormData(form)))); form.onsubmit = async (event) => { event.preventDefault(); const payload = Object.fromEntries(new FormData(event.target)); await api('/api/v2/profile', { method: 'PATCH', body: JSON.stringify(payload) }); applyTheme(payload); toast('Profile settings saved'); }; }
+
+    const presenceForm=document.querySelector('#presence-form'); if(presenceForm)presenceForm.onsubmit=async(e)=>{e.preventDefault();await api('/api/settings/v1/presence',{method:'PATCH',body:JSON.stringify(boolPayload(presenceForm))});toast('Presence rules saved');await drawSettings('settings');switchTab('presence');};
+    const testArrival=document.querySelector('#test-arrival'); if(testArrival)testArrival.onclick=async()=>{const data=boolPayload(presenceForm);const result=await api('/api/settings/v1/presence/test-arrival',{method:'POST',body:JSON.stringify({roomId:data.roomId,edgeDeviceId:data.edgeDeviceId})});toast(`Arrival test queued: ${(result.actions||[]).filter(x=>x.status==='queued').length} actions`);};
+
+    document.querySelectorAll('.prepare-workstation').forEach((b)=>b.onclick=async()=>{await api('/api/settings/v1/workstations/'+encodeURIComponent(b.dataset.device)+'/prepare',{method:'POST',body:'{}'});toast('Workstation preparation queued');});
+    const wsForm=document.querySelector('#workstation-form'); if(wsForm)wsForm.onsubmit=async(e)=>{e.preventDefault();await api('/api/settings/v1/workstations/configure',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(wsForm)))});toast('Workstation configuration queued');};
+
+    const mt4Form=document.querySelector('#mt4-form'); if(mt4Form)mt4Form.onsubmit=async(e)=>{e.preventDefault();const data=Object.fromEntries(new FormData(mt4Form));if(data.accountId)await api('/api/settings/v1/mt4/select',{method:'POST',body:JSON.stringify({accountId:data.accountId})});await api('/api/settings/v1/mt4',{method:'PATCH',body:JSON.stringify(data)});toast('MT4 binding saved');};
+
+    const haForm=document.querySelector('#ha-form'); if(haForm)haForm.onsubmit=async(e)=>{e.preventDefault();const result=await api('/api/settings/v1/smart-home/home-assistant/connect',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(haForm)))},30000);haForm.elements.token.value='';toast(`Home Assistant configuration queued to ${result.deviceId}`);};
+    document.querySelectorAll('.smart-action').forEach((b)=>b.onclick=async()=>{let parameters={};const action=b.dataset.action;if(action==='set_brightness')parameters.brightness_pct=Number(prompt('Brightness 1–100','35')||35);if(action==='set_temperature')parameters.temperature=Number(prompt('Temperature','72')||72);if(action==='volume_set')parameters.volume_level=Number(prompt('Volume 0.0–1.0','.5')||.5);if(action==='set_percentage')parameters.percentage=Number(prompt('Fan percentage','50')||50);const risky=['unlock','open','open_cover','disarm','open_garage'].includes(action);if(risky&&!confirm(`Confirm ${action.replaceAll('_',' ')} on this device?`))return;await api('/api/settings/v1/smart-home/execute',{method:'POST',body:JSON.stringify({componentId:b.dataset.component,action,parameters,confirmed:risky})});toast('Smart-home action queued for edge verification');});
+    const sceneForm=document.querySelector('#scene-form'); if(sceneForm)sceneForm.onsubmit=async(e)=>{e.preventDefault();const base=Object.fromEntries(new FormData(sceneForm));const actions=[];sceneForm.querySelectorAll('[data-scene-component]:checked').forEach((box)=>{const row=box.closest('.scene-component');const action=row.querySelector('[data-scene-action]').value;const parameters={};if(action==='set_brightness')parameters.brightness_pct=Number(base.brightness||35);actions.push({componentId:box.value,action,parameters});});if(!actions.length)return toast('Select at least one discovered device');await api('/api/settings/v1/scenes',{method:'POST',body:JSON.stringify({name:base.name,roomId:base.roomId,actions})});toast('Smart-home scene saved');await drawSettings('settings');switchTab('smart-home');};
+    document.querySelectorAll('.run-scene').forEach((b)=>b.onclick=async()=>{await api('/api/settings/v1/scenes/'+encodeURIComponent(b.dataset.scene)+'/run',{method:'POST',body:'{}'});toast('Scene queued for verified edge execution');});
+    document.querySelectorAll('.delete-scene').forEach((b)=>b.onclick=async()=>{if(!confirm('Delete this scene?'))return;await api('/api/settings/v1/scenes/'+encodeURIComponent(b.dataset.scene),{method:'DELETE'});await drawSettings('settings');switchTab('smart-home');});
+
+    const voiceForm=document.querySelector('#voice-form');if(voiceForm)voiceForm.onsubmit=async(e)=>{e.preventDefault();await api('/api/settings/v1/voice_notifications',{method:'PATCH',body:JSON.stringify(boolPayload(voiceForm))});toast('Voice and notification preferences saved');};
+    const characterForm=document.querySelector('#character-form');if(characterForm)characterForm.onsubmit=async(e)=>{e.preventDefault();await api('/api/world/avatar/manual',{method:'POST',body:JSON.stringify({avatar:Object.fromEntries(new FormData(characterForm))})});toast('Character saved');};
+    const authorityForm=document.querySelector('#authority-form');if(authorityForm)authorityForm.onsubmit=async(e)=>{e.preventDefault();const data=boolPayload(authorityForm);if(data.allowPresenceHighRisk&&!confirm('Allow presence scenes to execute high-risk home actions automatically?')){authorityForm.elements.allowPresenceHighRisk.checked=false;return;}await api('/api/settings/v1/authority',{method:'PATCH',body:JSON.stringify(data)});toast('Authority settings saved');};
+
     const deleteButton = document.querySelector('#delete-profile'); if (deleteButton) deleteButton.onclick = async () => { if (!confirm('Permanently delete your WISDO account data?')) return; await api('/api/v2/me', { method: 'DELETE' }); location.href = '/logout'; };
   }
 
