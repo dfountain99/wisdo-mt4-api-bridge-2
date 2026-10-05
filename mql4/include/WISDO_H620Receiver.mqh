@@ -202,14 +202,21 @@ double WcoLatestWin()
 
 double WcoCampaignMedianEntry()
 {
-   double prices[];ArrayResize(prices,100);int count=0;
+   double prices[100];int count=0;
    for(int i=OrdersTotal()-1;i>=0 && count<100;i--)
    {
       if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES) || !H620OwnedSelected() || !H620CampaignTicketSelected())continue;
       prices[count++]=OrderOpenPrice();
    }
    if(count<=0)return 0.0;
-   ArrayResize(prices,count);ArraySort(prices,WHOLE_ARRAY,0,MODE_ASCEND);
+   // Tiny bounded insertion sort keeps this helper compatible with MT4 and the
+   // repository's deterministic C++ receiver shim without dynamic-array helpers.
+   for(int a=1;a<count;a++)
+   {
+      double key=prices[a];int b=a-1;
+      while(b>=0 && prices[b]>key){prices[b+1]=prices[b];b--;}
+      prices[b+1]=key;
+   }
    if((count%2)==1)return prices[count/2];
    return (prices[count/2-1]+prices[count/2])*0.5;
 }
