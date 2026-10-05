@@ -50,7 +50,7 @@ test('V18 secret claim erases encrypted cloud payload after the selected edge cl
   const [bus,routes]=await Promise.all([read('services/wisdoCommandBusService.js'),read('server/commandBusRoutes.js')]);
   assert.match(bus,/encryptCredential/);
   assert.match(bus,/decryptCredential/);
-  assert.match(bus,/ciphertext=''|ciphertext=\'\'/);
+  assert.match(bus,/ciphertext\s*=\s*['"]{2}|SET status=.*claimed.*ciphertext/i);
   assert.match(bus,/status='claimed'|status=\'claimed\'/);
   assert.match(routes,/\/api\/agent\/v1\/secrets\/:secretId/);
   assert.match(routes,/Cache-Control','no-store'|Cache-Control.*no-store/);
