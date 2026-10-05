@@ -55,9 +55,9 @@ function parseMetricClause(text='') {
 function parseActions(text='') {
   const t=lower(text),matches=[];const add=(pattern,action)=>{const index=t.search(pattern);if(index>=0)matches.push({index,action});};
   add(/protect (?:my |the )?profit|lock (?:in )?profit/,{type:'protect_profit_full_basket',parameters:{require_positive_basket:true,atomic:true}});
-  add(/close (?:the |my )?(?:full |whole |entire )?(?:basket|all trades|everything)|flatten/,{type:'close_full_basket',parameters:{atomic:true}});
-  add(/pause|stop new entr|stop adding|block new entr/,{type:'pause_entries',parameters:{}});
-  add(/resume|start new entr|allow new entr/,{type:'resume_entries',parameters:{}});
+  add(/close (?:the |my )?(?:full |whole |entire )?(?:basket|all trades|everything)|flatten|collect (?:this|the) basket|finish (?:this|the) campaign|take the money/,{type:'close_full_basket',parameters:{atomic:true}});
+  add(/pause|stop new entr|stop adding|block new entr|no more entr|stop stacking|take a break|sit out|let (?:these|the) trades run without adding/,{type:'pause_entries',parameters:{}});
+  add(/resume|start new entr|allow new entr|start trading again|you can trade now|resume my strategy/,{type:'resume_entries',parameters:{}});
   add(/guard mode|safe mode|defensive mode/,{type:'guard_mode',parameters:{mode:'GUARD',allowNewTrades:false,maxTrades:1,riskPercent:.25}});
   add(/notify|alert|tell me|message me|wake me/,{type:'notify',parameters:{}});
   const stopAtr=(t.match(/(?:stop(?: loss| losses)?).*?(?:to|at)\s*(\d+(?:\.\d+)?)\s*atr/)||[])[1];
