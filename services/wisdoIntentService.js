@@ -84,6 +84,7 @@ export class WisdoIntentService {
     if (!ask) return { ...base, type: 'CONVERSATION', intent: 'WAKE_ONLY', confidence: 1 };
     if (/^(goodbye|bye|thats all|that is all|end session)$/.test(ask)) return { ...base, type: 'GOODBYE', intent: 'END_SESSION', confidence: 1 };
     if (/^(cancel|never mind|cancel what i just said|forget that)$/.test(ask)) return { ...base, type: 'CANCEL', intent: 'CANCEL_PENDING', confidence: 1 };
+    if (/^(?:undo that|cancel the rule i just added|remove the rule i just added)\.?$/.test(ask)) return { ...base, type: 'BEHAVIOR_CONTROL', intent: 'CANCEL_BEHAVIOR', confidence: 0.98, parameters: { reference: 'last' } };
     if (/confirm coach (execute|activate todays plan)/.test(ask)) return { ...base, type: 'CONFIRMATION', intent: ask.includes('activate') ? 'CONFIRM_PLAN' : 'CONFIRM_ACTION', confidence: 1 };
     if (/new plan|build todays trading plan|plan for today|new strategy for this session|change how we trade today/.test(ask)) return { ...base, type: 'PLAN', intent: 'CREATE_DAILY_PLAN', confidence: 0.98 };
     if (/pause (that |the )?plan/.test(ask)) return { ...base, type: 'PLAN', intent: 'PAUSE_PLAN', confidence: 0.98 };
@@ -122,14 +123,14 @@ export class WisdoIntentService {
     if (context.planMode && planSignals) return { ...base, type: 'PLAN', intent: 'ADD_PLAN_DETAILS', confidence: 0.9, parameters: this.extractPlanFields(raw) };
 
     if (/guard mode|safe mode|defensive mode/.test(ask)) return command('GUARD_MODE', 'SET_CONTROL_MODE', { mode: 'GUARD', allowNewTrades: false, guardMode: true, maxTrades: 1, riskPercent: 0.25 }, 0.98, { rawText: raw });
-    if (/close (all|everything)( trades)?/.test(ask)) return command('CLOSE_ALL_TRADES', 'CLOSE_ALL_TRADES', {}, 0.99, { rawText: raw });
-    if (/close (profitable|winning)|take winners|harvest/.test(ask)) return command('CLOSE_PROFITABLE_TRADES', 'CLOSE_ALL_WINNERS', { percent: extractSpokenNumber(ask) ?? 100 }, 0.97, { rawText: raw });
+    if (/close (all|everything)( trades)?|get me out of everything|shut it down and close everything/.test(ask)) return command('CLOSE_ALL_TRADES', 'CLOSE_ALL_TRADES', {}, 0.99, { rawText: raw });
+    if (/close (profitable|winning)|take winners|cash out (?:the )?winners|harvest/.test(ask)) return command('CLOSE_PROFITABLE_TRADES', 'CLOSE_ALL_WINNERS', { percent: extractSpokenNumber(ask) ?? 100 }, 0.97, { rawText: raw });
     if (/close (losing|losers)|cut losses/.test(ask)) return command('CLOSE_LOSING_TRADES', 'CLOSE_ALL_LOSERS', { percent: extractSpokenNumber(ask) ?? 100 }, 0.97, { rawText: raw });
-    if (/emergency stop/.test(ask)) return command('EMERGENCY_STOP', 'EMERGENCY_STOP', { pauseTrading: true }, 0.99, { rawText: raw });
+    if (/emergency stop|shut (?:it|everything) down/.test(ask)) return command('EMERGENCY_STOP', 'EMERGENCY_STOP', { pauseTrading: true }, 0.99, { rawText: raw });
     if (/pause (the )?copier/.test(ask)) return command('PAUSE_COPIER', 'PAUSE_COPIER', {}, 0.98, { rawText: raw });
     if (/resume (the )?copier/.test(ask)) return command('RESUME_COPIER', 'RESUME_COPIER', {}, 0.98, { rawText: raw });
-    if (/pause trading|stop new entries|stop trading today/.test(ask)) return command('STOP_NEW_ENTRIES', 'STOP_ENTRIES', {}, 0.97, { rawText: raw });
-    if (/resume trading|start new entries/.test(ask)) return command('RESUME_TRADING', 'START_ENTRIES', {}, 0.97, { rawText: raw });
+    if (/pause trading|stop new entries|stop trading today|no more entries|stop stacking|let (?:these|the) trades run without adding|take a break|sit out for now/.test(ask)) return command('STOP_NEW_ENTRIES', 'STOP_ENTRIES', {}, 0.97, { rawText: raw });
+    if (/resume trading|start new entries|start trading again|you can trade now|resume my strategy/.test(ask)) return command('RESUME_TRADING', 'START_ENTRIES', {}, 0.97, { rawText: raw });
 
     // V13 live-manager language: deterministic phrases compile into the same verified campaign mailbox used by Command Center.
     const persistRuntime=/from now on|make (?:that|this) (?:my )?default|until i change/.test(ask);
@@ -152,7 +153,7 @@ export class WisdoIntentService {
       const selected=context.selectedTicket||context.positionTicket||context.ticket||null;
       return command('TRIM_CAMPAIGN','WISDO_CAMPAIGN',{action:'TRIM_CAMPAIGN',trimPercent:pct,tickets:singular?(selected?[Number(selected)]:null):[]},pct===null?0.45:0.98,{rawText:raw});
     }
-    if(/\b(?:add|boost)\b.*\b(?:position|trade|entry)\b/.test(ask))
+    if(/\b(?:add|boost)\b.*\b(?:position|trade|entry|buy|sell)\b|\badd (?:another|one more)\b/.test(ask))
       return command('ADD_POSITION_IF_VALID','WISDO_CAMPAIGN',{action:'ADD_IF_VALID'},0.98,{rawText:raw});
     if(/\b(?:clear|remove|reset)\b.*\b(?:runtime|live manager|atr|trail|stop).*\b(?:override|overrides|settings?)\b|\bback to (?:the )?(?:ea|visible) inputs?\b|\b(?:return|restore|resume)\b.*\bstops?\b.*\b(?:normal|ea|automatic)\b.*\b(?:management|control)?\b/.test(ask))
       return command('CLEAR_RUNTIME_OVERRIDES','WISDO_CAMPAIGN',{action:'CLEAR_RUNTIME_OVERRIDES'},0.98,{rawText:raw});
@@ -170,7 +171,7 @@ export class WisdoIntentService {
     if (/news avoidance|avoid news/.test(ask)) return command('NEWS_AVOIDANCE','WISDO_SET_NEWS_AVOIDANCE',{minutesBefore:30,minutesAfter:30},0.92,{rawText:raw,requiresCapability:true});
     if (/ladder/.test(ask)&&/close|preserve|trail/.test(ask)) return command('LADDER_AWARE_ACTION','WISDO_LADDER_ACTION',{action:/close/.test(ask)?'close':/trail/.test(ask)?'trail':'preserve'},0.85,{rawText:raw,requiresCapability:true});
     if (/explain/.test(ask)&&/trade|ticket/.test(ask)) return command('TRADE_EXPLANATION','WISDO_EXPLAIN_TRADE',{ticket:String(extractSpokenNumber(ask)||'')},0.9,{rawText:raw,requiresCapability:true});
-    if (/balance|equity|margin|drawdown|open trades|connection status|account status|how does my account/.test(ask)) return { ...base, type: 'QUERY', intent: 'ACCOUNT_STATUS', confidence: 0.94 };
+    if (/balance|equity|margin|drawdown|open trades|connection status|account status|how does my account|are you connected to my bot|which account am i controlling|how much is (?:this|the) basket (?:up|down)|whats stopping you from trading|what are you waiting for/.test(ask)) return { ...base, type: 'QUERY', intent: 'ACCOUNT_STATUS', confidence: 0.94 };
     if (/menu|everything i can do|available on my dashboard/.test(ask)) return { ...base, type: 'QUERY', intent: 'DYNAMIC_MENU', confidence: 0.94 };
     if (/teach|education|lesson|quiz|explain risk|explain the copier/.test(ask)) return { ...base, type: 'QUERY', intent: 'EDUCATION', confidence: 0.9 };
 
