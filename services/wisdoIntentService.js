@@ -84,7 +84,7 @@ export class WisdoIntentService {
     if (!ask) return { ...base, type: 'CONVERSATION', intent: 'WAKE_ONLY', confidence: 1 };
     if (/^(goodbye|bye|thats all|that is all|end session)$/.test(ask)) return { ...base, type: 'GOODBYE', intent: 'END_SESSION', confidence: 1 };
     if (/^(cancel|never mind|cancel what i just said|forget that)$/.test(ask)) return { ...base, type: 'CANCEL', intent: 'CANCEL_PENDING', confidence: 1 };
-    if (/^(?:undo that|cancel the rule i just added|remove the rule i just added)$/.test(ask)) return { ...base, type: 'BEHAVIOR_CONTROL', intent: 'CANCEL_BEHAVIOR', confidence: 0.98, parameters: { reference: 'last' } };
+    if (/^(?:undo that|cancel the rule i just added|remove the rule i just added)\.?$/.test(ask)) return { ...base, type: 'BEHAVIOR_CONTROL', intent: 'CANCEL_BEHAVIOR', confidence: 0.98, parameters: { reference: 'last' } };
     if (/confirm coach (execute|activate todays plan)/.test(ask)) return { ...base, type: 'CONFIRMATION', intent: ask.includes('activate') ? 'CONFIRM_PLAN' : 'CONFIRM_ACTION', confidence: 1 };
     if (/new plan|build todays trading plan|plan for today|new strategy for this session|change how we trade today/.test(ask)) return { ...base, type: 'PLAN', intent: 'CREATE_DAILY_PLAN', confidence: 0.98 };
     if (/pause (that |the )?plan/.test(ask)) return { ...base, type: 'PLAN', intent: 'PAUSE_PLAN', confidence: 0.98 };
