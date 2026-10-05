@@ -27,11 +27,15 @@ export function registerCommandBusRoutes(app, dependencies = {}) {
       if(capabilities.presence!==true)return res.status(403).json({ok:false,error:'This enrolled device does not advertise a live presence sensor.'});
       const roomId=String(req.body?.roomId||req.body?.room||'').trim().toLowerCase();
       if(!roomId)return res.status(400).json({ok:false,error:'roomId is required.'});
-      const actions=[];
-      const queue=async(label,input)=>{try{const command=await service.issueSystemCommand(req.wisdoDevice.owner_user_id,input);actions.push({label,status:'queued',commandId:command.command_id});}catch(error){actions.push({label,status:'blocked',code:error.code||null,reason:error.message});}};
-      if(['office','trading-room','trading_room','trade-room'].includes(roomId)){
-        await queue('wake_trading_workstation',{intent:'wake_trading_workstation',source:'presence',target:{type:'device',deviceType:'pi-edge',id:req.wisdoDevice.device_id},requiredCapability:'wake_trading_workstation',parameters:{roomId},expiresInSeconds:45,priority:95});
-        await queue('prepare_trading_workspace',{intent:'prepare_trading_workspace',source:'presence',target:{type:'desktop',allowOffline:true},requiredCapability:'prepare_trading_workspace',parameters:{roomId},expiresInSeconds:300,priority:90});
+      let actions=[];
+      if(typeof service.presenceCoordinator==='function'){
+        actions=await service.presenceCoordinator({ownerUserId:req.wisdoDevice.owner_user_id,roomId,sourceDevice:req.wisdoDevice});
+      }else{
+        const queue=async(label,input)=>{try{const command=await service.issueSystemCommand(req.wisdoDevice.owner_user_id,input);actions.push({label,status:'queued',commandId:command.command_id});}catch(error){actions.push({label,status:'blocked',code:error.code||null,reason:error.message});}};
+        if(['office','trading-room','trading_room','trade-room'].includes(roomId)){
+          await queue('wake_trading_workstation',{intent:'wake_trading_workstation',source:'presence',target:{type:'device',deviceType:'pi-edge',id:req.wisdoDevice.device_id},requiredCapability:'wake_trading_workstation',parameters:{roomId},expiresInSeconds:45,priority:95});
+          await queue('prepare_trading_workspace',{intent:'prepare_trading_workspace',source:'presence',target:{type:'desktop',allowOffline:true},requiredCapability:'prepare_trading_workspace',parameters:{roomId},expiresInSeconds:300,priority:90});
+        }
       }
       res.status(actions.some((x)=>x.status==='queued')?202:409).json({ok:actions.some((x)=>x.status==='queued'),roomId,actions});
     } catch (error) { next(error); }
@@ -57,6 +61,9 @@ export function registerCommandBusRoutes(app, dependencies = {}) {
   });
   app.post('/api/agent/v1/commands/:commandId/complete', auth, async (req, res, next) => {
     try { res.json({ ok:true, command: await service.completeCommand(req.wisdoDevice, req.params.commandId, req.body || {}) }); } catch (error) { next(error); }
+  });
+  app.get('/api/agent/v1/secrets/:secretId', auth, async (req, res, next) => {
+    try { res.setHeader('Cache-Control','no-store'); res.json({ok:true,secret:await service.claimDeviceSecret(req.wisdoDevice,req.params.secretId)}); } catch (error) { next(error); }
   });
 
   app.get('/api/device/v1/operations', auth, async (req, res, next) => {
