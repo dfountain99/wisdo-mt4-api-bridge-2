@@ -10,6 +10,7 @@ const DEFAULT_POLICIES=Object.freeze([
   {id:'automation_no_unlock',effect:'deny',reason:'Unattended routines cannot unlock doors, disarm alarms, or open garages.',match:{source:['presence','schedule','automation'],stepType:['home'],actions:['unlock','disarm','open']},sensitiveOnly:true},
   {id:'guest_camera_privacy',effect:'deny',reason:'Camera actions are blocked while Guest Mode is active.',match:{stepType:['home'],deviceClasses:['CAMERA'],guestPresent:true}},
   {id:'physical_security_confirmation',effect:'confirm',reason:'Physical-security actions require explicit confirmation.',match:{stepType:['home'],minimumRisk:4}},
+  {id:'scene_confirmation',effect:'confirm',reason:'Whole-scene activation requires confirmation because a scene may contain multiple hidden device effects.',match:{stepType:['home'],actions:['activate'],targetTypes:['scene']}},
   {id:'trading_confirmation',effect:'confirm',reason:'Every trading mutation requires explicit confirmation.',match:{stepType:['trading']}},
 ]);
 
@@ -60,6 +61,7 @@ function matchPolicy(policy,{source,step,preview,context}){
   if(arr(match.source).length&&!arr(match.source).map(String).includes(source))return false;
   if(arr(match.stepType).length&&!arr(match.stepType).map((v)=>String(v).toLowerCase()).includes(stepType))return false;
   if(arr(match.actions).length&&!arr(match.actions).map((v)=>String(v).toLowerCase()).includes(action))return false;
+  if(arr(match.targetTypes).length&&!arr(match.targetTypes).map((v)=>String(v).toLowerCase()).includes(clean(step.target?.type).toLowerCase()))return false;
   if(Number.isFinite(Number(match.minimumRisk))&&Number(preview?.risk_level||0)<Number(match.minimumRisk))return false;
   if(match.guestPresent===true&&!context.guestPresent)return false;
   if(arr(match.deviceClasses).length){
@@ -178,7 +180,9 @@ export class WisdoAmbientLifeService {
     const normalized=validateStep(step);
     if(normalized.type==='home'){
       try{
-        const preview=await this.universalControlService.preview(this.actorDevice(actor),{action:normalized.action,target:obj(normalized.target),parameters:obj(normalized.parameters),riskLevel:normalized.riskLevel??1});
+        const target={...obj(normalized.target)};
+        if(context.homeId&&!target.home_id&&!target.homeId)target.home_id=context.homeId;
+        const preview=await this.universalControlService.preview(this.actorDevice(actor),{action:normalized.action,target,parameters:obj(normalized.parameters),riskLevel:normalized.riskLevel??1});
         return {kind:'home',preview,riskLevel:Number(preview.risk_level||0),available:true};
       }catch(error){return {kind:'home',available:false,riskLevel:5,error:error.message,code:error.code||'home_unavailable'};}
     }
@@ -200,7 +204,7 @@ export class WisdoAmbientLifeService {
 
   async simulateMission(actor,missionOrId,input={}){
     const mission=typeof missionOrId==='string'?await this.mission(actor,missionOrId):missionOrId;
-    const context={...obj(input.context),source:clean(input.source||input.context?.source||'manual',30).toLowerCase()};
+    const context={...obj(input.context),homeId:mission.home_id||mission.homeId||input.context?.homeId||'',source:clean(input.source||input.context?.source||'manual',30).toLowerCase()};
     const allowedSources=arr(mission.allowed_sources||mission.allowedSources).map((value)=>String(value).toLowerCase());
     const sourceAllowed=!allowedSources.length||allowedSources.includes(context.source);
     const roleInfo=await this.memberRole(actor,context);
@@ -269,7 +273,7 @@ export class WisdoAmbientLifeService {
         }else{
           const mode=item.detail.mode;
           const row=(await this.pool.query(`INSERT INTO wisdo_life_context(owner_user_id,home_id,current_mode,context,updated_at)
-            VALUES($1,$2,$3,$4::jsonb,NOW()) ON CONFLICT(owner_user_id,home_id) DO UPDATE SET current_mode=EXCLUDED.current_mode,context=EXCLUDED.context,updated_at=NOW() RETURNING *`,[owner,mission.home_id||null,mode,JSON.stringify({source:`mission:${runId}`})])).rows[0];
+            VALUES($1,$2,$3,$4::jsonb,NOW()) ON CONFLICT(owner_user_id,home_id) DO UPDATE SET current_mode=EXCLUDED.current_mode,context=EXCLUDED.context,updated_at=NOW() RETURNING *`,[owner,mission.home_id||'',mode,JSON.stringify({source:`mission:${runId}`})])).rows[0];
           result={state:'completed',mode:row.current_mode};
         }
         results.push({index:item.index,type:item.type,...result});
