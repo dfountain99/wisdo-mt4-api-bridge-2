@@ -70,7 +70,7 @@ test('V17 MQL arms HIGHTOWER reversal proof instead of forcing an opposite order
     fs.readFile(new URL('../mql4/CultureCoin_MT4_Reporter.mq4',import.meta.url),'utf8'),
     fs.readFile(new URL('../mql4/HIGHTOWER_UNITY_CAMPAIGN_v6_21.mq4',import.meta.url),'utf8'),
   ]);
-  assert.match(bridge,/op>21/);
+  assert.match(bridge,/op>22/);
   assert.match(bridge,/counterDirection/);
   assert.match(bridge,/referencePrice/);
   assert.match(receiver,/WcoArmCounterIfValid/);
