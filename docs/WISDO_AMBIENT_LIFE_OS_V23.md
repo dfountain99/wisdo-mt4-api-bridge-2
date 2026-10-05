@@ -82,7 +82,9 @@ The **offline edge runner is intentionally disabled in V23**. A signed manifest 
 
 ## Member UI
 
-`/member/life-os` provides:
+`/member/life-os` is the authenticated member control surface; browser actions stay session-backed and do not expose edge-device bearer tokens.
+
+It provides:
 
 - mission composer,
 - simulate-before-run,
