@@ -29,8 +29,7 @@ export class WisdoUniversalControlService {
     const componentId=clean(input.component_id||input.componentId||crypto.randomUUID(),200);
     const status=['online','offline','unavailable'].includes(String(input.status||'').toLowerCase())?String(input.status).toLowerCase():'online';
     const normalized=normalizeUniversalDevice(input);
-    const requestedApproval=String(input.approval_status||input.approvalStatus||'').toLowerCase();
-    const approvalStatus=['approved','revoked'].includes(requestedApproval)&&input.ownershipVerified===true?requestedApproval:'pending';
+    const approvalStatus='pending';
     const homeId=clean(input.home_id||input.homeId||normalized.metadata.home_id||'',200)||null;
     const result=await this.pool.query(`INSERT INTO wisdo_components
       (component_id,owner_user_id,device_id,component_type,name,aliases,capabilities,state,metadata,status,
@@ -57,14 +56,66 @@ export class WisdoUniversalControlService {
     return result.rows;
   }
 
+  async createHome(device,input={}) {
+    const name=clean(input.name||'Home',120);
+    if(!name){const error=new Error('home name is required.');error.statusCode=400;throw error;}
+    const homeId=clean(input.home_id||input.homeId||crypto.randomUUID(),200);
+    const row=(await this.pool.query(`INSERT INTO wisdo_homes(home_id,owner_user_id,name,status,metadata,created_at,updated_at)
+      VALUES($1,$2,$3,'active',$4::jsonb,NOW(),NOW())
+      ON CONFLICT(owner_user_id,name) DO UPDATE SET metadata=EXCLUDED.metadata,status='active',updated_at=NOW()
+      RETURNING *`,[homeId,device.owner_user_id,name,JSON.stringify(obj(input.metadata))])).rows[0];
+    return row;
+  }
+
+  async listHomes(device) {
+    return (await this.pool.query(`SELECT * FROM wisdo_homes WHERE owner_user_id=$1 AND status='active' ORDER BY name`,[device.owner_user_id])).rows;
+  }
+
+  async assertOwnedHome(device,homeId) {
+    const id=clean(homeId,200);
+    if(!id){const error=new Error('homeId is required before a discovered device can be approved.');error.statusCode=400;error.code='home_binding_required';throw error;}
+    const row=(await this.pool.query(`SELECT home_id FROM wisdo_homes WHERE home_id=$1 AND owner_user_id=$2 AND status='active' LIMIT 1`,[id,device.owner_user_id])).rows[0];
+    if(!row){const error=new Error('The requested home does not belong to this owner or is inactive.');error.statusCode=403;error.code='home_not_owned';throw error;}
+    return id;
+  }
+
+  async bindAdapter(device,input={}) {
+    const homeId=await this.assertOwnedHome(device,input.home_id||input.homeId);
+    const adapterId=clean(input.adapter_id||input.adapterId,120);
+    if(!WISDO_ADAPTERS.some((adapter)=>adapter.id===adapterId)){const error=new Error('Unknown adapterId.');error.statusCode=400;throw error;}
+    const sourceInstanceId=clean(input.source_instance_id||input.sourceInstanceId||'',200);
+    if(!sourceInstanceId){const error=new Error('sourceInstanceId is required.');error.statusCode=400;throw error;}
+    const bindingId=clean(input.binding_id||input.bindingId||crypto.randomUUID(),200);
+    return (await this.pool.query(`INSERT INTO wisdo_adapter_bindings(binding_id,owner_user_id,home_id,edge_device_id,adapter_id,source_instance_id,status,metadata,created_at,updated_at)
+      VALUES($1,$2,$3,$4,$5,$6,'active',$7::jsonb,NOW(),NOW())
+      ON CONFLICT(owner_user_id,edge_device_id,adapter_id,source_instance_id)
+      DO UPDATE SET home_id=EXCLUDED.home_id,status='active',metadata=EXCLUDED.metadata,updated_at=NOW()
+      RETURNING *`,[bindingId,device.owner_user_id,homeId,device.device_id,adapterId,sourceInstanceId,JSON.stringify(obj(input.metadata))])).rows[0];
+  }
+
+  async listAdapterBindings(device) {
+    return (await this.pool.query(`SELECT * FROM wisdo_adapter_bindings WHERE owner_user_id=$1 AND status='active' ORDER BY adapter_id,created_at`,[device.owner_user_id])).rows;
+  }
+
   async approveComponent(device,componentId,input={}) {
-    const homeId=clean(input.home_id||input.homeId||'',200)||null;
+    const homeId=await this.assertOwnedHome(device,input.home_id||input.homeId);
     const result=await this.pool.query(`UPDATE wisdo_components
-      SET approval_status='approved',home_id=COALESCE($1,home_id),approved_at=NOW(),approved_by=$2,revoked_at=NULL,updated_at=NOW()
+      SET approval_status='approved',home_id=$1,approved_at=NOW(),approved_by=$2,revoked_at=NULL,updated_at=NOW()
       WHERE component_id=$3 AND owner_user_id=$4 AND approval_status IN ('pending','revoked')
       RETURNING *`,[homeId,device.device_id,clean(componentId,200),device.owner_user_id]);
     if(!result.rows[0]){const error=new Error('Component was not found or is already approved.');error.statusCode=404;throw error;}
     return result.rows[0];
+  }
+
+  async approveComponents(device,input={}) {
+    const homeId=await this.assertOwnedHome(device,input.home_id||input.homeId);
+    const ids=[...new Set((Array.isArray(input.componentIds)?input.componentIds:[]).map((value)=>clean(value,200)).filter(Boolean))].slice(0,250);
+    if(!ids.length){const error=new Error('componentIds are required.');error.statusCode=400;throw error;}
+    const rows=(await this.pool.query(`UPDATE wisdo_components
+      SET approval_status='approved',home_id=$1,approved_at=NOW(),approved_by=$2,revoked_at=NULL,updated_at=NOW()
+      WHERE owner_user_id=$3 AND component_id=ANY($4::text[]) AND approval_status IN ('pending','revoked')
+      RETURNING *`,[homeId,device.device_id,device.owner_user_id,ids])).rows;
+    return rows;
   }
 
   async revokeComponent(device,componentId) {
