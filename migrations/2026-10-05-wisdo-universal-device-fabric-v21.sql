@@ -10,10 +10,8 @@ ALTER TABLE IF EXISTS wisdo_components ADD COLUMN IF NOT EXISTS approved_by TEXT
 ALTER TABLE IF EXISTS wisdo_components ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;
 ALTER TABLE IF EXISTS wisdo_components ADD COLUMN IF NOT EXISTS discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
--- Anything discovered before V21 is intentionally quarantined until the owner
--- approves it. Discovery/proximity is never treated as proof of ownership.
-UPDATE wisdo_components SET approval_status='pending',approved_at=NULL
-WHERE approval_status IS DISTINCT FROM 'pending';
+-- The ADD COLUMN default quarantines legacy rows on the first V21 migration.
+-- This migration intentionally does not reset approval on later repeat runs.
 
 CREATE INDEX IF NOT EXISTS idx_wisdo_components_approval
   ON wisdo_components(owner_user_id,approval_status,home_id,component_type);
