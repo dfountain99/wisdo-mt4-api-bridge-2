@@ -4,16 +4,18 @@
   "components": {
     "pi_edge": {
       "entrypoint": "wisdo_edge.py",
-      "required_markers": ["/api/voice/v1/utterances", "/api/voice/v1/deliveries/next", "recognize_sphinx"]
+      "required_markers": [
+        "/api/voice/v1/utterances",
+        "/api/voice/v1/deliveries/next",
+        "recognize_sphinx"
+      ]
     },
     "desktop_agent": {
       "entrypoint": "agent.py",
       "required_markers": [
-        "trail_stop",
-        "move_break_even",
-        "set_profit_target",
-        "apply_behavior",
-        "undo_behavior"
+        "open_live_manager",
+        "workstation_status",
+        "prepare_trading_workspace"
       ]
     },
     "render": {
