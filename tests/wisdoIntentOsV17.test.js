@@ -83,7 +83,7 @@ test('V17 MQL arms HIGHTOWER reversal proof instead of forcing an opposite order
   assert.doesNotMatch(receiver.slice(start,end),/OrderSend\s*\(/);
   assert.match(ea,/bool H620TryFlip\(\)/);
   assert.match(ea,/HT6EinsteinOpenStructureHold\(dir\)/);
-  assert.match(reporter,/REPORTER_VERSION = "1\\.64"/);
+  assert.match(reporter,/REPORTER_VERSION = "1\.64"/);
   assert.match(reporter,/\"stopLoss\"/);
   assert.match(reporter,/counter-campaign intention is armed/);
 });
