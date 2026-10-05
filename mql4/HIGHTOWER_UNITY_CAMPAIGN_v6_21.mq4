@@ -2776,7 +2776,14 @@ bool HT6HourInWindow(int hour,int startHour,int endHour)
    return (hour>=startHour || hour<endHour); // overnight window
 }
 
-bool HT6DirectTradingWindowAllows(datetime now)
+// Implemented by WISDO_H620Receiver.mqh below. Forward declarations let the
+// visible direct-input gate consume persistent WISDO time policy without moving
+// broker execution authority into the website.
+bool WcoWeeklyScheduleEnabled();
+bool WcoWeeklyScheduleAllows(datetime now);
+bool WcoScalpEntryAllows();
+
+bool HT6LegacyTradingWindowAllows(datetime now)
 {
    int hour=TimeHour(now);
    if(DirectTradingWindowMode==TIME_WINDOW_ALL_HOURS) return true;
@@ -2786,6 +2793,13 @@ bool HT6DirectTradingWindowAllows(datetime now)
       return HT6HourInWindow(hour,DirectWindow1StartHour,DirectWindow1EndHour)
           || HT6HourInWindow(hour,DirectWindow2StartHour,DirectWindow2EndHour);
    return false;
+}
+
+bool HT6DirectTradingWindowAllows(datetime now)
+{
+   if(!WcoScalpEntryAllows()) return false;
+   if(WcoWeeklyScheduleEnabled()) return WcoWeeklyScheduleAllows(now);
+   return HT6LegacyTradingWindowAllows(now);
 }
 
 void HT6ApplyDirectExecutionInputs()
@@ -12622,6 +12636,7 @@ void H620Register(int ticket,int dir,double stop,int role)
       h620LastEntry=OrderOpenPrice();
    }
    h620LastEntryTime=TimeCurrent();H620Persist();
+   WcoScalpResetFromEntry(dir);
    if(gHT6SonicFlowOrderContext && h620FutureGoal==12){WcoWrite(WcoEA(),"burstRemaining",MathMax(0,WcoRead(WcoEA(),"burstRemaining")-1));GlobalVariablesFlush();}
    if(wcoEvaluation>0){WcoAck(wcoEvaluation,6);wcoEvaluation=0;}
    Print("H620 ASSIGN ticket=",ticket," campaign=",DoubleToString(h620Id,0)," role=",role," rail=",h620Rail);
