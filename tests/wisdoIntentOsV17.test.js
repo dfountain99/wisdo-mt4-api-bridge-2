@@ -196,7 +196,7 @@ test('V18 behavior compiler recognizes conversational campaign management phrase
   assert.equal(collect.verification.receipt,'mt4_reporter');
 });
 
-test('V20 two-minute scalp phrase compiles to the fixed verified watchdog command',()=>{
+test('V20 two-minute scalp phrase compiles to the fixed verified watchdog command',async()=>{
   const service=new WisdoIntentService();
   const intent=service.deterministic('activate the 2 minute scalp game plan',{symbol:'XAUUSD'});
   assert.equal(intent.type,'ACTION');
