@@ -46,7 +46,9 @@ export class WisdoCommandBusService {
   }
 
   setPresenceCoordinator(coordinator) {
-    this.presenceCoordinator = typeof coordinator === 'function' ? coordinator : null;
+    if(typeof coordinator === 'function')this.presenceCoordinator=coordinator;
+    else if(coordinator&&typeof coordinator==='object')this.presenceCoordinator=coordinator;
+    else this.presenceCoordinator=null;
     return this;
   }
 
