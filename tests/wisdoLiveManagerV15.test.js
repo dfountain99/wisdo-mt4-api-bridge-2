@@ -47,5 +47,5 @@ test('V15 loads one purpose-built stylesheet and fresh route cache keys', async 
   assert.match(css,/\.lm-risk-grid/);
   assert.match(css,/\.wisdo-v12-time-layout/);
   assert.match(workspace,/v=20261005-v20-scalp-hold/);
-  assert.match(worker,/wisdo-static-v17\.0\.0-intent-os/);
+  assert.match(worker,/wisdo-static-v20\.0\.0-scalp-hold/);
 });
