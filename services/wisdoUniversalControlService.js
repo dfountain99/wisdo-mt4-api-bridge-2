@@ -133,7 +133,7 @@ export class WisdoUniversalControlService {
     const client=await this.pool.connect();
     try{
       await client.query('BEGIN');
-      const rows=(await client.query(`SELECT e.*,c.name AS component_name,c.component_type,c.capabilities
+      const rows=(await client.query(`SELECT e.*,c.name AS component_name,c.component_type,c.capabilities,c.metadata AS component_metadata,c.protocols,c.adapter_id,c.home_id
         FROM wisdo_control_executions e
         JOIN wisdo_components c ON c.component_id=e.component_id
         WHERE e.owner_user_id=$1 AND c.device_id=$2 AND c.status='online' AND c.approval_status='approved'
