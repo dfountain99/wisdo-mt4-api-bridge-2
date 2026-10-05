@@ -22,11 +22,16 @@ export const CAMPAIGN_ACTIONS = Object.freeze({
   WIDEN_EXISTING_STOPS: { code: 20, label: 'Intentionally widen existing live broker stops' },
   COUNTER_IF_VALID: { code: 21, label: 'Arm an opposite HIGHTOWER campaign after a verified stop event' },
   DIRECTIONAL_ENTRY_IF_VALID: { code: 22, label: 'Ask HIGHTOWER to open a requested BUY or SELL under normal safety gates' },
+  ARM_SCALP_2M: { code: 23, label: 'Arm the resettable two-minute scalp game plan' },
+  CANCEL_SCALP_2M: { code: 24, label: 'Cancel the two-minute scalp game plan' },
+  SET_WEEK_SCHEDULE: { code: 25, label: 'Apply broker-time active and blocked hours for the trading week' },
+  CLEAR_WEEK_SCHEDULE: { code: 26, label: 'Return trading hours to the visible EA window inputs' },
 });
 const num = (v, fallback = 0) => typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 const bool = (v) => v === true;
 const hour = (v) => Math.max(0, Math.min(23, Math.trunc(num(v, 0))));
 const minute = (v) => Math.max(0, Math.min(59, Math.trunc(num(v, 0))));
+const dayMask = (v) => Math.max(0, Math.min(0xFFFFFF, Math.trunc(num(v, 0))));
 const SESSION_NAMES = Object.freeze(['ASIA','LONDON','NEW YORK','LONDON/NY OVERLAP','ROLLOVER','OTHER']);
 export function normalizeCampaignControl(value) {
   if (!value || value.version !== 1 || !/^[A-Za-z0-9_.#-]{1,24}$/.test(value.symbol || '') || !Number.isInteger(value.magic) || value.magic <= 0) return null;
@@ -35,7 +40,9 @@ export function normalizeCampaignControl(value) {
     .map(x => ({ id: x.id, price: x.price, kind: 'confirmed-pivot' }));
   const sessionReported = Number.isFinite(value.sessionId) && Number.isFinite(value.windowMode);
   const sessionId = Math.max(0, Math.min(5, Math.trunc(num(value.sessionId, 5))));
-  const windowMode = Math.max(0, Math.min(2, Math.trunc(num(value.windowMode, 0))));
+  const windowMode = Math.max(0, Math.min(3, Math.trunc(num(value.windowMode, 0))));
+  const weekScheduleEnabled = bool(value.weekScheduleEnabled);
+  const weekDayMasks = Array.from({ length: 7 }, (_, index) => dayMask(value[`day${index}Mask`]));
   const configuredWindows = windowMode === 0
     ? [{ startHour: 0, endHour: 0, label: 'ALL HOURS' }]
     : windowMode === 1
@@ -63,11 +70,20 @@ export function normalizeCampaignControl(value) {
       quality: Math.max(0, num(value.sessionQuality, 0)),
       brokerHour: hour(value.brokerHour),
       brokerMinute: minute(value.brokerMinute),
+      brokerDay: Math.max(0, Math.min(6, Math.trunc(num(value.brokerDay, 0)))),
       windowMode,
       scheduleEnforced: sessionReported ? bool(value.scheduleEnforced) : null,
       windowAllowed: sessionReported ? bool(value.windowAllowed) : null,
       entryAllowed: sessionReported ? bool(value.entryAllowed) : null,
       windows: configuredWindows,
+      weekSchedule: { enabled: weekScheduleEnabled, dayMasks: weekDayMasks },
+    },
+    scalp: {
+      active: bool(value.scalpActive),
+      state: Math.max(0, Math.min(3, Math.trunc(num(value.scalpState, 0)))),
+      resetSeconds: Math.max(30, Math.min(3600, Math.trunc(num(value.scalpResetSeconds, 120)))),
+      remainingSeconds: Math.max(0, num(value.scalpRemainingSeconds, 0)),
+      entryAllowed: value.scalpEntryAllowed == null ? null : bool(value.scalpEntryAllowed),
     },
     marketSense: {
       intentScore: Math.max(0, Math.min(1, num(value.intentScore))),
@@ -103,6 +119,7 @@ export function campaignPacket(action, body, state) {
   if (!definition) fail('Unsupported campaign instruction.');
   const duration = Number(body.durationSeconds || 0);
   if ([1, 3, 6, 7, 12].includes(definition.code) && (!Number.isInteger(duration) || duration < 1 || duration > 604800)) fail('Choose a duration between 1 second and 7 days.');
+  if (definition.code === 23 && (!Number.isInteger(duration) || duration < 30 || duration > 3600)) fail('Scalp reset duration must be between 30 seconds and 60 minutes.');
   if ([2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20].includes(definition.code) && c.phase !== 1) fail('This instruction requires an active campaign.');
   const burstCount = Number(body.burstCount || 0);
   if (definition.code === 12 && (!Number.isInteger(burstCount) || burstCount < 1 || burstCount > 10)) fail('A SONIC window allows 1 to 10 entries, each subject to the normal EA gates.');
@@ -139,6 +156,8 @@ export function campaignPacket(action, body, state) {
     const requestedSymbol=String(body.requestedSymbol||'').trim().toUpperCase();
     if (requestedSymbol && requestedSymbol !== String(c.symbol||'').toUpperCase()) fail('Requested symbol does not match the bound HIGHTOWER campaign lane.');
   }
+  const masks = Array.isArray(body.dayMasks) ? body.dayMasks.map(Number) : [];
+  if (definition.code === 25 && (masks.length !== 7 || masks.some(mask => !Number.isInteger(mask) || mask < 0 || mask > 0xFFFFFF))) fail('Weekly schedule requires seven broker-day masks with 24 hourly slots each.');
   const runtimeScope = [15, 16].includes(definition.code) ? (body.persistRuntime === true ? 2 : 1) : 0;
   let level = null;
   if ([8, 9].includes(definition.code)) {
@@ -149,5 +168,7 @@ export function campaignPacket(action, body, state) {
   return { operation: definition.code, burstCount, durationSeconds: duration, eaCampaignId: c.campaignId,
     symbol: c.symbol, magicNumber: c.magic, tickets: tickets.join(','),
     levelId: level?.id || 0, levelPrice: level?.price || 0,
-    stopAtr, trailStartAtr, trailDistanceAtr, trailStepAtr, trimPercent, runtimeScope, counterDirection, referencePrice, requestedDirection };
+    stopAtr, trailStartAtr, trailDistanceAtr, trailStepAtr, trimPercent, runtimeScope, counterDirection, referencePrice, requestedDirection,
+    day0Mask: masks[0] ?? 0, day1Mask: masks[1] ?? 0, day2Mask: masks[2] ?? 0, day3Mask: masks[3] ?? 0,
+    day4Mask: masks[4] ?? 0, day5Mask: masks[5] ?? 0, day6Mask: masks[6] ?? 0 };
 }
