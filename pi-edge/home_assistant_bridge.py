@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import threading
 import time
@@ -108,6 +109,8 @@ class HomeAssistantBridge:
         self.token_file = Path(token_file)
         self.ha = _clean(os.getenv('WISDO_HOME_ASSISTANT_URL')).rstrip('/')
         self.ha_token = _clean(os.getenv('WISDO_HOME_ASSISTANT_TOKEN'))
+        self.home_id = _clean(os.getenv('WISDO_HOME_ID'))
+        self.source_instance_id = hashlib.sha256(self.ha.encode('utf-8')).hexdigest()[:24] if self.ha else ''
         self.sync_seconds = max(15.0, float(os.getenv('WISDO_HA_SYNC_SECONDS', '60')))
         self.poll_seconds = max(0.5, float(os.getenv('WISDO_HA_CONTROL_POLL_SECONDS', '1.5')))
         self.timeout = max(2.0, float(os.getenv('WISDO_HA_HTTP_TIMEOUT_SECONDS', '8')))
@@ -180,7 +183,7 @@ class HomeAssistantBridge:
         device_class = _clean(attrs.get('device_class')).lower()
         entity_state = _clean(entity.get('state')).lower()
         return {
-            'componentId': f'ha:{entity_id}',
+            'componentId': f'ha:{self.device_id}:{entity_id}',
             'componentType': domain,
             'name': friendly,
             'aliases': _aliases(entity_id, domain, attrs),
@@ -189,11 +192,17 @@ class HomeAssistantBridge:
                 'readOnly': domain in READ_ONLY_DOMAINS,
                 'provider': 'home_assistant',
             },
+            'approvalStatus': 'pending',
+            'homeId': self.home_id or None,
+            'adapterId': 'home-assistant',
+            'protocols': ['home-assistant'],
+            'ownershipVerified': False,
             'state': _safe_state(entity),
             'status': 'unavailable' if entity_state == 'unavailable' else 'online',
             'metadata': {
                 'provider': 'home_assistant',
                 'entity_id': entity_id,
+                'source_instance_id': self.source_instance_id,
                 'domain': domain,
                 'device_class': device_class,
                 'local_only': True,
@@ -246,7 +255,11 @@ class HomeAssistantBridge:
         component_id = _clean(execution.get('component_id'))
         if not component_id.startswith('ha:'):
             raise RuntimeError('Execution is not owned by the Home Assistant bridge.')
-        entity_id = component_id[3:]
+        metadata = execution.get('component_metadata') if isinstance(execution.get('component_metadata'), dict) else {}
+        entity_id = _clean(metadata.get('entity_id'))
+        if not entity_id:
+            parts = component_id.split(':', 2)
+            entity_id = parts[2] if len(parts) == 3 else component_id[3:]
         domain = _component_type(entity_id)
         action = _clean(execution.get('action')).lower()
         parameters = execution.get('parameters') if isinstance(execution.get('parameters'), dict) else {}
