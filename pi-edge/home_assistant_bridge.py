@@ -178,6 +178,7 @@ class HomeAssistantBridge:
         attrs = entity.get('attributes') if isinstance(entity.get('attributes'), dict) else {}
         friendly = _clean(attrs.get('friendly_name')) or _slug_label(entity_id.split('.', 1)[-1]).title()
         device_class = _clean(attrs.get('device_class')).lower()
+        entity_state = _clean(entity.get('state')).lower()
         return {
             'componentId': f'ha:{entity_id}',
             'componentType': domain,
@@ -189,6 +190,7 @@ class HomeAssistantBridge:
                 'provider': 'home_assistant',
             },
             'state': _safe_state(entity),
+            'status': 'unavailable' if entity_state == 'unavailable' else 'online',
             'metadata': {
                 'provider': 'home_assistant',
                 'entity_id': entity_id,
