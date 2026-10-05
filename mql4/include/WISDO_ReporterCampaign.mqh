@@ -18,11 +18,17 @@ string BuildCampaignControlJson()
    j+=",\"targetEquity\":"+DoubleToString(WcoRead(p,"targetEquity"),2);
    j+=",\"sessionId\":"+DoubleToString(WcoRead(p,"session"),0)+",\"sessionQuality\":"+DoubleToString(WcoRead(p,"sessionQuality"),4);
    j+=",\"brokerHour\":"+DoubleToString(WcoRead(p,"brokerHour"),0)+",\"brokerMinute\":"+DoubleToString(WcoRead(p,"brokerMinute"),0);
+   j+=",\"brokerDay\":"+DoubleToString(WcoRead(p,"brokerDay"),0);
    j+=",\"windowMode\":"+DoubleToString(WcoRead(p,"windowMode"),0);
    j+=",\"window1Start\":"+DoubleToString(WcoRead(p,"window1Start"),0)+",\"window1End\":"+DoubleToString(WcoRead(p,"window1End"),0);
    j+=",\"window2Start\":"+DoubleToString(WcoRead(p,"window2Start"),0)+",\"window2End\":"+DoubleToString(WcoRead(p,"window2End"),0);
    j+=",\"scheduleEnforced\":"+BoolToJson(WcoRead(p,"scheduleEnforced")==1);
+   j+=",\"weekScheduleEnabled\":"+BoolToJson(WcoRead(p,"weekScheduleEnabled")==1);
+   for(int d=0;d<7;d++) j+=",\"day"+IntegerToString(d)+"Mask\":"+DoubleToString(WcoRead(p,"day"+IntegerToString(d)+"Mask"),0);
    j+=",\"windowAllowed\":"+BoolToJson(WcoRead(p,"windowAllowed")==1)+",\"entryAllowed\":"+BoolToJson(WcoRead(p,"entryAllowed")==1);
+   j+=",\"scalpActive\":"+BoolToJson(WcoRead(p,"scalpActive")==1)+",\"scalpState\":"+DoubleToString(WcoRead(p,"scalpState"),0);
+   j+=",\"scalpResetSeconds\":"+DoubleToString(WcoRead(p,"scalpResetSeconds"),0)+",\"scalpRemainingSeconds\":"+DoubleToString(WcoRead(p,"scalpRemainingSeconds"),0);
+   j+=",\"scalpEntryAllowed\":"+BoolToJson(WcoRead(p,"scalpEntryAllowed")==1);
    j+=",\"intentScore\":"+DoubleToString(WcoRead(p,"intentScore"),4);
    j+=",\"continuationProbability\":"+DoubleToString(WcoRead(p,"continuationProbability"),4)+",\"reversalProbability\":"+DoubleToString(WcoRead(p,"reversalProbability"),4);
    j+=",\"pressureBias\":"+DoubleToString(WcoRead(p,"pressureBias"),4)+",\"flowLeg\":"+DoubleToString(WcoRead(p,"flowLeg"),0);
@@ -59,7 +65,7 @@ bool ExecuteCampaignCommand(string json,string &message,int &ticket)
    int op=JsonGetInt(json,"operation",0),duration=JsonGetInt(json,"durationSeconds",0);
    if(!EnableCampaignControl || CampaignControlMagic<=0 || JsonGetString(json,"symbol","")!=CampaignControlSymbol || JsonGetInt(json,"magicNumber",0)!=CampaignControlMagic)
    {message="Campaign control scope is disabled or does not match Reporter inputs";return false;}
-   if(id<=0 || expires<TimeGMT() || expires>TimeGMT()+120 || op<1 || op>22 ||
+   if(id<=0 || expires<TimeGMT() || expires>TimeGMT()+120 || op<1 || op>26 ||
       ((op==1 || op==3 || op==6 || op==7 || op==12) && (duration<1 || duration>604800)))
    {message="Invalid or expired campaign instruction";return false;}
    if(WcoRead(p,"ack")>=id){message="Already processed by EA; inspect campaign acknowledgement";return true;}
@@ -79,6 +85,7 @@ bool ExecuteCampaignCommand(string json,string &message,int &ticket)
    WcoWrite(p,"counterDirection",JsonGetInt(json,"counterDirection",0));
    WcoWrite(p,"referencePrice",JsonGetDouble(json,"referencePrice",0));
    WcoWrite(p,"requestedDirection",JsonGetInt(json,"requestedDirection",0));
+   for(int d=0;d<7;d++) WcoWrite(p,"day"+IntegerToString(d)+"Mask",JsonGetInt(json,"day"+IntegerToString(d)+"Mask",0));
    if(op==15 || op==16)WcoWrite(p,"runtimeScope",JsonGetInt(json,"runtimeScope",1));
    string parts[];int count=StringSplit(JsonGetString(json,"tickets",""),StringGetCharacter(",",0),parts);
    if(count>12){WcoWrite(p,"slot",0);message="Too many selected trades";return false;}
