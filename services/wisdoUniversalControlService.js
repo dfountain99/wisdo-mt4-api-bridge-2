@@ -79,8 +79,16 @@ export class WisdoUniversalControlService {
     return id;
   }
 
+  async assertOwnedEdge(device,edgeDeviceId) {
+    const id=clean(edgeDeviceId||device.device_id,200);
+    const row=(await this.pool.query(`SELECT device_id FROM wisdo_devices WHERE device_id=$1 AND owner_user_id=$2 AND status='active' LIMIT 1`,[id,device.owner_user_id])).rows[0];
+    if(!row){const error=new Error('The requested edge device is not an active device owned by this user.');error.statusCode=403;error.code='edge_not_owned';throw error;}
+    return id;
+  }
+
   async bindAdapter(device,input={}) {
     const homeId=await this.assertOwnedHome(device,input.home_id||input.homeId);
+    const edgeDeviceId=await this.assertOwnedEdge(device,input.edge_device_id||input.edgeDeviceId||device.device_id);
     const adapterId=clean(input.adapter_id||input.adapterId,120);
     if(!WISDO_ADAPTERS.some((adapter)=>adapter.id===adapterId)){const error=new Error('Unknown adapterId.');error.statusCode=400;throw error;}
     const sourceInstanceId=clean(input.source_instance_id||input.sourceInstanceId||'',200);
@@ -90,15 +98,27 @@ export class WisdoUniversalControlService {
       VALUES($1,$2,$3,$4,$5,$6,'active',$7::jsonb,NOW(),NOW())
       ON CONFLICT(owner_user_id,edge_device_id,adapter_id,source_instance_id)
       DO UPDATE SET home_id=EXCLUDED.home_id,status='active',metadata=EXCLUDED.metadata,updated_at=NOW()
-      RETURNING *`,[bindingId,device.owner_user_id,homeId,device.device_id,adapterId,sourceInstanceId,JSON.stringify(obj(input.metadata))])).rows[0];
+      RETURNING *`,[bindingId,device.owner_user_id,homeId,edgeDeviceId,adapterId,sourceInstanceId,JSON.stringify(obj(input.metadata))])).rows[0];
   }
 
   async listAdapterBindings(device) {
     return (await this.pool.query(`SELECT * FROM wisdo_adapter_bindings WHERE owner_user_id=$1 AND status='active' ORDER BY adapter_id,created_at`,[device.owner_user_id])).rows;
   }
 
+  async assertComponentBinding(device,componentId,homeId) {
+    const row=(await this.pool.query(`SELECT c.component_id,c.device_id,c.adapter_id,c.metadata->>'source_instance_id' AS source_instance_id,
+      EXISTS(SELECT 1 FROM wisdo_adapter_bindings b WHERE b.owner_user_id=c.owner_user_id AND b.home_id=$1
+        AND b.edge_device_id=c.device_id AND b.adapter_id=c.adapter_id AND b.source_instance_id=c.metadata->>'source_instance_id' AND b.status='active') AS source_bound
+      FROM wisdo_components c WHERE c.component_id=$2 AND c.owner_user_id=$3 LIMIT 1`,
+      [homeId,clean(componentId,200),device.owner_user_id])).rows[0];
+    if(!row){const error=new Error('Component was not found.');error.statusCode=404;throw error;}
+    if(row.source_instance_id && !row.source_bound){const error=new Error('The component source adapter is not bound to this owned home.');error.statusCode=409;error.code='adapter_binding_required';throw error;}
+    return row;
+  }
+
   async approveComponent(device,componentId,input={}) {
     const homeId=await this.assertOwnedHome(device,input.home_id||input.homeId);
+    await this.assertComponentBinding(device,componentId,homeId);
     const result=await this.pool.query(`UPDATE wisdo_components
       SET approval_status='approved',home_id=$1,approved_at=NOW(),approved_by=$2,revoked_at=NULL,updated_at=NOW()
       WHERE component_id=$3 AND owner_user_id=$4 AND approval_status IN ('pending','revoked')
@@ -111,6 +131,7 @@ export class WisdoUniversalControlService {
     const homeId=await this.assertOwnedHome(device,input.home_id||input.homeId);
     const ids=[...new Set((Array.isArray(input.componentIds)?input.componentIds:[]).map((value)=>clean(value,200)).filter(Boolean))].slice(0,250);
     if(!ids.length){const error=new Error('componentIds are required.');error.statusCode=400;throw error;}
+    for(const id of ids)await this.assertComponentBinding(device,id,homeId);
     const rows=(await this.pool.query(`UPDATE wisdo_components
       SET approval_status='approved',home_id=$1,approved_at=NOW(),approved_by=$2,revoked_at=NULL,updated_at=NOW()
       WHERE owner_user_id=$3 AND component_id=ANY($4::text[]) AND approval_status IN ('pending','revoked')
