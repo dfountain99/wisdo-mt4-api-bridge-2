@@ -69,8 +69,8 @@ test('Pi package is pinned, least-privilege, restart-safe, and rollback-ready',(
 test('Pi release manifest is complete and every packaged file checksum matches',()=>{
   const manifest=JSON.parse(read('../pi-edge/release-manifest.json'));
   assert.equal(manifest.piRuntimeVersion,read('../pi-edge/VERSION').trim());
-  assert.equal(manifest.reporterRequirement,'v1.59');
-  assert.equal(manifest.voiceExecutionMode,'DEMO_ONLY');
+  assert.equal(manifest.reporterRequirement,'v1.63');
+  assert.equal(manifest.voiceExecutionMode,'LIVE_AUTHORIZED');
   assert.equal(manifest.serverCommit,'RESOLVE_FROM_ENCLOSING_GIT_COMMIT');
   for(const [name,expected] of Object.entries(manifest.sha256)){
     const bytes=readFileSync(new URL(`../pi-edge/${name}`,import.meta.url));
