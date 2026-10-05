@@ -21,6 +21,7 @@ export const CAMPAIGN_ACTIONS = Object.freeze({
   CLEAR_RUNTIME_OVERRIDES: { code: 19, label: 'Return live stop and trail settings to the visible EA inputs' },
   WIDEN_EXISTING_STOPS: { code: 20, label: 'Intentionally widen existing live broker stops' },
   COUNTER_IF_VALID: { code: 21, label: 'Arm an opposite HIGHTOWER campaign after a verified stop event' },
+  DIRECTIONAL_ENTRY_IF_VALID: { code: 22, label: 'Ask HIGHTOWER to open a requested BUY or SELL under normal safety gates' },
 });
 const num = (v, fallback = 0) => typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 const bool = (v) => v === true;
@@ -124,11 +125,19 @@ export function campaignPacket(action, body, state) {
   if (definition.code === 17 && (!Number.isFinite(trimPercent) || trimPercent < 1 || trimPercent > 99)) fail('Trim percent must be between 1 and 99.');
   let counterDirection = Number(body.counterDirection || 0);
   let referencePrice = Number(body.referencePrice || 0);
+  let requestedDirection = Number(body.requestedDirection || 0);
   if (definition.code === 21) {
     if (![1, -1].includes(counterDirection)) fail('Counter direction must be BUY or SELL.');
     if (!Number.isFinite(referencePrice) || referencePrice <= 0) fail('A verified stop/close reference price is required before HIGHTOWER can arm a counter campaign.');
     if (c.phase !== 0 && c.phase !== 3) fail('Counter intent can only arm after the prior campaign is flat or already waiting for reversal proof.');
     if (c.positions?.length) fail('Counter intent requires the prior campaign to be flat before arming opposite exposure.');
+  }
+  if (definition.code === 22) {
+    if (![1, -1].includes(requestedDirection)) fail('Requested entry direction must be BUY or SELL.');
+    if (c.phase !== 0) fail('A direct directional entry can only start from a flat HIGHTOWER campaign.');
+    if (c.positions?.length) fail('A direct directional entry requires the current HIGHTOWER lane to be flat.');
+    const requestedSymbol=String(body.requestedSymbol||'').trim().toUpperCase();
+    if (requestedSymbol && requestedSymbol !== String(c.symbol||'').toUpperCase()) fail('Requested symbol does not match the bound HIGHTOWER campaign lane.');
   }
   const runtimeScope = [15, 16].includes(definition.code) ? (body.persistRuntime === true ? 2 : 1) : 0;
   let level = null;
@@ -140,5 +149,5 @@ export function campaignPacket(action, body, state) {
   return { operation: definition.code, burstCount, durationSeconds: duration, eaCampaignId: c.campaignId,
     symbol: c.symbol, magicNumber: c.magic, tickets: tickets.join(','),
     levelId: level?.id || 0, levelPrice: level?.price || 0,
-    stopAtr, trailStartAtr, trailDistanceAtr, trailStepAtr, trimPercent, runtimeScope, counterDirection, referencePrice };
+    stopAtr, trailStartAtr, trailDistanceAtr, trailStepAtr, trimPercent, runtimeScope, counterDirection, referencePrice, requestedDirection };
 }
