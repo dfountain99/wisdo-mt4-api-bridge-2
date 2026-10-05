@@ -152,3 +152,46 @@ test('V17 deployment enables live voice authority but keeps explicit safety impl
   assert.match(workspace,/v=20261002-v17-intent-os/);
   assert.match(worker,/wisdo-static-v17\.0\.0-intent-os/);
 });
+
+
+test('V18 understands everyday trading phrases without bypassing canonical commands',()=>{
+  const service=new WisdoIntentService();
+  const cases=[
+    ['Get me out of everything.','CLOSE_ALL_TRADES','CLOSE_ALL_TRADES'],
+    ['Cash out the winners.','CLOSE_PROFITABLE_TRADES','CLOSE_ALL_WINNERS'],
+    ['No more entries.','STOP_NEW_ENTRIES','STOP_ENTRIES'],
+    ['Stop stacking.','STOP_NEW_ENTRIES','STOP_ENTRIES'],
+    ['Let these trades run without adding.','STOP_NEW_ENTRIES','STOP_ENTRIES'],
+    ['Take a break.','STOP_NEW_ENTRIES','STOP_ENTRIES'],
+    ['Start trading again.','RESUME_TRADING','START_ENTRIES'],
+    ['You can trade now.','RESUME_TRADING','START_ENTRIES'],
+    ['Resume my strategy.','RESUME_TRADING','START_ENTRIES'],
+    ['Add another buy.','ADD_POSITION_IF_VALID','WISDO_CAMPAIGN'],
+  ];
+  for(const [text,intentName,commandName] of cases){
+    const intent=service.deterministic(text,{activeAccountId:'acct-1',symbol:'XAUUSD',magic_number:880099});
+    assert.equal(intent.type,'ACTION',text);
+    assert.equal(intent.intent,intentName,text);
+    assert.equal(intent.commandName,commandName,text);
+  }
+  assert.equal(service.deterministic('Are you connected to my bot?').intent,'ACCOUNT_STATUS');
+  assert.equal(service.deterministic('Which account am I controlling?').intent,'ACCOUNT_STATUS');
+  const undo=service.deterministic('Cancel the rule I just added.');
+  assert.equal(undo.type,'BEHAVIOR_CONTROL');
+  assert.equal(undo.intent,'CANCEL_BEHAVIOR');
+  assert.equal(undo.parameters.reference,'last');
+});
+
+test('V18 behavior compiler recognizes conversational campaign management phrases',()=>{
+  const context={account_id:'acct-1',symbol:'XAUUSD',magic_number:880099};
+  const stop=compiler.compile('Let these trades run without adding',context);
+  assert.equal(stop.validation.valid,true);
+  assert.equal(stop.actions[0].type,'pause_entries');
+  const resume=compiler.compile('Start trading again',context);
+  assert.equal(resume.validation.valid,true);
+  assert.equal(resume.actions[0].type,'resume_entries');
+  const collect=compiler.compile('Collect this basket now',context);
+  assert.equal(collect.validation.valid,true);
+  assert.equal(collect.actions[0].type,'close_full_basket');
+  assert.equal(collect.verification.receipt,'mt4_reporter');
+});
