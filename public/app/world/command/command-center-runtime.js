@@ -8,7 +8,7 @@ const pct=(value)=>`${(finite(value)*100).toFixed(0)}%`;
 
 export const INTENT_OS_CAPABILITIES=Object.freeze([
   'SET_STOP_ATR','SET_TRAIL_ATR','TRIM_CAMPAIGN','ADD_IF_VALID',
-  'WIDEN_EXISTING_STOPS','CLEAR_RUNTIME_OVERRIDES','COUNTER_IF_VALID',
+  'WIDEN_EXISTING_STOPS','CLEAR_RUNTIME_OVERRIDES','COUNTER_IF_VALID','ARM_TWO_MIN_SCALP',
 ]);
 
 function ensureStyles(){
@@ -294,7 +294,26 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     onReceipt:(receipt)=>{latestReceipt=receipt;renderReceipt();announceReceipt(receipt);},
   });
 
-  const timeEngine=createWisdoTimeEngine(q('#lmTimeHost'),{resetWindowSeconds:120});
+  async function handleScalpHold({phase,prepared,heldForMs=0,windowSeconds=120}={}){
+    if(phase==='start'){
+      setIntent(`Keep holding. WISDO is revalidating the live campaign before arming the ${windowSeconds}-second scalp watchdog…`,'warn');
+      return runtime.propose('ARM_TWO_MIN_SCALP',{campaignId:selectedCampaignId,durationSeconds:120});
+    }
+    if(phase==='cancel'){
+      setIntent('Scalp arm cancelled. Nothing was sent to HIGHTOWER.','');
+      return null;
+    }
+    if(phase==='complete'){
+      if(!prepared?.proposalId)throw new Error('Scalp proposal was not prepared.');
+      latestReceipt=await runtime.execute(prepared,heldForMs);
+      renderReceipt();
+      setIntent('Two-minute scalp game plan sent. HIGHTOWER will reset the 02:00 clock on every confirmed entry, then collect and wait for an opposite candle if the clock expires.','live');
+      return latestReceipt;
+    }
+    return null;
+  }
+
+  const timeEngine=createWisdoTimeEngine(q('#lmTimeHost'),{resetWindowSeconds:120,scalpHoldMs:2000,onScalpHold:handleScalpHold});
 
   function cancelProposal(){
     proposal=null;holdStart=0;clearInterval(holdTimer);holdTimer=0;
