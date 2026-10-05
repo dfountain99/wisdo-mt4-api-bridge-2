@@ -25,6 +25,7 @@ Website changes alone cannot install an EA in a user's terminal or restore a sto
 | After campaign end, pause X | On the flat/awaiting-flip transition, pause before permitting another entry. |
 | Evaluate entry now | Evaluate on the EA tick through existing logic; never guarantee or force an order. Distinct no-entry and broker-entry statuses. |
 | Bounded SONIC window | In an active campaign, allow up to 1–10 normal SONIC entries during the selected duration. Every original signal, spacing, spread and risk gate applies. Quota decrements only after a successful order. When exhausted/expired, SONIC pauses until the standing intention is cancelled or replaced. It does not block unrelated normal strategy entries. |
+| Two-minute scalp watchdog | Hold the WISDO Time core for 2.0 seconds to arm a fixed 120-second inactivity window. Every broker-confirmed new campaign entry restarts the clock. If no new entry arrives before expiry, HIGHTOWER blocks new entries first, enters its full-basket close-and-retry state, records the finished basket median, and then waits flat for a newly closed opposite-color candle. After that reset candle, the entry gate reopens and the stored median becomes the first resumed campaign's launch reference; normal spread, structure, room, stop, risk and broker-legality gates still decide whether an entry is valid. |
 | Move targets | Up to 12 selected collectors/runners move to one currently confirmed pivot. HOLD targets cannot be changed. Each broker modification is checked; partial outcomes are reported. |
 | Protect campaign rail | Accept only a currently confirmed pivot that tightens the rail and satisfies broker distance checks. The normal rail manager applies broker stops; acceptance is not a broker modification receipt. |
 | Assign runner / collector | Persist assignments on selected non-HOLD tickets in this campaign. |
@@ -32,7 +33,7 @@ Website changes alone cannot install an EA in a user's terminal or restore a sto
 | Profit Vault | Selected non-HOLD tickets prioritize the existing break-even/cost reserve and trailing logic, subject to broker distance checks. This is not a guarantee against slippage or costs. |
 | Cancel standing intention | Cancel only this receiver's rule/SONIC window; never clear manual or emergency locks. |
 
-There is **one standing rule per watched campaign** in this version. Arming a new timed/conditional/SONIC rule replaces the previous rule. Target, rail, assignment and trail-policy changes do not replace the standing rule. Arbitrary multi-rule programs, autonomous learned preference changes, and unrestricted natural-language strategy generation are not enabled.
+There is **one standing rule per watched campaign** in this version. Arming a new timed/conditional/SONIC/scalp-watchdog rule replaces the previous rule. Target, rail, assignment and trail-policy changes do not replace the standing rule. Arbitrary multi-rule programs, autonomous learned preference changes, and unrestricted natural-language strategy generation are not enabled.
 
 ## Canvas and voice
 
@@ -45,6 +46,7 @@ Examples:
 - `End this campaign after 30 minutes`
 - `After this campaign ends pause for 2 hours`
 - `Arm a ten burst sonic attack for the next valid entry`
+- `Activate the 2 minute game plan scalp system`
 - `Extend selected trades three levels` (requires matching starting targets)
 - `Make selected trades structure keeper`
 - `Enter now`
