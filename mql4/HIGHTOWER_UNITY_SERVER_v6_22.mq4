@@ -30218,7 +30218,7 @@ void WBTimer()
    bool ok=WBPost("/mt4-bot-poll",WBBody()+",\"paused\":"+(wbPaused?"true":"false")+",\"emergency\":"+(wbEmergency?"true":"false")+",\"positions\":"+IntegerToString(WBCount())+"}",response);
    if(!ok){wbLinked=false;wbPaused=true;WBGuard();return;}
    if(WBGet("protocol")!="1" || WBGet("accountNumber")!=IntegerToString(AccountNumber()) || WBGet("brokerServer")!=AccountServer() ||
-      WBGet("symbol")!=Symbol() || WBGet("magicNumber")!=IntegerToString(MagicNumber()))
+      WBGet("symbol")!=Symbol() || WBGet("magicNumber")!=IntegerToString(MagicNumber))
    {wbLinked=false;wbPaused=true;WBSetStatus("SERVER SCOPE MISMATCH");return;}
    wbLinked=true;wbLastSuccess=GetTickCount();WBSetStatus(wbPaused?"PAIRED / PAUSED":"PAIRED / ARMED");
    if(WBGet("hasCommand")!="true")return;

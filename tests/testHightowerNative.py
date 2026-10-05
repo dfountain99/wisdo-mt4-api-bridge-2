@@ -69,3 +69,5 @@ with tempfile.TemporaryDirectory() as d:
 assert len(re.findall(r'\bOrderSend\s*\(',src))==1
 assert src.index('WBAllows(cmd)',src.index('int HT5CommanderOrderSend('))<src.index('int ticket=OrderSend(')
 print('Single OrderSend authority and native bridge event hooks verified.')
+
+assert not re.search(r"\bMagicNumber\s*\(",src), "MagicNumber is an input, not a function"
