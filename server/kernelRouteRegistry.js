@@ -59,7 +59,10 @@ export function registerWisdoKernelRoutes(app, {
     mt4SyncService,
     logger,
   });
-  commandBusService.setPresenceCoordinator((input) => settingsHubService.handlePresenceArrival(input));
+  commandBusService.setPresenceCoordinator({
+    arrival:(input)=>settingsHubService.handlePresenceArrival(input),
+    departure:(input)=>settingsHubService.handlePresenceDeparture(input),
+  });
 
   registerAtlasRoutes(app, {
     commandBusService,
