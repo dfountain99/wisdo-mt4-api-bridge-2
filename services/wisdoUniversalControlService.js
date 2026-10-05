@@ -26,15 +26,16 @@ export class WisdoUniversalControlService {
 
   async registerComponent(device,input={}) {
     const componentId=clean(input.component_id||input.componentId||crypto.randomUUID(),200);
+    const status=['online','offline','unavailable'].includes(String(input.status||'').toLowerCase())?String(input.status).toLowerCase():'online';
     const result=await this.pool.query(`INSERT INTO wisdo_components
       (component_id,owner_user_id,device_id,component_type,name,aliases,capabilities,state,metadata,status,last_seen_at,created_at,updated_at)
-      VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,'online',NOW(),NOW(),NOW())
+      VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10,NOW(),NOW(),NOW())
       ON CONFLICT(component_id) DO UPDATE SET device_id=EXCLUDED.device_id,component_type=EXCLUDED.component_type,
       name=EXCLUDED.name,aliases=EXCLUDED.aliases,capabilities=EXCLUDED.capabilities,state=EXCLUDED.state,
-      metadata=EXCLUDED.metadata,status='online',last_seen_at=NOW(),updated_at=NOW() RETURNING *`,[
+      metadata=EXCLUDED.metadata,status=EXCLUDED.status,last_seen_at=NOW(),updated_at=NOW() RETURNING *`,[
       componentId,device.owner_user_id,device.device_id,clean(input.component_type||input.componentType||'generic',60),
       clean(input.name||componentId,200),JSON.stringify(input.aliases||[]),JSON.stringify(obj(input.capabilities)),
-      JSON.stringify(obj(input.state)),JSON.stringify(obj(input.metadata))]);
+      JSON.stringify(obj(input.state)),JSON.stringify(obj(input.metadata)),status]);
     return result.rows[0];
   }
 
