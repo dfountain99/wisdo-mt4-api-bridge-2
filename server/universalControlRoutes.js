@@ -7,6 +7,7 @@ export function registerUniversalControlRoutes(app,{commandBusService,pool,logge
  app.post('/api/control/v1/components/register',auth,async(req,res,next)=>{try{res.status(201).json({ok:true,component:await service.registerComponent(req.wisdoDevice,req.body||{})});}catch(e){next(e);}});
  app.get('/api/control/v1/components',auth,async(req,res,next)=>{try{res.json({ok:true,components:await service.listComponents(req.wisdoDevice,req.query||{})});}catch(e){next(e);}});
  app.post('/api/control/v1/resolve',auth,async(req,res,next)=>{try{res.json({ok:true,components:await service.resolveComponents(req.wisdoDevice,req.body||{})});}catch(e){next(e);}});
+ app.post('/api/control/v1/preview',auth,async(req,res,next)=>{try{res.json({ok:true,preview:await service.preview(req.wisdoDevice,req.body||{})});}catch(e){next(e);}});
  app.post('/api/control/v1/execute',auth,async(req,res,next)=>{try{res.status(202).json({ok:true,executions:await service.execute(req.wisdoDevice,req.body||{})});}catch(e){next(e);}});
  app.post('/api/control/v1/executions/lease',auth,async(req,res,next)=>{try{res.json({ok:true,executions:await service.leaseExecutions(req.wisdoDevice,req.body?.limit)});}catch(e){next(e);}});
  app.post('/api/control/v1/executions/:executionId/complete',auth,async(req,res,next)=>{try{res.json({ok:true,execution:await service.completeExecution(req.wisdoDevice,req.params.executionId,req.body||{})});}catch(e){next(e);}});
