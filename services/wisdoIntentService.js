@@ -59,11 +59,14 @@ function percentBefore(text, pattern) {
 function command(intent, commandName, parameters = {}, confidence = 0.95, extra = {}) {
   return { schemaVersion: INTENT_SCHEMA_VERSION, type: 'ACTION', intent, commandName, parameters, confidence, ...extra };
 }
+function ambient(intent, parameters = {}, confidence = 0.95, extra = {}) {
+  return { schemaVersion: INTENT_SCHEMA_VERSION, type: 'AMBIENT_ACTION', intent, parameters, confidence, ...extra };
+}
 
 export function validateStructuredIntent(value) {
   if (!value || typeof value !== 'object') return { ok: false, errors: ['intent_object_required'] };
   const errors = [];
-  if (!['ACTION', 'BEHAVIOR', 'BEHAVIOR_CONTROL', 'QUERY', 'PLAN', 'CONVERSATION', 'CONFIRMATION', 'CANCEL', 'GOODBYE', 'CLARIFICATION'].includes(value.type)) errors.push('invalid_type');
+  if (!['ACTION', 'AMBIENT_ACTION', 'BEHAVIOR', 'BEHAVIOR_CONTROL', 'QUERY', 'PLAN', 'CONVERSATION', 'CONFIRMATION', 'CANCEL', 'GOODBYE', 'CLARIFICATION'].includes(value.type)) errors.push('invalid_type');
   if (!value.intent || typeof value.intent !== 'string') errors.push('intent_required');
   const confidence = Number(value.confidence);
   if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) errors.push('invalid_confidence');
@@ -120,6 +123,22 @@ export class WisdoIntentService {
     if (/change that|set that|leave .* runners? instead|apply that|remove the .* restriction/.test(ask)) return { ...base, type: 'PLAN', intent: 'MODIFY_PLAN', confidence: context.activePlanId ? 0.9 : 0.45, parameters: { value: extractSpokenNumber(ask) } };
     const planSignals = /daily profit|drawdown|runner|trail|account|allow buys|allow sells|stop trading|copier|risk/.test(ask);
     if (context.planMode && planSignals) return { ...base, type: 'PLAN', intent: 'ADD_PLAN_DETAILS', confidence: 0.9, parameters: this.extractPlanFields(raw) };
+
+    let ambientMatch=null;
+    if(/\b(?:prepare|open|start)\b.*\b(?:trading )?workstation\b|\bset up (?:my )?(?:trading )?room\b/.test(ask))
+      return ambient('WORKSTATION_PREPARE',{intent:'prepare_trading_workspace'},0.99,{rawText:raw});
+    ambientMatch=ask.match(/\b(?:activate|run|start|use)\s+(?:my\s+)?(.{1,60}?)\s+(?:scene|mode)\b/);
+    if(ambientMatch)return ambient('SMART_HOME_SCENE',{sceneName:ambientMatch[1].trim()},0.97,{rawText:raw});
+    ambientMatch=ask.match(/\bturn\s+(on|off)\s+(?:the\s+)?(.{0,80}?)\s*lights?\b/);
+    if(ambientMatch)return ambient('SMART_HOME_CONTROL',{componentType:'light',room:ambientMatch[2].replace(/\b(?:room|the)\b/g,' ').trim(),action:ambientMatch[1]==='on'?'turn_on':'turn_off',parameters:{}},0.98,{rawText:raw});
+    ambientMatch=ask.match(/\b(?:dim|set)\s+(?:the\s+)?(.{0,80}?)\s*lights?\s+(?:to\s+)?(\d{1,3})\s*(?:%|percent)\b/);
+    if(ambientMatch)return ambient('SMART_HOME_CONTROL',{componentType:'light',room:ambientMatch[1].replace(/\b(?:room|the)\b/g,' ').trim(),action:'set_brightness',parameters:{brightness_pct:Math.max(1,Math.min(100,Number(ambientMatch[2])))}},0.98,{rawText:raw});
+    ambientMatch=ask.match(/\bset\s+(?:the\s+)?(.{0,80}?)\s*(?:temperature|thermostat)\s+(?:to\s+)?(\d{2,3}(?:\.\d+)?)\b/);
+    if(ambientMatch)return ambient('SMART_HOME_CONTROL',{componentType:'climate',room:ambientMatch[1].replace(/\b(?:room|the)\b/g,' ').trim(),action:'set_temperature',parameters:{temperature:Number(ambientMatch[2])}},0.97,{rawText:raw});
+    ambientMatch=ask.match(/\b(lock|unlock)\s+(?:the\s+)?(.{1,80}?)(?:\s+(?:door|lock))?$/);
+    if(ambientMatch)return ambient('SMART_HOME_CONTROL',{componentType:'lock',alias:ambientMatch[2].trim(),action:ambientMatch[1],parameters:{}},0.98,{rawText:raw,riskIncreasing:ambientMatch[1]==='unlock'});
+    ambientMatch=ask.match(/\bturn\s+(on|off)\s+(?:the\s+)?(.{1,80}?)\s+(?:switch|fan)\b/);
+    if(ambientMatch)return ambient('SMART_HOME_CONTROL',{componentType:ask.includes(' fan')?'fan':'switch',alias:ambientMatch[2].trim(),action:ambientMatch[1]==='on'?'turn_on':'turn_off',parameters:{}},0.96,{rawText:raw});
 
     if (/guard mode|safe mode|defensive mode/.test(ask)) return command('GUARD_MODE', 'SET_CONTROL_MODE', { mode: 'GUARD', allowNewTrades: false, guardMode: true, maxTrades: 1, riskPercent: 0.25 }, 0.98, { rawText: raw });
     if (/close (all|everything)( trades)?/.test(ask)) return command('CLOSE_ALL_TRADES', 'CLOSE_ALL_TRADES', {}, 0.99, { rawText: raw });
