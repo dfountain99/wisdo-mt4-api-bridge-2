@@ -70,7 +70,7 @@ test('V17 MQL arms HIGHTOWER reversal proof instead of forcing an opposite order
     fs.readFile(new URL('../mql4/CultureCoin_MT4_Reporter.mq4',import.meta.url),'utf8'),
     fs.readFile(new URL('../mql4/HIGHTOWER_UNITY_CAMPAIGN_v6_21.mq4',import.meta.url),'utf8'),
   ]);
-  assert.match(bridge,/op>23/);
+  assert.match(bridge,/op>25/);
   assert.match(bridge,/counterDirection/);
   assert.match(bridge,/referencePrice/);
   assert.match(receiver,/WcoArmCounterIfValid/);
@@ -83,7 +83,7 @@ test('V17 MQL arms HIGHTOWER reversal proof instead of forcing an opposite order
   assert.doesNotMatch(receiver.slice(start,end),/OrderSend\s*\(/);
   assert.match(ea,/bool H620TryFlip\(\)/);
   assert.match(ea,/HT6EinsteinOpenStructureHold\(dir\)/);
-  assert.match(reporter,/REPORTER_VERSION = "1\.65"/);
+  assert.match(reporter,/REPORTER_VERSION = "1\.66"/);
   assert.match(reporter,/\"stopLoss\"/);
   assert.match(reporter,/counter-campaign intention is armed/);
 });
@@ -246,12 +246,12 @@ test('V19 MQL direct entry remains behind HIGHTOWER structure and broker gates',
     fs.readFile(new URL('../mql4/include/WISDO_ReporterCampaign.mqh',import.meta.url),'utf8'),
     fs.readFile(new URL('../mql4/CultureCoin_MT4_Reporter.mq4',import.meta.url),'utf8'),
   ]);
-  assert.match(bridge,/op>23/);
+  assert.match(bridge,/op>25/);
   assert.match(bridge,/requestedDirection/);
   assert.match(receiver,/WcoDirectionalEntryIfValid/);
   assert.match(receiver,/gHT6Flow\.primaryDirection!=dir/);
   assert.match(receiver,/HT6EinsteinOpenStructureHold\(dir\)/);
   assert.match(receiver,/op==22/);
-  assert.match(reporter,/REPORTER_VERSION = "1\.65"/);
+  assert.match(reporter,/REPORTER_VERSION = "1\.66"/);
   assert.match(reporter,/requested directional entry opened through HIGHTOWER normal gates/);
 });
