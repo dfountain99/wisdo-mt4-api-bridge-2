@@ -59,6 +59,8 @@ PLAYBACK_LOCK = threading.Lock()
 PLAYBACK_INTERRUPTED = False
 PRESENCE_LAST = False
 PRESENCE_CHECKED_AT = 0.0
+HOME_ASSISTANT_SYNCED_AT = 0.0
+HOME_ASSISTANT_CONFIG_FILE = configured_path('WISDO_HOME_ASSISTANT_CONFIG_FILE', local_data_path('home-assistant.json'))
 def load_seen_deliveries():
     try: return deque((line.strip() for line in PLAYED_FILE.read_text(encoding='utf-8').splitlines() if line.strip()), maxlen=256)
     except OSError: return deque(maxlen=256)
@@ -443,15 +445,145 @@ def poll_presence():
     if current is None:
         return
     arrived = current and not PRESENCE_LAST
+    departed = (not current) and PRESENCE_LAST
     PRESENCE_LAST = current
-    if not arrived:
+    if not arrived and not departed:
         return
     room = os.getenv('WISDO_PRESENCE_ROOM_ID', os.getenv('WISDO_ROOM_ID', 'trading-room')).strip() or 'trading-room'
-    response = requests.post(f'{CLOUD}/api/device/v1/presence/arrive', headers=headers(), json={'roomId':room}, timeout=12)
+    event = 'arrive' if arrived else 'depart'
+    response = requests.post(f'{CLOUD}/api/device/v1/presence/{event}', headers=headers(), json={'roomId':room}, timeout=12)
     if response.status_code not in (202, 409):
         response.raise_for_status()
     body = response.json()
-    print('Wisdo presence arrival:', json.dumps(body, separators=(',',':')))
+    print(f'Wisdo presence {event}:', json.dumps(body, separators=(',',':')))
+
+def home_assistant_config():
+    url = os.getenv('WISDO_HOME_ASSISTANT_URL', '').strip().rstrip('/')
+    token = os.getenv('WISDO_HOME_ASSISTANT_TOKEN', '').strip()
+    if url and token:
+        return {'url': url, 'token': token}
+    try:
+        value = json.loads(HOME_ASSISTANT_CONFIG_FILE.read_text(encoding='utf-8'))
+        url = str(value.get('url') or '').strip().rstrip('/')
+        token = str(value.get('token') or '').strip()
+        return {'url': url, 'token': token} if url and token else None
+    except (OSError, ValueError, TypeError):
+        return None
+
+def save_home_assistant_config(value):
+    url = str(value.get('url') or '').strip().rstrip('/')
+    token = str(value.get('token') or '').strip()
+    if not (url.startswith('http://') or url.startswith('https://')) or not token:
+        raise ValueError('Home Assistant URL/token are invalid.')
+    response = requests.get(url + '/api/', headers={'Authorization':f'Bearer {token}','Content-Type':'application/json'}, timeout=10)
+    response.raise_for_status()
+    HOME_ASSISTANT_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temporary = HOME_ASSISTANT_CONFIG_FILE.with_suffix('.tmp')
+    temporary.write_text(json.dumps({'url':url,'token':token}), encoding='utf-8')
+    temporary.chmod(0o600)
+    temporary.replace(HOME_ASSISTANT_CONFIG_FILE)
+    return {'url':url,'verified':True}
+
+def ha_headers(config):
+    return {'Authorization':f'Bearer {config["token"]}','Content-Type':'application/json'}
+
+HA_ACTIONS = {
+    'light':['turn_on','turn_off','toggle','set_brightness','set_color_temp','set_rgb_color'],
+    'switch':['turn_on','turn_off','toggle'],
+    'scene':['activate'],
+    'climate':['set_temperature','set_hvac_mode'],
+    'lock':['lock','unlock'],
+    'cover':['open_cover','close_cover','stop_cover'],
+    'media_player':['turn_on','turn_off','volume_set','media_play_pause'],
+    'fan':['turn_on','turn_off','set_percentage'],
+}
+
+def home_assistant_service(action, domain):
+    if action == 'activate' and domain == 'scene': return 'turn_on', {}
+    if action == 'set_brightness': return 'turn_on', {}
+    if action == 'set_color_temp': return 'turn_on', {}
+    if action == 'set_rgb_color': return 'turn_on', {}
+    return action, {}
+
+def sync_home_assistant_components(force=False):
+    global HOME_ASSISTANT_SYNCED_AT
+    config = home_assistant_config()
+    if not config: return 0
+    interval = max(15.0, float(os.getenv('WISDO_HOME_ASSISTANT_SYNC_SECONDS', '60')))
+    now = time.monotonic()
+    if not force and now - HOME_ASSISTANT_SYNCED_AT < interval: return 0
+    response = requests.get(config['url'] + '/api/states', headers=ha_headers(config), timeout=15)
+    response.raise_for_status()
+    count = 0
+    for entity in response.json()[:1000]:
+        entity_id = str(entity.get('entity_id') or '')
+        domain = entity_id.split('.',1)[0] if '.' in entity_id else ''
+        actions = HA_ACTIONS.get(domain)
+        if not actions: continue
+        attributes = entity.get('attributes') if isinstance(entity.get('attributes'), dict) else {}
+        payload = {
+            'componentId': f'ha:{DEVICE_ID}:{entity_id}',
+            'componentType': domain,
+            'name': str(attributes.get('friendly_name') or entity_id)[:180],
+            'aliases': [entity_id, str(attributes.get('friendly_name') or '').lower()],
+            'capabilities': {'actions': actions, 'provider':'home_assistant'},
+            'state': {'state':entity.get('state'),'brightness':attributes.get('brightness'),'temperature':attributes.get('temperature'),'hvac_mode':entity.get('state') if domain=='climate' else None},
+            'metadata': {'provider':'home_assistant','entity_id':entity_id,'domain':domain,'room':str(attributes.get('area_name') or attributes.get('room') or '').strip().lower()},
+        }
+        registered = requests.post(f'{CLOUD}/api/control/v1/components/register', headers=headers(), json=payload, timeout=10)
+        registered.raise_for_status(); count += 1
+        if count >= 300: break
+    HOME_ASSISTANT_SYNCED_AT = now
+    return count
+
+def execute_home_assistant(execution):
+    config = home_assistant_config()
+    if not config: raise RuntimeError('Home Assistant is not configured on this edge device.')
+    metadata = execution.get('metadata') if isinstance(execution.get('metadata'), dict) else {}
+    entity_id = str(metadata.get('entity_id') or '')
+    domain = str(metadata.get('domain') or execution.get('component_type') or '')
+    action = str(execution.get('action') or '')
+    if not entity_id or action not in HA_ACTIONS.get(domain, []):
+        raise RuntimeError('Execution does not match a discovered Home Assistant entity capability.')
+    service, _ = home_assistant_service(action, domain)
+    parameters = execution.get('parameters') if isinstance(execution.get('parameters'), dict) else {}
+    data = {'entity_id': entity_id}
+    if action == 'set_brightness': data['brightness_pct'] = max(1, min(100, int(parameters.get('brightness_pct', 50))))
+    elif action == 'set_color_temp': data['color_temp_kelvin'] = int(parameters.get('color_temp_kelvin', parameters.get('kelvin', 3000)))
+    elif action == 'set_rgb_color':
+        rgb = parameters.get('rgb_color', [255,255,255]); data['rgb_color'] = [max(0,min(255,int(x))) for x in list(rgb)[:3]]
+    elif action == 'set_temperature': data['temperature'] = float(parameters.get('temperature'))
+    elif action == 'set_hvac_mode': data['hvac_mode'] = str(parameters.get('hvac_mode') or 'auto')
+    elif action == 'volume_set': data['volume_level'] = max(0.0,min(1.0,float(parameters.get('volume_level',.5))))
+    elif action == 'set_percentage': data['percentage'] = max(0,min(100,int(parameters.get('percentage',50))))
+    response = requests.post(f'{config["url"]}/api/services/{domain}/{service}', headers=ha_headers(config), json=data, timeout=12)
+    response.raise_for_status()
+    state_response = requests.get(f'{config["url"]}/api/states/{entity_id}', headers=ha_headers(config), timeout=10)
+    state_response.raise_for_status()
+    state = state_response.json()
+    return {'entityId':entity_id,'domain':domain,'action':action,'state':state.get('state'),'attributes':state.get('attributes',{})}
+
+def poll_home_assistant_executions():
+    if not home_assistant_config(): return
+    response = requests.post(f'{CLOUD}/api/control/v1/executions/lease', headers=headers(), json={'limit':12}, timeout=10)
+    response.raise_for_status()
+    for execution in response.json().get('executions', []):
+        try:
+            result = execute_home_assistant(execution)
+            payload = {'status':'completed','result':result,'message':'Home Assistant verified the requested device state.'}
+        except Exception as exc:
+            payload = {'status':'failed','result':{},'error':str(exc)[:500]}
+        requests.post(f'{CLOUD}/api/control/v1/executions/{execution["execution_id"]}/complete', headers=headers(), json=payload, timeout=10).raise_for_status()
+
+def configure_home_assistant(secret_id):
+    response = requests.get(f'{CLOUD}/api/agent/v1/secrets/{secret_id}', headers=headers(), timeout=12)
+    response.raise_for_status()
+    secret = response.json().get('secret', {})
+    if secret.get('name') != 'home_assistant' or not isinstance(secret.get('value'), dict):
+        raise RuntimeError('One-time Home Assistant configuration secret is invalid.')
+    result = save_home_assistant_config(secret['value'])
+    sync_home_assistant_components(True)
+    return result
 
 def wake_trading_workstation():
     raw = os.getenv('WISDO_TRADING_WORKSTATION_MAC', '').replace(':','').replace('-','').strip()
@@ -480,6 +612,12 @@ def poll_device_commands():
             try:
                 result = wake_trading_workstation()
                 status, message = 'completed', 'Wake-on-LAN packet verified and sent to the configured trading workstation.'
+            except Exception as exc:
+                status, message = 'failed', str(exc)
+        elif intent == 'configure_home_assistant':
+            try:
+                result = configure_home_assistant(str((command.get('parameters') or {}).get('secretId') or ''))
+                status, message = 'completed', 'Home Assistant connection verified, stored locally, and entities synchronized.'
             except Exception as exc:
                 status, message = 'failed', str(exc)
         requests.post(
@@ -512,6 +650,8 @@ def main():
             # Presence can enqueue a Wake-on-LAN command for this Pi; lease it
             # immediately before entering the microphone wait.
             poll_device_commands()
+            sync_home_assistant_components()
+            poll_home_assistant_executions()
             if muted():
                 set_led('muted'); heartbeat(False); time.sleep(0.5); continue
             delivery = poll_delivery(0)

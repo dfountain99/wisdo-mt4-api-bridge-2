@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import pg from 'pg';
 import { WisdoSafetyService } from './wisdoSafetyService.js';
+import { encryptCredential, decryptCredential } from '../server/security.js';
 
 const { Pool } = pg;
 
@@ -41,6 +42,40 @@ export class WisdoCommandBusService {
     this.commandLeaseSeconds = Math.max(5, Number(process.env.WISDO_COMMAND_LEASE_SECONDS || 30));
     this.maxAttempts = Math.max(1, Number(process.env.WISDO_COMMAND_MAX_ATTEMPTS || 5));
     this.safetyService = new WisdoSafetyService();
+    this.presenceCoordinator = null;
+  }
+
+  setPresenceCoordinator(coordinator) {
+    if(typeof coordinator === 'function')this.presenceCoordinator=coordinator;
+    else if(coordinator&&typeof coordinator==='object')this.presenceCoordinator=coordinator;
+    else this.presenceCoordinator=null;
+    return this;
+  }
+
+  async createDeviceSecret(ownerUserId, targetDeviceId, secretName, value, ttlSeconds = 120) {
+    const owner = clean(ownerUserId, 200), deviceId = clean(targetDeviceId, 200), name = clean(secretName, 100);
+    const device = (await this.pool.query('SELECT device_id FROM wisdo_devices WHERE owner_user_id=$1 AND device_id=$2 AND status=\'active\'',[owner,deviceId])).rows[0];
+    if (!device) { const error = new Error('Target device is not enrolled for this user.'); error.statusCode = 404; throw error; }
+    const secretId = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + Math.max(30, Math.min(600, Number(ttlSeconds || 120))) * 1000);
+    await this.pool.query('INSERT INTO wisdo_device_secrets(secret_id,owner_user_id,target_device_id,secret_name,ciphertext,status,expires_at,created_at) VALUES($1,$2,$3,$4,$5,\'pending\',$6,NOW())',[secretId,owner,deviceId,name,encryptCredential(value),expiresAt]);
+    return { secretId, expiresAt: expiresAt.toISOString(), secretName: name };
+  }
+
+  async claimDeviceSecret(device, secretId) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const row = (await client.query('SELECT * FROM wisdo_device_secrets WHERE secret_id=$1 AND owner_user_id=$2 AND target_device_id=$3 AND status=\'pending\' AND expires_at>NOW() FOR UPDATE',[clean(secretId,100),device.owner_user_id,device.device_id])).rows[0];
+      if (!row) { await client.query('ROLLBACK'); const error = new Error('One-time device secret is missing, expired, or already claimed.'); error.statusCode = 410; error.code = 'device_secret_unavailable'; throw error; }
+      const value = decryptCredential(row.ciphertext);
+      await client.query('UPDATE wisdo_device_secrets SET status=\'claimed\',claimed_at=NOW(),ciphertext=\'\' WHERE secret_id=$1',[row.secret_id]);
+      await client.query('COMMIT');
+      return { secretId: row.secret_id, name: row.secret_name, value };
+    } catch (error) {
+      try { await client.query('ROLLBACK'); } catch {}
+      throw error;
+    } finally { client.release(); }
   }
 
   async authenticateDevice(deviceId, token, expectedType = null) {

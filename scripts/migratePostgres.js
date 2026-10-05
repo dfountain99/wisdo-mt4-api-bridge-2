@@ -458,5 +458,6 @@ try {
   `);
   await pool.query(await readFile(new URL('../migrations/2026-08-09-conversational-trading-os.sql', import.meta.url), 'utf8'));
   await pool.query(await readFile(new URL('../migrations/2026-08-09-major-stability-ecosystem.sql', import.meta.url), 'utf8'));
+  await pool.query(await readFile(new URL('../migrations/2026-10-05-wisdo-settings-smart-home-v18.sql', import.meta.url), 'utf8'));
 console.log('WISDO PostgreSQL v3.4 Voice Bot Authority migration complete.');
 } finally { await pool.end(); }

@@ -18,6 +18,7 @@ import { registerWorldRealtimeRoutes } from './worldRealtimeRoutes.js';
 import { registerWorldBuildRoutes } from './worldBuildRoutes.js';
 import { registerArcadeRoutes } from './arcadeRoutes.js';
 import { registerOgMasterWisdoRoutes } from './ogMasterWisdoRoutes.js';
+import { registerSettingsHubRoutes } from './settingsHubRoutes.js';
 
 /**
  * Registers the modern Wisdo Kernel services as one cohesive boundary.
@@ -45,6 +46,24 @@ export function registerWisdoKernelRoutes(app, {
     logger,
   });
 
+  const universalControlService = registerUniversalControlRoutes(app, {
+    commandBusService,
+    pool: commandBusService.pool,
+    logger,
+  });
+
+  const settingsHubService = registerSettingsHubRoutes(app, {
+    pool: commandBusService.pool,
+    commandBusService,
+    universalControlService,
+    mt4SyncService,
+    logger,
+  });
+  commandBusService.setPresenceCoordinator({
+    arrival:(input)=>settingsHubService.handlePresenceArrival(input),
+    departure:(input)=>settingsHubService.handlePresenceDeparture(input),
+  });
+
   registerAtlasRoutes(app, {
     commandBusService,
     pool: commandBusService.pool,
@@ -69,6 +88,7 @@ export function registerWisdoKernelRoutes(app, {
     mt4SyncService,
     copyTradingService,
     commandRegistryAudit,
+    ambientControlService: settingsHubService,
     logger,
   });
 
@@ -214,6 +234,8 @@ export function registerWisdoKernelRoutes(app, {
     conversationalVoice,
     roomStateService,
     voiceBotAuthorityService,
+    universalControlService,
+    settingsHubService,
     workspaces,
     world,
     worldBuild,
