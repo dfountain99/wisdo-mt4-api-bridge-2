@@ -1,3 +1,4 @@
+import { parseSmartHomeIntent } from './wisdoSmartHomeIntentService.js';
 const DEFAULT_WAKE_PHRASES = Object.freeze([
   'hey coach', 'hey wisdom', 'hey wisdo', 'hey wiz', 'hey operator',
   'hey trading assistant', 'trading assistant', 'coach', 'wisdom', 'wisdo',
@@ -63,7 +64,7 @@ function command(intent, commandName, parameters = {}, confidence = 0.95, extra 
 export function validateStructuredIntent(value) {
   if (!value || typeof value !== 'object') return { ok: false, errors: ['intent_object_required'] };
   const errors = [];
-  if (!['ACTION', 'BEHAVIOR', 'BEHAVIOR_CONTROL', 'QUERY', 'PLAN', 'CONVERSATION', 'CONFIRMATION', 'CANCEL', 'GOODBYE', 'CLARIFICATION'].includes(value.type)) errors.push('invalid_type');
+  if (!['ACTION', 'BEHAVIOR', 'BEHAVIOR_CONTROL', 'QUERY', 'HOME_ACTION', 'HOME_QUERY', 'PLAN', 'CONVERSATION', 'CONFIRMATION', 'CANCEL', 'GOODBYE', 'CLARIFICATION'].includes(value.type)) errors.push('invalid_type');
   if (!value.intent || typeof value.intent !== 'string') errors.push('intent_required');
   const confidence = Number(value.confidence);
   if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) errors.push('invalid_confidence');
@@ -86,6 +87,8 @@ export class WisdoIntentService {
     if (/^(cancel|never mind|cancel what i just said|forget that)$/.test(ask)) return { ...base, type: 'CANCEL', intent: 'CANCEL_PENDING', confidence: 1 };
     if (/^(?:undo that|cancel the rule i just added|remove the rule i just added)\.?$/.test(ask)) return { ...base, type: 'BEHAVIOR_CONTROL', intent: 'CANCEL_BEHAVIOR', confidence: 0.98, parameters: { reference: 'last' } };
     if (/confirm coach (execute|activate todays plan)/.test(ask)) return { ...base, type: 'CONFIRMATION', intent: ask.includes('activate') ? 'CONFIRM_PLAN' : 'CONFIRM_ACTION', confidence: 1 };
+    const smartHome=parseSmartHomeIntent(raw);
+    if(smartHome)return {...base,...smartHome,rawText:raw};
     if (/new plan|build todays trading plan|plan for today|new strategy for this session|change how we trade today/.test(ask)) return { ...base, type: 'PLAN', intent: 'CREATE_DAILY_PLAN', confidence: 0.98 };
     if (/pause (that |the )?plan/.test(ask)) return { ...base, type: 'PLAN', intent: 'PAUSE_PLAN', confidence: 0.98 };
     if (/resume|continue/.test(ask) && /plan|where we left off/.test(ask)) return { ...base, type: 'PLAN', intent: 'RESUME_PLAN', confidence: 0.95 };
