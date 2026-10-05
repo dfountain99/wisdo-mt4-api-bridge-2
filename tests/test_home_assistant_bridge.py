@@ -2,7 +2,14 @@ import importlib.util
 import os
 import tempfile
 import unittest
+import sys
+import types
 from pathlib import Path
+
+try:
+    import requests  # noqa: F401
+except ModuleNotFoundError:
+    sys.modules['requests'] = types.SimpleNamespace(Session=lambda: object())
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / 'pi-edge' / 'home_assistant_bridge.py'
 SPEC = importlib.util.spec_from_file_location('wisdo_home_assistant_bridge', MODULE_PATH)
