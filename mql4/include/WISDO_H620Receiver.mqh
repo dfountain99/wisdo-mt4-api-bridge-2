@@ -235,10 +235,16 @@ void WcoPublish()
    bool chronosEntryAllowed=(DirectAllowNewEntries && chronosWindowAllowed && !wisdoTradingPaused && !h620FuturePaused && !h620Quarantine);
    WcoWrite(p,"session",gHT5Session);WcoWrite(p,"sessionQuality",gHT5SessionQuality);
    WcoWrite(p,"brokerHour",TimeHour(chronosNow));WcoWrite(p,"brokerMinute",TimeMinute(chronosNow));
-   WcoWrite(p,"windowMode",(int)DirectTradingWindowMode);
-   WcoWrite(p,"window1Start",HT6NormalizeHour(DirectWindow1StartHour));WcoWrite(p,"window1End",HT6NormalizeHour(DirectWindow1EndHour));
-   WcoWrite(p,"window2Start",HT6NormalizeHour(DirectWindow2StartHour));WcoWrite(p,"window2End",HT6NormalizeHour(DirectWindow2EndHour));
-   WcoWrite(p,"scheduleEnforced",DirectTradingWindowMode==TIME_WINDOW_ALL_HOURS?0:1);
+   int effectiveWindowMode=HT6EffectiveTradingWindowMode(),effectiveWindowCount=HT6EffectiveWindowCount();
+   int effectiveW1Start=HT6EffectiveWindowStartMinute(1),effectiveW1End=HT6EffectiveWindowEndMinute(1);
+   int effectiveW2Start=HT6EffectiveWindowStartMinute(2),effectiveW2End=HT6EffectiveWindowEndMinute(2);
+   WcoWrite(p,"windowMode",effectiveWindowMode);WcoWrite(p,"windowCount",effectiveWindowCount);
+   WcoWrite(p,"window1Start",effectiveW1Start/60);WcoWrite(p,"window1End",effectiveW1End/60);
+   WcoWrite(p,"window2Start",effectiveW2Start/60);WcoWrite(p,"window2End",effectiveW2End/60);
+   WcoWrite(p,"window1StartMinute",effectiveW1Start);WcoWrite(p,"window1EndMinute",effectiveW1End);
+   WcoWrite(p,"window2StartMinute",effectiveW2Start);WcoWrite(p,"window2EndMinute",effectiveW2End);
+   WcoWrite(p,"scheduleOverride",HT6ScheduleOverrideActive()?1:0);
+   WcoWrite(p,"scheduleEnforced",effectiveWindowMode==TIME_WINDOW_ALL_HOURS?0:1);
    WcoWrite(p,"windowAllowed",chronosWindowAllowed?1:0);WcoWrite(p,"entryAllowed",chronosEntryAllowed?1:0);
    // MARKET SENSE truth from the active HIGHTOWER organism. Numeric fields only;
    // the website labels them, while the EA remains the authority.
@@ -330,11 +336,20 @@ void H620FutureTick()
    {
       int op=(int)WcoRead(p,"op"),duration=(int)WcoRead(p,"duration");
       bool valid=WcoRead(p,"expires")>=TimeGMT() && WcoRead(p,"expected")==h620Id && IsConnected() && IsExpertEnabled();
-      if(op<1 || op>23)valid=false;
+      if(op<1 || op>25)valid=false;
       if((op==1 || op==3 || op==6 || op==7 || op==12 || op==23) && (duration<1 || duration>604800))valid=false;
       if((op==2 || op==3 || (op>=6 && op<=18) || op==20 || op==23) && h620Phase!=1)valid=false;
       if(op==12 && (WcoRead(p,"burst")<1 || WcoRead(p,"burst")>10))valid=false;
       if(op==23 && duration!=120)valid=false;
+      if(op==24)
+      {
+         int scheduleMode=(int)WcoRead(p,"scheduleMode"),scheduleWindowCount=(int)WcoRead(p,"scheduleWindowCount");
+         int w1s=(int)WcoRead(p,"window1StartMinute"),w1e=(int)WcoRead(p,"window1EndMinute");
+         int w2s=(int)WcoRead(p,"window2StartMinute"),w2e=(int)WcoRead(p,"window2EndMinute");
+         if(scheduleMode<0 || scheduleMode>2)valid=false;
+         if(scheduleMode==2 && (scheduleWindowCount<1 || scheduleWindowCount>2 || w1s<0 || w1s>1439 || w1e<0 || w1e>1439 || w1s==w1e))valid=false;
+         if(scheduleMode==2 && scheduleWindowCount==2 && (w2s<0 || w2s>1439 || w2e<0 || w2e>1439 || w2s==w2e))valid=false;
+      }
       if(!valid){WcoAck(id,-1);return;}
       // A persisted processing marker prevents replay after a terminal crash.
       WcoWrite(p,"ack",id);WcoWrite(p,"ackStatus",-2);GlobalVariablesFlush();
@@ -352,6 +367,18 @@ void H620FutureTick()
       else if(op==20){result=WcoWidenExistingStops(p,WcoRead(p,"stopAtr"))?1:(WcoRead(p,"changed")>0?3:-1);}
       else if(op==21){result=WcoArmCounterIfValid(p,(int)WcoRead(p,"counterDirection"),WcoRead(p,"referencePrice"))?1:-1;}
       else if(op==22){bool opened=WcoDirectionalEntryIfValid(p,(int)WcoRead(p,"requestedDirection"));result=opened?6:5;}
+      else if(op==24)
+      {
+         int scheduleMode=(int)WcoRead(p,"scheduleMode"),scheduleWindowCount=(int)WcoRead(p,"scheduleWindowCount");
+         WcoWrite(p,"scheduleOverride",1);WcoWrite(p,"scheduleMode",scheduleMode);WcoWrite(p,"scheduleWindowCount",scheduleWindowCount);
+         WcoWrite(p,"scheduleW1StartMinute",WcoRead(p,"window1StartMinute"));WcoWrite(p,"scheduleW1EndMinute",WcoRead(p,"window1EndMinute"));
+         WcoWrite(p,"scheduleW2StartMinute",WcoRead(p,"window2StartMinute"));WcoWrite(p,"scheduleW2EndMinute",WcoRead(p,"window2EndMinute"));
+         WcoWrite(p,"requested",1);WcoWrite(p,"changed",1);GlobalVariablesFlush();result=1;
+      }
+      else if(op==25)
+      {
+         WcoWrite(p,"scheduleOverride",0);WcoWrite(p,"requested",1);WcoWrite(p,"changed",1);GlobalVariablesFlush();result=1;
+      }
       else if((op>=8 && op<=11) || op==13 || op==14)
       {
          WcoWrite(p,"changed",0);WcoWrite(p,"requested",0);
