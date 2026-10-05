@@ -16,7 +16,7 @@ function isLive(a){return /live|real/i.test(String(a?.environment||a?.accountTyp
 function connected(a,staleMs){const date=a?.lastSyncAt||a?.last_sync_at||a?.updatedAt||a?.updated_at;return a?.status!=='offline'&&Boolean(date)&&Date.now()-new Date(date).getTime()<=staleMs;}
 
 export class WisdoConversationService {
-  constructor({intentService,contextService,safetyService,confirmationService,planService,executionService,educationService=null,auditService=null,capabilityService=null,adaptiveFabricService=null,getAuthorizedAccounts=async()=>[],getActiveAccount=async()=>null,menuProvider=async()=>({}),staleMs=Number(process.env.WISDO_TRADING_OFFLINE_MS||300000)}={}){Object.assign(this,{intentService,contextService,safetyService,confirmationService,planService,executionService,educationService,auditService,capabilityService,adaptiveFabricService,getAuthorizedAccounts,getActiveAccount,menuProvider,staleMs});}
+  constructor({intentService,contextService,safetyService,confirmationService,planService,executionService,educationService=null,auditService=null,capabilityService=null,adaptiveFabricService=null,homeControlService=null,getAuthorizedAccounts=async()=>[],getActiveAccount=async()=>null,menuProvider=async()=>({}),staleMs=Number(process.env.WISDO_TRADING_OFFLINE_MS||300000)}={}){Object.assign(this,{intentService,contextService,safetyService,confirmationService,planService,executionService,educationService,auditService,capabilityService,adaptiveFabricService,homeControlService,getAuthorizedAccounts,getActiveAccount,menuProvider,staleMs});}
 
   async ensureSession({userId,deviceId=null,discordUserId=null,channel='device',sessionId=null,wakeMatched=false}){
     let session=sessionId?await this.contextService.get(sessionId,userId):await this.contextService.latest(userId,deviceId);
@@ -55,7 +55,7 @@ export class WisdoConversationService {
       return this.result(session,handled.state,handled.text,true,{...handled,intent});
     }catch(error){
       await this.auditService?.record({userId,sessionId:session.session_id,actorType:'system',eventType:'conversation.failed',detail:{code:error.code||'',message:error.message}}).catch(()=>undefined);
-      const text=error.code==='confirmation_pending'?'A trading instruction is already awaiting confirmation. Say “Confirm Coach, execute” or “cancel” before creating another one. I did not queue a second instruction.':error.code==='trading_offline'?COACH_RESPONSES.offline:error.code==='demo_only_live_blocked'||error.code==='voice_execution_disabled'?COACH_RESPONSES.demoOnly:error.code==='unsupported_action'?COACH_RESPONSES.unsupported:COACH_RESPONSES.failed;
+      const text=error.code==='confirmation_pending'?'An instruction is already awaiting confirmation. Say “Confirm Coach, execute” or “cancel” before creating another one. I did not queue a second instruction.':error.code==='trading_offline'?COACH_RESPONSES.offline:error.code==='demo_only_live_blocked'||error.code==='voice_execution_disabled'?COACH_RESPONSES.demoOnly:error.code==='unsupported_action'?COACH_RESPONSES.unsupported:COACH_RESPONSES.failed;
       await this.contextService.message({sessionId:session.session_id,userId,role:'assistant',content:text,responseState:'failed'}).catch(()=>undefined);
       return this.result(session,'failed',text,true,{error:{code:error.code||'processing_failed'}});
     }
@@ -72,6 +72,8 @@ export class WisdoConversationService {
     if(intent.type==='BEHAVIOR_CONTROL')return this.behaviorControl({input,text,intent,session});
     if(intent.type==='BEHAVIOR')return this.behavior({input,text,intent,session,context});
     if(intent.type==='PLAN')return this.plan({input,text,intent,session,context});
+    if(intent.type==='HOME_QUERY')return this.homeQuery({input,intent});
+    if(intent.type==='HOME_ACTION')return this.homeAction({input,text,intent,session});
     if(intent.type==='QUERY')return this.query({input,intent,session,context});
     if(intent.type==='ACTION')return this.action({input,text,intent,session,context});
     if(intent.intent==='GENERAL_CONVERSATION'){
@@ -87,6 +89,45 @@ export class WisdoConversationService {
     }
     if(intent.confidence<0.7)return {state:'clarification',text:'I want to make sure I understand. Are you asking about an account, a trading action, todayâ€™s plan, or education?'};
     return {state:'completed',text:`I understand. Tell me what you would like to know or change in your trading system. ${COACH_RESPONSES.ready}`};
+  }
+
+  homeDevice(input){return {owner_user_id:input.userId,device_id:input.deviceId||'wisdo-conversation'};}
+
+  async homeQuery({input,intent}){
+    if(!this.homeControlService)return {state:'unsupported',text:'Smart-home control is not connected on this deployment.'};
+    const components=await this.homeControlService.resolveComponents(this.homeDevice(input),intent.parameters?.target||{});
+    if(!components.length)return {state:'unavailable',text:'I could not find an online smart-home component matching that name.'};
+    const details=components.slice(0,6).map((component)=>{
+      const state=component.state&&typeof component.state==='object'?component.state:{};
+      const attrs=state.attributes&&typeof state.attributes==='object'?state.attributes:{};
+      const extras=[];
+      if(attrs.current_temperature!==undefined)extras.push(`temperature ${attrs.current_temperature}`);
+      else if(attrs.temperature!==undefined)extras.push(`temperature ${attrs.temperature}`);
+      if(attrs.humidity!==undefined)extras.push(`humidity ${attrs.humidity}`);
+      if(attrs.battery_level!==undefined)extras.push(`battery ${attrs.battery_level} percent`);
+      return `${component.name} is ${state.state||'available'}${extras.length?`, ${extras.join(', ')}`:''}`;
+    });
+    return {state:'completed',components:components.map((component)=>component.component_id),text:`${details.join('; ')}. ${COACH_RESPONSES.ready}`};
+  }
+
+  async homeAction({input,text,intent,session}){
+    if(!this.homeControlService)return {state:'unsupported',text:'Smart-home control is not connected on this deployment.'};
+    const payload={...(intent.parameters||{}),riskLevel:intent.parameters?.riskLevel??1};
+    const preview=await this.homeControlService.preview(this.homeDevice(input),payload);
+    const targetSelector=intent.parameters?.target||{};
+    if(preview.targets.length>1&&!targetSelector.alias&&!targetSelector.id&&!targetSelector.name){
+      return {state:'clarification',text:`I found ${preview.targets.length} matching smart-home devices. Name the room or device you want me to control.`};
+    }
+    const unsupported=preview.targets.filter((target)=>!target.allowed);
+    if(unsupported.length===preview.targets.length)return {state:'unsupported',text:'The matching smart-home device is online, but it does not advertise that action.'};
+    if(preview.requires_confirmation){
+      const pending=await this.confirmationService.create({userId:input.userId,sessionId:session.session_id,deviceId:input.deviceId,actionType:'HOME_CONTROL',accountIds:[],parameters:{homeIntent:intent,rawText:text},safetyLevel:'DANGEROUS'});
+      const names=preview.targets.filter((target)=>target.allowed).map((target)=>target.name).join(', ');
+      return {state:'awaiting_confirmation',confirmationId:pending.confirmation_id,text:`WISDO understood the smart-home request for ${names}. This action can affect physical security or safety. Say “Confirm Coach, execute” within 60 seconds, or say “cancel”.`};
+    }
+    const executions=await this.homeControlService.execute(this.homeDevice(input),payload);
+    const queued=executions.filter((execution)=>execution.status==='queued');
+    return {state:'queued',executionIds:queued.map((execution)=>execution.execution_id),text:`Smart-home command queued to the local hub for ${queued.length} device${queued.length===1?'':'s'}. WISDO will not call it completed until the edge reports the result.`};
   }
 
   async action({input,text,intent,session,context}){
@@ -160,6 +201,13 @@ export class WisdoConversationService {
       const behaviorId=confirmed.parameters?.behaviorId,candidate=await this.adaptiveFabricService?.behavior(input.userId,behaviorId),conflicts=candidate?await this.adaptiveFabricService.conflicts(input.userId,candidate):[];if(conflicts.some((conflict)=>conflict.behaviorId!==behaviorId&&conflict.severity==='blocking')){await this.confirmationService.consume(confirmed.confirmation_id);return {state:'clarification',behaviorId,conflicts,text:`Activation was blocked because another behavior now conflicts: ${conflicts.map((conflict)=>conflict.reason).join(' ')} No trading command was sent.`};}const activated=await this.adaptiveFabricService?.activateBehavior(input.userId,behaviorId,input.userId);if(!activated)throw Object.assign(new Error('Behavior could not be activated.'),{code:'behavior_activation_failed'});await this.confirmationService.consume(confirmed.confirmation_id);return {state:'active',behaviorId,text:`Confirmed. ${activated.name} is active. WISDO will monitor Reporter snapshots and will only report completion after a verified MT4 receipt.`};
     }
     if(confirmed.action_type==='RESUME_BEHAVIOR'){const behaviorId=confirmed.parameters?.behaviorId,candidate=await this.adaptiveFabricService?.behavior(input.userId,behaviorId),conflicts=candidate?await this.adaptiveFabricService.conflicts(input.userId,candidate):[];if(conflicts.some((conflict)=>conflict.behaviorId!==behaviorId&&conflict.severity==='blocking')){await this.confirmationService.consume(confirmed.confirmation_id);return {state:'clarification',behaviorId,conflicts,text:`Resume was blocked by a conflicting active behavior: ${conflicts.map((conflict)=>conflict.reason).join(' ')}`};}const resumed=await this.adaptiveFabricService?.transitionBehavior(input.userId,behaviorId,'active',input.userId);if(!resumed)throw Object.assign(new Error('Behavior could not be resumed.'),{code:'behavior_activation_failed'});await this.confirmationService.consume(confirmed.confirmation_id);return {state:'active',behaviorId,text:`Confirmed. ${resumed.name} is active again.`};}
+    if(confirmed.action_type==='HOME_CONTROL'){
+      const homeIntent=confirmed.parameters?.homeIntent;if(!this.homeControlService||!homeIntent)throw Object.assign(new Error('Smart-home confirmation context is unavailable.'),{code:'home_control_unavailable'});
+      const executions=await this.homeControlService.execute(this.homeDevice(input),{...(homeIntent.parameters||{}),confirmationVerified:true});
+      await this.confirmationService.consume(confirmed.confirmation_id);
+      const queued=executions.filter((execution)=>execution.status==='queued');
+      return {state:'queued',executionIds:queued.map((execution)=>execution.execution_id),text:`Confirmed. The smart-home action was queued to the local hub for ${queued.length} device${queued.length===1?'':'s'}. Completion still requires an edge-device receipt.`};
+    }
     const stored=confirmed.parameters||{};const actionIntent=stored.intent;const id=confirmed.account_ids?.[0];
     const queued=await this.executionService.queue({userId:input.userId,deviceId:input.deviceId,accountId:id,intent:actionIntent.intent,commandName:actionIntent.commandName,parameters:actionIntent.parameters,rawText:stored.rawText||'',safetyLevel:confirmed.safety_level,confirmationStatus:'CONFIRMED'});
     await this.confirmationService.consume(confirmed.confirmation_id);
