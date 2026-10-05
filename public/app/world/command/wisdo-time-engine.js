@@ -119,7 +119,7 @@ export function createWisdoTimeEngine(container,{resetWindowSeconds=120,scalpHol
   armProgress.style.strokeDashoffset=String(2*Math.PI*54);
 
   let state=null,campaign=null,stateReceivedAt=Date.now(),timer=0;
-  let armStartedAt=0,armTimer=0,armPointer=null,armBusy=false,armPreparation=null;
+  let armStartedAt=0,armTimer=0,armPointer=null,armBusy=false,armPreparation=null,armCooldownUntil=0;
 
   function derived(){
     const control=state?.campaignControl||null;
@@ -176,9 +176,9 @@ export function createWisdoTimeEngine(container,{resetWindowSeconds=120,scalpHol
     }else if(d.scalpActive){
       root.dataset.temporalMode='scalp';
       q('#wcV10TimeStatus').textContent='SCALP ACTIVE';
-      q('#wcV10TimeMain').textContent=fmtDuration(d.remaining||resetWindowSeconds);
+      q('#wcV10TimeMain').textContent=fmtDuration(d.remaining);
       q('#wcV10TimeCaption').textContent='NO-ENTRY COUNTDOWN';
-      q('#wcV10PauseWindow').textContent=`${fmtDuration(d.remaining||resetWindowSeconds)} · RESET ON ENTRY`;
+      q('#wcV10PauseWindow').textContent=`${fmtDuration(d.remaining)} · RESET ON ENTRY`;
     }else if(d.live&&d.goal===23){
       root.dataset.temporalMode='scalp-ready';
       q('#wcV10TimeStatus').textContent='SCALP ARMED';
@@ -242,7 +242,7 @@ export function createWisdoTimeEngine(container,{resetWindowSeconds=120,scalpHol
 
   function canArmScalp(d=derived()){
     const pending=Number(d.control?.pendingId||0),ack=Number(d.control?.ackId||0);
-    return Boolean(d.live&&d.phase===1&&d.goal!==23&&d.goal!==24&&(!pending||pending===ack)&&typeof onScalpHold==='function');
+    return Boolean(Date.now()>=armCooldownUntil&&d.live&&d.phase===1&&d.goal!==23&&d.goal!==24&&(!pending||pending===ack)&&typeof onScalpHold==='function');
   }
 
   function updateArmUi(d=derived()){
@@ -251,6 +251,7 @@ export function createWisdoTimeEngine(container,{resetWindowSeconds=120,scalpHol
     if(d.goal===23&&d.phase===1){armButton.dataset.armState='active';hint.textContent='2-MIN SCALP ACTIVE · ENTRY RESETS 02:00';armButton.setAttribute('aria-disabled','true');}
     else if(d.goal===24){armButton.dataset.armState='waiting';hint.textContent='WAITING FOR OPPOSITE CANDLE';armButton.setAttribute('aria-disabled','true');}
     else if(d.goal===23){armButton.dataset.armState='ready';hint.textContent='SCALP ARMED · WAIT NEXT VALID ENTRY';armButton.setAttribute('aria-disabled','true');}
+    else if(Date.now()<armCooldownUntil){armButton.dataset.armState='sending';hint.textContent='COMMAND SENT · WAITING FOR EA';armButton.setAttribute('aria-disabled','true');}
     else if(canArmScalp(d)){armButton.dataset.armState='idle';hint.textContent=`HOLD ${(holdRequiredMs/1000).toFixed(1)}s · ARM 2-MIN SCALP`;armButton.setAttribute('aria-disabled','false');}
     else{armButton.dataset.armState='unavailable';hint.textContent='LIVE CAMPAIGN REQUIRED TO ARM';armButton.setAttribute('aria-disabled','true');}
   }
@@ -279,6 +280,7 @@ export function createWisdoTimeEngine(container,{resetWindowSeconds=120,scalpHol
     try{
       const prepared=await armPreparation;
       await onScalpHold?.({phase:'complete',prepared,heldForMs:Math.round(heldForMs),windowSeconds:resetWindowSeconds,holdRequiredMs});
+      armCooldownUntil=Date.now()+15000;
       q('#wcV10ArmHint').textContent='COMMAND SENT · WAITING FOR EA';
     }catch(error){
       armButton.dataset.armState='blocked';
@@ -317,6 +319,7 @@ export function createWisdoTimeEngine(container,{resetWindowSeconds=120,scalpHol
   function setState(next={},activeCampaign=null){
     state=next||{};
     campaign=activeCampaign||state?.campaigns?.[0]||null;
+    if([23,24].includes(Number(state?.campaignControl?.goal||0)))armCooldownUntil=0;
     stateReceivedAt=Date.now();
     render();
   }
