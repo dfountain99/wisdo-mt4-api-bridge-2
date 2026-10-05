@@ -7,7 +7,12 @@ export function registerUniversalControlRoutes(app,{commandBusService,pool,logge
  app.post('/api/control/v1/components/register',auth,async(req,res,next)=>{try{res.status(201).json({ok:true,component:await service.registerComponent(req.wisdoDevice,req.body||{})});}catch(e){next(e);}});
  app.get('/api/control/v1/fabric',auth,async(req,res,next)=>{try{res.json({ok:true,...service.fabricManifest()});}catch(e){next(e);}});
  app.post('/api/control/v1/compatibility',auth,async(req,res,next)=>{try{res.json({ok:true,plan:service.compatibility(req.body||{})});}catch(e){next(e);}});
+ app.post('/api/control/v1/homes',auth,async(req,res,next)=>{try{res.status(201).json({ok:true,home:await service.createHome(req.wisdoDevice,req.body||{})});}catch(e){next(e);}});
+ app.get('/api/control/v1/homes',auth,async(req,res,next)=>{try{res.json({ok:true,homes:await service.listHomes(req.wisdoDevice)});}catch(e){next(e);}});
+ app.post('/api/control/v1/adapters/bind',auth,async(req,res,next)=>{try{res.status(201).json({ok:true,binding:await service.bindAdapter(req.wisdoDevice,req.body||{})});}catch(e){next(e);}});
+ app.get('/api/control/v1/adapters/bindings',auth,async(req,res,next)=>{try{res.json({ok:true,bindings:await service.listAdapterBindings(req.wisdoDevice)});}catch(e){next(e);}});
  app.get('/api/control/v1/components',auth,async(req,res,next)=>{try{res.json({ok:true,components:await service.listComponents(req.wisdoDevice,req.query||{})});}catch(e){next(e);}});
+ app.post('/api/control/v1/components/approve-batch',auth,async(req,res,next)=>{try{res.json({ok:true,components:await service.approveComponents(req.wisdoDevice,req.body||{})});}catch(e){next(e);}});
  app.post('/api/control/v1/components/:componentId/approve',auth,async(req,res,next)=>{try{res.json({ok:true,component:await service.approveComponent(req.wisdoDevice,req.params.componentId,req.body||{})});}catch(e){next(e);}});
  app.post('/api/control/v1/components/:componentId/revoke',auth,async(req,res,next)=>{try{res.json({ok:true,component:await service.revokeComponent(req.wisdoDevice,req.params.componentId)});}catch(e){next(e);}});
  app.post('/api/control/v1/resolve',auth,async(req,res,next)=>{try{res.json({ok:true,components:await service.resolveComponents(req.wisdoDevice,req.body||{})});}catch(e){next(e);}});
