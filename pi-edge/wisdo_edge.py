@@ -18,6 +18,7 @@ from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
+from home_assistant_bridge import HomeAssistantBridge
 
 BASE = Path(__file__).resolve().parent
 load_dotenv(BASE / '.env')
@@ -116,7 +117,8 @@ def heartbeat(listening=False):
     if response.status_code == 404:
         response = requests.post(f'{CLOUD}/api/voice/v1/devices/register', headers=headers(),
                                  json={'roomId': os.getenv('WISDO_ROOM_ID', 'office'),
-                                       'permissions': {'conversation': True, 'trading': True},
+                                       'permissions': {'conversation': True, 'trading': True,
+                                                       'smartHome': bool(os.getenv('WISDO_HOME_ASSISTANT_URL','').strip() and os.getenv('WISDO_HOME_ASSISTANT_TOKEN','').strip())},
                                        **payload}, timeout=10)
     response.raise_for_status()
 
@@ -501,6 +503,11 @@ def main():
     validate_configuration()
     set_led('muted' if muted() else 'idle')
     heartbeat(False)
+    home_bridge = HomeAssistantBridge(CLOUD, DEVICE_ID, TOKEN_FILE)
+    if home_bridge.start():
+        print('WISDO Home Assistant bridge enabled: local smart-home discovery/control is active.')
+    elif os.getenv('WISDO_HOME_ASSISTANT_URL','').strip() or os.getenv('WISDO_HOME_ASSISTANT_TOKEN','').strip():
+        print('WISDO Home Assistant bridge is not fully configured; smart-home execution remains disabled.')
     print(f'Wisdo Edge ready on {platform.system()} ({DEVICE_ID}).')
     print('Say "Hey Coach" once, then speak naturally. Press Ctrl+C to stop.')
     console = os.getenv('WISDO_CONSOLE_MODE', 'false').lower() == 'true'
@@ -565,6 +572,10 @@ def main():
             try: heartbeat(False)
             except Exception: pass
             if LED_STATE not in ('speaking', 'muted'): set_led('idle')
+    try:
+        home_bridge.stop()
+    except Exception:
+        pass
 
 
 if __name__ == '__main__':

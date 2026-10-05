@@ -3,7 +3,7 @@
   "releaseChannel": "controlled-live",
   "serverCommit": "RESOLVE_FROM_ENCLOSING_GIT_COMMIT",
   "serverBaseCommit": "3208748c154f9594cbf9f84c9ae9dfd4b6d5af68",
-  "piRuntimeVersion": "3.5.0-live.1",
+  "piRuntimeVersion": "3.6.0-live.1",
   "migrationVersion": "2026-08-09-conversational-trading-os",
   "reporterRequirement": "v1.64",
   "voiceExecutionMode": "LIVE_AUTHORIZED",
@@ -23,7 +23,14 @@
     "led-state-hook",
     "physical-presence-command-adapter",
     "wake-on-lan-workstation",
-    "ambient-device-command-lease"
+    "ambient-device-command-lease",
+    "home-assistant-local-bridge",
+    "matter-thread-via-home-assistant",
+    "smart-home-component-discovery",
+    "capability-scoped-home-control",
+    "physical-security-confirmation-gate",
+    "smart-home-execution-receipts",
+    "presence-activated-trading-scene"
   ],
   "serverEnvironmentVariables": [
     "WISDO_VOICE_EXECUTION_MODE",
@@ -64,15 +71,23 @@
     "WISDO_WOL_BROADCAST",
     "WISDO_PRESENCE_COMMAND",
     "WISDO_PRESENCE_ROOM_ID",
-    "WISDO_PRESENCE_POLL_SECONDS"
+    "WISDO_PRESENCE_POLL_SECONDS",
+    "WISDO_HOME_ASSISTANT_URL",
+    "WISDO_HOME_ASSISTANT_TOKEN",
+    "WISDO_HA_SYNC_SECONDS",
+    "WISDO_HA_CONTROL_POLL_SECONDS",
+    "WISDO_HA_HTTP_TIMEOUT_SECONDS",
+    "WISDO_HA_ALARM_CODE"
   ],
   "sha256": {
-    ".env.example": "9ad50ea926dffc39a6a40aeae4dea454d0ef362b0b76a628aaec240f2c50b235",
-    "VERSION": "86e367ae9a76934b55a94f8d2fbd96f6338c1e890e690a0909a42d89c78ee21d",
-    "enroll.py": "48470b95e596c2908487051b51112ce52fda4ef13ef2f8926175ba8252159051",
+    ".env.example": "c434b243eb88ecae203b13a7fa7867c6cbdc9c2218cfb1c845a827c49a806f9e",
+    "VERSION": "16d8a87453d57a361e7883b5096f42bbd784855fe448f19924c9c6c7e3a87619",
+    "enroll.py": "d258f4c667d4d9757bb62449c5fcaba63137d7f50f6da0c06f9287f8798190a7",
     "install.sh": "30712294d611b8476b6ed6385e161867e88a0f3f4cd15e4b0f2ed9a6a06c4889",
     "requirements.txt": "f4ffdb2526895e49448b4ef157d029ffcb5a2d07d2e96a77edd586cc6bb2da88",
     "uninstall.sh": "ccbb4b0a0dd57a14b4bf07b897e5b84177d6fab7570ed5fbb100a7240001285f",
-    "wisdo_edge.py": "064892b8cc37ed00c5c30bf1e6ccff76a115c772446a74a95f42d6ec0048ffe9"
+    "wisdo_edge.py": "32cbcea81953f221e3154c582aff3b89ed2cc6da78adb77e7314e49b410cc1c0",
+    "home_assistant_bridge.py": "bb993a4e66c33454a80da11487252ce906c86817925fd6a879b05eb1f3f9d9ba",
+    "windows-env.example": "fcb90af0e373567ed09a31c31c0f82c6ead2f2a1e8983d2b5447bffef95d262e"
   }
 }

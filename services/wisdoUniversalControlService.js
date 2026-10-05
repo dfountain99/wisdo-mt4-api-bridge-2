@@ -3,6 +3,22 @@ import crypto from 'node:crypto';
 const clean=(v,n=300)=>String(v??'').trim().slice(0,n);
 const obj=(v,f={})=>(v&&typeof v==='object'&&!Array.isArray(v)?v:f);
 
+export function smartHomeRiskFloor(component={},action=''){
+  const type=String(component.component_type||component.type||'').toLowerCase();
+  const name=String(component.name||'').toLowerCase();
+  const metadata=obj(component.metadata);
+  const deviceClass=String(metadata.device_class||metadata.deviceClass||'').toLowerCase();
+  const verb=String(action||'').toLowerCase();
+  if(verb==='unlock')return 5;
+  if(type==='alarm_control_panel'||verb==='disarm'||verb==='arm_away'||verb==='arm_home')return 5;
+  if(type==='siren')return 4;
+  if(type==='cover'&&(deviceClass==='garage'||/garage/.test(name))&&['open','close','stop','set_position'].includes(verb))return 4;
+  if(type==='lock'&&verb==='lock')return 2;
+  if(type==='scene'&&/emergency/.test(name))return 4;
+  if(type==='cover'||type==='climate'||type==='water_heater')return 2;
+  return 1;
+}
+
 export class WisdoUniversalControlService {
   constructor({pool, commandBusService, logger=console}={}) {
     this.pool=pool; this.commandBusService=commandBusService; this.logger=logger;
@@ -10,15 +26,16 @@ export class WisdoUniversalControlService {
 
   async registerComponent(device,input={}) {
     const componentId=clean(input.component_id||input.componentId||crypto.randomUUID(),200);
+    const status=['online','offline','unavailable'].includes(String(input.status||'').toLowerCase())?String(input.status).toLowerCase():'online';
     const result=await this.pool.query(`INSERT INTO wisdo_components
       (component_id,owner_user_id,device_id,component_type,name,aliases,capabilities,state,metadata,status,last_seen_at,created_at,updated_at)
-      VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,'online',NOW(),NOW(),NOW())
+      VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10,NOW(),NOW(),NOW())
       ON CONFLICT(component_id) DO UPDATE SET device_id=EXCLUDED.device_id,component_type=EXCLUDED.component_type,
       name=EXCLUDED.name,aliases=EXCLUDED.aliases,capabilities=EXCLUDED.capabilities,state=EXCLUDED.state,
-      metadata=EXCLUDED.metadata,status='online',last_seen_at=NOW(),updated_at=NOW() RETURNING *`,[
+      metadata=EXCLUDED.metadata,status=EXCLUDED.status,last_seen_at=NOW(),updated_at=NOW() RETURNING *`,[
       componentId,device.owner_user_id,device.device_id,clean(input.component_type||input.componentType||'generic',60),
       clean(input.name||componentId,200),JSON.stringify(input.aliases||[]),JSON.stringify(obj(input.capabilities)),
-      JSON.stringify(obj(input.state)),JSON.stringify(obj(input.metadata))]);
+      JSON.stringify(obj(input.state)),JSON.stringify(obj(input.metadata)),status]);
     return result.rows[0];
   }
 
@@ -45,22 +62,36 @@ export class WisdoUniversalControlService {
     return result.rows;
   }
 
-  async execute(device,input={}) {
+  async preview(device,input={}) {
     const action=clean(input.action||input.intent,120);
     if(!action){const e=new Error('action is required.');e.statusCode=400;throw e;}
     const targets=await this.resolveComponents(device,obj(input.target));
     if(!targets.length){const e=new Error('No online component matched the requested scope.');e.statusCode=404;throw e;}
-    const executions=[];
-    for(const target of targets){
+    const requestedRisk=Math.max(0,Math.min(5,Number(input.risk_level??input.riskLevel??1)));
+    const details=targets.map((target)=>{
       const caps=obj(target.capabilities,{actions:[]});
       const allowed=Array.isArray(caps.actions)?caps.actions.includes(action):Boolean(caps[action]);
-      if(!allowed){executions.push({component_id:target.component_id,status:'unsupported',action});continue;}
+      const riskLevel=Math.max(requestedRisk,smartHomeRiskFloor(target,action));
+      return {component_id:target.component_id,name:target.name,component_type:target.component_type,allowed,risk_level:riskLevel,state:obj(target.state),metadata:obj(target.metadata)};
+    });
+    return {action,targets:details,risk_level:Math.max(...details.map((item)=>item.risk_level),0),requires_confirmation:details.some((item)=>item.allowed&&item.risk_level>=4)};
+  }
+
+  async execute(device,input={}) {
+    const preview=await this.preview(device,input);
+    if(preview.requires_confirmation&&input.confirmationVerified!==true){
+      const e=new Error('This smart-home action requires explicit confirmation before it can be queued.');
+      e.statusCode=409;e.code='home_confirmation_required';e.preview=preview;throw e;
+    }
+    const executions=[];
+    for(const target of preview.targets){
+      if(!target.allowed){executions.push({component_id:target.component_id,status:'unsupported',action:preview.action,risk_level:target.risk_level});continue;}
       const id=crypto.randomUUID();
       const row=(await this.pool.query(`INSERT INTO wisdo_control_executions
         (execution_id,owner_user_id,issued_by_device_id,component_id,action,parameters,risk_level,status,created_at,updated_at)
         VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,'queued',NOW(),NOW()) RETURNING *`,[
-        id,device.owner_user_id,device.device_id,target.component_id,action,JSON.stringify(obj(input.parameters)),
-        Math.max(0,Math.min(5,Number(input.risk_level??input.riskLevel??1)))])).rows[0];
+        id,device.owner_user_id,device.device_id,target.component_id,preview.action,JSON.stringify(obj(input.parameters)),
+        target.risk_level])).rows[0];
       executions.push(row);
     }
     return executions;
