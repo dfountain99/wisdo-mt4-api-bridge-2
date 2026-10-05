@@ -199,6 +199,20 @@ double WcoLatestWin()
    }
    return ticket;
 }
+
+double WcoCampaignMedianEntry()
+{
+   double prices[];ArrayResize(prices,100);int count=0;
+   for(int i=OrdersTotal()-1;i>=0 && count<100;i--)
+   {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES) || !H620OwnedSelected() || !H620CampaignTicketSelected())continue;
+      prices[count++]=OrderOpenPrice();
+   }
+   if(count<=0)return 0.0;
+   ArrayResize(prices,count);ArraySort(prices,WHOLE_ARRAY,0,MODE_ASCEND);
+   if((count%2)==1)return prices[count/2];
+   return (prices[count/2-1]+prices[count/2])*0.5;
+}
 void WcoPublish()
 {
    string p=WcoEA();double revision=WcoRead(p,"revision");if((int)revision%2!=0)revision++;WcoWrite(p,"revision",revision+1);WcoWrite(p,"version",1);WcoWrite(p,"enabled",H620Enabled() && H620EnableFutureGoals && !h620Quarantine?1:0);
@@ -300,7 +314,7 @@ void H620FutureTick()
    WcoPublish();
    if(!H620Enabled() || !H620EnableFutureGoals || h620Quarantine)return;
    // Campaign-scoped standing rules expire when the thesis changes; explicit pauses stay paused.
-   if(h620FutureGoal!=0 && h620FutureGoal!=1 && h620FutureGoal!=7 && WcoRead(p,"goalCampaign")!=h620Id)
+   if(h620FutureGoal!=0 && h620FutureGoal!=1 && h620FutureGoal!=7 && h620FutureGoal!=23 && h620FutureGoal!=24 && WcoRead(p,"goalCampaign")!=h620Id)
    {h620FutureGoal=0;h620FuturePaused=false;h620FutureUntil=0;WcoSaveGoal();}
    double slot=WcoRead(p,"slot");
    if(slot>0 && (slot<=WcoRead(p,"ack") || (WcoRead(p,"seq")!=slot && TimeGMT()*1000.0-slot/1000.0>120000)))WcoWrite(p,"slot",0);
@@ -309,10 +323,11 @@ void H620FutureTick()
    {
       int op=(int)WcoRead(p,"op"),duration=(int)WcoRead(p,"duration");
       bool valid=WcoRead(p,"expires")>=TimeGMT() && WcoRead(p,"expected")==h620Id && IsConnected() && IsExpertEnabled();
-      if(op<1 || op>22)valid=false;
-      if((op==1 || op==3 || op==6 || op==7 || op==12) && (duration<1 || duration>604800))valid=false;
-      if((op==2 || op==3 || (op>=6 && op<=18) || op==20) && h620Phase!=1)valid=false;
+      if(op<1 || op>23)valid=false;
+      if((op==1 || op==3 || op==6 || op==7 || op==12 || op==23) && (duration<1 || duration>604800))valid=false;
+      if((op==2 || op==3 || (op>=6 && op<=18) || op==20 || op==23) && h620Phase!=1)valid=false;
       if(op==12 && (WcoRead(p,"burst")<1 || WcoRead(p,"burst")>10))valid=false;
+      if(op==23 && duration!=120)valid=false;
       if(!valid){WcoAck(id,-1);return;}
       // A persisted processing marker prevents replay after a terminal crash.
       WcoWrite(p,"ack",id);WcoWrite(p,"ackStatus",-2);GlobalVariablesFlush();
@@ -340,11 +355,24 @@ void H620FutureTick()
          h620FutureGoal=(op==7?9:op);h620FutureUntil=0;h620FuturePaused=false;
          WcoWrite(p,"goalCampaign",h620Id);WcoWrite(p,"durationSaved",duration);
          WcoWrite(p,"baseline",op==2?h620BankedLevel:WcoLatestWin());
-         if(op==1 || op==6 || op==12)h620FutureUntil=TimeGMT()+duration;
+         if(op==1 || op==6 || op==12 || op==23)h620FutureUntil=TimeGMT()+duration;
          if(op==1)h620FuturePaused=true;
          if(op==12)WcoWrite(p,"burstRemaining",WcoRead(p,"burst"));
          else WcoWrite(p,"burstRemaining",0);
-         if(op==5)h620FutureGoal=0;
+         if(op==23)
+         {
+            WcoWrite(p,"scalpBaselineEntry",(double)h620LastEntryTime);
+            WcoWrite(p,"scalpDirection",h620Dir);
+            WcoWrite(p,"scalpTriggerBar",0);
+            WcoWrite(p,"scalpMedian",0);
+            WcoWrite(p,"scalpTimeoutAt",0);
+         }
+         if(op==5)
+         {
+            h620FutureGoal=0;
+            WcoWrite(p,"scalpBaselineEntry",0);WcoWrite(p,"scalpDirection",0);
+            WcoWrite(p,"scalpTriggerBar",0);WcoWrite(p,"scalpMedian",0);WcoWrite(p,"scalpTimeoutAt",0);
+         }
          WcoSaveGoal();
       }
       WcoAck(id,result);
@@ -379,6 +407,49 @@ void H620FutureTick()
    {h620FutureGoal=1;h620FuturePaused=true;h620FutureUntil=TimeGMT()+(int)WcoRead(p,"durationSaved");changed=true;}
    if(h620FutureGoal==12 && (TimeGMT()>=h620FutureUntil || WcoRead(p,"burstRemaining")<=0))
    {h620FutureGoal=8;h620FutureUntil=0;WcoWrite(p,"burstRemaining",0);changed=true;}
+   // Goal 23 is the two-minute scalp watchdog. Every new entry restarts its
+   // 120-second inactivity deadline. Goal 24 is the reset gate after timeout.
+   if(h620FutureGoal==23 && h620Phase==1)
+   {
+      int scalpReset=(int)WcoRead(p,"durationSaved");if(scalpReset<=0)scalpReset=120;
+      datetime baselineEntry=(datetime)WcoRead(p,"scalpBaselineEntry");
+      if(h620LastEntryTime>baselineEntry)
+      {
+         WcoWrite(p,"scalpBaselineEntry",(double)h620LastEntryTime);
+         WcoWrite(p,"scalpDirection",h620Dir);
+         h620FutureUntil=TimeGMT()+scalpReset;changed=true;
+      }
+      if(h620FutureUntil<=0){h620FutureUntil=TimeGMT()+scalpReset;changed=true;}
+      if(TimeGMT()>=h620FutureUntil)
+      {
+         // Freeze new entries before collection. H620Manage() sees phase 2 on
+         // this same tick and retries the full-basket close until the lane is flat.
+         h620FuturePaused=true;
+         WcoWrite(p,"scalpDirection",h620Dir);
+         WcoWrite(p,"scalpTriggerBar",(double)iTime(Symbol(),SignalTF,0));
+         WcoWrite(p,"scalpMedian",WcoCampaignMedianEntry());
+         WcoWrite(p,"scalpTimeoutAt",(double)TimeGMT());
+         h620FutureGoal=24;h620FutureUntil=0;
+         h620Flip=0;h620Phase=2;H620Persist();changed=true;
+      }
+   }
+   if(h620FutureGoal==24 && h620Phase==0)
+   {
+      int scalpDir=(int)WcoRead(p,"scalpDirection");
+      datetime scalpTrigger=(datetime)WcoRead(p,"scalpTriggerBar");
+      // The resume candle must start after the timeout candle and close opposite
+      // the just-finished campaign. Normal HIGHTOWER entry/risk gates still decide
+      // whether/when the next broker entry is legal.
+      if((scalpDir==DIR_BUY || scalpDir==DIR_SELL) && scalpTrigger>0 && iTime(Symbol(),SignalTF,1)>scalpTrigger)
+      {
+         double scalpOpen=iOpen(Symbol(),SignalTF,1),scalpClose=iClose(Symbol(),SignalTF,1);
+         if(scalpDir*(scalpClose-scalpOpen)<0)
+         {
+            h620FutureGoal=23;h620FuturePaused=false;h620FutureUntil=0;
+            changed=true;
+         }
+      }
+   }
    if(changed)WcoSaveGoal();
    WcoPublish();
 }
