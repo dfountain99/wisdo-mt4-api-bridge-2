@@ -27,7 +27,8 @@ export function parseSmartHomeIntent(raw=''){
   const ask=normalized(raw);
   if(!ask)return null;
 
-  let match=ask.match(/^(?:activate|run|start|set|turn on)\s+(?:my\s+)?(focus|relax|movie|trading|morning|date night|party|sleep|emergency)(?:\s+(?:mode|scene))?$/);
+  let match=ask.match(/^(?:(?:activate|run|start|set|turn on)\s+(?:my\s+)?)?(focus|relax|movie|trading|morning|date night|party|sleep|emergency)(?:\s+(?:mode|scene))$/);
+  if(!match)match=ask.match(/^(?:activate|run|start|set|turn on)\s+(?:my\s+)?(focus|relax|movie|trading|morning|date night|party|sleep|emergency)$/);
   if(match&&SCENES.has(match[1])){
     const scene=match[1];
     return action('activate',selector('scene',scene),{},scene==='emergency'?4:1,.995);
