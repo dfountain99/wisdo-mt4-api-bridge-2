@@ -38,3 +38,17 @@
 @media(max-width:650px){.wisdo-v12-time-layout{grid-template-columns:1fr}.wisdo-v10-time-core{min-height:135px}.wisdo-v10-time-meta{grid-template-columns:repeat(2,minmax(0,1fr))}.wisdo-v12-session-cards{grid-template-columns:1fr}}
 
 .lm-intentions{display:flex;flex-direction:column;gap:8px}.lm-intention{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 10px;padding:11px;border:1px solid var(--lm-line);border-radius:12px;background:#080c11}.lm-intention strong{display:block;font-size:11px;line-height:1.35}.lm-intention small{display:block;margin-top:4px;color:var(--lm-muted);font-size:9px;text-transform:uppercase}.lm-intention>span{align-self:start;padding:4px 7px;border:1px solid #355f70;border-radius:999px;color:var(--lm-blue);font-size:8px;font-weight:900}.lm-intention>em{grid-column:1/-1;color:#aab7c4;font-style:normal;font-size:9px}.lm-intention[data-state="active"]>span,.lm-intention[data-state="armed"]>span{border-color:#285943;color:var(--lm-green)}.lm-intention[data-state="failed"]>span,.lm-intention[data-state="paused"]>span{border-color:#663232;color:var(--lm-red)}.lm-intention.empty{display:block;color:var(--lm-muted);font-size:10px}
+
+/* Two-minute scalp watchdog: the time core is also a deliberate long-press control. */
+.wisdo-v10-time-core{appearance:none;-webkit-appearance:none;width:100%;font:inherit;color:inherit;text-align:center;cursor:pointer;touch-action:manipulation;-webkit-touch-callout:none;user-select:none;overflow:hidden}
+.wisdo-v10-time-core svg{pointer-events:none}
+.wisdo-v10-time-core .arm-progress{fill:none;stroke:var(--lm-gold);stroke-width:2.3;stroke-linecap:round;opacity:0;filter:drop-shadow(0 0 7px rgba(227,181,93,.55));transition:stroke-dashoffset .03s linear,opacity .16s ease}
+.wisdo-v10-time-core em{position:absolute;left:10px;right:10px;bottom:9px;color:#82909c;font-size:7px;font-style:normal;font-weight:900;letter-spacing:.08em;pointer-events:none}
+.wisdo-v10-time-core[data-arm-state="holding"]{border-color:#8d6c37;box-shadow:inset 0 0 30px rgba(227,181,93,.07)}
+.wisdo-v10-time-core[data-arm-state="holding"] .arm-progress,.wisdo-v10-time-core[data-arm-state="sending"] .arm-progress{opacity:1}
+.wisdo-v10-time-core[data-arm-state="holding"] em,.wisdo-v10-time-core[data-arm-state="sending"] em{color:var(--lm-gold)}
+.wisdo-v10-time-core[data-arm-state="active"] em{color:var(--lm-green)}
+.wisdo-v10-time-core[data-arm-state="waiting"] em{color:#ffb36d}
+.wisdo-v10-time-core[data-arm-state="unavailable"]{cursor:not-allowed}
+.wisdo-v10-time-engine[data-temporal-mode="scalp"] .wisdo-v10-time-core .progress{stroke:var(--lm-green)}
+.wisdo-v10-time-engine[data-temporal-mode="scalp-wait"] .wisdo-v10-time-core .progress{stroke:#ffb36d}
