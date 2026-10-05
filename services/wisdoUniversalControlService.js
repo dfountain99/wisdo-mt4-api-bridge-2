@@ -241,13 +241,15 @@ export class WisdoUniversalControlService {
     const account=clean(selector.account_id||selector.accountId||'',200);
     const symbol=clean(selector.symbol||'',100).toUpperCase();
     const lane=clean(selector.lane_id||selector.laneId||'',200);
+    const home=clean(selector.home_id||selector.homeId||'',200);
     const result=await this.pool.query(`SELECT * FROM wisdo_components WHERE owner_user_id=$1 AND status='online' AND approval_status='approved'
       AND ($2='' OR component_type=$2)
       AND ($3='' OR lower(component_id)= $3 OR lower(name)= $3 OR aliases ? $3)
       AND ($4='' OR metadata->>'account_id'=$4)
       AND ($5='' OR upper(metadata->>'canonical_symbol')=$5 OR upper(metadata->>'broker_symbol')=$5)
       AND ($6='' OR metadata->>'lane_id'=$6)
-      ORDER BY last_seen_at DESC LIMIT 250`,[device.owner_user_id,type,raw,account,symbol,lane]);
+      AND ($7='' OR home_id=$7)
+      ORDER BY last_seen_at DESC LIMIT 250`,[device.owner_user_id,type,raw,account,symbol,lane,home]);
     return result.rows;
   }
 
