@@ -54,18 +54,47 @@ function sessionRanges(id){
   if(id===4)return [{start:21,end:23}];
   return [];
 }
+const WEEK_DAYS=Object.freeze([{day:1,label:'MON'},{day:2,label:'TUE'},{day:3,label:'WED'},{day:4,label:'THU'},{day:5,label:'FRI'},{day:6,label:'SAT'},{day:0,label:'SUN'}]);
+const FULL_DAY_MASK=0xFFFFFF;
+function maskFromRange(start,end,enabled=true){
+  if(!enabled)return 0;
+  const a=clamp(Math.trunc(Number(start)||0),0,23),b=clamp(Math.trunc(Number(end)||24),1,24);
+  if(b<=a)return 0;
+  let mask=0;for(let h=a;h<b;h++)mask|=(1<<h);return mask>>>0;
+}
+function maskPieces(mask){
+  const pieces=[];let start=null;
+  for(let h=0;h<=24;h++){
+    const active=h<24&&((Number(mask)>>>h)&1)===1;
+    if(active&&start==null)start=h;
+    if(!active&&start!=null){pieces.push({start,end:h});start=null;}
+  }
+  return pieces;
+}
+function rangeFromMask(mask){
+  const pieces=maskPieces(mask);if(!pieces.length)return {enabled:false,start:7,end:21};
+  return {enabled:true,start:pieces[0].start,end:pieces[pieces.length-1].end,split:pieces.length>1};
+}
+function legacyMask(session){
+  if(!session?.reported)return maskFromRange(7,21,true);
+  if(session.windowMode===0)return FULL_DAY_MASK;
+  let mask=0;for(const w of (session.windows||[]))for(const p of windowPieces(w.startHour,w.endHour))for(let h=p.start;h<p.end;h++)mask|=(1<<h);
+  return mask>>>0;
+}
+function hourLabel(hour){return String(clamp(Number(hour)||0,0,24)).padStart(2,'0')+':00';}
 
 function markup(){
   return `<div class="wisdo-v10-time-engine wisdo-v12-time-engine" data-temporal-mode="standby">
     <div class="wisdo-v10-time-head"><span>WISDO TIME / SESSION CONTROL</span><b id="wcV10TimeStatus">STANDBY</b></div>
     <div class="wisdo-v12-time-layout">
-      <div class="wisdo-v10-time-core">
+      <button type="button" class="wisdo-v10-time-core wisdo-v14-scalp-core" id="wcV14ScalpCore" aria-label="Hold for two seconds to arm the two-minute scalp game plan">
         <svg viewBox="0 0 120 120" aria-hidden="true">
           <circle class="track" cx="60" cy="60" r="50"></circle>
           <circle class="progress" id="wcV10TimeProgress" cx="60" cy="60" r="50"></circle>
+          <circle class="hold-progress" id="wcV14HoldProgress" cx="60" cy="60" r="55"></circle>
         </svg>
-        <div><strong id="wcV10TimeMain">02:00</strong><span id="wcV10TimeCaption">RESET REFERENCE</span><small id="wcV10TimeElapsed">ELAPSED —</small></div>
-      </div>
+        <div><strong id="wcV10TimeMain">02:00</strong><span id="wcV10TimeCaption">HOLD 2.0s TO ARM</span><small id="wcV10TimeElapsed">ELAPSED —</small><em id="wcV14ScalpHint">2-MINUTE GAME PLAN</em></div>
+      </button>
       <div class="wisdo-v12-session-core">
         <div class="wisdo-v12-session-cards">
           <section><span>CURRENT SESSION</span><strong id="wcV12SessionName">EA SESSION NOT REPORTED</strong><small id="wcV12SessionQuality">CHRONOS TELEMETRY REQUIRED</small></section>
@@ -80,7 +109,24 @@ function markup(){
           <i id="wcV12NowMarker"></i>
         </div>
         <div class="wisdo-v12-day-legend"><span class="active">ACTIVE HOURS · BOT ALLOWS NEW ENTRIES</span><span class="blocked">BLOCKED HOURS · MANAGE ONLY</span></div>
+        <div class="wisdo-v14-time-actions">
+          <button type="button" id="wcV14EditWeek">EDIT TRADING WEEK</button>
+          <button type="button" id="wcV14ClearWeek">USE EA WINDOWS</button>
+        </div>
       </div>
+    </div>
+    <div class="wisdo-v14-week-editor" id="wcV14WeekEditor" hidden>
+      <div class="wisdo-v14-week-head"><div><span>WEEK SCHEDULE · BROKER TIME</span><strong>SLIDE EACH DAY'S ACTIVE WINDOW</strong></div><small>Green = entries allowed. Red = manage only.</small></div>
+      <div class="wisdo-v14-week-rows">
+        <div class="wisdo-v14-week-row" data-day="1"><label><input type="checkbox" checked> MON</label><div class="wisdo-v14-range"><input class="start" type="range" min="0" max="23" step="1" value="7"><input class="end" type="range" min="1" max="24" step="1" value="21"></div><output>07:00–21:00</output><div class="wisdo-v14-mini-track"></div></div>
+        <div class="wisdo-v14-week-row" data-day="2"><label><input type="checkbox" checked> TUE</label><div class="wisdo-v14-range"><input class="start" type="range" min="0" max="23" step="1" value="7"><input class="end" type="range" min="1" max="24" step="1" value="21"></div><output>07:00–21:00</output><div class="wisdo-v14-mini-track"></div></div>
+        <div class="wisdo-v14-week-row" data-day="3"><label><input type="checkbox" checked> WED</label><div class="wisdo-v14-range"><input class="start" type="range" min="0" max="23" step="1" value="7"><input class="end" type="range" min="1" max="24" step="1" value="21"></div><output>07:00–21:00</output><div class="wisdo-v14-mini-track"></div></div>
+        <div class="wisdo-v14-week-row" data-day="4"><label><input type="checkbox" checked> THU</label><div class="wisdo-v14-range"><input class="start" type="range" min="0" max="23" step="1" value="7"><input class="end" type="range" min="1" max="24" step="1" value="21"></div><output>07:00–21:00</output><div class="wisdo-v14-mini-track"></div></div>
+        <div class="wisdo-v14-week-row" data-day="5"><label><input type="checkbox" checked> FRI</label><div class="wisdo-v14-range"><input class="start" type="range" min="0" max="23" step="1" value="7"><input class="end" type="range" min="1" max="24" step="1" value="21"></div><output>07:00–21:00</output><div class="wisdo-v14-mini-track"></div></div>
+        <div class="wisdo-v14-week-row" data-day="6"><label><input type="checkbox"> SAT</label><div class="wisdo-v14-range"><input class="start" type="range" min="0" max="23" step="1" value="7"><input class="end" type="range" min="1" max="24" step="1" value="21"></div><output>BLOCKED</output><div class="wisdo-v14-mini-track"></div></div>
+        <div class="wisdo-v14-week-row" data-day="0"><label><input type="checkbox"> SUN</label><div class="wisdo-v14-range"><input class="start" type="range" min="0" max="23" step="1" value="7"><input class="end" type="range" min="1" max="24" step="1" value="21"></div><output>BLOCKED</output><div class="wisdo-v14-mini-track"></div></div>
+      </div>
+      <div class="wisdo-v14-week-footer"><span id="wcV14WeekStatus">UNSAVED</span><button type="button" id="wcV14CopyWeekdays">COPY MON → WEEKDAYS</button><button type="button" id="wcV14SaveWeek">SAVE + HOLD TO CONFIRM</button></div>
     </div>
     <div class="wisdo-v10-time-meta">
       <div><span>SESSION SYNC</span><b id="wcV10SessionSync">LOCAL / UTC</b></div>
@@ -98,7 +144,7 @@ function markup(){
   </div>`;
 }
 
-export function createWisdoTimeEngine(container,{resetWindowSeconds=120,onVisualState=null}={}){
+export function createWisdoTimeEngine(container,{resetWindowSeconds=120,scalpHoldMs=2000,onScalpArm=null,onScalpCancel=null,onScheduleSave=null,onScheduleClear=null,onVisualState=null}={}){
   if(!container)return {setState(){},render(){},destroy(){}};
   container.classList.add('wisdo-v10-time-host','wisdo-v12-time-host');
   container.innerHTML=markup();
