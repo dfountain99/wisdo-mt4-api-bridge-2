@@ -1,4 +1,5 @@
 import { WisdoCommandBusService } from '../services/wisdoCommandBusService.js';
+import { WisdoUniversalControlService } from '../services/wisdoUniversalControlService.js';
 
 function bearer(req) {
   const value = String(req.headers.authorization || '');
@@ -7,6 +8,7 @@ function bearer(req) {
 
 export function registerCommandBusRoutes(app, dependencies = {}) {
   const service = new WisdoCommandBusService(dependencies);
+  const homeControl = new WisdoUniversalControlService({pool:service.pool,commandBusService:service,logger:dependencies.logger});
   const enrollmentAttempts=new Map();
   function allowEnrollment(req){const now=Date.now(),windowMs=10*60*1000,key=String(req.ip||req.socket?.remoteAddress||'unknown');for(const [entry,value] of enrollmentAttempts){if(value.resetAt<=now)enrollmentAttempts.delete(entry);}if(enrollmentAttempts.size>256&&!enrollmentAttempts.has(key))enrollmentAttempts.delete(enrollmentAttempts.keys().next().value);const value=enrollmentAttempts.get(key)||{count:0,resetAt:now+windowMs};value.count+=1;enrollmentAttempts.set(key,value);return value.count<=5;}
   async function auth(req, res, next) {
@@ -32,6 +34,9 @@ export function registerCommandBusRoutes(app, dependencies = {}) {
       if(['office','trading-room','trading_room','trade-room'].includes(roomId)){
         await queue('wake_trading_workstation',{intent:'wake_trading_workstation',source:'presence',target:{type:'device',deviceType:'pi-edge',id:req.wisdoDevice.device_id},requiredCapability:'wake_trading_workstation',parameters:{roomId},expiresInSeconds:45,priority:95});
         await queue('prepare_trading_workspace',{intent:'prepare_trading_workspace',source:'presence',target:{type:'desktop',allowOffline:true},requiredCapability:'prepare_trading_workspace',parameters:{roomId},expiresInSeconds:300,priority:90});
+        if(capabilities.smart_home===true||capabilities.home_assistant===true){
+          try{const executions=await homeControl.execute(req.wisdoDevice,{action:'activate',target:{type:'scene',alias:'trading'},parameters:{source:'presence',roomId},riskLevel:1});actions.push({label:'trading_scene',status:executions.some((x)=>x.status==='queued')?'queued':'blocked',executionIds:executions.filter((x)=>x.status==='queued').map((x)=>x.execution_id)});}catch(error){actions.push({label:'trading_scene',status:'blocked',code:error.code||null,reason:error.message});}
+        }
       }
       res.status(actions.some((x)=>x.status==='queued')?202:409).json({ok:actions.some((x)=>x.status==='queued'),roomId,actions});
     } catch (error) { next(error); }
