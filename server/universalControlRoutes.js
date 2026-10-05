@@ -5,7 +5,11 @@ export function registerUniversalControlRoutes(app,{commandBusService,pool,logge
  async function auth(req,res,next){try{const d=await commandBusService.authenticateDevice(req.headers['x-wisdo-device-id'],bearer(req));if(!d)return res.status(401).json({ok:false,error:'Invalid device credentials.'});req.wisdoDevice=d;next();}catch(e){next(e);}}
  app.get('/health/control-plane',async(_q,res,next)=>{try{res.json(await service.health());}catch(e){next(e);}});
  app.post('/api/control/v1/components/register',auth,async(req,res,next)=>{try{res.status(201).json({ok:true,component:await service.registerComponent(req.wisdoDevice,req.body||{})});}catch(e){next(e);}});
+ app.get('/api/control/v1/fabric',auth,async(req,res,next)=>{try{res.json({ok:true,...service.fabricManifest()});}catch(e){next(e);}});
+ app.post('/api/control/v1/compatibility',auth,async(req,res,next)=>{try{res.json({ok:true,plan:service.compatibility(req.body||{})});}catch(e){next(e);}});
  app.get('/api/control/v1/components',auth,async(req,res,next)=>{try{res.json({ok:true,components:await service.listComponents(req.wisdoDevice,req.query||{})});}catch(e){next(e);}});
+ app.post('/api/control/v1/components/:componentId/approve',auth,async(req,res,next)=>{try{res.json({ok:true,component:await service.approveComponent(req.wisdoDevice,req.params.componentId,req.body||{})});}catch(e){next(e);}});
+ app.post('/api/control/v1/components/:componentId/revoke',auth,async(req,res,next)=>{try{res.json({ok:true,component:await service.revokeComponent(req.wisdoDevice,req.params.componentId)});}catch(e){next(e);}});
  app.post('/api/control/v1/resolve',auth,async(req,res,next)=>{try{res.json({ok:true,components:await service.resolveComponents(req.wisdoDevice,req.body||{})});}catch(e){next(e);}});
  app.post('/api/control/v1/preview',auth,async(req,res,next)=>{try{res.json({ok:true,preview:await service.preview(req.wisdoDevice,req.body||{})});}catch(e){next(e);}});
  app.post('/api/control/v1/execute',auth,async(req,res,next)=>{try{res.status(202).json({ok:true,executions:await service.execute(req.wisdoDevice,req.body||{})});}catch(e){next(e);}});
