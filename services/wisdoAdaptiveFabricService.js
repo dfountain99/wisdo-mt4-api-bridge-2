@@ -1,9 +1,9 @@
 import crypto from 'node:crypto';
 import { WisdoBehaviorCompilerService } from './wisdoBehaviorCompilerService.js';
 
-const FINANCIAL_ACTIONS = new Set(['close_all','close_full_basket','protect_profit_full_basket','close_profitable','close_losing','modify_stop','set_profit_target','change_risk','trail_stop']);
+const FINANCIAL_ACTIONS = new Set(['close_all','close_full_basket','protect_profit_full_basket','close_profitable','close_losing','modify_stop','set_profit_target','change_risk','trail_stop','set_stop_atr','set_trail_atr','trim_campaign','add_if_valid','counter_if_valid','clear_runtime_overrides']);
 const IMMUTABLE_BLOCKS = new Set(['disable_authentication','disable_audit','bypass_risk_governor','expose_broker_password','remove_emergency_stop']);
-const BUILTIN_ACTIONS = new Set(['close_full_basket','protect_profit_full_basket','pause_entries','resume_entries','guard_mode','notify','trail_stop','speak_summary','activate_experience','play_music']);
+const BUILTIN_ACTIONS = new Set(['close_full_basket','protect_profit_full_basket','pause_entries','resume_entries','guard_mode','notify','trail_stop','set_stop_atr','set_trail_atr','trim_campaign','add_if_valid','counter_if_valid','clear_runtime_overrides','speak_summary','activate_experience','play_music']);
 const scopeRank = { platform:0, user:10, lane:20, account:30, bot_family:40, symbol:50, timeframe:60, instance:70, temporary:80 };
 const CURRENCY_CODES = new Set(['USD','EUR','GBP','JPY','CHF','AUD','NZD','CAD','SGD','HKD','NOK','SEK','DKK','PLN','TRY','ZAR','MXN','CNH','CNY','RUB','BRL']);
 

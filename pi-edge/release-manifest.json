@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "releaseChannel": "controlled-demo",
+  "releaseChannel": "controlled-live",
   "serverCommit": "RESOLVE_FROM_ENCLOSING_GIT_COMMIT",
-  "serverBaseCommit": "410ef3a",
-  "piRuntimeVersion": "3.4.2-demo.1",
+  "serverBaseCommit": "3208748c154f9594cbf9f84c9ae9dfd4b6d5af68",
+  "piRuntimeVersion": "3.5.0-live.1",
   "migrationVersion": "2026-08-09-conversational-trading-os",
-  "reporterRequirement": "v1.59",
-  "voiceExecutionMode": "DEMO_ONLY",
+  "reporterRequirement": "v1.63",
+  "voiceExecutionMode": "LIVE_AUTHORIZED",
   "supportedCapabilities": [
     "local-wake-detection",
     "windows-and-linux-runtime",
@@ -20,7 +20,10 @@
     "speech-delivery-receipts",
     "persistent-replay-protection",
     "physical-mute",
-    "led-state-hook"
+    "led-state-hook",
+    "physical-presence-command-adapter",
+    "wake-on-lan-workstation",
+    "ambient-device-command-lease"
   ],
   "serverEnvironmentVariables": [
     "WISDO_VOICE_EXECUTION_MODE",
@@ -56,15 +59,20 @@
     "WISDO_MUTE_FILE",
     "WISDO_LED_STATE_FILE",
     "WISDO_PLAYED_DELIVERIES_FILE",
-    "WISDO_LED_COMMAND"
+    "WISDO_LED_COMMAND",
+    "WISDO_TRADING_WORKSTATION_MAC",
+    "WISDO_WOL_BROADCAST",
+    "WISDO_PRESENCE_COMMAND",
+    "WISDO_PRESENCE_ROOM_ID",
+    "WISDO_PRESENCE_POLL_SECONDS"
   ],
   "sha256": {
-    ".env.example": "9314d7d0b4d9c48cd659cc2397ae004efec7d2696a9385155627d7a24e30be4a",
-    "VERSION": "e5c0552aed86841e0254d91082e58c6b66836eb687961d6eb22ff860fb2b9e4e",
-    "enroll.py": "cfe5ca792e117db423f7c79821c13ac13e7c09ccd3df73cafeb5e1c5d0f2a273",
+    ".env.example": "9ad50ea926dffc39a6a40aeae4dea454d0ef362b0b76a628aaec240f2c50b235",
+    "VERSION": "86e367ae9a76934b55a94f8d2fbd96f6338c1e890e690a0909a42d89c78ee21d",
+    "enroll.py": "48470b95e596c2908487051b51112ce52fda4ef13ef2f8926175ba8252159051",
     "install.sh": "30712294d611b8476b6ed6385e161867e88a0f3f4cd15e4b0f2ed9a6a06c4889",
     "requirements.txt": "f4ffdb2526895e49448b4ef157d029ffcb5a2d07d2e96a77edd586cc6bb2da88",
     "uninstall.sh": "ccbb4b0a0dd57a14b4bf07b897e5b84177d6fab7570ed5fbb100a7240001285f",
-    "wisdo_edge.py": "b324eae63dd9293c891b3c62c250bd60b1a5e9cba7d35b5ae04a2952cbf6f207"
+    "wisdo_edge.py": "064892b8cc37ed00c5c30bf1e6ccff76a115c772446a74a95f42d6ec0048ffe9"
   }
 }

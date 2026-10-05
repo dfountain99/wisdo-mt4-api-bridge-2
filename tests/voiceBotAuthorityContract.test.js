@@ -79,8 +79,9 @@ test('Pi, desktop, Render, and MT4 bridge share the final authority contract', (
     const desktop = readFileSync(path.join(desktopRoot, manifest.components.desktop_agent.entrypoint), 'utf8');
     assertMarkers(desktop, manifest.components.desktop_agent.required_markers, 'Desktop Agent');
   } else {
-    assert.ok(manifest.components.desktop_agent.required_markers.includes('trail_stop'));
-    assert.ok(manifest.components.desktop_agent.required_markers.includes('undo_behavior'));
+    assert.ok(manifest.components.desktop_agent.required_markers.includes('open_live_manager'));
+    assert.ok(manifest.components.desktop_agent.required_markers.includes('workstation_status'));
+    assert.ok(manifest.components.desktop_agent.required_markers.includes('prepare_trading_workspace'));
   }
 
   if (adapterRoot) {

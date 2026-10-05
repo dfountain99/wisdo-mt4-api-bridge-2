@@ -126,9 +126,9 @@ test('MT4 transport source enforces compact JSON responses and avoids cached HTM
   assert.match(worker, /url\.pathname\.startsWith\('\/js\/'\)/);
 });
 
-test('Reporter v1.60 uses one account polling lease and server-paced low-frequency polling', () => {
+test('Reporter v1.63 uses one account polling lease and server-paced low-frequency polling', () => {
   const reporter = fs.readFileSync(path.resolve('mql4/CultureCoin_MT4_Reporter.mq4'), 'utf8');
-  assert.match(reporter, /#property version\s+"1\.60"/);
+  assert.match(reporter, /#property version\s+"1\.63"/);
   assert.match(reporter, /CommandPollEverySeconds = 2/);
   assert.match(reporter, /CommandsPerPollTick = 1/);
   assert.match(reporter, /AcquireOrRefreshReporterLease/);

@@ -4,20 +4,29 @@ const INTENT_OUTPUT_SCHEMA = Object.freeze({
   required: ['schemaVersion', 'type', 'intent', 'commandName', 'confidence', 'parameters'],
   properties: {
     schemaVersion: { type: 'string' },
-    type: { type: 'string', enum: ['ACTION', 'QUERY', 'PLAN', 'CONVERSATION', 'CONFIRMATION', 'CANCEL', 'GOODBYE', 'CLARIFICATION'] },
+    type: { type: 'string', enum: ['ACTION', 'BEHAVIOR', 'BEHAVIOR_CONTROL', 'QUERY', 'PLAN', 'CONVERSATION', 'CONFIRMATION', 'CANCEL', 'GOODBYE', 'CLARIFICATION'] },
     intent: { type: 'string', minLength: 1 },
-    commandName: { type: ['string', 'null'], enum: [null, 'CLOSE_ALL_TRADES', 'CLOSE_ALL_WINNERS', 'CLOSE_ALL_LOSERS', 'EMERGENCY_STOP', 'PAUSE_COPIER', 'RESUME_COPIER', 'STOP_ENTRIES', 'START_ENTRIES', 'SET_EQUITY_FLOOR'] },
+    commandName: { type: ['string', 'null'], enum: [null, 'CLOSE_ALL_TRADES', 'CLOSE_ALL_WINNERS', 'CLOSE_ALL_LOSERS', 'EMERGENCY_STOP', 'PAUSE_COPIER', 'RESUME_COPIER', 'STOP_ENTRIES', 'START_ENTRIES', 'SET_EQUITY_FLOOR', 'WISDO_CAMPAIGN'] },
     confidence: { type: 'number', minimum: 0, maximum: 1 },
     parameters: {
       type: 'object',
       additionalProperties: false,
-      required: ['accountId', 'botId', 'symbol', 'value', 'percent'],
+      required: ['accountId', 'botId', 'symbol', 'value', 'percent', 'action', 'stopAtr', 'trailStartAtr', 'trailDistanceAtr', 'trailStepAtr', 'trailDeltaAtr', 'trimPercent', 'naturalLanguage', 'persistRuntime'],
       properties: {
         accountId: { type: ['string', 'null'] },
         botId: { type: ['string', 'null'] },
         symbol: { type: ['string', 'null'] },
         value: { type: ['number', 'null'] },
         percent: { type: ['number', 'null'] },
+        action: { type: ['string', 'null'], enum: [null,'SET_STOP_ATR','SET_TRAIL_ATR','TRIM_CAMPAIGN','ADD_IF_VALID','CLEAR_RUNTIME_OVERRIDES','WIDEN_EXISTING_STOPS'] },
+        stopAtr: { type: ['number', 'null'] },
+        trailStartAtr: { type: ['number', 'null'] },
+        trailDistanceAtr: { type: ['number', 'null'] },
+        trailStepAtr: { type: ['number', 'null'] },
+        trailDeltaAtr: { type: ['number', 'null'] },
+        trimPercent: { type: ['number', 'null'] },
+        naturalLanguage: { type: ['string', 'null'] },
+        persistRuntime: { type: ['boolean', 'null'] },
       },
     },
   },
@@ -36,7 +45,7 @@ export class WisdoProviderService {
     if (!this.configured()) return null;
     const response = await this.fetch('https://api.openai.com/v1/responses', {
       method: 'POST', headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: this.model, input: [{ role: 'system', content: `Extract one intent using schema ${schemaVersion}. Never return code or an MT4 command not supported by the supplied context.` }, { role: 'user', content: JSON.stringify({ text, context }) }], text: { format: { type: 'json_schema', name: 'wisdo_intent', strict: true, schema: INTENT_OUTPUT_SCHEMA } } }),
+      body: JSON.stringify({ model: this.model, input: [{ role: 'system', content: `Extract one WISDO intent using schema ${schemaVersion}. Resolve natural paraphrases by meaning, not exact wording. Use context.lastIntent, context.lastParameters, symbol, campaign_id, magic_number, and selectedTicket to resolve short follow-ups such as "tighter", "same thing", "that trade", or "do it again"; if the referent is still ambiguous, return CLARIFICATION instead of guessing. For conditional/future language such as if, when, after, until, or every, return type BEHAVIOR with intent GENERAL_CONDITIONAL_BEHAVIOR, commandName null, and parameters.naturalLanguage equal to the user's original instruction. For immediate live-manager operations, use WISDO_CAMPAIGN only for supported actions in the schema. Never invent an unsupported command, never convert an ambiguous reference into a trade, and never bypass confirmations or HIGHTOWER entry/risk gates.` }, { role: 'user', content: JSON.stringify({ text, context }) }], text: { format: { type: 'json_schema', name: 'wisdo_intent', strict: true, schema: INTENT_OUTPUT_SCHEMA } } }),
       signal: AbortSignal.timeout(Number(process.env.WISDO_AI_TIMEOUT_MS || 15000)),
     });
     if (!response.ok) throw new Error(`Conversation provider failed with HTTP ${response.status}.`);

@@ -160,7 +160,7 @@ services:
       - key: WISDO_ENABLED
         value: "true"
       - key: WISDO_VOICE_EXECUTION_MODE
-        value: DEMO_ONLY
+        value: LIVE_AUTHORIZED
       - key: WISDO_TONE
         value: old_head_wizard
       - key: WISDO_AUTO_ANALYZE_CLOCK_IN
