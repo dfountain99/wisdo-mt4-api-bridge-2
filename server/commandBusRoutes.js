@@ -28,8 +28,8 @@ export function registerCommandBusRoutes(app, dependencies = {}) {
       const roomId=String(req.body?.roomId||req.body?.room||'').trim().toLowerCase();
       if(!roomId)return res.status(400).json({ok:false,error:'roomId is required.'});
       let actions=[];
-      if(typeof service.presenceCoordinator==='function'){
-        actions=await service.presenceCoordinator({ownerUserId:req.wisdoDevice.owner_user_id,roomId,sourceDevice:req.wisdoDevice});
+      if(typeof service.presenceCoordinator?.arrival==='function'){
+        actions=await service.presenceCoordinator.arrival({ownerUserId:req.wisdoDevice.owner_user_id,roomId,sourceDevice:req.wisdoDevice});
       }else{
         const queue=async(label,input)=>{try{const command=await service.issueSystemCommand(req.wisdoDevice.owner_user_id,input);actions.push({label,status:'queued',commandId:command.command_id});}catch(error){actions.push({label,status:'blocked',code:error.code||null,reason:error.message});}};
         if(['office','trading-room','trading_room','trade-room'].includes(roomId)){
