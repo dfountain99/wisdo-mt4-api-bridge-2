@@ -66,7 +66,8 @@ bool ExecuteCampaignCommand(string json,string &message,int &ticket)
    if(!EnableCampaignControl || CampaignControlMagic<=0 || JsonGetString(json,"symbol","")!=CampaignControlSymbol || JsonGetInt(json,"magicNumber",0)!=CampaignControlMagic)
    {message="Campaign control scope is disabled or does not match Reporter inputs";return false;}
    if(id<=0 || expires<TimeGMT() || expires>TimeGMT()+120 || op<1 || op>26 ||
-      ((op==1 || op==3 || op==6 || op==7 || op==12) && (duration<1 || duration>604800)))
+      ((op==1 || op==3 || op==6 || op==7 || op==12) && (duration<1 || duration>604800)) ||
+      (op==23 && (duration<30 || duration>3600)))
    {message="Invalid or expired campaign instruction";return false;}
    if(WcoRead(p,"ack")>=id){message="Already processed by EA; inspect campaign acknowledgement";return true;}
    double age=TimeLocal()-WcoRead(p,"heartbeat");
