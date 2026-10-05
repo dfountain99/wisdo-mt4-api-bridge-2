@@ -18,6 +18,7 @@ import { registerWorldRealtimeRoutes } from './worldRealtimeRoutes.js';
 import { registerWorldBuildRoutes } from './worldBuildRoutes.js';
 import { registerArcadeRoutes } from './arcadeRoutes.js';
 import { registerOgMasterWisdoRoutes } from './ogMasterWisdoRoutes.js';
+import { registerAmbientLifeRoutes } from './ambientLifeRoutes.js';
 
 /**
  * Registers the modern Wisdo Kernel services as one cohesive boundary.
@@ -80,9 +81,16 @@ export function registerWisdoKernelRoutes(app, {
     logger,
   });
 
-  registerUniversalControlRoutes(app, {
+  const universalControlService = registerUniversalControlRoutes(app, {
     commandBusService,
     pool: commandBusService.pool,
+    logger,
+  });
+
+  const ambientLifeService = registerAmbientLifeRoutes(app, {
+    commandBusService,
+    universalControlService,
+    tradingExecutionService: conversationalVoice?.executionService || null,
     logger,
   });
 
@@ -169,6 +177,14 @@ export function registerWisdoKernelRoutes(app, {
           registered: workspaces.registered.map(({ slug, route }) => ({ slug, route })),
           required_missing: requiredMissing.map(({ slug }) => slug),
         },
+        ambient_life: {
+          api: '/api/ambient/v1',
+          health: '/health/ambient-life',
+          mission_simulation: true,
+          cross_domain_execution: true,
+          truth_ledger: true,
+          offline_edge_runner: false,
+        },
         world: {
           route: world.route,
           api: world.api,
@@ -222,5 +238,7 @@ export function registerWisdoKernelRoutes(app, {
     worldLivingSystems,
     worldMarkets,
     worldCommand,
+    universalControlService,
+    ambientLifeService,
   };
 }
