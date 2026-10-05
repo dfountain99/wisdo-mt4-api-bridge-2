@@ -24,6 +24,8 @@ WISDO_PLAYED_DELIVERIES_FILE=data/played-deliveries
 WISDO_CONSOLE_MODE=false
 
 WISDO_HOME_ASSISTANT_URL=http://homeassistant.local:8123
+# Optional stable WISDO home ID. Approval binds devices to this home, never to proximity.
+WISDO_HOME_ID=
 WISDO_HOME_ASSISTANT_TOKEN=
 WISDO_HA_SYNC_SECONDS=60
 WISDO_HA_CONTROL_POLL_SECONDS=1.5

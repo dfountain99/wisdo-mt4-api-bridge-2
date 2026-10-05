@@ -52,6 +52,10 @@ export function parseSmartHomeIntent(raw=''){
   }
   match=ask.match(/^set\s+(?:the\s+)?(?:thermostat|temperature)\s+(?:to\s+)?(\d{2,3})(?:\s*degrees?)?$/);
   if(match)return action('set_temperature',selector('climate'),{temperature:clamp(match[1],45,95)},2,.995);
+  match=ask.match(/^set\s+(?:the\s+)?(?:thermostat|hvac|climate)(?:\s+mode)?\s+(?:to\s+)?(heat|cool|auto|off|dry|fan only)$/);
+  if(match)return action('set_hvac_mode',selector('climate'),{hvac_mode:match[1].replace(' ','_')},2,.995);
+  match=ask.match(/^set\s+(?:the\s+)?(?:thermostat|hvac|climate)\s+fan\s+(?:to\s+)?(auto|on|low|medium|high)$/);
+  if(match)return action('set_fan_mode',selector('climate'),{fan_mode:match[1]},2,.99);
 
   match=ask.match(/^(?:open|close)\s+(?:the\s+)?(.+?)\s+(blinds?|shades?|curtains?)$/);
   if(match)return action(ask.startsWith('open')?'open':'close',selector('cover',clean(match[1]+' '+match[2])),{},2,.99);
