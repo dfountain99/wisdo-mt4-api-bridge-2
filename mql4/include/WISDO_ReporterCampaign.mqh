@@ -59,11 +59,18 @@ bool ExecuteCampaignCommand(string json,string &message,int &ticket)
    string p=WcoPrefix(CampaignControlSymbol,CampaignControlMagic);
    double id=JsonGetDouble(json,"requestId",0),expires=JsonGetDouble(json,"expiresEpoch",0);
    int op=JsonGetInt(json,"operation",0),duration=JsonGetInt(json,"durationSeconds",0);
+   int scheduleMode=JsonGetInt(json,"scheduleMode",0),scheduleWindowCount=JsonGetInt(json,"scheduleWindowCount",1);
+   int w1s=JsonGetInt(json,"window1StartMinute",0),w1e=JsonGetInt(json,"window1EndMinute",0);
+   int w2s=JsonGetInt(json,"window2StartMinute",0),w2e=JsonGetInt(json,"window2EndMinute",0);
    if(!EnableCampaignControl || CampaignControlMagic<=0 || JsonGetString(json,"symbol","")!=CampaignControlSymbol || JsonGetInt(json,"magicNumber",0)!=CampaignControlMagic)
    {message="Campaign control scope is disabled or does not match Reporter inputs";return false;}
+   bool invalidSchedule=(op==24 && (scheduleMode<0 || scheduleMode>2));
+   if(op==24 && scheduleMode==2)
+      invalidSchedule=(scheduleWindowCount<1 || scheduleWindowCount>2 || w1s<0 || w1s>1439 || w1e<0 || w1e>1439 || w1s==w1e ||
+         (scheduleWindowCount==2 && (w2s<0 || w2s>1439 || w2e<0 || w2e>1439 || w2s==w2e)));
    if(id<=0 || expires<TimeGMT() || expires>TimeGMT()+120 || op<1 || op>25 ||
       ((op==1 || op==3 || op==6 || op==7 || op==12 || op==23) && (duration<1 || duration>604800)) ||
-      (op==23 && duration!=120))
+      (op==23 && duration!=120) || invalidSchedule)
    {message="Invalid or expired campaign instruction";return false;}
    if(WcoRead(p,"ack")>=id){message="Already processed by EA; inspect campaign acknowledgement";return true;}
    double age=TimeLocal()-WcoRead(p,"heartbeat");
