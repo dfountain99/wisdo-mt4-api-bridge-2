@@ -48,6 +48,9 @@ test('V12 Time displays bot session, active hours and blocked hours without inve
   assert.match(source,/EA SESSION NOT REPORTED/);
   assert.match(source,/session\.entryAllowed/);
   assert.match(source,/windowMode===0/);
+  assert.match(source,/ARM 2-MIN SCALP/);
+  assert.match(source,/onScalpHold/);
+  assert.match(source,/scalpHoldMs=2000/);
 });
 
 test('V12 right menu binds stable account IDs, verified broker victories and active EA protocol', async () => {
@@ -71,6 +74,8 @@ test('V15 voice/text manager uses the same verified proposal and acknowledgement
   assert.match(runtime,/runtime\.propose\(/);
   assert.match(runtime,/runtime\.execute\(/);
   assert.match(runtime,/HOLD TO CONFIRM/);
+  assert.match(runtime,/ARM_TWO_MIN_SCALP/);
+  assert.match(runtime,/durationSeconds:120/);
   assert.doesNotMatch(runtime,/GESTURE RECOGNIZED|guardianDeck|wcV8CharacterChamber/);
 });
 
@@ -80,8 +85,8 @@ test('V15 release assets are cache-busted and the old CORE cascade is retired', 
     fs.readFile(new URL('../public/service-worker.js',import.meta.url),'utf8'),
     fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8'),
   ]);
-  assert.match(workspace,/v=20261002-v17-intent-os/);
+  assert.match(workspace,/v=20261005-v20-scalp-hold/);
   assert.match(worker,/wisdo-static-v17\.0\.0-intent-os/);
-  assert.match(runtime,/wisdo-live-manager-v15\.css\?v=20261002-v17-intent-os/);
+  assert.match(runtime,/wisdo-live-manager-v15\.css\?v=20261005-v20-scalp-hold/);
   assert.doesNotMatch(runtime,/wisdo-core-v12-connected\.css|wisdo-core-v8-rank-ascension\.css/);
 });
