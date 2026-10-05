@@ -37,6 +37,8 @@ test('scope, duration, busy mailbox, HOLD role and missing levels fail closed',(
   assert.throws(()=>packet('PROTECT_RAIL',{levelId:12000},{...c,rail:121}));
   assert.throws(()=>packet('ARM_SONIC',{durationSeconds:900,burstCount:11}));
   assert.equal(packet('ARM_SONIC',{durationSeconds:900,burstCount:10}).burstCount,10);
+  assert.equal(packet('ARM_TWO_MIN_SCALP',{durationSeconds:120}).operation,23);
+  assert.throws(()=>packet('ARM_TWO_MIN_SCALP',{durationSeconds:119}),/fixed 120-second/);
 });
 test('preview does not execute; commit revalidates level geometry and campaign identity',async()=>{
   const {service,rows,account}=fixture();const p=await service.propose('u',{action:'MOVE_TARGET',accountId:'a',eaCampaignId:42,tickets:[2],levelId:12000});
@@ -52,11 +54,26 @@ test('parallel confirmations queue at most one command, and receipt does not cla
   assert.equal(receipt.deliveryOnly,true);assert.equal(receipt.status,'pending');assert.ok(Number.isSafeInteger(receipt.eaRequestId));
   assert.equal(rows[0].payload.operation,3);assert.equal(rows[0].payload.confirmation,'confirmed');
 });
+test('two-minute scalp long-press proposal stays preview-only until deliberate hold execution',async()=>{
+  const {service,rows}=fixture();
+  const p=await service.propose('u',{action:'ARM_TWO_MIN_SCALP',accountId:'a',eaCampaignId:42,durationSeconds:120});
+  assert.equal(p.packet.operation,23);
+  assert.equal(p.packet.durationSeconds,120);
+  assert.equal(p.holdRequiredMs,1800);
+  assert.equal(rows.length,0);
+  await assert.rejects(service.execute('u',{proposalId:p.proposalId,confirmationToken:p.confirmationToken,heldForMs:900}),/Hold confirmation/);
+  assert.equal(rows.length,0);
+  const receipt=await service.execute('u',{proposalId:p.proposalId,confirmationToken:p.confirmationToken,heldForMs:2000});
+  assert.equal(receipt.status,'pending');
+  assert.equal(rows.length,1);
+  assert.equal(rows[0].payload.operation,23);
+});
 test('speech parsing is bounded and never interprets ambiguous text as execution',()=>{
   assert.deepEqual(parseCampaignIntent('Wisdo, pause new entries for 2 hours.'),{action:'PAUSE_FOR',durationSeconds:7200});
   assert.deepEqual(parseCampaignIntent('after each win pause 15 minutes'),{action:'AFTER_WIN',durationSeconds:900});
   assert.deepEqual(parseCampaignIntent('after every compound target pause until a new opposite candle closes'),{action:'AFTER_COMPOUND'});
   assert.equal(parseCampaignIntent('arm a ten burst sonic attack for the next valid entry').burstCount,10);
   assert.equal(parseCampaignIntent('after this campaign ends pause for 2 hours').action,'AFTER_CAMPAIGN');
+  assert.deepEqual(parseCampaignIntent('activate the 2 minute game plan scalp system'),{action:'ARM_TWO_MIN_SCALP',durationSeconds:120});
   for(const text of ['do it','close everything I guess','enter now and ignore risk','pause 1 hour then buy 100 lots','extend that one'])assert.throws(()=>parseCampaignIntent(text));
 });
