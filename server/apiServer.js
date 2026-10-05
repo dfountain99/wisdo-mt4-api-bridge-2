@@ -1,3 +1,4 @@
+import { registerHightowerBridge } from './hightowerBridge.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -4989,6 +4990,12 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     publicRoot: path.join(__dirname, '..', 'public'),
   });
 
+  registerHightowerBridge(app, {
+    mt4SyncService, mt4CommandService, getRequestAccess,
+    resolveDeliveryIds: pairing => resolveMt4DeliveryUserIds(loadEcosystemState,pairing),
+    scheduleHeartbeat: scheduleReporterHeartbeat,
+  });
+
   registerDeadshotCommandCenterRoutes(app, {
     config,
     loadEcosystemState,
@@ -6714,6 +6721,8 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
         meta: { commandComplete: true, commandId: req.body?.commandId || '' },
       });
       const deliveryUserIds = await resolveMt4DeliveryUserIds(loadEcosystemState, pairing);
+      const receiptTarget=await mt4CommandService.getCommandStatus(req.body?.commandId);
+      if(receiptTarget?.command==='HIGHTOWER_CONTROL')return res.status(409).json({ok:false,error:'Dedicated EA receipt required'});
       const completed = await markMt4CommandCompleteForAnyOwner(mt4CommandService, deliveryUserIds, req.body?.commandId, req.body?.result || {}, accountId);
       let command = completed.command;
       let commandOwnerId = completed.userId;
@@ -7534,3 +7543,4 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   server.on('close', () => { void closeResources(); });
   return server;
 }
+

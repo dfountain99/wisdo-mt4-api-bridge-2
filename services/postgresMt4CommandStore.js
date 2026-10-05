@@ -166,13 +166,32 @@ export class PostgresMt4CommandStore {
     } finally { client.release(); }
   }
 
+  async claimHightower(userIds, scope) {
+    await this.initialize();
+    const pool=await this.pool();
+    // Atomic ownership assignment. A different receiver cannot replay a delivered command.
+    const result=await pool.query(`with candidate as (
+      select id from wisdo_mt4_commands
+      where user_id=any($1::text[]) and account_id=$2 and command='HIGHTOWER_CONTROL'
+      and payload->>'symbol'=$3 and payload->>'magicNumber'=$4
+      and (payload->>'_receiverId' is null or payload->>'_receiverId'=$5)
+      and status in ('pending','delivered') and expires_at>now()
+      and (status='pending' or delivered_at<now()-interval '15 seconds')
+      order by priority desc,created_at asc limit 1 for update skip locked
+    ) update wisdo_mt4_commands c set status='delivered',delivered_at=now(),attempts=c.attempts+1,
+      payload=c.payload || jsonb_build_object('_receiverId',$5::text)
+      from candidate where c.id=candidate.id returning c.*`,
+      [userIds,scope.accountId,scope.symbol,String(scope.magicNumber),scope.receiverId]);
+    return rowRecord(result.rows[0]);
+  }
+
   async pending(userIds = [], scope = {}) {
     await this.initialize();
     const ids = [...new Set(userIds.map(String).filter(Boolean))];
     if (!ids.length) return null;
     const pool = await this.pool();
     const params = [ids];
-    let where = `user_id = any($1::text[]) and status in ('pending','delivered') and (expires_at is null or expires_at >= now()) and (status='pending' or delivered_at is null or delivered_at < now() - interval '15 seconds')`;
+    let where = `command <> 'HIGHTOWER_CONTROL' and user_id = any($1::text[]) and status in ('pending','delivered') and (expires_at is null or expires_at >= now()) and (status='pending' or delivered_at is null or delivered_at < now() - interval '15 seconds')`;
     for (const [column, value] of [['account_id', scope.accountId], ['account_number', scope.accountNumber], ['pairing_code', scope.pairingCode]]) {
       if (!value) continue;
       params.push(String(value));
@@ -237,3 +256,4 @@ export class PostgresMt4CommandStore {
     await pool.query(`delete from wisdo_mt4_command_audit where id in (select id from wisdo_mt4_command_audit order by created_at desc offset $1)`, [auditLimit]);
   }
 }
+
