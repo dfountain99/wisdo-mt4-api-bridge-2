@@ -16,7 +16,8 @@ Source implementation and targeted tests complete. Not compiled by MetaEditor, n
 6. Set `WisdoServerBaseUrl` to the copier server's HTTPS origin, for example the origin portion of its SyncUrl. Remove `/mt4-sync` and any trailing slash. No production URL is hardcoded.
 7. If the server requires an API key, use the copier's key in `WisdoServerApiKey`. Otherwise leave it empty. Do not share the code/key in screenshots.
 8. Add that HTTPS origin under MT4 Tools → Options → Expert Advisors → Allow WebRequest for listed URL. Enable terminal AutoTrading and EA live trading permission for the demo test.
-9. Verify the chart shows `PAIRED / PAUSED`. Sign into WISDO and open `/member/hightower-control`. Select the account, exact broker symbol (including suffix), and EA magic number (default `26080204`). Send a confirmed Resume command to arm the existing strategy.
+9. Missing or invalid bridge settings now leave the EA attached in SETUP REQUIRED mode. No trading engine or strategy-state saves run in that mode. Press F7, correct the Inputs, and click OK to initialize again. A duplicate scope or inaccessible Files folder also shows an on-chart explanation.
+10. Verify the chart shows `PAIRED / PAUSED`. Sign into WISDO and open `/member/hightower-control`. Select the account, exact broker symbol (including suffix), and EA magic number (default `26080204`). Send a confirmed Resume command to arm the existing strategy.
 
 The pairing code links the bot to the same account as the copier. It does not move trading execution into Node: MT4 must remain open and connected, on your computer or VPS.
 

@@ -21,6 +21,9 @@ string wbIdentity="",wbReceiver="",wbAckId="",wbAckMessage="",wbStatus="NOT PAIR
 bool wbAckSuccess=false;
 string wbKeys[24],wbValues[24];int wbFields=0;
 
+bool wbSetupOnly=false;
+string wbSetupMessage="";
+
 enum Direction { DIR_SELL=-1, DIR_FLAT=0, DIR_BUY=1 };
 enum HT_OraclePhase { ORACLE_ACCUMULATION=0, ORACLE_EXPANSION=1, ORACLE_DISTRIBUTION=2 };
 enum HT_EvolutionError { EVO_ERROR_NONE=0, EVO_ERROR_DIRECTION=1, EVO_ERROR_LOCATION=2, EVO_ERROR_TIMING=3, EVO_ERROR_EXPOSURE=4 };
@@ -29293,7 +29296,12 @@ int H620Initialize()
 
 int OnInit()
 {
-   int wbInit=WBInit();if(wbInit!=INIT_SUCCEEDED)return wbInit;
+   int wbInit=WBInit();
+   if(wbInit!=INIT_SUCCEEDED)
+   {
+      wbSetupOnly=true;EventSetTimer(1);WBSetStatus(wbSetupMessage);
+      return INIT_SUCCEEDED; // Remain attached in setup-only mode, with no trading engine initialized.
+   }
    // v6.20 validates persistent ticket identity after legacy sensor initialization.
    HT5ApplyDropdownPhysiologyPre();
    ApplyUnityUserControls();
@@ -29410,6 +29418,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
 {
+   if(wbSetupOnly){WBDeinit();EventKillTimer();return;}
    WBDeinit();
    HT5CreatureSleep();
    CompoundSave();
@@ -29423,6 +29432,7 @@ void OnDeinit(const int reason)
 
 void OnTimer()
 {
+   if(wbSetupOnly){WBSetStatus(wbSetupMessage);return;}
    WBTimer();
    HT5CreatureTimerPulse();
    if(EnableMarketDNAHistoricalChannels && (!gMDChannelReady || gMDChannelLastMapBar!=iTime(Symbol(),SignalTF,0)))
@@ -29452,6 +29462,7 @@ void OnTimer()
 
 void OnTick()
 {
+   if(wbSetupOnly)return;
    WBGuard();
    // v6.10 refresh visible live inputs as final execution authority.
    HT6ApplyDirectExecutionInputs();
@@ -30181,26 +30192,33 @@ void WBExecute(string action)
       }
    }
 }
+int WBSetupError(string message,int code)
+{
+   wbSetupMessage=message;wbPaused=true;wbLinked=false;
+   Print("WISDO SETUP: ",message);return code;
+}
 int WBInit()
 {
    if(!WisdoServerControl)return INIT_SUCCEEDED;
-   if(IsTesting() || IsOptimization()){Print("WISDO server bridge cannot run in Strategy Tester; disable WisdoServerControl for offline tests.");return INIT_PARAMETERS_INCORRECT;}
-   if(WisdoPairingCode=="" || StringFind(WisdoServerBaseUrl,"https://")!=0 || StringFind(StringSubstr(WisdoServerBaseUrl,8),"/")>=0 ||
+   if(IsTesting() || IsOptimization())return WBSetupError("TESTER: disable WisdoServerControl for offline tests",INIT_PARAMETERS_INCORRECT);
+   if(WisdoPairingCode=="" || WisdoServerBaseUrl=="")
+      return WBSetupError("SETUP REQUIRED: fill WisdoPairingCode and WisdoServerBaseUrl in Inputs",INIT_PARAMETERS_INCORRECT);
+   if(StringFind(WisdoServerBaseUrl,"https://")!=0 || StringFind(StringSubstr(WisdoServerBaseUrl,8),"/")>=0 ||
       StringFind(WisdoServerBaseUrl,"?")>=0 || StringFind(WisdoServerBaseUrl,"#")>=0 || StringFind(WisdoServerBaseUrl,"@")>=0 ||
       StringFind(WisdoServerApiKey,"\r")>=0 || StringFind(WisdoServerApiKey,"\n")>=0 ||
       WisdoServerPollSeconds<2 || WisdoServerPollSeconds>10 || WisdoServerTimeoutMs<250 || WisdoServerTimeoutMs>3000 ||
       WisdoServerStaleSeconds<WisdoServerPollSeconds*2 || WisdoServerStaleSeconds>60)
-   {Print("WISDO: enter pairing code and HTTPS origin; verify poll/timeout/stale inputs.");return INIT_PARAMETERS_INCORRECT;}
+   return WBSetupError("INVALID INPUTS: HTTPS origin only (no trailing slash); check poll/timeout/stale values",INIT_PARAMETERS_INCORRECT);
    wbIdentity=IntegerToString(AccountNumber())+"|"+AccountServer()+"|"+Symbol()+"|"+IntegerToString(MagicNumber)+"|"+WisdoServerBaseUrl;
    wbLock=FileOpen(WBPrefix()+"owner.lock",FILE_READ|FILE_WRITE|FILE_TXT|FILE_UNICODE);
-   if(wbLock==INVALID_HANDLE){Print("WISDO: scope already attached or files unavailable.");return INIT_FAILED;}
+   if(wbLock==INVALID_HANDLE)return WBSetupError("BLOCKED: another EA owns this scope or Files folder unavailable. Error "+IntegerToString(GetLastError()),INIT_FAILED);
    string path=WBPrefix()+"receiver.txt";int f;
    if(FileIsExist(path)){f=FileOpen(path,FILE_READ|FILE_TXT|FILE_UNICODE);if(f!=INVALID_HANDLE){wbReceiver=FileReadString(f);FileClose(f);}}
    if(wbReceiver=="")
    {
       wbReceiver="HT_"+WBHash(wbIdentity+TerminalInfoString(TERMINAL_DATA_PATH))+"_"+IntegerToString((int)TimeLocal())+"_"+IntegerToString((int)GetTickCount());
-      f=FileOpen(path,FILE_WRITE|FILE_TXT|FILE_UNICODE);if(f==INVALID_HANDLE)return INIT_FAILED;
-      uint wrote=FileWriteString(f,wbReceiver);FileFlush(f);FileClose(f);if(wrote==0)return INIT_FAILED;
+      f=FileOpen(path,FILE_WRITE|FILE_TXT|FILE_UNICODE);if(f==INVALID_HANDLE)return WBSetupError("Cannot save receiver identity. Error "+IntegerToString(GetLastError()),INIT_FAILED);
+      uint wrote=FileWriteString(f,wbReceiver);FileFlush(f);FileClose(f);if(wrote==0)return WBSetupError("Cannot write receiver identity; check terminal Files permissions",INIT_FAILED);
    }
    wbPaused=true;gWisdoPaused=true;
    // Restart never automatically resumes. Restore emergency latch across reattachments.

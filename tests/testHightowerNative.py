@@ -71,3 +71,13 @@ assert src.index('WBAllows(cmd)',src.index('int HT5CommanderOrderSend('))<src.in
 print('Single OrderSend authority and native bridge event hooks verified.')
 
 assert not re.search(r"\bMagicNumber\s*\(",src), "MagicNumber is an input, not a function"
+# Setup-only attachment must neither run an uninitialized strategy nor save over its state.
+init=src[src.index('int OnInit()'):src.index('void OnDeinit(')]
+setup=init[:init.index('// v6.20 validates')]
+assert 'wbSetupOnly=true' in setup and 'return INIT_SUCCEEDED' in setup
+assert 'return wbInit' not in setup
+assert 'if(wbSetupOnly)return;' in src
+assert 'if(wbSetupOnly){WBSetStatus(wbSetupMessage);return;}' in src
+assert 'if(wbSetupOnly){WBDeinit();EventKillTimer();return;}' in src
+assert 'SETUP REQUIRED: fill WisdoPairingCode and WisdoServerBaseUrl in Inputs' in src
+print('Setup-only attachment, event isolation, and no uninitialized-state save verified.')
