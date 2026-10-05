@@ -9,6 +9,7 @@ const pct=(value)=>`${(finite(value)*100).toFixed(0)}%`;
 export const INTENT_OS_CAPABILITIES=Object.freeze([
   'SET_STOP_ATR','SET_TRAIL_ATR','TRIM_CAMPAIGN','ADD_IF_VALID',
   'WIDEN_EXISTING_STOPS','CLEAR_RUNTIME_OVERRIDES','COUNTER_IF_VALID','ARM_TWO_MIN_SCALP',
+  'SET_TRADING_SCHEDULE','CLEAR_TRADING_SCHEDULE',
 ]);
 
 function ensureStyles(){
@@ -313,7 +314,36 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     return null;
   }
 
-  const timeEngine=createWisdoTimeEngine(q('#lmTimeHost'),{resetWindowSeconds:120,scalpHoldMs:2000,onScalpHold:handleScalpHold});
+  async function handleScheduleHold({phase,action='set',schedule=null,prepared,heldForMs=0}={}){
+    const command=action==='clear'?'CLEAR_TRADING_SCHEDULE':'SET_TRADING_SCHEDULE';
+    if(phase==='start'){
+      const description=action==='clear'?'restore the EA schedule inputs':'apply the selected broker-time trading windows';
+      setIntent(`Keep holding. WISDO is revalidating the live account before it can ${description}…`,'warn');
+      return runtime.propose(command,{campaignId:selectedCampaignId,...(schedule||{})});
+    }
+    if(phase==='cancel'){
+      setIntent('Schedule change cancelled. Nothing was sent to HIGHTOWER.','');
+      return null;
+    }
+    if(phase==='complete'){
+      if(!prepared?.proposalId)throw new Error('Schedule proposal was not prepared.');
+      latestReceipt=await runtime.execute(prepared,heldForMs);
+      renderReceipt();
+      setIntent(action==='clear'
+        ? 'EA trading-window inputs restore sent. Existing positions remain managed while the schedule changes only gate new entries.'
+        : 'Trading schedule sent. HIGHTOWER will enforce these broker-time active windows for new entries while continuing to manage open positions outside the window.','live');
+      return latestReceipt;
+    }
+    return null;
+  }
+
+  const timeEngine=createWisdoTimeEngine(q('#lmTimeHost'),{
+    resetWindowSeconds:120,
+    scalpHoldMs:2000,
+    scheduleHoldMs:2000,
+    onScalpHold:handleScalpHold,
+    onScheduleHold:handleScheduleHold,
+  });
 
   function cancelProposal(){
     proposal=null;holdStart=0;clearInterval(holdTimer);holdTimer=0;
