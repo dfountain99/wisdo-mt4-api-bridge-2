@@ -205,6 +205,8 @@ test('V20 two-minute scalp phrase compiles to the fixed verified watchdog comman
   assert.equal(intent.parameters.action,'ARM_TWO_MIN_SCALP');
   assert.equal(intent.parameters.durationSeconds,120);
   assert.equal(intent.requiresExplicitConfirmation,true);
+  const { WisdoSafetyService }=await import('../services/wisdoSafetyService.js');
+  assert.equal(new WisdoSafetyService().classify(intent),'DANGEROUS');
 });
 
 test('V19 direct buy and sell phrases compile to the verified HIGHTOWER mailbox',()=>{
