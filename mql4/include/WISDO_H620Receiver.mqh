@@ -3,6 +3,131 @@ bool h620FuturePaused=false,h620Quarantine=false;
 double wcoEvaluation=0;
 string WcoEA(){return WcoPrefix(Symbol(),MagicNumber);}
 
+bool WcoWeeklyScheduleEnabled()
+{
+   string p=WcoEA();
+   return WcoRead(p,"weekScheduleEnabled")==1;
+}
+bool WcoWeeklyScheduleAllows(datetime now)
+{
+   string p=WcoEA();
+   if(WcoRead(p,"weekScheduleEnabled")!=1)return true;
+   int day=TimeDayOfWeek(now),hour=TimeHour(now);
+   if(day<0 || day>6 || hour<0 || hour>23)return false;
+   int mask=(int)WcoRead(p,"day"+IntegerToString(day)+"Mask");
+   int bit=(1<<hour);
+   return (mask & bit)!=0;
+}
+bool WcoScalpEntryAllows()
+{
+   string p=WcoEA();
+   if(WcoRead(p,"scalpActive")!=1)return true;
+   int state=(int)WcoRead(p,"scalpState");
+   return state==0 || state==1; // collecting and opposite-candle reset states block new entries
+}
+void WcoScalpResetFromEntry(int dir)
+{
+   string p=WcoEA();
+   if(WcoRead(p,"scalpActive")!=1)return;
+   int seconds=(int)WcoRead(p,"scalpResetSeconds");
+   if(seconds<30 || seconds>3600)seconds=120;
+   WcoWrite(p,"scalpState",1);
+   WcoWrite(p,"scalpPreviousDirection",dir);
+   WcoWrite(p,"scalpDeadline",TimeGMT()+seconds);
+   WcoWrite(p,"scalpTriggerBar",0);
+   GlobalVariablesFlush();
+}
+bool WcoArmScalp(string p,int seconds)
+{
+   if(seconds<30 || seconds>3600)return false;
+   WcoWrite(p,"scalpActive",1);
+   WcoWrite(p,"scalpResetSeconds",seconds);
+   WcoWrite(p,"scalpPreviousDirection",h620Dir);
+   WcoWrite(p,"scalpTriggerBar",0);
+   if(TradeCount()>0 && h620Dir!=DIR_FLAT)
+   {
+      WcoWrite(p,"scalpState",1);
+      WcoWrite(p,"scalpDeadline",TimeGMT()+seconds);
+   }
+   else
+   {
+      WcoWrite(p,"scalpState",0);
+      WcoWrite(p,"scalpDeadline",0);
+   }
+   WcoWrite(p,"requested",1);WcoWrite(p,"changed",1);GlobalVariablesFlush();
+   return true;
+}
+void WcoCancelScalp(string p)
+{
+   WcoWrite(p,"scalpActive",0);WcoWrite(p,"scalpState",0);WcoWrite(p,"scalpDeadline",0);
+   WcoWrite(p,"scalpTriggerBar",0);WcoWrite(p,"requested",1);WcoWrite(p,"changed",1);GlobalVariablesFlush();
+}
+bool WcoApplyWeekSchedule(string p)
+{
+   int masks[7];
+   for(int d=0;d<7;d++)
+   {
+      double raw=WcoRead(p,"cmdDay"+IntegerToString(d)+"Mask");
+      int mask=(int)raw;
+      if(raw<0 || raw>16777215 || MathAbs(raw-mask)>0.0001)return false;
+      masks[d]=mask;
+   }
+   for(int d=0;d<7;d++)WcoWrite(p,"day"+IntegerToString(d)+"Mask",masks[d]);
+   WcoWrite(p,"weekScheduleEnabled",1);WcoWrite(p,"requested",7);WcoWrite(p,"changed",7);GlobalVariablesFlush();
+   return true;
+}
+void WcoClearWeekSchedule(string p)
+{
+   WcoWrite(p,"weekScheduleEnabled",0);WcoWrite(p,"requested",1);WcoWrite(p,"changed",1);GlobalVariablesFlush();
+}
+void WcoScalpTick(string p)
+{
+   if(WcoRead(p,"scalpActive")!=1)return;
+   int state=(int)WcoRead(p,"scalpState");
+   int previousDir=(int)WcoRead(p,"scalpPreviousDirection");
+   if(state==1)
+   {
+      if(TradeCount()<=0)
+      {
+         WcoWrite(p,"scalpState",0);WcoWrite(p,"scalpDeadline",0);GlobalVariablesFlush();return;
+      }
+      datetime deadline=(datetime)WcoRead(p,"scalpDeadline");
+      if(deadline>0 && TimeGMT()>=deadline)
+      {
+         if(h620Dir!=DIR_FLAT)previousDir=h620Dir;
+         WcoWrite(p,"scalpPreviousDirection",previousDir);
+         WcoWrite(p,"scalpState",2); // lock new entries before collection
+         WcoWrite(p,"scalpTriggerBar",iTime(Symbol(),SignalTF,0));
+         WcoWrite(p,"scalpDeadline",0);
+         h620Flip=0;
+         if(h620Phase==1){h620Phase=2;h620Status="WISDO 2M SCALP TIMEOUT - COLLECT FULL CAMPAIGN";H620Persist();}
+         GlobalVariablesFlush();
+         return;
+      }
+   }
+   if(state==2 && TradeCount()<=0)
+   {
+      WcoWrite(p,"scalpState",3);
+      WcoWrite(p,"scalpTriggerBar",iTime(Symbol(),SignalTF,0));
+      GlobalVariablesFlush();
+      return;
+   }
+   if(state==3 && previousDir!=DIR_FLAT)
+   {
+      datetime trigger=(datetime)WcoRead(p,"scalpTriggerBar");
+      datetime closed=iTime(Symbol(),SignalTF,1);
+      if(closed>trigger)
+      {
+         double o=iOpen(Symbol(),SignalTF,1),c=iClose(Symbol(),SignalTF,1);
+         if(previousDir*(c-o)<0)
+         {
+            WcoWrite(p,"scalpState",0);WcoWrite(p,"scalpDeadline",0);WcoWrite(p,"scalpTriggerBar",0);
+            GlobalVariablesFlush();
+         }
+      }
+   }
+}
+
 void WcoClearRuntime(bool force=false)
 {
    string p=WcoEA();
@@ -209,15 +334,24 @@ void WcoPublish()
    WcoWrite(p,"milestonePercent",H620GrowthMilestonePercent);WcoWrite(p,"targetEquity",campaignTargetEquity);
    // CHRONOS truth: broker-clock session + the actual hard new-entry window.
    datetime chronosNow=TimeCurrent();
-   bool chronosWindowAllowed=HT6DirectTradingWindowAllows(chronosNow);
+   bool weekSchedule=WcoWeeklyScheduleEnabled();
+   bool chronosWindowAllowed=weekSchedule?WcoWeeklyScheduleAllows(chronosNow):HT6LegacyTradingWindowAllows(chronosNow);
+   bool scalpEntryAllowed=WcoScalpEntryAllows();
    bool wisdoTradingPaused=(GlobalVariableCheck("WISDO_TRADING_PAUSED") && GlobalVariableGet("WISDO_TRADING_PAUSED")>=0.5);
-   bool chronosEntryAllowed=(DirectAllowNewEntries && chronosWindowAllowed && !wisdoTradingPaused && !h620FuturePaused && !h620Quarantine);
+   bool chronosEntryAllowed=(DirectAllowNewEntries && chronosWindowAllowed && scalpEntryAllowed && !wisdoTradingPaused && !h620FuturePaused && !h620Quarantine);
    WcoWrite(p,"session",gHT5Session);WcoWrite(p,"sessionQuality",gHT5SessionQuality);
-   WcoWrite(p,"brokerHour",TimeHour(chronosNow));WcoWrite(p,"brokerMinute",TimeMinute(chronosNow));
-   WcoWrite(p,"windowMode",(int)DirectTradingWindowMode);
+   WcoWrite(p,"brokerHour",TimeHour(chronosNow));WcoWrite(p,"brokerMinute",TimeMinute(chronosNow));WcoWrite(p,"brokerDay",TimeDayOfWeek(chronosNow));
+   WcoWrite(p,"windowMode",weekSchedule?3:(int)DirectTradingWindowMode);
    WcoWrite(p,"window1Start",HT6NormalizeHour(DirectWindow1StartHour));WcoWrite(p,"window1End",HT6NormalizeHour(DirectWindow1EndHour));
    WcoWrite(p,"window2Start",HT6NormalizeHour(DirectWindow2StartHour));WcoWrite(p,"window2End",HT6NormalizeHour(DirectWindow2EndHour));
-   WcoWrite(p,"scheduleEnforced",DirectTradingWindowMode==TIME_WINDOW_ALL_HOURS?0:1);
+   WcoWrite(p,"scheduleEnforced",(weekSchedule || DirectTradingWindowMode!=TIME_WINDOW_ALL_HOURS)?1:0);
+   WcoWrite(p,"weekScheduleEnabled",weekSchedule?1:0);
+   for(int scheduleDay=0;scheduleDay<7;scheduleDay++)WcoWrite(p,"day"+IntegerToString(scheduleDay)+"Mask",WcoRead(p,"day"+IntegerToString(scheduleDay)+"Mask"));
+   int scalpState=(int)WcoRead(p,"scalpState");
+   double scalpRemaining=(scalpState==1?MathMax(0,WcoRead(p,"scalpDeadline")-TimeGMT()):0);
+   WcoWrite(p,"scalpActive",WcoRead(p,"scalpActive")==1?1:0);WcoWrite(p,"scalpState",scalpState);
+   WcoWrite(p,"scalpResetSeconds",MathMax(30,WcoRead(p,"scalpResetSeconds")));WcoWrite(p,"scalpRemainingSeconds",scalpRemaining);
+   WcoWrite(p,"scalpEntryAllowed",scalpEntryAllowed?1:0);
    WcoWrite(p,"windowAllowed",chronosWindowAllowed?1:0);WcoWrite(p,"entryAllowed",chronosEntryAllowed?1:0);
    // MARKET SENSE truth from the active HIGHTOWER organism. Numeric fields only;
    // the website labels them, while the EA remains the authority.
@@ -309,8 +443,9 @@ void H620FutureTick()
    {
       int op=(int)WcoRead(p,"op"),duration=(int)WcoRead(p,"duration");
       bool valid=WcoRead(p,"expires")>=TimeGMT() && WcoRead(p,"expected")==h620Id && IsConnected() && IsExpertEnabled();
-      if(op<1 || op>22)valid=false;
+      if(op<1 || op>26)valid=false;
       if((op==1 || op==3 || op==6 || op==7 || op==12) && (duration<1 || duration>604800))valid=false;
+      if(op==23 && (duration<30 || duration>3600))valid=false;
       if((op==2 || op==3 || (op>=6 && op<=18) || op==20) && h620Phase!=1)valid=false;
       if(op==12 && (WcoRead(p,"burst")<1 || WcoRead(p,"burst")>10))valid=false;
       if(!valid){WcoAck(id,-1);return;}
@@ -330,6 +465,10 @@ void H620FutureTick()
       else if(op==20){result=WcoWidenExistingStops(p,WcoRead(p,"stopAtr"))?1:(WcoRead(p,"changed")>0?3:-1);}
       else if(op==21){result=WcoArmCounterIfValid(p,(int)WcoRead(p,"counterDirection"),WcoRead(p,"referencePrice"))?1:-1;}
       else if(op==22){bool opened=WcoDirectionalEntryIfValid(p,(int)WcoRead(p,"requestedDirection"));result=opened?6:5;}
+      else if(op==23){result=WcoArmScalp(p,duration)?1:-1;}
+      else if(op==24){WcoCancelScalp(p);result=1;}
+      else if(op==25){result=WcoApplyWeekSchedule(p)?1:-1;}
+      else if(op==26){WcoClearWeekSchedule(p);result=1;}
       else if((op>=8 && op<=11) || op==13 || op==14)
       {
          WcoWrite(p,"changed",0);WcoWrite(p,"requested",0);
@@ -349,6 +488,7 @@ void H620FutureTick()
       }
       WcoAck(id,result);
    }
+   WcoScalpTick(p);
    bool changed=false;
    if(h620FutureGoal==1 && TimeGMT()>=h620FutureUntil)
    {h620FutureGoal=0;h620FuturePaused=false;h620FutureUntil=0;changed=true;}
