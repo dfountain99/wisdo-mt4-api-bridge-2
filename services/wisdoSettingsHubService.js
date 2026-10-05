@@ -7,7 +7,7 @@ const HIGH_RISK_ACTIONS=new Set(['unlock','open','open_cover','disarm','open_gar
 const SETTINGS_SECTIONS=new Set(['presence','workstation','mt4','smart_home','voice_notifications','authority']);
 
 const DEFAULTS=Object.freeze({
-  presence:{enabled:true,roomId:'trading-room',wakeWorkstation:true,prepareWorkspace:true,arrivalSceneId:'',edgeDeviceId:'',desktopDeviceId:''},
+  presence:{enabled:true,roomId:'trading-room',wakeWorkstation:true,prepareWorkspace:true,arrivalSceneId:'',departureSceneId:'',edgeDeviceId:'',desktopDeviceId:''},
   workstation:{desktopDeviceId:'',mt4Exe:'',liveManagerUrl:''},
   mt4:{accountId:'',botId:'',campaignControlSymbol:'',campaignControlMagic:''},
   smart_home:{edgeDeviceId:'',provider:'home_assistant'},
@@ -147,6 +147,18 @@ export class WisdoSettingsHubService{
     const desktopId=clean(settings.presence.desktopDeviceId||settings.workstation.desktopDeviceId,200);
     if(settings.presence.prepareWorkspace!==false&&desktopId)await queue('prepare_trading_workspace',{intent:'prepare_trading_workspace',source:'presence',target:{type:'desktop',id:desktopId,allowOffline:true},requiredCapability:'prepare_trading_workspace',parameters:{roomId:room},expiresInSeconds:300,priority:90});
     if(settings.presence.arrivalSceneId){try{const result=await this.runScene(owner,settings.presence.arrivalSceneId,{issuedByDeviceId:sourceDevice?.device_id||null,presence:true});actions.push({label:'smart_home_scene',status:'queued',sceneId:result.scene.scene_id,executions:result.executions});}catch(error){actions.push({label:'smart_home_scene',status:'blocked',reason:error.message});}}
+    return actions;
+  }
+
+  async handlePresenceDeparture({ownerUserId,roomId,sourceDevice}={}){
+    const owner=String(ownerUserId),room=clean(roomId,100).toLowerCase(),settings=await this.settings(owner),actions=[];
+    if(settings.presence.enabled===false)return actions;
+    const configuredRoom=clean(settings.presence.roomId,100).toLowerCase();
+    if(configuredRoom&&configuredRoom!==room)return actions;
+    if(settings.presence.departureSceneId){
+      try{const result=await this.runScene(owner,settings.presence.departureSceneId,{issuedByDeviceId:sourceDevice?.device_id||null,presence:true});actions.push({label:'smart_home_departure_scene',status:'queued',sceneId:result.scene.scene_id,executions:result.executions});}
+      catch(error){actions.push({label:'smart_home_departure_scene',status:'blocked',reason:error.message});}
+    }
     return actions;
   }
 
