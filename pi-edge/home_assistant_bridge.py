@@ -16,7 +16,7 @@ DOMAIN_ACTIONS = {
     'scene': ['activate'],
     'script': ['activate'],
     'automation': ['activate'],
-    'climate': ['turn_on', 'turn_off', 'set_temperature', 'set_hvac_mode'],
+    'climate': ['turn_on', 'turn_off', 'set_temperature', 'set_hvac_mode', 'set_fan_mode'],
     'fan': ['turn_on', 'turn_off', 'set_percentage'],
     'cover': ['open', 'close', 'stop', 'set_position'],
     'lock': ['lock', 'unlock'],
@@ -290,6 +290,8 @@ class HomeAssistantBridge:
             return 'set_temperature', {'temperature': float(p['temperature'])}
         if domain == 'climate' and action == 'set_hvac_mode':
             return 'set_hvac_mode', {'hvac_mode': _clean(p['hvac_mode'])}
+        if domain == 'climate' and action == 'set_fan_mode':
+            return 'set_fan_mode', {'fan_mode': _clean(p['fan_mode'])}
         if domain == 'fan' and action == 'set_percentage':
             return 'set_percentage', {'percentage': max(0, min(100, int(float(p['percentage']))))}
         if domain == 'cover':
