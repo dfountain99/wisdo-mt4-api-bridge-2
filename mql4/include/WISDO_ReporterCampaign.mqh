@@ -85,7 +85,7 @@ bool ExecuteCampaignCommand(string json,string &message,int &ticket)
    WcoWrite(p,"counterDirection",JsonGetInt(json,"counterDirection",0));
    WcoWrite(p,"referencePrice",JsonGetDouble(json,"referencePrice",0));
    WcoWrite(p,"requestedDirection",JsonGetInt(json,"requestedDirection",0));
-   for(int d=0;d<7;d++) WcoWrite(p,"day"+IntegerToString(d)+"Mask",JsonGetInt(json,"day"+IntegerToString(d)+"Mask",0));
+   for(int d=0;d<7;d++) WcoWrite(p,"cmdDay"+IntegerToString(d)+"Mask",JsonGetInt(json,"day"+IntegerToString(d)+"Mask",0));
    if(op==15 || op==16)WcoWrite(p,"runtimeScope",JsonGetInt(json,"runtimeScope",1));
    string parts[];int count=StringSplit(JsonGetString(json,"tickets",""),StringGetCharacter(",",0),parts);
    if(count>12){WcoWrite(p,"slot",0);message="Too many selected trades";return false;}
