@@ -47,6 +47,9 @@ class HomeAssistantBridgeTests(unittest.TestCase):
             'attributes': {'friendly_name': 'Living Room', 'brightness': 128},
         })
         self.assertEqual(payload['componentType'], 'light')
+        self.assertEqual(payload['approvalStatus'], 'pending')
+        self.assertEqual(payload['adapterId'], 'home-assistant')
+        self.assertTrue(payload['componentId'].startswith('ha:pi-test:light.living_room'))
         self.assertIn('turn_on', payload['capabilities']['actions'])
         self.assertIn('set_brightness', payload['capabilities']['actions'])
         self.assertIn('living room lights', payload['aliases'])
@@ -84,6 +87,10 @@ class HomeAssistantBridgeTests(unittest.TestCase):
         self.assertEqual(
             self.bridge._service_call('vacuum', 'dock', {}),
             ('return_to_base', {}),
+        )
+        self.assertEqual(
+            self.bridge._service_call('climate', 'set_fan_mode', {'fan_mode': 'auto'}),
+            ('set_fan_mode', {'fan_mode': 'auto'}),
         )
 
 
