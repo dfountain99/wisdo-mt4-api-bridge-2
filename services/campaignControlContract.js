@@ -23,11 +23,14 @@ export const CAMPAIGN_ACTIONS = Object.freeze({
   COUNTER_IF_VALID: { code: 21, label: 'Arm an opposite HIGHTOWER campaign after a verified stop event' },
   DIRECTIONAL_ENTRY_IF_VALID: { code: 22, label: 'Ask HIGHTOWER to open a requested BUY or SELL under normal safety gates' },
   ARM_TWO_MIN_SCALP: { code: 23, label: 'Arm the two-minute scalp watchdog; each new entry resets the clock' },
+  SET_TRADING_SCHEDULE: { code: 24, label: 'Apply broker-time active trading windows for new entries' },
+  CLEAR_TRADING_SCHEDULE: { code: 25, label: 'Restore the EA trading-window inputs' },
 });
 const num = (v, fallback = 0) => typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 const bool = (v) => v === true;
 const hour = (v) => Math.max(0, Math.min(23, Math.trunc(num(v, 0))));
 const minute = (v) => Math.max(0, Math.min(59, Math.trunc(num(v, 0))));
+const dayMinute = (v) => Math.max(0, Math.min(1439, Math.trunc(num(v, 0))));
 const SESSION_NAMES = Object.freeze(['ASIA','LONDON','NEW YORK','LONDON/NY OVERLAP','ROLLOVER','OTHER']);
 export function normalizeCampaignControl(value) {
   if (!value || value.version !== 1 || !/^[A-Za-z0-9_.#-]{1,24}$/.test(value.symbol || '') || !Number.isInteger(value.magic) || value.magic <= 0) return null;
@@ -37,13 +40,18 @@ export function normalizeCampaignControl(value) {
   const sessionReported = Number.isFinite(value.sessionId) && Number.isFinite(value.windowMode);
   const sessionId = Math.max(0, Math.min(5, Math.trunc(num(value.sessionId, 5))));
   const windowMode = Math.max(0, Math.min(2, Math.trunc(num(value.windowMode, 0))));
+  const windowCount = windowMode === 2 ? Math.max(1, Math.min(2, Math.trunc(num(value.windowCount, 2)))) : 1;
+  const w1StartMinute = Number.isFinite(value.window1StartMinute) ? dayMinute(value.window1StartMinute) : hour(value.window1Start) * 60;
+  const w1EndMinute = Number.isFinite(value.window1EndMinute) ? dayMinute(value.window1EndMinute) : hour(value.window1End) * 60;
+  const w2StartMinute = Number.isFinite(value.window2StartMinute) ? dayMinute(value.window2StartMinute) : hour(value.window2Start) * 60;
+  const w2EndMinute = Number.isFinite(value.window2EndMinute) ? dayMinute(value.window2EndMinute) : hour(value.window2End) * 60;
   const configuredWindows = windowMode === 0
-    ? [{ startHour: 0, endHour: 0, label: 'ALL HOURS' }]
+    ? [{ startMinute: 0, endMinute: 0, startHour: 0, endHour: 0, label: 'ALL HOURS' }]
     : windowMode === 1
-      ? [{ startHour: 7, endHour: 21, label: 'LONDON + NEW YORK' }]
+      ? [{ startMinute: 420, endMinute: 1260, startHour: 7, endHour: 21, label: 'LONDON + NEW YORK' }]
       : [
-          { startHour: hour(value.window1Start), endHour: hour(value.window1End), label: 'WINDOW 1' },
-          { startHour: hour(value.window2Start), endHour: hour(value.window2End), label: 'WINDOW 2' },
+          { startMinute: w1StartMinute, endMinute: w1EndMinute, startHour: Math.floor(w1StartMinute / 60), endHour: Math.floor(w1EndMinute / 60), label: 'WINDOW 1' },
+          ...(windowCount > 1 ? [{ startMinute: w2StartMinute, endMinute: w2EndMinute, startHour: Math.floor(w2StartMinute / 60), endHour: Math.floor(w2EndMinute / 60), label: 'WINDOW 2' }] : []),
         ];
   return { version: 1, symbol: value.symbol, magic: value.magic,
     ageSeconds: value.ageSeconds >= 0 ? num(value.ageSeconds, 999999) : 999999, enabled: value.enabled === true,
@@ -65,6 +73,8 @@ export function normalizeCampaignControl(value) {
       brokerHour: hour(value.brokerHour),
       brokerMinute: minute(value.brokerMinute),
       windowMode,
+      windowCount,
+      scheduleOverride: sessionReported ? bool(value.scheduleOverride) : null,
       scheduleEnforced: sessionReported ? bool(value.scheduleEnforced) : null,
       windowAllowed: sessionReported ? bool(value.windowAllowed) : null,
       entryAllowed: sessionReported ? bool(value.entryAllowed) : null,
@@ -105,6 +115,27 @@ export function campaignPacket(action, body, state) {
   const duration = Number(body.durationSeconds || 0);
   if ([1, 3, 6, 7, 12, 23].includes(definition.code) && (!Number.isInteger(duration) || duration < 1 || duration > 604800)) fail('Choose a duration between 1 second and 7 days.');
   if (definition.code === 23 && duration !== 120) fail('The two-minute scalp game plan uses a fixed 120-second reset window.');
+  let scheduleMode = Number(body.scheduleMode ?? 0);
+  let scheduleWindowCount = Number(body.scheduleWindowCount ?? 1);
+  let window1StartMinute = Number(body.window1StartMinute ?? 0);
+  let window1EndMinute = Number(body.window1EndMinute ?? 0);
+  let window2StartMinute = Number(body.window2StartMinute ?? 0);
+  let window2EndMinute = Number(body.window2EndMinute ?? 0);
+  if (definition.code === 24) {
+    if (![0, 1, 2].includes(scheduleMode) || !Number.isInteger(scheduleMode)) fail('Trading schedule mode must be ALL HOURS, LONDON + NEW YORK, or CUSTOM.');
+    if (scheduleMode === 2) {
+      if (![1, 2].includes(scheduleWindowCount) || !Number.isInteger(scheduleWindowCount)) fail('Custom schedule supports one or two active windows.');
+      for (const value of [window1StartMinute, window1EndMinute, ...(scheduleWindowCount === 2 ? [window2StartMinute, window2EndMinute] : [])]) {
+        if (!Number.isInteger(value) || value < 0 || value > 1439) fail('Trading schedule times must be broker-clock minutes from 00:00 through 23:59.');
+      }
+      if (window1StartMinute === window1EndMinute) fail('Window 1 start and end cannot match; use ALL HOURS for a full-day schedule.');
+      if (scheduleWindowCount === 2 && window2StartMinute === window2EndMinute) fail('Window 2 start and end cannot match.');
+    } else {
+      scheduleWindowCount = 1;
+      if (scheduleMode === 0) { window1StartMinute = 0; window1EndMinute = 0; window2StartMinute = 0; window2EndMinute = 0; }
+      if (scheduleMode === 1) { window1StartMinute = 420; window1EndMinute = 1260; window2StartMinute = 0; window2EndMinute = 0; }
+    }
+  }
   if ([2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 23].includes(definition.code) && c.phase !== 1) fail('This instruction requires an active campaign.');
   const burstCount = Number(body.burstCount || 0);
   if (definition.code === 12 && (!Number.isInteger(burstCount) || burstCount < 1 || burstCount > 10)) fail('A SONIC window allows 1 to 10 entries, each subject to the normal EA gates.');
@@ -151,5 +182,6 @@ export function campaignPacket(action, body, state) {
   return { operation: definition.code, burstCount, durationSeconds: duration, eaCampaignId: c.campaignId,
     symbol: c.symbol, magicNumber: c.magic, tickets: tickets.join(','),
     levelId: level?.id || 0, levelPrice: level?.price || 0,
-    stopAtr, trailStartAtr, trailDistanceAtr, trailStepAtr, trimPercent, runtimeScope, counterDirection, referencePrice, requestedDirection };
+    stopAtr, trailStartAtr, trailDistanceAtr, trailStepAtr, trimPercent, runtimeScope, counterDirection, referencePrice, requestedDirection,
+    scheduleMode, scheduleWindowCount, window1StartMinute, window1EndMinute, window2StartMinute, window2EndMinute };
 }
