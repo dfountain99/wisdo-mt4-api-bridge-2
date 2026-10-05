@@ -117,7 +117,8 @@ def heartbeat(listening=False):
     if response.status_code == 404:
         response = requests.post(f'{CLOUD}/api/voice/v1/devices/register', headers=headers(),
                                  json={'roomId': os.getenv('WISDO_ROOM_ID', 'office'),
-                                       'permissions': {'conversation': True, 'trading': True},
+                                       'permissions': {'conversation': True, 'trading': True,
+                                                       'smartHome': bool(os.getenv('WISDO_HOME_ASSISTANT_URL','').strip() and os.getenv('WISDO_HOME_ASSISTANT_TOKEN','').strip())},
                                        **payload}, timeout=10)
     response.raise_for_status()
 
