@@ -52,3 +52,35 @@
 .wisdo-v10-time-core[data-arm-state="unavailable"]{cursor:not-allowed}
 .wisdo-v10-time-engine[data-temporal-mode="scalp"] .wisdo-v10-time-core .progress{stroke:var(--lm-green)}
 .wisdo-v10-time-engine[data-temporal-mode="scalp-wait"] .wisdo-v10-time-core .progress{stroke:#ffb36d}
+
+/* WISDO broker-time schedule sliders ------------------------------------------------ */
+#wcV12SchedulePreview{position:absolute;inset:0;pointer-events:none;z-index:3}
+.wisdo-v12-schedule-preview-window{position:absolute;top:3px;bottom:3px;border:1px dashed var(--lm-gold);background:rgba(227,181,93,.12);border-radius:5px}
+.wisdo-v12-schedule-editor{margin-top:12px;padding-top:12px;border-top:1px solid var(--lm-line)}
+.wisdo-v12-schedule-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.wisdo-v12-schedule-head span{display:block;color:var(--lm-muted);font-size:8px;letter-spacing:.12em}
+.wisdo-v12-schedule-head strong{display:block;margin-top:3px;font-size:11px}
+.wisdo-v12-schedule-head>b{padding:5px 8px;border:1px solid var(--lm-line);border-radius:999px;color:var(--lm-gold);font-size:8px;letter-spacing:.08em}
+.wisdo-v12-schedule-presets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:10px}
+.wisdo-v12-schedule-presets button{min-height:38px;border:1px solid var(--lm-line);border-radius:10px;background:#0a1117;color:var(--lm-muted);font:800 8px/1 system-ui;letter-spacing:.08em}
+.wisdo-v12-schedule-presets button[data-active="true"]{border-color:var(--lm-gold);color:var(--lm-gold);background:rgba(227,181,93,.08)}
+.wisdo-v12-window-editor{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:9px}
+.wisdo-v12-window-editor[hidden]{display:none}
+.wisdo-v12-window-editor article{padding:10px;border:1px solid #202a34;border-radius:12px;background:#070c11}
+.wisdo-v12-window-editor header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px}
+.wisdo-v12-window-editor header>span,.wisdo-v12-window-toggle span{font-size:8px;color:var(--lm-muted);font-weight:800;letter-spacing:.1em}
+.wisdo-v12-window-editor header>b{font-size:9px;color:#eef6fb;font-variant-numeric:tabular-nums}
+.wisdo-v12-window-editor>article>label{display:grid;grid-template-columns:38px 1fr;gap:8px;align-items:center;margin-top:7px}
+.wisdo-v12-window-editor>article>label>span{font-size:7px;color:var(--lm-muted);letter-spacing:.08em}
+.wisdo-v12-window-editor input[type="range"]{width:100%;accent-color:var(--lm-gold);min-height:28px}
+.wisdo-v12-window-editor input[type="range"]:disabled{opacity:.35}
+.wisdo-v12-window-toggle{display:flex!important;align-items:center;gap:6px;margin:0!important}
+.wisdo-v12-window-toggle input{accent-color:var(--lm-gold)}
+.wisdo-v12-schedule-actions{display:grid;grid-template-columns:1.2fr .8fr;gap:7px;margin-top:10px}
+.wisdo-v12-schedule-actions button{position:relative;overflow:hidden;min-height:42px;border:1px solid var(--lm-line);border-radius:11px;background:linear-gradient(90deg,rgba(227,181,93,.18) var(--hold-progress,0%),#0a1117 var(--hold-progress,0%));color:#dce8ef;font:900 8px/1.2 system-ui;letter-spacing:.06em;touch-action:manipulation;-webkit-touch-callout:none;user-select:none}
+.wisdo-v12-schedule-actions button.primary{border-color:#7a6037;color:var(--lm-gold)}
+.wisdo-v12-schedule-actions button[data-hold-state="holding"]{border-color:var(--lm-gold)}
+.wisdo-v12-schedule-actions button[data-hold-state="sending"]{color:var(--lm-green);border-color:rgba(110,231,168,.45)}
+.wisdo-v12-schedule-actions button:disabled{opacity:.45;cursor:not-allowed}
+#wcV12ScheduleHint{display:block;margin-top:8px;color:var(--lm-muted);font-size:8px;line-height:1.45}
+@media(max-width:650px){.wisdo-v12-window-editor{grid-template-columns:1fr}.wisdo-v12-schedule-actions{grid-template-columns:1fr}.wisdo-v12-schedule-presets{grid-template-columns:1fr 1fr 1fr}.wisdo-v12-window-editor input[type="range"]{min-height:34px}}
