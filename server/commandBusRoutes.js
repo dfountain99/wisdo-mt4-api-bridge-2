@@ -41,6 +41,19 @@ export function registerCommandBusRoutes(app, dependencies = {}) {
     } catch (error) { next(error); }
   });
 
+  app.post('/api/device/v1/presence/depart', auth, async (req, res, next) => {
+    try {
+      const capabilities=req.wisdoDevice.capabilities && typeof req.wisdoDevice.capabilities==='object' ? req.wisdoDevice.capabilities : {};
+      if(capabilities.presence!==true)return res.status(403).json({ok:false,error:'This enrolled device does not advertise a live presence sensor.'});
+      const roomId=String(req.body?.roomId||req.body?.room||'').trim().toLowerCase();
+      if(!roomId)return res.status(400).json({ok:false,error:'roomId is required.'});
+      const actions=typeof service.presenceCoordinator?.departure==='function'
+        ? await service.presenceCoordinator.departure({ownerUserId:req.wisdoDevice.owner_user_id,roomId,sourceDevice:req.wisdoDevice})
+        : [];
+      res.status(actions.some((x)=>x.status==='queued')?202:409).json({ok:actions.some((x)=>x.status==='queued'),roomId,actions});
+    } catch (error) { next(error); }
+  });
+
   app.get('/api/device/v1/health', auth, async (req, res, next) => {
     try { res.json({ ...(await service.health()), device: req.wisdoDevice }); } catch (error) { next(error); }
   });
