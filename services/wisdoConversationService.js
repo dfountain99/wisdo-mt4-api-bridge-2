@@ -16,7 +16,7 @@ function isLive(a){return /live|real/i.test(String(a?.environment||a?.accountTyp
 function connected(a,staleMs){const date=a?.lastSyncAt||a?.last_sync_at||a?.updatedAt||a?.updated_at;return a?.status!=='offline'&&Boolean(date)&&Date.now()-new Date(date).getTime()<=staleMs;}
 
 export class WisdoConversationService {
-  constructor({intentService,contextService,safetyService,confirmationService,planService,executionService,educationService=null,auditService=null,capabilityService=null,adaptiveFabricService=null,getAuthorizedAccounts=async()=>[],getActiveAccount=async()=>null,menuProvider=async()=>({}),staleMs=Number(process.env.WISDO_TRADING_OFFLINE_MS||300000)}={}){Object.assign(this,{intentService,contextService,safetyService,confirmationService,planService,executionService,educationService,auditService,capabilityService,adaptiveFabricService,getAuthorizedAccounts,getActiveAccount,menuProvider,staleMs});}
+  constructor({intentService,contextService,safetyService,confirmationService,planService,executionService,educationService=null,auditService=null,capabilityService=null,adaptiveFabricService=null,ambientControlService=null,getAuthorizedAccounts=async()=>[],getActiveAccount=async()=>null,menuProvider=async()=>({}),staleMs=Number(process.env.WISDO_TRADING_OFFLINE_MS||300000)}={}){Object.assign(this,{intentService,contextService,safetyService,confirmationService,planService,executionService,educationService,auditService,capabilityService,adaptiveFabricService,ambientControlService,getAuthorizedAccounts,getActiveAccount,menuProvider,staleMs});}
 
   async ensureSession({userId,deviceId=null,discordUserId=null,channel='device',sessionId=null,wakeMatched=false}){
     let session=sessionId?await this.contextService.get(sessionId,userId):await this.contextService.latest(userId,deviceId);
@@ -43,10 +43,10 @@ export class WisdoConversationService {
     const text=wake.matched?wake.command:String(input.text||'').trim();
     if(!text){await this.saveExchange(session,userId,input.text,COACH_RESPONSES.wake,null,'listening');return this.result(session,'listening',COACH_RESPONSES.wake);}
     try{
-      const context={...(session.context||{}),activePlanId:session.active_plan_id||session.context?.activePlanId,planMode:Boolean(session.active_plan_id||session.context?.planMode),activeAccountId:input.accountId||session.context?.activeAccountId||null,symbol:input.symbol||session.context?.symbol||null,campaign_id:input.campaignId||session.context?.campaign_id||null,magic_number:input.magicNumber??session.context?.magic_number??null,selectedTicket:input.selectedTicket||session.context?.selectedTicket||null};
+      const context={...(session.context||{}),activePlanId:session.active_plan_id||session.context?.activePlanId,planMode:Boolean(session.active_plan_id||session.context?.planMode),activeAccountId:input.accountId||session.context?.activeAccountId||null,symbol:input.symbol||session.context?.symbol||null,campaign_id:input.campaignId||session.context?.campaign_id||null,magic_number:input.magicNumber??session.context?.magic_number??null,selectedTicket:input.selectedTicket||session.context?.selectedTicket||null,roomId:input.roomId||session.context?.roomId||null};
       const intent=await this.intentService.parse(text,context);
-      const liveContextPatch={activeAccountId:input.accountId||context.activeAccountId||null,symbol:input.symbol||context.symbol||null,campaign_id:input.campaignId||context.campaign_id||null,magic_number:input.magicNumber??context.magic_number??null,selectedTicket:input.selectedTicket||context.selectedTicket||null};
-      if(['ACTION','BEHAVIOR'].includes(intent.type)){liveContextPatch.lastIntent=intent.intent;liveContextPatch.lastCommandName=intent.commandName||null;liveContextPatch.lastParameters=intent.parameters||{};liveContextPatch.lastRawText=text;}
+      const liveContextPatch={activeAccountId:input.accountId||context.activeAccountId||null,symbol:input.symbol||context.symbol||null,campaign_id:input.campaignId||context.campaign_id||null,magic_number:input.magicNumber??context.magic_number??null,selectedTicket:input.selectedTicket||context.selectedTicket||null,roomId:input.roomId||context.roomId||null};
+      if(['ACTION','AMBIENT_ACTION','BEHAVIOR'].includes(intent.type)){liveContextPatch.lastIntent=intent.intent;liveContextPatch.lastCommandName=intent.commandName||null;liveContextPatch.lastParameters=intent.parameters||{};liveContextPatch.lastRawText=text;}
       await this.contextService.touch(session.session_id,userId,{context:liveContextPatch});
       await this.contextService.message({sessionId:session.session_id,userId,role:'user',content:String(input.text||text),intent});
       const handled=await this.handle({input,text,intent,session,context});
@@ -73,6 +73,7 @@ export class WisdoConversationService {
     if(intent.type==='BEHAVIOR')return this.behavior({input,text,intent,session,context});
     if(intent.type==='PLAN')return this.plan({input,text,intent,session,context});
     if(intent.type==='QUERY')return this.query({input,intent,session,context});
+    if(intent.type==='AMBIENT_ACTION')return this.ambient({input,text,intent,session,context});
     if(intent.type==='ACTION')return this.action({input,text,intent,session,context});
     if(intent.intent==='GENERAL_CONVERSATION'){
       if(/\b(what(?:s| is)?|tell me) (?:today(?:s)? )?date\b|\bwhat day is (?:it|today)\b/i.test(text)){
@@ -87,6 +88,21 @@ export class WisdoConversationService {
     }
     if(intent.confidence<0.7)return {state:'clarification',text:'I want to make sure I understand. Are you asking about an account, a trading action, todayâ€™s plan, or education?'};
     return {state:'completed',text:`I understand. Tell me what you would like to know or change in your trading system. ${COACH_RESPONSES.ready}`};
+  }
+
+  async ambient({input,text,intent,session,context}){
+    if(!this.ambientControlService)return {state:'unsupported',text:'Ambient device control is not connected. No device action was sent.'};
+    if(intent.confidence<this.intentService.confidenceThreshold)return {state:'clarification',text:'I understood this as a room or device request, but I need a clearer room, device, scene, or value.'};
+    const parameters={...(intent.parameters||{})};
+    if(!parameters.room&&context.roomId)parameters.room=context.roomId;
+    const highRisk=['unlock','open','open_cover','disarm','open_garage'].includes(String(parameters.action||''));
+    if(highRisk){
+      const pending=await this.confirmationService.create({userId:input.userId,sessionId:session.session_id,deviceId:input.deviceId,actionType:'AMBIENT_ACTION',accountIds:[],parameters:{ambientIntent:parameters,rawText:text},safetyLevel:'DANGEROUS'});
+      return {state:'awaiting_confirmation',confirmationId:pending.confirmation_id,text:`WISDO understood the high-risk device action ${String(parameters.action).replaceAll('_',' ')}. Say “Confirm Coach, execute” to send it to the verified smart-home bridge.`};
+    }
+    const result=await this.ambientControlService.executeAmbient(input.userId,parameters,{deviceId:input.deviceId,confirmed:false});
+    const count=(result.executions?.length||0)+(result.commands?.length||0);
+    return {state:'queued',ambient:true,executionIds:(result.executions||[]).map(x=>x.execution_id).filter(Boolean),commandIds:(result.commands||[]).map(x=>x.command_id).filter(Boolean),text:`WISDO queued ${count} verified device action${count===1?'':'s'}. Completion is pending the enrolled edge or workstation receipt.`};
   }
 
   async action({input,text,intent,session,context}){
@@ -154,6 +170,12 @@ export class WisdoConversationService {
   async confirm({input,text,session}){
     const confirmed=await this.confirmationService.confirm({userId:input.userId,sessionId:session.session_id,deviceId:input.deviceId,phrase:text});
     if(!confirmed)return {state:'clarification',text:'There is no matching unexpired confirmation for this session. I did not make any changes.'};
+    if(confirmed.action_type==='AMBIENT_ACTION'){
+      const result=await this.ambientControlService?.executeAmbient(input.userId,confirmed.parameters?.ambientIntent||{}, {deviceId:input.deviceId,confirmed:true});
+      await this.confirmationService.consume(confirmed.confirmation_id);
+      const count=(result?.executions?.length||0)+(result?.commands?.length||0);
+      return {state:'queued',ambient:true,text:`Confirmed. WISDO queued ${count} high-risk device action${count===1?'':'s'} to the verified edge bridge. Completion still requires the device receipt.`};
+    }
     if(confirmed.plan_id){const target=confirmed.action_type==='PAUSE_PLAN'?'PAUSED':'ACTIVE';if(target==='ACTIVE'){const authorized=await this.getAuthorizedAccounts(input.userId);this.safetyService.assertAccountAccess(confirmed.account_ids,authorized);const selected=authorized.filter((a)=>confirmed.account_ids.includes(accountId(a)));this.safetyService.assertVoiceExecutionMode(selected);if(selected.some((a)=>!connected(a,this.staleMs)))throw Object.assign(new Error('Trading connection offline.'),{code:'trading_offline'});}const plan=await this.planService.transition(input.userId,confirmed.plan_id,target,input.userId);const rules=target==='ACTIVE'?await this.planService.materialize(input.userId,plan.planId):[];const activationCommands=[];for(const rule of rules.filter((r)=>r.supported&&r.parameters?.immediate)){for(const id of plan.accountIds){const globals=rule.rule_type==='RISK_PERCENT'?{WISDO_RISK_PERCENT:rule.parameters.value}:{WISDO_ALLOW_BUYS:rule.parameters.directions.includes('BUY')?1:0,WISDO_ALLOW_SELLS:rule.parameters.directions.includes('SELL')?1:0};const queued=await this.executionService.queue({userId:input.userId,deviceId:input.deviceId,accountId:id,intent:rule.rule_type,commandName:'CEM_SET_GLOBALS',parameters:{globals,planRuleId:rule.rule_id},rawText:`Daily Plan activation: ${rule.rule_type}`,safetyLevel:'CONTROLLED',planId:plan.planId,confirmationStatus:'CONFIRMED'});activationCommands.push(queued.id);}}await this.confirmationService.consume(confirmed.confirmation_id);const unsupported=rules.filter((r)=>!r.supported).map((r)=>r.rule_type);return {state:target.toLowerCase(),planId:plan.planId,commandIds:activationCommands,text:target==='PAUSED'?`Confirmed. Todayâ€™s plan is paused. ${COACH_RESPONSES.ready}`:`Confirmed. Todayâ€™s plan is active. ${activationCommands.length} immediate setup command${activationCommands.length===1?' was':'s were'} queued; completion still requires verified Reporter receipts. Conditional rules are being monitored.${unsupported.length?` These rules still require an EA or Reporter upgrade: ${unsupported.join(', ')}.`:''} ${COACH_RESPONSES.ready}`};}
     if(confirmed.action_type==='ACTIVATE_BEHAVIOR'){
       const authorized=await this.getAuthorizedAccounts(input.userId);this.safetyService.assertAccountAccess(confirmed.account_ids,authorized);const selected=authorized.filter((a)=>confirmed.account_ids.includes(accountId(a)));this.safetyService.assertVoiceExecutionMode(selected);if(selected.some((a)=>!connected(a,this.staleMs)))throw Object.assign(new Error('Trading connection offline.'),{code:'trading_offline'});
