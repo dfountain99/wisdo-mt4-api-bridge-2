@@ -22,6 +22,7 @@ export const CAMPAIGN_ACTIONS = Object.freeze({
   WIDEN_EXISTING_STOPS: { code: 20, label: 'Intentionally widen existing live broker stops' },
   COUNTER_IF_VALID: { code: 21, label: 'Arm an opposite HIGHTOWER campaign after a verified stop event' },
   DIRECTIONAL_ENTRY_IF_VALID: { code: 22, label: 'Ask HIGHTOWER to open a requested BUY or SELL under normal safety gates' },
+  ARM_TWO_MIN_SCALP: { code: 23, label: 'Arm the two-minute scalp watchdog; each new entry resets the clock' },
 });
 const num = (v, fallback = 0) => typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 const bool = (v) => v === true;
@@ -102,8 +103,9 @@ export function campaignPacket(action, body, state) {
   const definition = CAMPAIGN_ACTIONS[action];
   if (!definition) fail('Unsupported campaign instruction.');
   const duration = Number(body.durationSeconds || 0);
-  if ([1, 3, 6, 7, 12].includes(definition.code) && (!Number.isInteger(duration) || duration < 1 || duration > 604800)) fail('Choose a duration between 1 second and 7 days.');
-  if ([2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20].includes(definition.code) && c.phase !== 1) fail('This instruction requires an active campaign.');
+  if ([1, 3, 6, 7, 12, 23].includes(definition.code) && (!Number.isInteger(duration) || duration < 1 || duration > 604800)) fail('Choose a duration between 1 second and 7 days.');
+  if (definition.code === 23 && duration !== 120) fail('The two-minute scalp game plan uses a fixed 120-second reset window.');
+  if ([2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 23].includes(definition.code) && c.phase !== 1) fail('This instruction requires an active campaign.');
   const burstCount = Number(body.burstCount || 0);
   if (definition.code === 12 && (!Number.isInteger(burstCount) || burstCount < 1 || burstCount > 10)) fail('A SONIC window allows 1 to 10 entries, each subject to the normal EA gates.');
   const tickets = [...new Set(Array.isArray(body.tickets) ? body.tickets.map(Number) : [])];
