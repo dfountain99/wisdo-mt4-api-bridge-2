@@ -86,7 +86,7 @@ test('V15 release assets are cache-busted and the old CORE cascade is retired', 
     fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8'),
   ]);
   assert.match(workspace,/v=20261005-v20-scalp-hold/);
-  assert.match(worker,/wisdo-static-v17\.0\.0-intent-os/);
+  assert.match(worker,/wisdo-static-v20\.0\.0-scalp-hold/);
   assert.match(runtime,/wisdo-live-manager-v15\.css\?v=20261005-v20-scalp-hold/);
   assert.doesNotMatch(runtime,/wisdo-core-v12-connected\.css|wisdo-core-v8-rank-ascension\.css/);
 });
