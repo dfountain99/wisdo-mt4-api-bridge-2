@@ -213,7 +213,7 @@ test('portable chart renderer produces a valid PNG without native canvas depende
 
 test('Reporter v1.64 retains resilient connection backoff, basket sweep, and close authority', async () => {
   const reporter = await fs.readFile(new URL('../mql4/CultureCoin_MT4_Reporter.mq4', import.meta.url), 'utf8');
-  assert.match(reporter, /#property version\\s+"1\\.64"/);
+  assert.match(reporter, /#property version\s+"1\.64"/);
   assert.match(reporter, /NetworkFailureGraceCount/);
   assert.match(reporter, /MarkNetworkFailure/);
   assert.match(reporter, /g_lastStatus = "Degraded"/);
