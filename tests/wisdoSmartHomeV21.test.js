@@ -67,6 +67,8 @@ test('V21 approval and revoke are explicit owner-scoped operations',async()=>{
   const seen=[];
   const pool={query:async(sql,args)=>{
     seen.push({sql,args});
+    if(sql.includes('FROM wisdo_homes'))return{rows:[{home_id:'home-1'}]};
+    if(sql.includes('AS source_bound'))return{rows:[{component_id:'c1',device_id:'edge-1',adapter_id:'home-assistant',source_instance_id:null,source_bound:false}]};
     if(sql.includes("approval_status='approved'"))return{rows:[{component_id:'c1',owner_user_id:'u1',approval_status:'approved'}]};
     if(sql.includes("approval_status='revoked'"))return{rows:[{component_id:'c1',owner_user_id:'u1',approval_status:'revoked'}]};
     return{rows:[]};
@@ -78,4 +80,18 @@ test('V21 approval and revoke are explicit owner-scoped operations',async()=>{
   const revoked=await service.revokeComponent(device,'c1');
   assert.equal(revoked.approval_status,'revoked');
   assert.ok(seen.every((call)=>call.args.includes('u1')));
+});
+
+
+test('V21 refuses approval when a discovered source is not bound to the owned home',async()=>{
+  const pool={query:async(sql)=>{
+    if(sql.includes('FROM wisdo_homes'))return{rows:[{home_id:'home-1'}]};
+    if(sql.includes('AS source_bound'))return{rows:[{component_id:'c1',device_id:'edge-ha',adapter_id:'home-assistant',source_instance_id:'ha-source-1',source_bound:false}]};
+    return{rows:[]};
+  }};
+  const service=new WisdoUniversalControlService({pool});
+  await assert.rejects(
+    service.approveComponent({owner_user_id:'u1',device_id:'settings-device'},'c1',{homeId:'home-1'}),
+    (error)=>error.code==='adapter_binding_required'
+  );
 });
