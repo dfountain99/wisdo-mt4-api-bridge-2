@@ -54,7 +54,8 @@ export function mountCampaignCommand(host, { accountId, api }) {
       }
       if (intent.levelId)level=levels().find(l=>l.id===intent.levelId);
       if(action==='PROTECT_RAIL' && !level)level=levels().filter(l=>c.direction*(l.price-c.rail)>0).sort((a,b)=>c.direction*(a.price-b.price))[0];
-      const body={action,accountId,burstCount:intent.burstCount ?? Number(q('[data-burst]').value),eaCampaignId:c?.campaignId,durationSeconds:intent.durationSeconds ?? Math.round(Number(q('[data-duration]').value)*60),tickets:selectedTickets(),levelId:level?.id,levelPrice:level?.price};
+      const fixedDuration=action==='ARM_TWO_MIN_SCALP'?120:null;
+      const body={action,accountId,burstCount:intent.burstCount ?? Number(q('[data-burst]').value),eaCampaignId:c?.campaignId,durationSeconds:intent.durationSeconds ?? fixedDuration ?? Math.round(Number(q('[data-duration]').value)*60),tickets:selectedTickets(),levelId:level?.id,levelPrice:level?.price};
       const result=await api('/api/world/command/propose',{method:'POST',body:JSON.stringify(body)});
       if(stopped)return;
       proposal=result.proposal;lastIntent=body;q('[data-action]').value=action;updateFields();
