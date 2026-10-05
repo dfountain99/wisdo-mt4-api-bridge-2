@@ -81,7 +81,7 @@ test('V17 MQL arms HIGHTOWER reversal proof instead of forcing an opposite order
   const end=receiver.indexOf('bool WcoApplyTrailAtr',start);
   assert.ok(start>=0&&end>start);
   assert.doesNotMatch(receiver.slice(start,end),/OrderSend\s*\(/);
-  assert.match(ea,/void H620TryFlip\(\)/);
+  assert.match(ea,/bool H620TryFlip\(\)/);
   assert.match(ea,/HT6EinsteinOpenStructureHold\(dir\)/);
   assert.match(reporter,/REPORTER_VERSION = "1\.63"/);
   assert.match(reporter,/\"stopLoss\"/);
