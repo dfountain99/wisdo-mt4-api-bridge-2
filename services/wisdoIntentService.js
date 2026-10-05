@@ -91,9 +91,6 @@ export class WisdoIntentService {
     if (/cancel|end/.test(ask) && /plan/.test(ask)) return { ...base, type: 'PLAN', intent: 'CANCEL_PLAN', confidence: 0.97 };
     if (/review|show|read back/.test(ask) && /plan/.test(ask)) return { ...base, type: 'PLAN', intent: 'REVIEW_PLAN', confidence: 0.95 };
     if (/how close|plan progress|goal progress|active plan status/.test(ask)) return { ...base, type: 'QUERY', intent: 'PLAN_PROGRESS', confidence: 0.95 };
-    // Conditional/future language is a standing intention before it can be mistaken
-    // for a daily-plan edit (for example: "if stopped, counter and set that as the campaign").
-    if (/\b(if|when|unless|until|every|after)\b/.test(ask)&&/\b(close|flatten|protect|lock|pause|stop|resume|guard|notify|alert|message|wake|counter|reverse|flip|trim|reduce|add|boost|tighten|loosen)\b/.test(ask)) return {...base,type:'BEHAVIOR',intent:'GENERAL_CONDITIONAL_BEHAVIOR',confidence:0.96,parameters:{naturalLanguage:raw},rawText:raw};
     if (/change that|set that|leave .* runners? instead|apply that|remove the .* restriction/.test(ask)) return { ...base, type: 'PLAN', intent: 'MODIFY_PLAN', confidence: context.activePlanId ? 0.9 : 0.45, parameters: { value: extractSpokenNumber(ask) } };
     if (/^(?:show|list|review|what are) (?:my )?(?:active )?(?:trading )?(?:behaviors|automations|rules)/.test(ask)) return { ...base, type: 'BEHAVIOR_CONTROL', intent: 'LIST_BEHAVIORS', confidence: 0.98 };
     const behaviorControl=ask.match(/\b(pause|resume|cancel|delete|stop)\s+(?:the\s+)?(?:behavior|automation|rule)(?:\s+(.+))?$/);
@@ -117,6 +114,10 @@ export class WisdoIntentService {
         rawText: raw,
       };
     }
+    // Specialized durable behaviors (such as resettable entry timers) compile first.
+    // Remaining conditional/future language becomes a standing intention before
+    // it can be mistaken for an ordinary daily-plan edit.
+    if (/\b(if|when|unless|until|every|after)\b/.test(ask)&&/\b(close|flatten|protect|lock|pause|stop|resume|guard|notify|alert|message|wake|counter|reverse|flip|trim|reduce|add|boost|tighten|loosen)\b/.test(ask)) return {...base,type:'BEHAVIOR',intent:'GENERAL_CONDITIONAL_BEHAVIOR',confidence:0.96,parameters:{naturalLanguage:raw},rawText:raw};
     const planSignals = /daily profit|drawdown|runner|trail|account|allow buys|allow sells|stop trading|copier|risk/.test(ask);
     if (context.planMode && planSignals) return { ...base, type: 'PLAN', intent: 'ADD_PLAN_DETAILS', confidence: 0.9, parameters: this.extractPlanFields(raw) };
 
