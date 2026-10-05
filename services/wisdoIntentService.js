@@ -132,6 +132,21 @@ export class WisdoIntentService {
     if (/pause trading|stop new entries|stop trading today|no more entries|stop stacking|let (?:these|the) trades run without adding|take a break|sit out for now/.test(ask)) return command('STOP_NEW_ENTRIES', 'STOP_ENTRIES', {}, 0.97, { rawText: raw });
     if (/resume trading|start new entries|start trading again|you can trade now|resume my strategy/.test(ask)) return command('RESUME_TRADING', 'START_ENTRIES', {}, 0.97, { rawText: raw });
 
+    // V19 direct directional entry stays on the verified HIGHTOWER mailbox.
+    // WISDO chooses the requested side; HIGHTOWER still owns spread, risk,
+    // trading-window, AutoTrading, structure-stop and broker legality gates.
+    const directBuy=/^(?:buy now|go long|get me into a buy|open a buy|buy gold|buy xauusd)$/;
+    const directSell=/^(?:sell now|go short|get me into a sell|open a sell|sell gold|sell xauusd)$/;
+    if (directBuy.test(ask) || directSell.test(ask)) {
+      const requestedDirection=directBuy.test(ask)?1:-1;
+      const requestedSymbol=/\b(?:gold|xauusd)\b/.test(ask)?'XAUUSD':String(context.symbol||'').trim().toUpperCase();
+      return command(requestedDirection===1?'DIRECT_BUY_IF_VALID':'DIRECT_SELL_IF_VALID','WISDO_CAMPAIGN',{
+        action:'DIRECTIONAL_ENTRY_IF_VALID',
+        requestedDirection,
+        ...(requestedSymbol?{requestedSymbol}:{})
+      },0.995,{rawText:raw,riskIncreasing:true,requiresExplicitConfirmation:true});
+    }
+
     // V13 live-manager language: deterministic phrases compile into the same verified campaign mailbox used by Command Center.
     const persistRuntime=/from now on|make (?:that|this) (?:my )?default|until i change/.test(ask);
     let widenMatch=ask.match(/\b(?:intentionally\s+)?(?:widen|loosen)\b.*?\b(?:existing|current|open)?\s*(?:stops?|stop\s+loss(?:es)?)\b.*?(\d+(?:\.\d+)?)\s*atr\b/);
@@ -224,6 +239,7 @@ export class WisdoIntentService {
         ADD_IF_VALID:'ADD_POSITION_IF_VALID',
         CLEAR_RUNTIME_OVERRIDES:'CLEAR_RUNTIME_OVERRIDES',
         WIDEN_EXISTING_STOPS:'WIDEN_EXISTING_STOPS',
+        DIRECTIONAL_ENTRY_IF_VALID:'DIRECT_ENTRY_IF_VALID',
       };
       const action=String(parameters.action||'').toUpperCase();
       if(!canonicalByAction[action])return deterministic;
