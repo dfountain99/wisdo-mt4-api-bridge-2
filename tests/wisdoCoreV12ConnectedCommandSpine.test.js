@@ -51,6 +51,11 @@ test('V12 Time displays bot session, active hours and blocked hours without inve
   assert.match(source,/ARM 2-MIN SCALP/);
   assert.match(source,/onScalpHold/);
   assert.match(source,/scalpHoldMs=2000/);
+  assert.match(source,/BOT TRADING SCHEDULE/);
+  assert.match(source,/wcV12W1Start/);
+  assert.match(source,/wcV12W2End/);
+  assert.match(source,/HOLD 2\.0s · APPLY SCHEDULE/);
+  assert.match(source,/onScheduleHold/);
 });
 
 test('V12 right menu binds stable account IDs, verified broker victories and active EA protocol', async () => {
@@ -76,6 +81,9 @@ test('V15 voice/text manager uses the same verified proposal and acknowledgement
   assert.match(runtime,/HOLD TO CONFIRM/);
   assert.match(runtime,/ARM_TWO_MIN_SCALP/);
   assert.match(runtime,/durationSeconds:120/);
+  assert.match(runtime,/SET_TRADING_SCHEDULE/);
+  assert.match(runtime,/CLEAR_TRADING_SCHEDULE/);
+  assert.match(runtime,/handleScheduleHold/);
   assert.doesNotMatch(runtime,/GESTURE RECOGNIZED|guardianDeck|wcV8CharacterChamber/);
 });
 
