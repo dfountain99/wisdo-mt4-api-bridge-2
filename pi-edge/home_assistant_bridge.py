@@ -193,6 +193,7 @@ class HomeAssistantBridge:
                 'provider': 'home_assistant',
             },
             'approvalStatus': 'pending',
+            'requiresApproval': True,
             'homeId': self.home_id or None,
             'adapterId': 'home-assistant',
             'protocols': ['home-assistant'],
