@@ -5,7 +5,7 @@
   "serverBaseCommit": "3208748c154f9594cbf9f84c9ae9dfd4b6d5af68",
   "piRuntimeVersion": "3.5.0-live.1",
   "migrationVersion": "2026-08-09-conversational-trading-os",
-  "reporterRequirement": "v1.63",
+  "reporterRequirement": "v1.64",
   "voiceExecutionMode": "LIVE_AUTHORIZED",
   "supportedCapabilities": [
     "local-wake-detection",

@@ -141,6 +141,23 @@ bool WcoArmCounterIfValid(string p,int dir,double referencePrice)
    H620Persist();GlobalVariablesFlush();
    return true;
 }
+bool WcoDirectionalEntryIfValid(string p,int dir)
+{
+   if(dir!=DIR_BUY && dir!=DIR_SELL)return false;
+   if(TradeCount()>0 || h620Phase!=0)return false;
+   if(h620Quarantine || gWisdoPaused || gWisdoEmergencyLatched || !AllowNewEntries)return false;
+   if(dir==DIR_BUY && !AllowBuy)return false;
+   if(dir==DIR_SELL && !AllowSell)return false;
+   // "Buy now" / "sell now" is an immediate evaluation request, not a bypass.
+   // The requested side must agree with HIGHTOWER's current primary structure,
+   // and the normal structure-hold opener still enforces time, spread, risk,
+   // broker legality, box/stop validity and Commander protections.
+   if(gHT6Flow.primaryDirection!=dir || !gHT6Flow.boxReady)return false;
+   WcoWrite(p,"requested",1);
+   bool opened=HT6EinsteinOpenStructureHold(dir);
+   WcoWrite(p,"changed",opened?1:0);GlobalVariablesFlush();
+   return opened;
+}
 bool WcoApplyTrailAtr(string p,double startAtr,double distanceAtr,double stepAtr)
 {
    if(startAtr<0.05 || startAtr>20 || distanceAtr<0.05 || distanceAtr>20 || stepAtr<0.01 || stepAtr>5)return false;
@@ -292,7 +309,7 @@ void H620FutureTick()
    {
       int op=(int)WcoRead(p,"op"),duration=(int)WcoRead(p,"duration");
       bool valid=WcoRead(p,"expires")>=TimeGMT() && WcoRead(p,"expected")==h620Id && IsConnected() && IsExpertEnabled();
-      if(op<1 || op>21)valid=false;
+      if(op<1 || op>22)valid=false;
       if((op==1 || op==3 || op==6 || op==7 || op==12) && (duration<1 || duration>604800))valid=false;
       if((op==2 || op==3 || (op>=6 && op<=18) || op==20) && h620Phase!=1)valid=false;
       if(op==12 && (WcoRead(p,"burst")<1 || WcoRead(p,"burst")>10))valid=false;
@@ -312,6 +329,7 @@ void H620FutureTick()
       else if(op==19){WcoClearRuntime(true);WcoWrite(p,"requested",1);WcoWrite(p,"changed",1);result=1;}
       else if(op==20){result=WcoWidenExistingStops(p,WcoRead(p,"stopAtr"))?1:(WcoRead(p,"changed")>0?3:-1);}
       else if(op==21){result=WcoArmCounterIfValid(p,(int)WcoRead(p,"counterDirection"),WcoRead(p,"referencePrice"))?1:-1;}
+      else if(op==22){bool opened=WcoDirectionalEntryIfValid(p,(int)WcoRead(p,"requestedDirection"));result=opened?6:5;}
       else if((op>=8 && op<=11) || op==13 || op==14)
       {
          WcoWrite(p,"changed",0);WcoWrite(p,"requested",0);
