@@ -18,7 +18,7 @@ import { createHash } from 'node:crypto';
 
 function bearer(req){const v=String(req.headers.authorization||'');return v.toLowerCase().startsWith('bearer ')?v.slice(7).trim():'';}
 
-export function registerConversationalVoiceRoutes(app,{commandBusService,voiceService,mt4CommandService,mt4SyncService,copyTradingService,commandRegistryAudit=null,logger=console}={}){
+export function registerConversationalVoiceRoutes(app,{commandBusService,voiceService,mt4CommandService,mt4SyncService,copyTradingService,commandRegistryAudit=null,ambientControlService=null,logger=console}={}){
   const pool=commandBusService.pool;
   const provider=new WisdoProviderService();
   const intentService=new WisdoIntentService({provider});
@@ -36,7 +36,7 @@ export function registerConversationalVoiceRoutes(app,{commandBusService,voiceSe
   mt4SyncService?.attachWisdoPlanMonitorService?.(planMonitorService);
   const capabilityService=new WisdoCapabilityContractService();
   const adaptiveFabricService=new WisdoAdaptiveFabricService({pool,logger});
-  const conversationService=new WisdoConversationService({intentService,contextService,safetyService,confirmationService,planService,executionService,educationService,auditService,capabilityService,adaptiveFabricService,getAuthorizedAccounts,getActiveAccount:async(userId)=>(await getAuthorizedAccounts(userId)).find((a)=>a.isPrimary)?.accountId||null,menuProvider:async(userId)=>{const stack=app.router?.stack||app._router?.stack||[];const website=stack.flatMap((layer)=>{const path=layer.route?.path;return typeof path==='string'&&path.startsWith('/member/')?[path]:[];});const accounts=await getAuthorizedAccounts(userId);const capabilities=accounts.flatMap((a)=>Object.keys(a.capabilities||{}).filter((key)=>a.capabilities[key]));return educationService.menu({routes:website,commands:commandRegistryAudit?.names||[],capabilities});}});
+  const conversationService=new WisdoConversationService({intentService,contextService,safetyService,confirmationService,planService,executionService,educationService,auditService,capabilityService,adaptiveFabricService,ambientControlService,getAuthorizedAccounts,getActiveAccount:async(userId)=>(await getAuthorizedAccounts(userId)).find((a)=>a.isPrimary)?.accountId||null,menuProvider:async(userId)=>{const stack=app.router?.stack||app._router?.stack||[];const website=stack.flatMap((layer)=>{const path=layer.route?.path;return typeof path==='string'&&path.startsWith('/member/')?[path]:[];});const accounts=await getAuthorizedAccounts(userId);const capabilities=accounts.flatMap((a)=>Object.keys(a.capabilities||{}).filter((key)=>a.capabilities[key]));return educationService.menu({routes:website,commands:commandRegistryAudit?.names||[],capabilities});}});
   const audioService=new WisdoAudioService({pool,provider,conversationService,logger});
 
   async function auth(req,res,next){try{const device=await commandBusService.authenticateDevice(req.headers['x-wisdo-device-id'],bearer(req));if(!device)return res.status(401).json({ok:false,error:'Invalid voice device credentials.'});if(device.device_type!=='pi-edge')return res.status(403).json({ok:false,error:'This endpoint requires an enrolled voice device.'});req.wisdoDevice=device;next();}catch(e){next(e);}}
