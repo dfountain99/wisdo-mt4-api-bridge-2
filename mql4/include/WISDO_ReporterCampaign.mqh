@@ -18,10 +18,12 @@ string BuildCampaignControlJson()
    j+=",\"targetEquity\":"+DoubleToString(WcoRead(p,"targetEquity"),2);
    j+=",\"sessionId\":"+DoubleToString(WcoRead(p,"session"),0)+",\"sessionQuality\":"+DoubleToString(WcoRead(p,"sessionQuality"),4);
    j+=",\"brokerHour\":"+DoubleToString(WcoRead(p,"brokerHour"),0)+",\"brokerMinute\":"+DoubleToString(WcoRead(p,"brokerMinute"),0);
-   j+=",\"windowMode\":"+DoubleToString(WcoRead(p,"windowMode"),0);
+   j+=",\"windowMode\":"+DoubleToString(WcoRead(p,"windowMode"),0)+",\"windowCount\":"+DoubleToString(WcoRead(p,"windowCount"),0);
    j+=",\"window1Start\":"+DoubleToString(WcoRead(p,"window1Start"),0)+",\"window1End\":"+DoubleToString(WcoRead(p,"window1End"),0);
    j+=",\"window2Start\":"+DoubleToString(WcoRead(p,"window2Start"),0)+",\"window2End\":"+DoubleToString(WcoRead(p,"window2End"),0);
-   j+=",\"scheduleEnforced\":"+BoolToJson(WcoRead(p,"scheduleEnforced")==1);
+   j+=",\"window1StartMinute\":"+DoubleToString(WcoRead(p,"window1StartMinute"),0)+",\"window1EndMinute\":"+DoubleToString(WcoRead(p,"window1EndMinute"),0);
+   j+=",\"window2StartMinute\":"+DoubleToString(WcoRead(p,"window2StartMinute"),0)+",\"window2EndMinute\":"+DoubleToString(WcoRead(p,"window2EndMinute"),0);
+   j+=",\"scheduleOverride\":"+BoolToJson(WcoRead(p,"scheduleOverride")==1)+",\"scheduleEnforced\":"+BoolToJson(WcoRead(p,"scheduleEnforced")==1);
    j+=",\"windowAllowed\":"+BoolToJson(WcoRead(p,"windowAllowed")==1)+",\"entryAllowed\":"+BoolToJson(WcoRead(p,"entryAllowed")==1);
    j+=",\"intentScore\":"+DoubleToString(WcoRead(p,"intentScore"),4);
    j+=",\"continuationProbability\":"+DoubleToString(WcoRead(p,"continuationProbability"),4)+",\"reversalProbability\":"+DoubleToString(WcoRead(p,"reversalProbability"),4);
@@ -59,7 +61,7 @@ bool ExecuteCampaignCommand(string json,string &message,int &ticket)
    int op=JsonGetInt(json,"operation",0),duration=JsonGetInt(json,"durationSeconds",0);
    if(!EnableCampaignControl || CampaignControlMagic<=0 || JsonGetString(json,"symbol","")!=CampaignControlSymbol || JsonGetInt(json,"magicNumber",0)!=CampaignControlMagic)
    {message="Campaign control scope is disabled or does not match Reporter inputs";return false;}
-   if(id<=0 || expires<TimeGMT() || expires>TimeGMT()+120 || op<1 || op>23 ||
+   if(id<=0 || expires<TimeGMT() || expires>TimeGMT()+120 || op<1 || op>25 ||
       ((op==1 || op==3 || op==6 || op==7 || op==12 || op==23) && (duration<1 || duration>604800)) ||
       (op==23 && duration!=120))
    {message="Invalid or expired campaign instruction";return false;}
@@ -80,6 +82,10 @@ bool ExecuteCampaignCommand(string json,string &message,int &ticket)
    WcoWrite(p,"counterDirection",JsonGetInt(json,"counterDirection",0));
    WcoWrite(p,"referencePrice",JsonGetDouble(json,"referencePrice",0));
    WcoWrite(p,"requestedDirection",JsonGetInt(json,"requestedDirection",0));
+   WcoWrite(p,"scheduleMode",JsonGetInt(json,"scheduleMode",0));
+   WcoWrite(p,"scheduleWindowCount",JsonGetInt(json,"scheduleWindowCount",1));
+   WcoWrite(p,"window1StartMinute",JsonGetInt(json,"window1StartMinute",0));WcoWrite(p,"window1EndMinute",JsonGetInt(json,"window1EndMinute",0));
+   WcoWrite(p,"window2StartMinute",JsonGetInt(json,"window2StartMinute",0));WcoWrite(p,"window2EndMinute",JsonGetInt(json,"window2EndMinute",0));
    if(op==15 || op==16)WcoWrite(p,"runtimeScope",JsonGetInt(json,"runtimeScope",1));
    string parts[];int count=StringSplit(JsonGetString(json,"tickets",""),StringGetCharacter(",",0),parts);
    if(count>12){WcoWrite(p,"slot",0);message="Too many selected trades";return false;}
