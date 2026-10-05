@@ -83,7 +83,7 @@ test('V17 MQL arms HIGHTOWER reversal proof instead of forcing an opposite order
   assert.doesNotMatch(receiver.slice(start,end),/OrderSend\s*\(/);
   assert.match(ea,/bool H620TryFlip\(\)/);
   assert.match(ea,/HT6EinsteinOpenStructureHold\(dir\)/);
-  assert.match(reporter,/REPORTER_VERSION = "1\.63"/);
+  assert.match(reporter,/REPORTER_VERSION = "1\\.64"/);
   assert.match(reporter,/\"stopLoss\"/);
   assert.match(reporter,/counter-campaign intention is armed/);
 });
@@ -194,4 +194,51 @@ test('V18 behavior compiler recognizes conversational campaign management phrase
   assert.equal(collect.validation.valid,true);
   assert.equal(collect.actions[0].type,'close_full_basket');
   assert.equal(collect.verification.receipt,'mt4_reporter');
+});
+
+test('V19 direct buy and sell phrases compile to the verified HIGHTOWER mailbox',()=>{
+  const service=new WisdoIntentService();
+  const buy=service.deterministic('buy now',{symbol:'XAUUSD'});
+  assert.equal(buy.type,'ACTION');
+  assert.equal(buy.intent,'DIRECT_BUY_IF_VALID');
+  assert.equal(buy.commandName,'WISDO_CAMPAIGN');
+  assert.equal(buy.parameters.action,'DIRECTIONAL_ENTRY_IF_VALID');
+  assert.equal(buy.parameters.requestedDirection,1);
+  assert.equal(buy.parameters.requestedSymbol,'XAUUSD');
+  assert.equal(buy.requiresExplicitConfirmation,true);
+
+  const sell=service.deterministic('sell gold',{symbol:'XAUUSD'});
+  assert.equal(sell.intent,'DIRECT_SELL_IF_VALID');
+  assert.equal(sell.parameters.requestedDirection,-1);
+  assert.equal(sell.parameters.requestedSymbol,'XAUUSD');
+});
+
+test('V19 directional-entry packet fails closed unless the HIGHTOWER lane is flat and scoped',()=>{
+  const flat={campaignControl:{
+    live:true,version:1,symbol:'XAUUSD',magic:880099,campaignId:88,phase:0,direction:0,rail:0,pendingId:0,ackId:0,
+    positions:[],levels:[],runtime:{overrideMask:0,scope:0,stopAtr:1.5,trailStartAtr:1,trailDistanceAtr:.75,trailStepAtr:.15},
+  }};
+  const packet=campaignPacket('DIRECTIONAL_ENTRY_IF_VALID',{eaCampaignId:88,requestedDirection:1,requestedSymbol:'XAUUSD'},flat);
+  assert.equal(packet.operation,22);
+  assert.equal(packet.requestedDirection,1);
+  assert.throws(()=>campaignPacket('DIRECTIONAL_ENTRY_IF_VALID',{eaCampaignId:88,requestedDirection:0,requestedSymbol:'XAUUSD'},flat),/direction/i);
+  assert.throws(()=>campaignPacket('DIRECTIONAL_ENTRY_IF_VALID',{eaCampaignId:88,requestedDirection:1,requestedSymbol:'EURUSD'},flat),/symbol/i);
+  const active={campaignControl:{...flat.campaignControl,phase:1,positions:[{ticket:7,role:0}]}};
+  assert.throws(()=>campaignPacket('DIRECTIONAL_ENTRY_IF_VALID',{eaCampaignId:88,requestedDirection:1,requestedSymbol:'XAUUSD'},active),/flat|direct directional entry/i);
+});
+
+test('V19 MQL direct entry remains behind HIGHTOWER structure and broker gates',async()=>{
+  const [receiver,bridge,reporter]=await Promise.all([
+    fs.readFile(new URL('../mql4/include/WISDO_H620Receiver.mqh',import.meta.url),'utf8'),
+    fs.readFile(new URL('../mql4/include/WISDO_ReporterCampaign.mqh',import.meta.url),'utf8'),
+    fs.readFile(new URL('../mql4/CultureCoin_MT4_Reporter.mq4',import.meta.url),'utf8'),
+  ]);
+  assert.match(bridge,/op>22/);
+  assert.match(bridge,/requestedDirection/);
+  assert.match(receiver,/WcoDirectionalEntryIfValid/);
+  assert.match(receiver,/gHT6Flow\.primaryDirection!=dir/);
+  assert.match(receiver,/HT6EinsteinOpenStructureHold\(dir\)/);
+  assert.match(receiver,/op==22/);
+  assert.match(reporter,/REPORTER_VERSION = "1\.64"/);
+  assert.match(reporter,/requested directional entry opened through HIGHTOWER normal gates/);
 });
