@@ -89,13 +89,16 @@ export function normalizeProtocols(input=[]){
 export function compatibilityPlan(input={}){
   const protocols=normalizeProtocols(input.protocols||input.protocol||input.transport||'unknown');
   const deviceClass=String(input.deviceClass||input.device_class||'GENERIC').toUpperCase();
-  const candidates=WISDO_ADAPTERS.filter((adapter)=>adapter.protocols.some((protocol)=>protocols.includes(protocol)));
+  let candidates=WISDO_ADAPTERS.filter((adapter)=>adapter.protocols.some((protocol)=>protocols.includes(protocol)));
+  const unknown=protocols.length===0||protocols.every((protocol)=>protocol==='unknown');
+  if(unknown)candidates=WISDO_ADAPTERS.filter((adapter)=>['home-assistant','lan-api','vendor-cloud','ir-rf-bridge','relay-bridge'].includes(adapter.id));
   const legacy=['ir','rf','relay','serial','gpio'].some((protocol)=>protocols.includes(protocol));
   return {
     deviceClass:WISDO_DEVICE_CLASSES[deviceClass]?deviceClass:'GENERIC',
     protocols,
-    controllable:candidates.length>0,
-    requiresBridge:!protocols.includes('home-assistant')&&candidates.every((candidate)=>candidate.execution!=='live'),
+    controllable:!unknown&&candidates.length>0,
+    possibleWithAdapter:candidates.length>0,
+    requiresBridge:!protocols.includes('home-assistant'),
     legacy,
     adapters:candidates,
     policy:{
