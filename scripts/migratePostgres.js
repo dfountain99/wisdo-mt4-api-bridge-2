@@ -346,12 +346,12 @@ try {
       component_type TEXT NOT NULL, name TEXT NOT NULL, aliases JSONB NOT NULL DEFAULT '[]'::jsonb,
       capabilities JSONB NOT NULL DEFAULT '{}'::jsonb, state JSONB NOT NULL DEFAULT '{}'::jsonb,
       metadata JSONB NOT NULL DEFAULT '{}'::jsonb, status TEXT NOT NULL DEFAULT 'online',
-      approval_status TEXT NOT NULL DEFAULT 'pending', home_id TEXT, adapter_id TEXT NOT NULL DEFAULT 'unknown',
+      approval_status TEXT NOT NULL DEFAULT 'approved', home_id TEXT, adapter_id TEXT NOT NULL DEFAULT 'unknown',
       protocols JSONB NOT NULL DEFAULT '[]'::jsonb, approved_at TIMESTAMPTZ, approved_by TEXT,
       revoked_at TIMESTAMPTZ, discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       last_seen_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-    ALTER TABLE wisdo_components ADD COLUMN IF NOT EXISTS approval_status TEXT NOT NULL DEFAULT 'pending';
+    ALTER TABLE wisdo_components ADD COLUMN IF NOT EXISTS approval_status TEXT NOT NULL DEFAULT 'approved';
     ALTER TABLE wisdo_components ADD COLUMN IF NOT EXISTS home_id TEXT;
     ALTER TABLE wisdo_components ADD COLUMN IF NOT EXISTS adapter_id TEXT NOT NULL DEFAULT 'unknown';
     ALTER TABLE wisdo_components ADD COLUMN IF NOT EXISTS protocols JSONB NOT NULL DEFAULT '[]'::jsonb;
@@ -359,6 +359,7 @@ try {
     ALTER TABLE wisdo_components ADD COLUMN IF NOT EXISTS approved_by TEXT;
     ALTER TABLE wisdo_components ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;
     ALTER TABLE wisdo_components ADD COLUMN IF NOT EXISTS discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    UPDATE wisdo_components SET approval_status='pending' WHERE approval_status='approved' AND approved_at IS NULL AND approved_by IS NULL AND metadata->>'provider'='home_assistant';
     CREATE INDEX IF NOT EXISTS idx_wisdo_components_owner_type ON wisdo_components(owner_user_id,component_type,status,last_seen_at DESC);
     CREATE INDEX IF NOT EXISTS idx_wisdo_components_approval ON wisdo_components(owner_user_id,approval_status,home_id,component_type);
     CREATE INDEX IF NOT EXISTS idx_wisdo_components_adapter ON wisdo_components(owner_user_id,adapter_id,status,last_seen_at DESC);
