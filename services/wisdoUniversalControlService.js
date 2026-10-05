@@ -29,7 +29,8 @@ export class WisdoUniversalControlService {
     const componentId=clean(input.component_id||input.componentId||crypto.randomUUID(),200);
     const status=['online','offline','unavailable'].includes(String(input.status||'').toLowerCase())?String(input.status).toLowerCase():'online';
     const normalized=normalizeUniversalDevice(input);
-    const approvalStatus='pending';
+    const homeManaged=input.requiresApproval===true||normalized.metadata.smart_home===true||WISDO_ADAPTERS.some((adapter)=>adapter.id===normalized.adapterId);
+    const approvalStatus=homeManaged?'pending':'approved';
     const homeId=clean(input.home_id||input.homeId||normalized.metadata.home_id||'',200)||null;
     const result=await this.pool.query(`INSERT INTO wisdo_components
       (component_id,owner_user_id,device_id,component_type,name,aliases,capabilities,state,metadata,status,
