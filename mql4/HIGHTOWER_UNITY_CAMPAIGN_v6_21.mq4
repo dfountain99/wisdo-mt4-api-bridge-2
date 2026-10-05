@@ -12546,6 +12546,11 @@ bool H620EntryAllows(int dir,double price,double stop,string &why)
    if(h620LastEntryTime>0 && TimeCurrent()-h620LastEntryTime<H620EntrySpacingSeconds){why="ENTRY COOLDOWN";return false;}
    if(h620Phase==1 && h620LastEntry>0 && MathAbs(price-h620LastEntry)<atr*H620EntrySpacingATR){why="ENTRY TOO CLOSE";return false;}
    double anchor=(h620FlipContext?h620BrokenRail:(dir==DIR_BUY?gHT6Flow.upperRail:gHT6Flow.lowerRail));
+   // After a two-minute scalp timeout, the first resumed campaign uses the
+   // just-finished basket's median entry as its launch reference. HIGHTOWER
+   // still owns every normal spread, room, stop and risk gate.
+   if(h620FutureGoal==23 && h620Phase!=1 && WcoRead(WcoEA(),"scalpTimeoutAt")>0 && WcoRead(WcoEA(),"scalpMedian")>0)
+      anchor=WcoRead(WcoEA(),"scalpMedian");
    // Continuations use a fresh closed-bar launch, not a distant campaign seed.
    if(gHT6ContinuationAddOrderContext) anchor=iClose(Symbol(),SignalTF,1);
    if(anchor<=0 || MathAbs(price-anchor)>atr*H620MaximumEntryStretchATR){why="ENTRY STRETCHED FROM LAUNCH";return false;}
