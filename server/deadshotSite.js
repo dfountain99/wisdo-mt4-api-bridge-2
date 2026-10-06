@@ -1,4 +1,4 @@
-import { ambientSettingsPage, ambientLifeOsPage, smartHomeTrustCenterPage } from './ambientSettingsView.js';
+import { ambientSettingsPage, ambientLifeOsPage, smartHomeTrustCenterPage, securityPrivacyPage } from './ambientSettingsView.js';
 import crypto from 'node:crypto';
 import { SquarePaymentGateway, encodeSquarePaymentNote } from '../services/squarePaymentService.js';
 import { NotificationDeliveryService } from '../services/notificationDeliveryService.js';
@@ -118,6 +118,7 @@ const PORTAL_NAV = [
   ['/app/settings', 'Settings'],
   ['/app/life-os', 'Ambient Life OS'],
   ['/app/smart-home', 'Smart Home'],
+  ['/app/security', 'Security & Privacy'],
   ['/app/profile', 'Profile'],
 ];
 
@@ -1800,6 +1801,7 @@ function portalContent(page, membership, state, selectedAccountId = '') {
   if (page === 'settings') return ambientSettingsPage();
   if (page === 'life-os') return ambientLifeOsPage();
   if (page === 'smart-home') return smartHomeTrustCenterPage();
+  if (page === 'security') return securityPrivacyPage();
   if (page === 'profile') return `<div class="card"><h3>Profile Settings</h3><p>Profile data, OAuth connections, Discord ID, notification settings, and command preferences.</p><a class="btn primary" href="/app/settings">Open Ambient Life OS settings</a></div>`;
   ensureState(state);
   const lockedClass = membership.canCopyTrades ? '' : 'locked-panel';
@@ -3709,7 +3711,7 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
 
   // Portal routes.
   app.get(['/app', '/dashboard', '/member', '/member/home'], (req, res) => res.redirect('/app/dashboard'));
-  for (const page of ['dashboard','live-desk','notifications','subscriptions','membership','connect-account','advanced-link','community-reporters','discord-copier','education','seminars','account-configuration','wisdo-command-center','copier-engine','copier-logs','account-trades','calendar','services','performance','reporter','billing','profile','settings','life-os','smart-home']) {
+  for (const page of ['dashboard','live-desk','notifications','subscriptions','membership','connect-account','advanced-link','community-reporters','discord-copier','education','seminars','account-configuration','wisdo-command-center','copier-engine','copier-logs','account-trades','calendar','services','performance','reporter','billing','profile','settings','life-os','smart-home','security']) {
     app.get(`/app/${page}`, async (req, res) => {
       const state = await loadLiveState();
       const membership = await resolveMembership({ req, config, state });
