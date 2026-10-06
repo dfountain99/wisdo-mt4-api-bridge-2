@@ -2729,6 +2729,7 @@ function htmlShell(title, body, active = 'home', options = {}) {
     ['devices', '/member/devices', 'Devices'],
     ['smarthome', '/member/smart-home', 'Smart Home'],
     ['lifeos', '/member/life-os', 'Ambient Life OS'],
+    ['security', '/member/security', 'Security & Privacy'],
     ['upgrades', '/member/upgrades', 'Special Upgrades'],
     ['sales', '/member/sales', 'Sales'],
     ['academy', '/member/academy', 'Academy'],
@@ -2784,6 +2785,13 @@ function smartHomeTrustCenterPage() {
   <section class="card full" style="margin-top:16px"><h3>Old / Unknown Device Compatibility Adviser</h3><p>Tell WISDO what kind of device and connection you have. It will recommend bridge paths without pretending unsupported hardware is directly controllable.</p><div class="row"><select id="compatClass"><option>THERMOSTAT</option><option>LIGHT</option><option>LOCK</option><option>GARAGE</option><option>FAN</option><option>MEDIA</option><option>IR_APPLIANCE</option><option>RF_APPLIANCE</option><option>RELAY</option><option>GENERIC</option></select><select id="compatProtocol"><option value="z-wave">Z-Wave</option><option value="zigbee">Zigbee</option><option value="matter">Matter</option><option value="thread">Thread</option><option value="wifi">Wi-Fi</option><option value="bluetooth">Bluetooth</option><option value="ir">IR</option><option value="rf">RF</option><option value="relay">Relay / dry contact</option><option value="modbus">Modbus</option><option value="bacnet">BACnet</option><option value="unknown">I don't know</option></select><button class="btn primary" id="checkCompatibility" type="button">Find Safe Path</button></div><pre id="compatibilityOut" class="checkout-result" style="display:block;min-height:72px">Choose a device class and protocol.</pre></section>
   <section class="card ok full" style="margin-top:16px"><h3>Trust Policy</h3><p>Nearby devices are ignored unless an authenticated adapter exposes them. Adapter discovery still does not grant control. Approval requires an owned Home and a bound source. Locks, alarms, garages, sirens, cameras, and other sensitive actions keep their existing safety gates.</p></section>
   <script src="/js/smart-home-trust-center.js" defer></script>`;
+}
+
+function securityPrivacyPage() {
+  return `${sectionHero('Security & Privacy', 'WISDO security is a control plane for identity, device trust, household access, privacy zones, and verified outcomes. A nearby device or sensor never becomes authorized by proximity alone.', '<span class="tag">Fail closed</span><span class="tag">Presence ≠ permission</span><span class="tag">Truth receipts</span>')}
+  <div class="grid"><section class="card ok"><h3>Identity & access</h3><div class="metric" id="securityIdentity">Session protected</div><p class="muted">Your authenticated member session is required for homes, rooms, missions, and security settings.</p><a class="btn" href="/member/life-os#household">Manage household roles</a></section><section class="card"><h3>Device trust</h3><div class="metric" id="securityTrust">Approval required</div><p class="muted">Only devices from a bound source and an owned WISDO Home can become controllable.</p><a class="btn" href="/member/smart-home">Review device inbox</a></section><section class="card warn"><h3>Physical security</h3><div class="metric">Confirmation required</div><p class="muted">Locks, alarms, garages, sirens, cameras, and other sensitive actions keep an explicit confirmation gate.</p></section><section class="card"><h3>Trading boundary</h3><div class="metric">Presence blocked</div><p class="muted">Presence, schedules, and unattended routines cannot mutate live trading. Trading steps must be simulated and confirmed.</p><a class="btn" href="/member/life-os#policies">Review house laws</a></section></div>
+  <div class="grid2" style="margin-top:16px"><section class="card"><h3>Privacy zones</h3><p class="muted">Bedrooms, cameras, microphones, trading screens, and family areas can carry stricter privacy levels. The control only becomes physical where the approved hardware supports it.</p><a class="btn" href="/member/life-os#rooms">Configure room privacy</a></section><section class="card"><h3>Truth ledger</h3><p class="muted">WISDO keeps intent understood, policy checked, command queued, device acknowledgement, failure, and completion separate. “Command sent” never means “completed” without a device receipt.</p><a class="btn" href="/member/life-os#truth">Open truth ledger</a></section></div>
+  <section class="card full" style="margin-top:16px"><h3>Emergency protections</h3><p>Emergency workflows are intentionally configured per home and device. This release does not silently unlock doors, disarm alarms, open garages, disable cameras, or start trading from an alarm or presence event.</p><span class="tag">No automatic unlock</span><span class="tag">No automatic disarm</span><span class="tag">No sensor-triggered live trade</span></section>`;
 }
 
 function ambientLifeOsPage() {
@@ -4782,6 +4790,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     if(String(req.headers['x-wisdo-intent']||'')!=='member-smart-home'){res.status(403).json({ok:false,error:'Trusted same-origin smart-home intent header is required.'});return false;}
     return true;
   };
+  app.get('/member/security',(req,res)=>{const user=getCurrentUser(req);if(!user?.id)return res.redirect('/auth/discord?returnTo=/member/security');res.send(htmlShell('Security & Privacy',securityPrivacyPage(),'security'));});
   app.get('/member/smart-home',(req,res)=>{
     const user=getCurrentUser(req);if(!user?.id)return res.redirect('/auth/discord?returnTo=/member/smart-home');
     res.send(htmlShell('Smart Home Trust Center',smartHomeTrustCenterPage(),'smarthome'));
