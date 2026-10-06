@@ -14,7 +14,7 @@
     }
     const response = await fetch(api + path, options);
     const json = await response.json();
-    if (!response.ok) throw new Error(json.error || json.message || 'Request failed');
+    if (!response.ok || json.ok === false) throw new Error(json.error || json.message || 'Request failed');
     return json;
   }
 
@@ -42,7 +42,7 @@
       : '<span class="muted">No room zones defined.</span>';
 
     document.getElementById('householdList').innerHTML = model.household.length
-      ? model.household.map((member) => `<div class="row"><strong>${esc(member.display_name)}</strong><span class="tag">${esc(member.role)}</span></div>`).join('')
+      ? model.household.map((member) => `<div class="row"><strong>${esc(member.display_name)}</strong><span class="tag">${esc(member.role)}</span><span class="muted">${member.expires_at ? 'Expires ' + esc(new Date(member.expires_at).toLocaleString()) : 'No expiry'}</span></div>`).join('')
       : '<p class="muted">No household roles configured.</p>';
 
     const defaults = model.policies?.defaults || [];
@@ -64,6 +64,22 @@
     document.querySelectorAll('[data-local]').forEach((button) => {
       button.onclick = () => compileLocal(button.dataset.local);
     });
+  }
+
+  async function loadHomes() {
+    const status = document.getElementById('ambientHomeStatus');
+    if (!status) return; // Legacy member surface still uses Home ID inputs.
+    try {
+      const response = await fetch('/api/member/smart-home/onboarding', { headers: { Accept: 'application/json' } });
+      const data = await response.json();
+      if (!response.ok || data.ok === false) throw new Error(data.error || 'Could not load homes.');
+      document.querySelectorAll('[data-ambient-home]').forEach(select => {
+        const selected = select.value;
+        select.innerHTML = '<option value="">Choose a home</option>' + (data.homes || []).map(home => `<option value="${esc(home.home_id)}">${esc(home.name)}</option>`).join('');
+        select.value = selected;
+      });
+      status.textContent = data.homes?.length ? 'Choose the home each setting belongs to. Saving does not execute actions.' : 'Create a home in Homes & devices before configuring rooms, permissions or missions.';
+    } catch (error) { status.textContent = error.message; }
   }
 
   async function load() {
@@ -134,6 +150,7 @@
 
   document.getElementById('createZone')?.addEventListener('click', async () => {
     try {
+      if (!document.getElementById('zoneName').value.trim()) throw new Error('Enter a room name.');
       await request('/zones', {
         homeId: document.getElementById('zoneHomeId').value.trim(),
         name: document.getElementById('zoneName').value.trim(),
@@ -145,10 +162,17 @@
 
   document.getElementById('addHousehold')?.addEventListener('click', async () => {
     try {
+      const expiresValue = document.getElementById('memberExpires')?.value || '';
+      const role = document.getElementById('memberRole').value;
+      if (document.getElementById('memberExpires') && ['GUEST', 'TECHNICIAN'].includes(role) && !expiresValue) throw new Error('Choose an expiry for temporary access.');
+      const expiresAt = expiresValue ? new Date(expiresValue).toISOString() : null;
+      if (expiresAt && Date.parse(expiresAt) <= Date.now()) throw new Error('Access expiry must be in the future.');
+      if (!document.getElementById('memberHomeId').value.trim()) throw new Error('Choose a home.');
+      if (!document.getElementById('memberName').value.trim()) throw new Error('Enter a household member name.');
       await request('/household', {
         homeId: document.getElementById('memberHomeId').value.trim(),
         displayName: document.getElementById('memberName').value.trim(),
-        role: document.getElementById('memberRole').value,
+        role, expiresAt,
       }, 'POST');
       await load();
     } catch (error) { alert(error.message); }
@@ -157,6 +181,8 @@
   document.getElementById('createMission')?.addEventListener('click', async () => {
     const name = document.getElementById('missionName').value.trim();
     const home = homeId();
+    if (!home) return alert('Choose a home for this mission.');
+    if (!name) return alert('Enter a mission name.');
     const scene = document.getElementById('missionScene').value.trim();
     const accountId = document.getElementById('missionAccount').value.trim();
     const includeWorkstation = document.getElementById('missionWorkstation').checked;
@@ -181,5 +207,28 @@
     } catch (error) { alert(error.message); }
   });
 
+  document.getElementById('ambientPolicyForm')?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const status = document.getElementById('policyStatus');
+    const button = event.currentTarget.querySelector('button');
+    const presets = {
+      security: { effect: 'deny', match: { stepType: ['home'], actions: ['unlock', 'disarm', 'open'] } },
+      camera: { effect: 'deny', match: { stepType: ['home'], deviceClasses: ['CAMERA'] } },
+      trading: { effect: 'confirm', match: { stepType: ['trading'] } },
+      home: { effect: 'confirm', match: { stepType: ['home'] } },
+    };
+    button.disabled = true;
+    try {
+      const name = document.getElementById('policyName').value.trim();
+      const homeId = document.getElementById('policyHomeId').value;
+      if (!name || !homeId) throw new Error('Choose a home and enter a rule name.');
+      await request('/policies', { homeId, name, reason: name, ...presets[document.getElementById('policyPreset').value] }, 'POST');
+      status.textContent = 'House rule saved. No devices were commanded.';
+      await load();
+    } catch (error) { status.textContent = error.message; }
+    finally { button.disabled = false; }
+  });
+
+  loadHomes();
   load();
 })();

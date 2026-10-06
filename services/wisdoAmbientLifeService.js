@@ -106,15 +106,22 @@ export class WisdoAmbientLifeService {
   }
 
   async saveHouseholdMember(actor,input={}){
+    const homeId=clean(input.homeId||input.home_id,200);
+    if(homeId)await this.universalControlService.assertOwnedHome(this.actorDevice(actor),homeId);
     const owner=this.actorDevice(actor).owner_user_id;
     const memberId=clean(input.memberId||input.member_id||crypto.randomUUID(),200);
     const role=upper(input.role||'GUEST');
     if(!ROLE_CAPS[role])throw Object.assign(new Error('Unsupported household role.'),{statusCode:400});
+    const expiry=input.expiresAt||input.expires_at;
+    if(expiry&&(!Number.isFinite(Date.parse(expiry))||Date.parse(expiry)<=Date.now()))throw Object.assign(new Error('Access expiry must be in the future.'),{statusCode:400});
     const permissions={...obj(input.permissions)};
-    return (await this.pool.query(`INSERT INTO wisdo_household_members(member_id,owner_user_id,home_id,display_name,role,permissions,status,expires_at,created_at,updated_at)
+    const saved=(await this.pool.query(`INSERT INTO wisdo_household_members(member_id,owner_user_id,home_id,display_name,role,permissions,status,expires_at,created_at,updated_at)
       VALUES($1,$2,$3,$4,$5,$6::jsonb,'active',$7,NOW(),NOW())
       ON CONFLICT(member_id) DO UPDATE SET display_name=EXCLUDED.display_name,role=EXCLUDED.role,permissions=EXCLUDED.permissions,status='active',expires_at=EXCLUDED.expires_at,updated_at=NOW()
+      WHERE wisdo_household_members.owner_user_id=EXCLUDED.owner_user_id
       RETURNING *`,[memberId,owner,clean(input.homeId||input.home_id,200)||null,clean(input.displayName||input.display_name||'Household member',120),role,JSON.stringify(permissions),input.expiresAt||input.expires_at||null])).rows[0];
+    if(!saved)throw Object.assign(new Error('Setting not found for this owner.'),{statusCode:404});
+    return saved;
   }
 
   async listHousehold(actor,homeId=''){
@@ -122,13 +129,18 @@ export class WisdoAmbientLifeService {
   }
 
   async savePolicy(actor,input={}){
+    const homeId=clean(input.homeId||input.home_id,200);
+    if(homeId)await this.universalControlService.assertOwnedHome(this.actorDevice(actor),homeId);
     const policyId=clean(input.policyId||input.policy_id||crypto.randomUUID(),200);
     const effect=clean(input.effect||'deny',30).toLowerCase();
     if(!['deny','confirm'].includes(effect))throw Object.assign(new Error('Policy effect must be deny or confirm.'),{statusCode:400});
-    return (await this.pool.query(`INSERT INTO wisdo_life_policies(policy_id,owner_user_id,home_id,name,effect,match,reason,enabled,created_at,updated_at)
+    const saved=(await this.pool.query(`INSERT INTO wisdo_life_policies(policy_id,owner_user_id,home_id,name,effect,match,reason,enabled,created_at,updated_at)
       VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,NOW(),NOW())
       ON CONFLICT(policy_id) DO UPDATE SET name=EXCLUDED.name,effect=EXCLUDED.effect,match=EXCLUDED.match,reason=EXCLUDED.reason,enabled=EXCLUDED.enabled,updated_at=NOW()
+      WHERE wisdo_life_policies.owner_user_id=EXCLUDED.owner_user_id
       RETURNING *`,[policyId,this.actorDevice(actor).owner_user_id,clean(input.homeId||input.home_id,200)||null,clean(input.name||'House rule',120),effect,JSON.stringify(obj(input.match)),clean(input.reason||'',400),input.enabled!==false])).rows[0];
+    if(!saved)throw Object.assign(new Error('Setting not found for this owner.'),{statusCode:404});
+    return saved;
   }
 
   async listPolicies(actor,homeId=''){
@@ -137,14 +149,19 @@ export class WisdoAmbientLifeService {
   }
 
   async createMission(actor,input={}){
+    const homeId=clean(input.homeId||input.home_id,200);
+    if(homeId)await this.universalControlService.assertOwnedHome(this.actorDevice(actor),homeId);
     const owner=this.actorDevice(actor).owner_user_id;
     const missionId=clean(input.missionId||input.mission_id||crypto.randomUUID(),200);
     const steps=arr(input.steps).slice(0,40).map(validateStep);
     if(!steps.length)throw Object.assign(new Error('Mission requires at least one step.'),{statusCode:400});
-    return (await this.pool.query(`INSERT INTO wisdo_ambient_missions(mission_id,owner_user_id,home_id,name,description,steps,allowed_sources,status,created_at,updated_at)
+    const saved=(await this.pool.query(`INSERT INTO wisdo_ambient_missions(mission_id,owner_user_id,home_id,name,description,steps,allowed_sources,status,created_at,updated_at)
       VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,'active',NOW(),NOW())
       ON CONFLICT(mission_id) DO UPDATE SET home_id=EXCLUDED.home_id,name=EXCLUDED.name,description=EXCLUDED.description,steps=EXCLUDED.steps,allowed_sources=EXCLUDED.allowed_sources,status='active',updated_at=NOW()
+      WHERE wisdo_ambient_missions.owner_user_id=EXCLUDED.owner_user_id
       RETURNING *`,[missionId,owner,clean(input.homeId||input.home_id,200)||null,clean(input.name||'WISDO Mission',120),clean(input.description||'',500),JSON.stringify(steps),JSON.stringify(arr(input.allowedSources||input.allowed_sources).length?arr(input.allowedSources||input.allowed_sources):['manual','voice'])])).rows[0];
+    if(!saved)throw Object.assign(new Error('Setting not found for this owner.'),{statusCode:404});
+    return saved;
   }
 
   async listMissions(actor){
