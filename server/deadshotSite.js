@@ -1,3 +1,4 @@
+import { ambientSettingsPage, ambientLifeOsPage, smartHomeTrustCenterPage } from './ambientSettingsView.js';
 import crypto from 'node:crypto';
 import { SquarePaymentGateway, encodeSquarePaymentNote } from '../services/squarePaymentService.js';
 import { NotificationDeliveryService } from '../services/notificationDeliveryService.js';
@@ -114,6 +115,9 @@ const PORTAL_NAV = [
   ['/app/subscriptions', 'My Subscriptions'],
   ['/app/membership', 'Membership Status'],
   ['/app/billing', 'Billing'],
+  ['/app/settings', 'Settings'],
+  ['/app/life-os', 'Ambient Life OS'],
+  ['/app/smart-home', 'Smart Home'],
   ['/app/profile', 'Profile'],
 ];
 
@@ -950,7 +954,7 @@ function pageTitle(page) {
     dashboard: 'Overview', notifications: 'Live Notifications', subscriptions: 'My Subscriptions', membership: 'Culture Coin Membership Status', 'live-desk': 'Wisdo Live Desk',
     'connect-account': 'Account Connection', 'advanced-link': 'Advanced Broker Link', 'community-reporters': 'Community Reporters', 'discord-copier': 'Discord Copier Channel', 'account-configuration': 'Account Configuration', 'wisdo-command-center': 'Wisdo Command Center',
     'copier-engine': 'CEM Culture Relay Engine', 'copier-logs': 'Copier Logs', 'account-trades': 'Account Trades', performance: 'Performance', education: 'Wisdo Education Portal', seminars: 'Wisdo Seminars',
-    reporter: 'Culture Coin Reporter', billing: 'Billing Settings', profile: 'Profile Settings', support: 'Support Feedback',
+    reporter: 'Culture Coin Reporter', billing: 'Billing Settings', settings: 'Settings', 'life-os': 'Ambient Life OS', 'smart-home': 'Homes & Devices', profile: 'Profile Settings', support: 'Support Feedback',
   };
   return titleMap[page] || 'Dashboard';
 }
@@ -1793,6 +1797,10 @@ function appEducationSeminarPage(page, membership, state) {
 }
 
 function portalContent(page, membership, state, selectedAccountId = '') {
+  if (page === 'settings') return ambientSettingsPage();
+  if (page === 'life-os') return ambientLifeOsPage();
+  if (page === 'smart-home') return smartHomeTrustCenterPage();
+  if (page === 'profile') return `<div class="card"><h3>Profile Settings</h3><p>Profile data, OAuth connections, Discord ID, notification settings, and command preferences.</p><a class="btn primary" href="/app/settings">Open Ambient Life OS settings</a></div>`;
   ensureState(state);
   const lockedClass = membership.canCopyTrades ? '' : 'locked-panel';
   const liveData = getLiveAccountData(state, membership, selectedAccountId);
@@ -1962,6 +1970,7 @@ function portalAccountDock(page, membership, state, selectedAccountId = '') {
 }
 
 function portalPage(page, membership, state, selectedAccountId = '') {
+  if (['settings','life-os','smart-home'].includes(page)) return portalContent(page, membership, state, selectedAccountId);
   return `<div class="topbar"><div><span class="eyebrow">Member Portal</span><h1 style="font-family:Sora,Inter,sans-serif;margin:12px 0 4px;letter-spacing:-.05em">${esc(pageTitle(page))}</h1><p class="muted">Welcome, ${esc(userDisplay(membership.user || {}))}. Access status: ${esc(membership.role)}. Main trading sections: Copier Engine, Copier Logs, Account Trades, and Performance.</p></div><span class="status-pill"><span class="pulse"><i></i></span>${membership.canCopyTrades ? 'Copier Unlocked' : 'Reporter Only / Copier Locked'}</span></div>${portalAccountDock(page, membership, state, selectedAccountId)}${portalContent(page, membership, state, selectedAccountId)}`;
 }
 
@@ -3700,7 +3709,7 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
 
   // Portal routes.
   app.get(['/app', '/dashboard', '/member', '/member/home'], (req, res) => res.redirect('/app/dashboard'));
-  for (const page of ['dashboard','live-desk','notifications','subscriptions','membership','connect-account','advanced-link','community-reporters','discord-copier','education','seminars','account-configuration','wisdo-command-center','copier-engine','copier-logs','account-trades','calendar','services','performance','reporter','billing','profile']) {
+  for (const page of ['dashboard','live-desk','notifications','subscriptions','membership','connect-account','advanced-link','community-reporters','discord-copier','education','seminars','account-configuration','wisdo-command-center','copier-engine','copier-logs','account-trades','calendar','services','performance','reporter','billing','profile','settings','life-os','smart-home']) {
     app.get(`/app/${page}`, async (req, res) => {
       const state = await loadLiveState();
       const membership = await resolveMembership({ req, config, state });
@@ -3711,7 +3720,7 @@ export function registerDeadshotCommandCenterRoutes(app, { config, loadEcosystem
   }
   // Friendly aliases from the old website to the new structure.
   const memberAliases = {
-    '/member/subscriptions': '/app/subscriptions', '/member/payment-plans': '/app/subscriptions', '/member/link-account': '/app/connect-account', '/member/accounts': '/app/connect-account', '/member/copy': '/app/copier-engine', '/member/copy-pro': '/app/copier-engine', '/member/wisdo': '/app/wisdo-command-center', '/member/risk-profile': '/app/account-configuration', '/member/trade-results': '/app/account-trades', '/member/settings': '/app/profile', '/member/support': '/contact',
+    '/member/subscriptions': '/app/subscriptions', '/member/payment-plans': '/app/subscriptions', '/member/link-account': '/app/connect-account', '/member/accounts': '/app/connect-account', '/member/copy': '/app/copier-engine', '/member/copy-pro': '/app/copier-engine', '/member/wisdo': '/app/wisdo-command-center', '/member/risk-profile': '/app/account-configuration', '/member/trade-results': '/app/account-trades', '/member/settings': '/app/settings', '/member/support': '/contact',
     '/app/copier': '/app/copier-engine', '/app/copy': '/app/copier-engine', '/app/copy-pro': '/app/copier-engine', '/app/trade-copier': '/app/copier-engine', '/copier-engine': '/app/copier-engine', '/app/trade-results': '/app/account-trades', '/app/trade-history': '/app/account-trades', '/app/discord': '/app/discord-copier', '/app/academy': '/app/education', '/app/seminar': '/app/seminars', '/app/discord-connect': '/app/discord-copier', '/app/trading-signals': '/app/discord-copier', '/app/bot-control': '/app/wisdo-command-center', '/app/risk': '/app/account-configuration', '/app/dashboard/memeber': '/app/dashboard', '/app/dashboard/member': '/app/dashboard', '/app/memeber': '/app/dashboard', '/app/member': '/app/dashboard', '/app/members': '/app/dashboard'
   };
   for (const [from, to] of Object.entries(memberAliases)) app.get(from, (req, res) => res.redirect(to));
