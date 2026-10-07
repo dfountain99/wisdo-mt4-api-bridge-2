@@ -9,6 +9,7 @@ import { registerDeadshotCommandCenterRoutes } from './deadshotSite.js';
 import { registerMajorUpgradeRoutes } from './majorUpgradeRoutes.js';
 import { registerExtendedProductRoutes } from './extendedProductRoutes.js';
 import { registerPresenceIdentityRoutes } from './presenceIdentityRoutes.js';
+import { registerPresenceStudioRoutes } from './presenceStudioRoutes.js';
 import { registerLivingOperatingSystemRoutes } from './livingOperatingSystemRoutes.js';
 import { registerWisdoWorldRoutes } from './worldRoutes.js';
 import { registerWisdoKernelRoutes } from './kernelRouteRegistry.js';
@@ -4777,6 +4778,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     publicRoot: path.join(__dirname, '..', 'public'),
   });
   const memberSmartHomeService=new WisdoUniversalControlService({pool:commandBusService.pool,commandBusService,logger});
+  registerPresenceStudioRoutes(app,{pool:commandBusService.pool,getCurrentUser,voiceService});
   const memberSmartHomeActor=(req)=>{
     const user=getCurrentUser(req);if(!user?.id)return null;
     return {owner_user_id:String(user.id),device_id:`web:${String(user.id)}`};

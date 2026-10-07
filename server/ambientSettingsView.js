@@ -4,6 +4,7 @@ const sectionHero = (title, description, badges = '') => `<section class="card">
 
 export function ambientSettingsPage() {
   const sections = [
+    ['Your devices & presence', '/app/presence-studio', 'Choose audio devices, test camera motion, connect phone arrival and customize your room rules.'],
     ['Homes & devices', '/app/smart-home', 'Create separate homes, bind trusted adapters, assign aliases and rooms, review discoveries, and approve devices.'],
     ['Rooms & privacy', '/app/life-os#rooms', 'Name the spaces WISDO coordinates and record their privacy level. Physical privacy controls depend on device support.'],
     ['Household & temporary access', '/app/life-os#household', 'Define adult, child, guest and technician mission roles, with an expiry for temporary records.'],
@@ -83,7 +84,7 @@ function homeCommandHero(active){
 }
 
 function homeFrame(active, body) {
- const links=[['smart-home','Smart Home'],['life-os','Ambient Life'],['security','Security']];
+ const links=[['smart-home','Smart Home'],['life-os','Ambient Life'],['security','Security'],['presence-studio','Presence Studio']];
  return homeDesign+`<div class="wisdo-home-view"><nav aria-label="Home workspace">${links.map(([key,label])=>`<a href="/app/${key}" ${key===active?'aria-current="page"':''}>${label}</a>`).join('')}</nav>${homeCommandHero(active)}${body}</div>`;
 }
 function emergencyPanel(){return `<section class="card emergency"><span class="eyebrow">Emergency assistance</span><h2>Help from your phone</h2><p>For an emergency in the United States, use your phone to call 911. WISDO does not provide monitoring or dispatch confirmation.</p><a class="btn emergency-call" href="tel:911">Call 911 · United States</a><p>Your phone handles the call. Opening the phone app does not confirm a connection or police dispatch. Outside the US, use your local emergency number.</p><details><summary>Monitoring company and information for the dispatcher</summary><form id="emergencyPhoneForm"><label>Monitoring company phone number<input id="monitoringPhone" type="tel" autocomplete="tel" required maxlength="24" placeholder="Enter your provider’s number"></label><button class="btn" type="submit">Call monitoring company</button><p id="emergencyPhoneStatus" role="status" aria-live="polite"></p></form><label>Property address<textarea rows="2" autocomplete="street-address" placeholder="Enter the address to read to the dispatcher"></textarea></label><label>Relevant emergency information<textarea rows="3" placeholder="Describe the situation and where help is needed"></textarea></label><p>These notes stay on this page and are cleared when you leave. They are not sent to emergency services.</p></details></section><script>
