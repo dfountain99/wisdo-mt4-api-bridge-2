@@ -42,8 +42,8 @@ test('V10.2 release assets use fresh deterministic-mobile versions', async () =>
     fs.readFile(new URL('../public/service-worker.js', import.meta.url), 'utf8'),
     fs.readFile(new URL('../public/app/world/command/command-center-runtime.js', import.meta.url), 'utf8'),
   ]);
-  assert.match(workspace, /v=20261002-v17-intent-os/);
-  assert.match(worker, /wisdo-static-v17\.0\.0-intent-os/);
-  assert.match(runtime, /wisdo-live-manager-v15\.css\?v=20261002-v17-intent-os/);
+  assert.match(workspace, /v=20261005-v20-scalp-hold/);
+  assert.match(worker, /wisdo-static-v20\.0\.0-scalp-hold/);
+  assert.match(runtime, /wisdo-live-manager-v15\.css\?v=20261005-v20-scalp-hold/);
   assert.doesNotMatch(runtime, /wisdo-core-v10-living-controls|wisdo-core-v11-truth-dock/);
 });

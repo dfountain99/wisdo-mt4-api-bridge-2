@@ -8,7 +8,7 @@ This release connects the authenticated Command Center to a campaign EA through 
 2. Copy the complete `mql4/include/` directory to `MQL4/Experts/include/`. Keep these files together; the quoted includes are relative to the EA source.
 3. Compile both MQ4 files in MetaEditor. Resolve any compiler errors before loading either EA. This repository's compatibility tests do not substitute for this step.
 4. On a demo account, attach HIGHTOWER to its trading chart. Use only one campaign EA per account/server/symbol/magic identity. A fresh campaign starts from flat; unknown existing tickets are quarantined instead of being assigned guessed roles.
-5. Attach Reporter **1.60** to a separate chart in that same terminal. Keep your existing pairing code and server URL. Enable `EnableCampaignControl`, set `CampaignControlSymbol` to the EA's exact broker symbol (including suffix), and set `CampaignControlMagic` to the EA's `MagicNumber`. Leave copy/manual execution settings as previously configured.
+5. Attach Reporter **1.66** to a separate chart in that same terminal. Keep your existing pairing code and server URL. Enable `EnableCampaignControl`, set `CampaignControlSymbol` to the EA's exact broker symbol (including suffix), and set `CampaignControlMagic` to the EA's `MagicNumber`. Leave copy/manual execution settings as previously configured.
 6. Enable the terminal permissions needed by the EA and the Reporter's existing WebRequest connection. Open `/app/command-center`, select this account, and wait for fresh Reporter AND campaign telemetry.
 7. First preview a short entry pause. Confirm it deliberately, observe the transport receipt, then the separate EA acknowledgement. Verify that open-position protection continues and that cancelling a goal does not clear a manual/emergency pause.
 
@@ -25,6 +25,8 @@ Website changes alone cannot install an EA in a user's terminal or restore a sto
 | After campaign end, pause X | On the flat/awaiting-flip transition, pause before permitting another entry. |
 | Evaluate entry now | Evaluate on the EA tick through existing logic; never guarantee or force an order. Distinct no-entry and broker-entry statuses. |
 | Bounded SONIC window | In an active campaign, allow up to 1–10 normal SONIC entries during the selected duration. Every original signal, spacing, spread and risk gate applies. Quota decrements only after a successful order. When exhausted/expired, SONIC pauses until the standing intention is cancelled or replaced. It does not block unrelated normal strategy entries. |
+| Two-minute scalp watchdog | Hold the WISDO Time core for 2.0 seconds to arm a fixed 120-second inactivity window. Every broker-confirmed new campaign entry restarts the clock. If no new entry arrives before expiry, HIGHTOWER blocks new entries first, enters its full-basket close-and-retry state, records the finished basket median, and then waits flat for a newly closed opposite-color candle. After that reset candle, the entry gate reopens and the stored median becomes the first resumed campaign's launch reference; normal spread, structure, room, stop, risk and broker-legality gates still decide whether an entry is valid. |
+| Trading schedule sliders | WISDO Time exposes broker-clock sliders for one or two custom active windows plus ALL HOURS and LONDON → NY presets. Hold APPLY for 2.0 seconds to send the schedule through the verified campaign mailbox. Outside active windows HIGHTOWER blocks new entries but continues managing open positions. USE EA DEFAULT clears the WISDO override and restores the visible HIGHTOWER schedule inputs. |
 | Move targets | Up to 12 selected collectors/runners move to one currently confirmed pivot. HOLD targets cannot be changed. Each broker modification is checked; partial outcomes are reported. |
 | Protect campaign rail | Accept only a currently confirmed pivot that tightens the rail and satisfies broker distance checks. The normal rail manager applies broker stops; acceptance is not a broker modification receipt. |
 | Assign runner / collector | Persist assignments on selected non-HOLD tickets in this campaign. |
@@ -32,7 +34,7 @@ Website changes alone cannot install an EA in a user's terminal or restore a sto
 | Profit Vault | Selected non-HOLD tickets prioritize the existing break-even/cost reserve and trailing logic, subject to broker distance checks. This is not a guarantee against slippage or costs. |
 | Cancel standing intention | Cancel only this receiver's rule/SONIC window; never clear manual or emergency locks. |
 
-There is **one standing rule per watched campaign** in this version. Arming a new timed/conditional/SONIC rule replaces the previous rule. Target, rail, assignment and trail-policy changes do not replace the standing rule. Arbitrary multi-rule programs, autonomous learned preference changes, and unrestricted natural-language strategy generation are not enabled.
+There is **one standing rule per watched campaign** in this version. Arming a new timed/conditional/SONIC/scalp-watchdog rule replaces the previous rule. Target, rail, assignment and trail-policy changes do not replace the standing rule. Arbitrary multi-rule programs, autonomous learned preference changes, and unrestricted natural-language strategy generation are not enabled.
 
 ## Canvas and voice
 
@@ -45,6 +47,7 @@ Examples:
 - `End this campaign after 30 minutes`
 - `After this campaign ends pause for 2 hours`
 - `Arm a ten burst sonic attack for the next valid entry`
+- `Activate the 2 minute game plan scalp system`
 - `Extend selected trades three levels` (requires matching starting targets)
 - `Make selected trades structure keeper`
 - `Enter now`
@@ -82,3 +85,12 @@ No shake-to-close action is installed. The existing account Trade controls remai
 The Python runner extracts the current shipped H620 module and receiver, compiles that code against a C++ compatibility shim, and exercises timer/protocol scenarios. It does not compile the full EA in MetaEditor and does not model a real broker. Browser layout verification was unavailable in the build environment because the Chromium download failed. No test command was sent to a live account.
 
 Reference semantics checked against MetaQuotes documentation: [atomic global-variable updates](https://docs.mql4.com/globals/globalvariablesetoncondition), [terminal global scope](https://docs.mql4.com/globals), and [date/time functions](https://docs.mql4.com/dateandtime).
+
+
+## Trading schedule sliders
+
+The WISDO Time panel now has a live schedule editor. The two time-window sliders use broker time in 15-minute steps. The highlighted rail is a preview until the user holds **APPLY SCHEDULE** for 2.0 seconds; releasing early sends nothing. The EA accepts either ALL HOURS, the 07:00–21:00 broker-time London/New York preset, or one/two custom windows. Overnight windows are supported by placing the start later than the end (for example 22:00 → 02:00).
+
+Schedule overrides persist in MT4 terminal globals scoped to account/server/symbol/magic so they survive page refreshes and terminal restarts. They affect **new entries only**. HIGHTOWER keeps managing stops, trails, collections and existing positions outside the active window. Hold **USE EA DEFAULT** to clear the runtime override and return to `DirectTradingWindowMode`, `DirectWindow1StartHour`, `DirectWindow1EndHour`, `DirectWindow2StartHour`, and `DirectWindow2EndHour`.
+
+The browser does not own enforcement. Reporter publishes the effective broker-time schedule back to WISDO, and HIGHTOWER evaluates the effective schedule on every tick. A stale Reporter, busy campaign mailbox, invalid equal-time custom window, or mismatched symbol/magic fails closed.

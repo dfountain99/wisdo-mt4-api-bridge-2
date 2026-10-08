@@ -105,8 +105,8 @@ test('V12 normalizes bot-driven campaign progress, session windows, and market s
   assert.equal(control.session.reported, true);
   assert.equal(control.session.name, 'LONDON/NY OVERLAP');
   assert.deepEqual(control.session.windows, [
-    { startHour: 7, endHour: 11, label: 'WINDOW 1' },
-    { startHour: 13, endHour: 16, label: 'WINDOW 2' },
+    { startMinute: 420, endMinute: 660, startHour: 7, endHour: 11, label: 'WINDOW 1' },
+    { startMinute: 780, endMinute: 960, startHour: 13, endHour: 16, label: 'WINDOW 2' },
   ]);
   assert.equal(control.marketSense.intentScore, 0.82);
   assert.equal(control.marketSense.flowLeg, 3);
