@@ -380,7 +380,6 @@ function createCinematicFallbackOperator(THREE, scene, disposables) {
   const suit = addDisposable(disposables, new THREE.MeshPhysicalMaterial({ color: 0x080b10, roughness: .32, metalness: .58, clearcoat: .72, clearcoatRoughness: .18 }));
   const suit2 = addDisposable(disposables, new THREE.MeshStandardMaterial({ color: 0x171c25, roughness: .42, metalness: .48 }));
   const skin = addDisposable(disposables, new THREE.MeshStandardMaterial({ color: 0x875c45, roughness: .72, metalness: 0 }));
-  const hair = addDisposable(disposables, new THREE.MeshStandardMaterial({ color: 0x0b0909, roughness: .9, metalness: 0 }));
   const cyan = addDisposable(disposables, new THREE.MeshStandardMaterial({ color: 0x75edff, emissive: 0x0b7897, emissiveIntensity: 2.1, roughness: .18, metalness: .42 }));
   const gold = addDisposable(disposables, new THREE.MeshStandardMaterial({ color: 0xd0aa58, emissive: 0x5a3503, emissiveIntensity: .7, roughness: .24, metalness: .8 }));
 
@@ -398,14 +397,13 @@ function createCinematicFallbackOperator(THREE, scene, disposables) {
   const neck = new THREE.Mesh(addDisposable(disposables, new THREE.CylinderGeometry(.085, .1, .15, 10)), skin);
   neck.position.y = 1.82;
   shell.add(neck);
-  const head = new THREE.Mesh(addDisposable(disposables, new THREE.SphereGeometry(.205, 16, 12)), skin);
+  const head = new THREE.Mesh(addDisposable(disposables, new THREE.SphereGeometry(.22, 16, 12)), suit2);
   head.position.y = 2.08;
-  head.scale.set(.92, 1.13, .9);
+  head.scale.set(.98, 1.12, .94);
   shell.add(head);
-  const hairCap = new THREE.Mesh(addDisposable(disposables, new THREE.SphereGeometry(.212, 16, 8, 0, TAU, 0, Math.PI * .48)), hair);
-  hairCap.position.y = 2.12;
-  hairCap.scale.set(.94, 1.08, .92);
-  shell.add(hairCap);
+  const visor = new THREE.Mesh(addDisposable(disposables, new THREE.BoxGeometry(.34, .115, .055)), cyan);
+  visor.position.set(0, 2.09, -.2);
+  shell.add(visor);
 
   const logoTexture = addDisposable(disposables, makeLogoTexture(THREE));
   const logoMat = addDisposable(disposables, new THREE.MeshBasicMaterial({ map: logoTexture, transparent: true, depthWrite: false, toneMapped: false }));

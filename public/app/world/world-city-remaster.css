@@ -3,6 +3,8 @@
 .world-shell .topbar,.world-shell .wisdo-production-map-card,.world-shell .wisdo-game-card,.world-shell .wisdo-financial-hud{background:linear-gradient(145deg,rgba(11,25,43,.78),rgba(9,18,33,.64))!important;border-color:rgba(136,209,239,.29)!important}
 .world-shell .wisdo-activity-ribbon{background:rgba(9,22,38,.52)!important;border-color:rgba(122,202,232,.23)!important}
 @media(max-width:700px){
+  /* The Arcade remains in the destination/menu controls; remove its duplicate banner. */
+  .wisdo-a112-launch{display:none!important}
   .world-shell .topbar{background:linear-gradient(145deg,rgba(9,22,39,.76),rgba(7,17,31,.58))!important}
   .world-shell .wisdo-production-map,.world-shell .wisdo-game-hud{opacity:.82!important}
   .world-shell .wisdo-activity-ribbon{opacity:.70!important}
