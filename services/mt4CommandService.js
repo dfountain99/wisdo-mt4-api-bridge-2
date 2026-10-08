@@ -1,3 +1,4 @@
+import { hightowerMatches } from './hightowerRouting.js';
 import { createHash, randomUUID } from 'node:crypto';
 
 import { createPersistenceAdapter } from './persistenceAdapter.js';
@@ -23,6 +24,7 @@ function deliveryRetryReady(record) {
 // return a confirmation_required response first, then queue only the real
 // reporter command after the user confirms.
 const DANGEROUS_COMMANDS = new Set([
+  'HIGHTOWER_CONTROL',
   'WISDO_CAMPAIGN',
   'CLOSE_ALL_TRADES',
   'CLOSE_ALL_PROFITS',
@@ -577,7 +579,9 @@ export class Mt4CommandService {
     });
   }
 
-  commandMatches(command, { accountId = null, accountNumber = null, pairingCode = null } = {}) {
+  commandMatches(command, scope = {}) {
+    const { accountId = null, accountNumber = null, pairingCode = null } = scope;
+    if (!hightowerMatches(command, scope)) return false;
     if (!['pending', 'delivered'].includes(command.status)) return false;
     if (isExpired(command)) return false;
     if (command.status === 'delivered' && !deliveryRetryReady(command)) return false;
@@ -608,6 +612,16 @@ export class Mt4CommandService {
     return owned;
   }
 
+  async claimHightower(userIds, scope) {
+    if (this.databaseStore?.enabled) return {command: await this.databaseStore.claimHightower(userIds,scope)};
+    return this.mutate(async data => {
+      const row=(data.commandQueue || []).find(r=>userIds.includes(String(r.userId)) && this.commandMatches(r,scope));
+      if(!row)return {command:null};
+      this.syncCommandCopies(data,row.id,{status:'delivered',deliveredAt:nowIso(),attempts:Number(row.attempts || 0)+1,payload:{...row.payload,_receiverId:scope.receiverId}});
+      return {command:this.findCommand(data,row.userId,row.id,scope.accountId)};
+    });
+  }
+
   async getPendingCommand(userId, scope = {}) {
     if (this.databaseStore?.enabled) return this.databaseStore.pending([userId], scope);
     const data = await this.loadHot();
@@ -615,7 +629,7 @@ export class Mt4CommandService {
     const accountNumber = scope?.accountNumber ? String(scope.accountNumber) : null;
     const pairingCode = scope?.pairingCode ? String(scope.pairingCode) : null;
     return (data.commandQueue || []).find((command) =>
-      String(command.userId) === String(userId) && this.commandMatches(command, { accountId, accountNumber, pairingCode })
+      String(command.userId) === String(userId) && this.commandMatches(command, scope)
     ) || null;
   }
 
@@ -858,3 +872,4 @@ export class Mt4CommandService {
     data.commandAuditLog = data.commandAuditLog.slice(0, this.commandAuditLimit);
   }
 }
+
