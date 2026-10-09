@@ -67,6 +67,26 @@
     $('room').value=s.room;$('greeting').value=s.greeting;$('arrival-enabled').checked=s.arrivalEnabled;$('require-door').checked=s.requireDoor;$('away-seconds').value=s.awaySeconds;$('away-action').value=s.awayAction;$('save').disabled=false;
   }
   function showEvidence(data){
+    const health=$('health');
+    if(health){
+      health.replaceChildren();
+      for(const [kind,label] of [['phone','Phone'],['door','Door'],['occupancy','Room sensor']]){
+        const evidence=data.sourceHealth?.[kind];
+        const state=evidence?.status||'unavailable';
+        const descriptions={
+          not_configured:'No source selected',
+          unavailable:'Selected source was removed or revoked',
+          awaiting_event:'Waiting for first valid event',
+          recent:'Recent server evidence',
+          event_old:'Last event is older than three minutes; this event-driven source is not necessarily disconnected',
+          heartbeat_stale:'No fresh heartbeat; room occupancy is unknown'
+        };
+        const line=document.createElement('p');
+        const suffix=evidence?.lastSeenAt?` · Last event: ${new Date(evidence.lastSeenAt).toLocaleString()} (${evidence.ageSeconds}s ago)`:'';
+        line.textContent=`${label}: ${descriptions[state]||state}${suffix}`;
+        health.append(line);
+      }
+    }
     $('desk').textContent='Desk: '+(data.runtime.deskState||'unknown');$('sources').replaceChildren();
     for(const source of data.sources){const row=document.createElement('div');row.className='ps-source';const label=document.createElement('p');label.textContent=`${source.name} · ${source.kind} · ${source.revoked?'revoked':source.last_seen_at?`${source.state} reported ${new Date(source.last_seen_at).toLocaleString()}`:'waiting for first event'}`;row.append(label);if(!source.revoked){const b=document.createElement('button');b.className='btn';b.textContent='Revoke';b.onclick=run(async()=>{await api('/sources/'+source.source_id,'DELETE');await refresh(true);});row.append(b);}$('sources').append(row);}
     const notices=data.runtime.notices||[];$('notices').replaceChildren();
