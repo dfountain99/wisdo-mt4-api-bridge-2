@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {defaults,validateSettings,evaluatePresence,PresenceStudioService} from '../services/presenceStudioService.js';
+import {defaults,validateSettings,evaluatePresence,sourceHealth,PresenceStudioService} from '../services/presenceStudioService.js';
 import {registerPresenceStudioRoutes} from '../server/presenceStudioRoutes.js';
 
 const now=Date.parse('2026-10-07T01:00:00Z'),iso=offset=>new Date(now+offset).toISOString();
@@ -67,4 +67,35 @@ test('web settings reject unauthenticated and cross-site writes before touching 
   chain[0]({headers:{}},res,()=>assert.fail('unauthenticated request passed'));assert.equal(status,401);
   const req={user:{id:'owner'},headers:{'x-wisdo-intent':'presence-studio','sec-fetch-site':'cross-site'}};
   chain[0](req,res,()=>{});chain[1](req,res,()=>assert.fail('cross-site request passed'));assert.equal(status,403);
+});
+
+test('source health distinguishes a recent signal from stale occupancy or old arrival evidence',()=>{
+  const rows=sources();
+  const live=sourceHealth(config,rows,now);
+  assert.equal(live.phone.status,'recent');
+  assert.equal(live.occupancy.status,'recent');
+  assert.equal(live.phone.state,'home');
+  assert.equal(live.occupancy.ageSeconds,10);
+  const later=sourceHealth(config,rows,now+190000);
+  assert.equal(later.phone.status,'event_old');
+  assert.equal(later.door.status,'event_old');
+  assert.equal(later.occupancy.status,'heartbeat_stale');
+  assert.equal(sourceHealth({...config,doorSource:''},rows,now).door.status,'not_configured');
+  assert.equal(sourceHealth(config,rows.filter(x=>x.kind!=='phone'),now).phone.status,'unavailable');
+  assert.equal(sourceHealth(config,[{...rows[0],last_seen_at:null},...rows.slice(1)],now).phone.status,'awaiting_event');
+});
+
+test('snapshot returns owner-scoped health and never returns source credentials',async()=>{
+  const observed=[];
+  const pool={query:async(sql,args=[])=>{
+    observed.push([sql,args]);
+    if(sql.startsWith('SELECT settings,runtime'))return {rows:[{settings:config,runtime:{}}]};
+    if(sql.startsWith('SELECT source_id,name,kind'))return {rows:sources()};
+    return {rows:[]};
+  }};
+  const snapshot=await new PresenceStudioService(pool).snapshot('member-1');
+  assert.equal(snapshot.sourceHealth.phone.status,'event_old');
+  assert.equal(snapshot.sourceHealth.occupancy.status,'heartbeat_stale');
+  assert.equal(JSON.stringify(snapshot).includes('token_hash'),false);
+  assert.deepEqual(observed.filter(([sql])=>sql.startsWith('SELECT')).map(([,args])=>args),[['member-1'],['member-1']]);
 });
