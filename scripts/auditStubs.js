@@ -38,6 +38,7 @@ function classify(file,line,term){
   if(file.startsWith('scripts/'))return'DEVELOPMENT_TOOLING';
   if(/simulat|dry.?run/i.test(`${file} ${line}`)&&/simulate/i.test(term))return'INTENTIONAL_SIMULATION';
   if(/setPlaceholder|placeholder\s*[:=]|placeholderText/i.test(line)&&/placeholder/i.test(term))return'UI_INPUT_ATTRIBUTE';
+  if(/::placeholder\b/i.test(line)&&/placeholder/i.test(term))return'UI_INPUT_ATTRIBUTE';
   if(/placeholder\/local|PUBLIC_BASE_URL/i.test(line)&&/placeholder/i.test(term))return'CONFIGURATION_GUARD';
   if(/DatabasePersistenceAdapterPlaceholder/i.test(line))return'UNUSED_FAIL_CLOSED_GUARD';
   if(/pending_hook|not trusted until scanner/i.test(line)&&/placeholder/i.test(term))return'FAIL_CLOSED_SECURITY_GUARD';
