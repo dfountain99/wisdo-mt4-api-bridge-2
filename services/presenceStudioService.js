@@ -39,6 +39,28 @@ export function evaluatePresence(settings, sources, previous={}, now=Date.now())
   return runtime;
 }
 
+// Health describes observed evidence only; it never certifies a person's identity
+// or authorizes a trading command. Phone/door sources are event-driven, while
+// occupancy sources require recurring heartbeats.
+export function sourceHealth(settings, sources, now=Date.now()){
+  const kinds=[['phone','phoneSource',180000],['door','doorSource',180000],['occupancy','occupancySource',90000]];
+  return Object.fromEntries(kinds.map(([kind,key,freshMs])=>{
+    const selectedId=settings[key];
+    if(!selectedId)return [kind,{status:'not_configured',state:'unknown',lastSeenAt:null,ageSeconds:null}];
+    const row=sources.find(x=>x.source_id===selectedId&&x.kind===kind);
+    if(!row||row.revoked)return [kind,{status:'unavailable',state:'unknown',lastSeenAt:null,ageSeconds:null}];
+    const observed=Date.parse(row.last_seen_at);
+    if(!Number.isFinite(observed)||observed>now+10000)return [kind,{status:'awaiting_event',state:'unknown',lastSeenAt:null,ageSeconds:null}];
+    const ageSeconds=Math.max(0,Math.floor((now-observed)/1000));
+    return [kind,{
+      status:now-observed<freshMs?'recent':kind==='occupancy'?'heartbeat_stale':'event_old',
+      state:row.state||'unknown',
+      lastSeenAt:new Date(observed).toISOString(),
+      ageSeconds,
+    }];
+  }));
+}
+
 export class PresenceStudioService{
   constructor(pool){this.pool=pool;}
   async ensure(owner){await this.pool.query('INSERT INTO wisdo_presence_studio(owner_user_id) VALUES($1) ON CONFLICT DO NOTHING',[owner]);}
@@ -46,7 +68,7 @@ export class PresenceStudioService{
     await this.ensure(owner);
     const [p,s]=await Promise.all([this.pool.query('SELECT settings,runtime FROM wisdo_presence_studio WHERE owner_user_id=$1',[owner]),this.pool.query('SELECT source_id,name,kind,revoked,last_seen_at,state,state_since FROM wisdo_presence_sources WHERE owner_user_id=$1 ORDER BY created_at',[owner])]);
     const settings={...defaults,...p.rows[0].settings};
-    return {settings,sources:s.rows,runtime:{...p.rows[0].runtime,deskState:evaluatePresence(settings,s.rows,p.rows[0].runtime).deskState}};
+    return {settings,sources:s.rows,sourceHealth:sourceHealth(settings,s.rows),runtime:{...p.rows[0].runtime,deskState:evaluatePresence(settings,s.rows,p.rows[0].runtime).deskState}};
   }
   async save(owner,input){
     const settings=validateSettings(input);await this.ensure(owner);
