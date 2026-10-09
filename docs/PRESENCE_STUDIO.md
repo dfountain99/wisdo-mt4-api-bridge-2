@@ -30,6 +30,14 @@ On iPhone, configure Shortcuts personal automations with Get Contents of URL. Us
 
 For Home Assistant, create a source and use the page's YAML generator with an existing person, device_tracker, binary_sensor or sensor entity. The generated package sends state updates and occupancy heartbeats. Store its secret privately. An optional local TTS action provides an always-on greeting when a person/device_tracker transitions from not_home to home. That optional local automation is explicitly independent of WISDO's door-correlation setting; edit its conditions in Home Assistant before enabling it if doorway confirmation or quiet hours are desired.
 
+## Connection health in the live member app
+
+The authenticated `GET /api/presence-studio` snapshot also returns `sourceHealth` for the selected phone, door, and occupancy source. Each entry includes `status`, `state`, `lastSeenAt`, and `ageSeconds` without returning its credential. Source statuses are `not_configured`, `unavailable`, `awaiting_event`, `recent`, `event_old`, or `heartbeat_stale`.
+
+Presence Studio displays this server-observed connection evidence. A phone or door source is **event-driven**: `event_old` after three minutes means the last event is no longer usable for a *new* arrival correlation, not that the phone disconnected. An occupancy source needs fresh updates; after 90 seconds without a valid observation, `heartbeat_stale` means the desk is **unknown**, never automatically vacant.
+
+Use this readout while commissioning a real iPhone Shortcut or Home Assistant automation: create the source, copy its secret to the trusted sender, trigger one real event, confirm that the source changes from `awaiting_event` to `recent`, then inspect the recent notices. No simulated event is shown as proof of a physical arrival, and connection evidence alone never authorizes trading.
+
 ## Rules and receipts
 
 WISDO's arrival rule correlates selected phone arrival and door-open events within three minutes, unless the owner explicitly disables door confirmation. Repeated home heartbeats do not produce repeated greetings. Greeting cooldown is five minutes.
