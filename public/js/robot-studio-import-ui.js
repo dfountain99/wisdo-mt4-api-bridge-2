@@ -173,6 +173,24 @@ function conditionEditor(condition) {
   value.addEventListener('input', setValue);
   controls.append(select, value);
   holder.append(title, controls);
+  const link = analysis.links?.find((wire) => wire.from === condition.id);
+  if (link) {
+    const info = document.createElement('p');
+    info.className = 'reverse-connected-action';
+    info.textContent = 'TRUE branch → ' + link.action + ' (direct call at line ' + link.line + ')';
+    holder.append(info);
+    const flip = document.createElement('button');
+    flip.type = 'button';
+    flip.textContent = 'Flip trigger comparator in source';
+    flip.title = 'Updates only the comparison operator in the original source.';
+    flip.addEventListener('click', () => {
+      const inverse = { '<': '>=', '>': '<=', '<=': '>', '>=': '<', '==': '!=', '!=': '==' };
+      select.value = inverse[select.value];
+      setValue();
+      renderCanvas();
+    });
+    holder.append(flip);
+  }
   return holder;
 }
 
@@ -187,7 +205,7 @@ function makeCard(node) {
   h.textContent = node.label;
   const tag = document.createElement('span');
   tag.className = 'reverse-tag';
-  tag.textContent = node.editable ? 'CODE-LINKED INPUT' : 'DISCOVERY';
+  tag.textContent = node.editable ? 'CODE-LINKED RULE' : 'DISCOVERY';
   head.append(h, tag);
   const detail = document.createElement('p');
   detail.textContent = node.detail;
@@ -288,7 +306,7 @@ function showAnalysis(result) {
   element('reverse-output').hidden = false;
   element('reverse-platform').textContent = result.platform;
   element('reverse-file-label').textContent = result.filename;
-  element('reverse-summary').textContent = result.stats.lines + ' lines · ' + result.stats.blocks + ' blocks · ' + result.stats.editableInputs + ' inputs · ' + result.stats.editableConditions + ' conditions editable';
+  element('reverse-summary').textContent = result.stats.lines + ' lines · ' + result.stats.blocks + ' blocks · ' + result.stats.editableInputs + ' inputs · ' + result.stats.editableConditions + ' conditions · ' + (result.links?.length || 0) + ' verified trade links';
   const notices = element('reverse-notices');
   notices.replaceChildren();
   result.notices.forEach((notice) => {
