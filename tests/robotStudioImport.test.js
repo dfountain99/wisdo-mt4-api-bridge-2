@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   analyzeMqlSource,
+  decodeMqlFile,
+  encodeMqlSource,
   patchImportedSource,
   getSourceChanges,
   MAX_SOURCE_BYTES
@@ -139,4 +141,25 @@ test('browser UI has required workspace controls and source import script', () =
     assert.match(html, new RegExp('id="' + id + '"'));
   }
   assert.match(html, /\/js\/robot-studio-import-ui\.js/);
+});
+
+
+test('UTF-8 BOM, UTF-16LE and UTF-16BE sources decode and reencode without data loss', () => {
+  const example = '#property strict\r\ninput string Note = "Café";\r\nvoid OnTick() {}\r\n';
+  for (const encoding of ['utf-8', 'utf-16le', 'utf-16be']) {
+    for (const bom of [true, false]) {
+      const original = encodeMqlSource(example, { encoding, bom });
+      const decoded = decodeMqlFile(original);
+      assert.equal(decoded.text, example, encoding + ' decoded source text');
+      assert.equal(decoded.encoding, encoding, encoding + ' detected');
+      assert.equal(decoded.bom, bom, encoding + ' BOM detection');
+      assert.deepEqual(encodeMqlSource(decoded.text, decoded), original, encoding + ' exact byte-level round trip');
+    }
+  }
+});
+
+test('source decoder rejects binary and invalid encodings rather than damaging EA code', () => {
+  assert.throws(() => decodeMqlFile(new Uint8Array([0xFF,0x00,0xAA])), /encoding|Binary/i);
+  assert.throws(() => decodeMqlFile(new Uint8Array([0x61,0,0x62,0])), /Binary/i);
+  assert.throws(() => decodeMqlFile(new Uint8Array(0)), /empty/);
 });
