@@ -11,6 +11,7 @@ export const DEFAULT_WISDO_WORKSPACES = Object.freeze([
   { slug: 'kernel-control', title: 'Wisdo Kernel Control', required: true },
   { slug: 'voice-studio', title: 'Wisdo Voice Studio', required: true },
   { slug: 'studio', title: 'Wisdo Studio', required: false },
+  { slug: 'robot-studio', title: 'WISDO Robot Studio', required: false },
   { slug: 'world', title: 'WISDO World', required: false },
 ]);
 
