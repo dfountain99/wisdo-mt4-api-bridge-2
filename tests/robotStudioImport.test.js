@@ -163,3 +163,35 @@ test('source decoder rejects binary and invalid encodings rather than damaging E
   assert.throws(() => decodeMqlFile(new Uint8Array([0x61,0,0x62,0])), /Binary/i);
   assert.throws(() => decodeMqlFile(new Uint8Array(0)), /empty/);
 });
+
+
+test('verified direct guard-to-trade edges are source-linked, but complex bodies are not guessed', () => {
+  const source = [
+    'input double SpreadLimit = 1.5;',
+    'void OnTick() {',
+    '  if (spread <= 2.5) OrderSend(Symbol(), OP_BUY, 0.01, Ask, 2, 0, 0);',
+    '  if (rsi < 30) { trade.Buy(0.01); }',
+    '  if (risk > 5) { Print("warning"); trade.Sell(0.01); }',
+    '  if (count > 1) { if (ready > 0) trade.Buy(0.01); }',
+    '}'
+  ].join('\n');
+  const analysis = analyzeMqlSource(source, 'guard.mq5');
+  assert.equal(analysis.links.length, 2);
+  assert.equal(analysis.links[0].action, 'OrderSend');
+  assert.equal(analysis.links[1].action, 'trade.Buy');
+  const spreadCondition = analysis.conditions.find((c) => c.lhs === 'spread');
+  const adjusted = patchImportedSource(analysis, { [spreadCondition.id]: { operator: '>', value: 3.5 } });
+  assert.match(adjusted, /if \(spread > 3\.5\) OrderSend/);
+  assert.match(adjusted, /if \(risk > 5\) \{ Print/);
+});
+
+test('starter source canvas has working filter drop zones and source-linked UI', () => {
+  const html = fs.readFileSync(new URL('../public/app/robot-studio/index.html', import.meta.url), 'utf8');
+  const ui = fs.readFileSync(new URL('../public/js/robot-studio-ui.js', import.meta.url), 'utf8');
+  const importUi = fs.readFileSync(new URL('../public/js/robot-studio-import-ui.js', import.meta.url), 'utf8');
+  for (const id of ['filter-add-zone', 'filter-remove-zone', 'flow-graph']) {
+    assert.ok(html.includes('id="' + id + '"'), 'missing: ' + id);
+  }
+  assert.ok(ui.includes('applyFilterDrag'));
+  assert.ok(importUi.includes('Flip trigger comparator in source'));
+});
