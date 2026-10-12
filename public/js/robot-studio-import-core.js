@@ -167,6 +167,27 @@ function parseInputs(source, mask) {
   return inputs;
 }
 
+
+function parseSimpleConditions(source, mask) {
+  // Deliberately limited: only a single bare identifier compared to a numeric
+  // literal. Complex expressions remain opaque, not guessed or rewritten.
+  const re = /\bif\s*\(\s*([A-Za-z_]\w*)\s*(<=|>=|==|!=|<|>)\s*([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)\s*\)/g;
+  const results = [];
+  let match;
+  while ((match = re.exec(mask))) {
+    const expression = match[0];
+    const opStart = match.index + expression.indexOf(match[2], expression.indexOf(match[1]) + match[1].length);
+    const valueStart = match.index + expression.indexOf(match[3], expression.indexOf(match[2], expression.indexOf(match[1]) + match[1].length) + match[2].length);
+    results.push({
+      id: 'condition-' + match.index, lhs: match[1],
+      operator: match[2], value: Number(match[3]),
+      valueOriginal: match[3], operatorStart: opStart, operatorEnd: opStart + match[2].length,
+      valueStart, valueEnd: valueStart + match[3].length, line: lineNumber(source, match.index)
+    });
+  }
+  return results;
+}
+
 function detectionsFromRegex(mask, source, definitions, prefix, description) {
   const found = [];
   for (const [key, regex] of definitions) {
@@ -223,15 +244,22 @@ export function analyzeMqlSource(source, filename) {
   const platform = /\.mq4$/i.test(filename) ? 'MT4' : 'MT5';
   const mask = maskSource(source);
   const inputs = parseInputs(source, mask);
+  const conditions = parseSimpleConditions(source, mask);
   const { nodes, includes } = extractSpecial(mask, source, platform);
   const inputNodes = inputs.map((input) => ({
     id: input.id, category: 'parameter', label: input.name,
     detail: input.type + ' · ' + input.modifier + ' · ' + (input.kind === 'readonly' ? 'computed default / review required' : 'editable literal'),
     count: 1, line: input.line, editable: input.kind !== 'readonly'
   }));
+  const conditionNodes = conditions.map((condition) => ({
+    id: condition.id, category: 'condition',
+    label: condition.lhs + ' ' + condition.operator + ' ' + condition.valueOriginal,
+    detail: 'Simple numeric condition · edit the operator or threshold below',
+    count: 1, line: condition.line, editable: true
+  }));
   const notices = [
     'This is a best-effort source explorer, not a full MQL parser. Discovered blocks are not a verified executable control-flow graph.',
-    'Only editable input/extern literal defaults can safely update the exported source. Other blocks are visual, read-only discoveries.',
+    'Only mapped scalar input defaults and simple identifier-versus-number if-comparisons can update source. Complex logic stays read-only.',
     'Dragging blocks changes workspace arrangement ONLY, not execution order or trade logic.',
     'All unmapped logic and comments remain in the original source when exporting.'
   ];
@@ -239,13 +267,14 @@ export function analyzeMqlSource(source, filename) {
   if (!inputs.length) notices.push('No directly editable scalar input/extern literals were found.');
   if (platform === 'MT5') notices.push('MQL5 uses different order and indicator APIs than MQL4; no automatic MT4/MT5 conversion is performed.');
   return {
-    filename, source, platform, inputs,
-    nodes: [...inputNodes, ...nodes],
+    filename, source, platform, inputs, conditions,
+    nodes: [...inputNodes, ...conditionNodes, ...nodes],
     notices, stats: {
       lines: source.split(/\r?\n/).length,
       inputs: inputs.length,
       editableInputs: inputs.filter((i) => i.kind !== 'readonly').length,
-      blocks: inputNodes.length + nodes.length
+      editableConditions: conditions.length,
+      blocks: inputNodes.length + conditionNodes.length + nodes.length
     }
   };
 }
@@ -254,7 +283,7 @@ export function patchImportedSource(analysis, updates = {}) {
   if (!analysis || typeof analysis.source !== 'string' || !Array.isArray(analysis.inputs)) {
     throw new Error('Analyze an original source file before editing.');
   }
-  const ids = new Set(analysis.inputs.map((input) => input.id));
+  const ids = new Set([...analysis.inputs.map((input) => input.id), ...(analysis.conditions || []).map((condition) => condition.id)]);
   for (const id of Object.keys(updates)) if (!ids.has(id)) throw new Error('Unknown input block: ' + id);
   const patches = [];
   for (const input of analysis.inputs) {
@@ -262,6 +291,19 @@ export function patchImportedSource(analysis, updates = {}) {
     if (input.kind === 'readonly') throw new Error(input.name + ': expression is read-only.');
     const value = encodeLiteral(input.kind, updates[input.id]);
     if (value !== input.original) patches.push({ start: input.start, end: input.end, value });
+  }
+  for (const condition of (analysis.conditions || [])) {
+    if (!Object.prototype.hasOwnProperty.call(updates, condition.id)) continue;
+    const update = updates[condition.id];
+    if (!update || typeof update !== 'object') throw new Error('Invalid comparison block update.');
+    const operator = update.operator ?? condition.operator;
+    const value = update.value ?? condition.value;
+    if (!['<', '>', '<=', '>=', '==', '!='].includes(operator)) throw new Error('Invalid comparison operator.');
+    if (typeof value !== 'number' && typeof value !== 'string') throw new Error('Expected a numeric comparison threshold.');
+    if (String(value).trim() === '' || !Number.isFinite(Number(value))) throw new Error('Expected a finite comparison threshold.');
+    const rhs = String(Number(value));
+    if (operator !== condition.operator) patches.push({ start: condition.operatorStart, end: condition.operatorEnd, value: operator });
+    if (rhs !== condition.valueOriginal) patches.push({ start: condition.valueStart, end: condition.valueEnd, value: rhs });
   }
   patches.sort((a, b) => b.start - a.start);
   let result = analysis.source;
@@ -279,6 +321,18 @@ export function getSourceChanges(analysis, updates = {}) {
     const newValue = encodeLiteral(input.kind, updates[input.id]);
     if (newValue !== input.original) changed.push({
       name: input.name, from: input.original, to: newValue, line: input.line
+    });
+  }
+  for (const condition of (analysis.conditions || [])) {
+    if (!Object.prototype.hasOwnProperty.call(updates, condition.id)) continue;
+    const update = updates[condition.id];
+    if (!update || typeof update !== 'object') throw new Error('Invalid comparison block update.');
+    const operator = update.operator ?? condition.operator;
+    if (!['<', '>', '<=', '>=', '==', '!='].includes(operator) || !Number.isFinite(Number(update.value ?? condition.value)) || String(update.value ?? condition.value).trim() === '') throw new Error('Invalid comparison edit.');
+    const threshold = String(Number(update.value ?? condition.value));
+    if (operator !== condition.operator || threshold !== condition.valueOriginal) changed.push({
+      name: 'IF ' + condition.lhs, from: condition.operator + ' ' + condition.valueOriginal,
+      to: operator + ' ' + threshold, line: condition.line
     });
   }
   return changed;
