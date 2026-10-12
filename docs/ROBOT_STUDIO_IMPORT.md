@@ -8,6 +8,8 @@ The first-party browser-based Robot Studio at `/app/robot-studio` contains an **
 - Detect the platform by extension, decode UTF-8 / UTF-16LE / UTF-16BE sources, and remember the original encoding and byte order mark.
 - Identify simple source features: global input/sinput/extern declarations, event handlers, typical indicator APIs, trading functions, conditional statements and external include/import directives.
 - Render those as cards in categorized visual lanes; rearrange cards with drag/drop, mobile-friendly move-up/down controls and group selectors.
+- Identify conservative, direct IF-condition-to-trade-call links, display them on connected cards, and let users flip supported comparison operators with immediate source updates.
+- In the original WISDO starter builder, drag RSI/time blocks into the flow or Remove zone to change the generated MT4 robot. This does not rewrite arbitrary imported source graphs.
 - Edit safely mapped global input values and simple numeric `if (identifier comparison literal)` comparisons using form controls, without opening the source by hand.
 - Preview the resulting code, inspect a list of changed snippets, reset edits, and download the file in its original `.mq4` or `.mq5` format.
 - Keep source in the browser: no source upload to the WISDO server, external AI provider, or trading-account endpoint. The original source is kept intact if nothing is changed.
@@ -19,7 +21,7 @@ MQL4 and MQL5 support unrestricted custom functions, procedural control flow, ma
 
 Current limitations:
 - **Only supported code patterns are editable.** Unmapped code and external dependencies remain unchanged and visible as discoveries or opaque code.
-- **Dragging the cards changes the visual arrangement, not the robot's execution order.** Rewiring logic from an arbitrary upload requires a compiler-grade parser, validated intermediate representation, and compiler feedback; deceptively rewriting code using regex could silently change order placement or risk behavior.
+- **Dragging imported source cards changes the visual arrangement, not the robot's execution order.** Rewiring logic from an arbitrary upload requires a compiler-grade parser, validated intermediate representation, and compiler feedback; deceptively rewriting code using regex could silently change order placement or risk behavior.
 - The browser cannot reconstruct compiled `.ex4`/`.ex5` binaries.
 - Non-UTF-8/non-UTF-16 legacy text encodings must be converted safely before importing; unknown encodings are rejected, not silently corrupted.
 - A standalone source may rely on missing `.mqh` includes, DLLs, custom indicators, account settings, indicator buffers or other files. This tool does not invent missing dependencies.
