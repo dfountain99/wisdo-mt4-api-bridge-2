@@ -73,7 +73,7 @@ function renderPreview() {
 }
 function initialLane(node) {
   if (node.category === 'event') return 'entry';
-  if (node.category === 'signal') return 'filters';
+  if (node.category === 'signal' || node.category === 'condition') return 'filters';
   if (node.category === 'execution') return 'orders';
   if (node.category === 'guard') return 'risk';
   if (node.category === 'parameter') return 'risk';
@@ -139,6 +139,39 @@ function paramEditor(input) {
   holder.append(control);
   return holder;
 }
+function conditionEditor(condition) {
+  const holder = document.createElement('div');
+  holder.className = 'reverse-condition-editor';
+  const title = document.createElement('span');
+  title.textContent = 'If ' + condition.lhs + ' …';
+  const controls = document.createElement('div');
+  controls.className = 'reverse-condition-fields';
+  const select = document.createElement('select');
+  select.setAttribute('aria-label', 'Comparison operator for ' + condition.lhs);
+  for (const operator of ['>', '>=', '<', '<=', '==', '!=']) {
+    const option = document.createElement('option');
+    option.value = operator;
+    option.textContent = operator;
+    select.append(option);
+  }
+  const value = document.createElement('input');
+  value.type = 'number';
+  value.step = 'any';
+  value.setAttribute('aria-label', 'Threshold for ' + condition.lhs);
+  const current = edits[condition.id] || { operator: condition.operator, value: condition.value };
+  select.value = current.operator;
+  value.value = String(current.value);
+  const setValue = () => {
+    edits[condition.id] = { operator: select.value, value: value.value };
+    renderPreview();
+  };
+  select.addEventListener('change', setValue);
+  value.addEventListener('input', setValue);
+  controls.append(select, value);
+  holder.append(title, controls);
+  return holder;
+}
+
 function makeCard(node) {
   const card = document.createElement('article');
   card.className = 'reverse-node';
@@ -160,6 +193,9 @@ function makeCard(node) {
   if (node.category === 'parameter') {
     const input = analysis.inputs.find((x) => x.id === node.id);
     if (input) card.append(paramEditor(input));
+  } else if (node.category === 'condition') {
+    const condition = analysis.conditions.find((x) => x.id === node.id);
+    if (condition) card.append(conditionEditor(condition));
   }
   const controls = document.createElement('div');
   controls.className = 'reverse-move-controls';
@@ -248,7 +284,7 @@ function showAnalysis(result) {
   element('reverse-output').hidden = false;
   element('reverse-platform').textContent = result.platform;
   element('reverse-file-label').textContent = result.filename;
-  element('reverse-summary').textContent = result.stats.lines + ' lines · ' + result.stats.blocks + ' discovered block(s) · ' + result.stats.editableInputs + ' editable input(s)';
+  element('reverse-summary').textContent = result.stats.lines + ' lines · ' + result.stats.blocks + ' blocks · ' + result.stats.editableInputs + ' inputs · ' + result.stats.editableConditions + ' conditions editable';
   const notices = element('reverse-notices');
   notices.replaceChildren();
   result.notices.forEach((notice) => {
