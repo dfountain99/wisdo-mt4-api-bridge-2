@@ -52,7 +52,7 @@ function renderPreview() {
     const changes = getSourceChanges(analysis, edits);
     const preview = element('reverse-source-preview');
     preview.value = source;
-    element('reverse-change-count').textContent = changes.length + ' source input default(s) changed';
+    element('reverse-change-count').textContent = changes.length + ' source field(s) changed';
     element('reverse-diff').replaceChildren();
     if (!changes.length) {
       element('reverse-diff').textContent = 'No code changes. Export returns your imported source unchanged.';
@@ -69,7 +69,7 @@ function renderPreview() {
       }
     }
     element('reverse-download').disabled = false;
-    message('Source updated locally. ' + changes.length + ' mapped input(s) changed. No compilation, backtest, or live deployment occurred.');
+    message('Source updated locally. ' + changes.length + ' mapped field(s) changed. No compilation, backtest, or live deployment occurred.');
   } catch (err) {
     element('reverse-download').disabled = true;
     message('Invalid input value: ' + err.message, true);
@@ -343,7 +343,7 @@ element('reverse-reset').addEventListener('click', () => {
   edits = {};
   renderCanvas();
   renderPreview();
-  message('All parameter edits reverted. Source restored to its imported form.');
+  message('All mapped edits reverted. Source restored to its imported form.');
 });
 element('reverse-layout-reset').addEventListener('click', () => {
   if (!analysis) return;
