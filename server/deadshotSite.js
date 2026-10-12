@@ -106,6 +106,7 @@ const PORTAL_NAV = [
   ['/app/seminars', 'Seminars'],
   ['/app/account-configuration', 'Account Configuration'],
   ['/app/wisdo-command-center', 'Wisdo Command Center'],
+  ['/app/robot-studio', 'Robot Studio'],
   ['/app/copier-engine', 'Copier Engine'],
   ['/app/copier-logs', 'Copier Logs'],
   ['/app/account-trades', 'Trades'],
