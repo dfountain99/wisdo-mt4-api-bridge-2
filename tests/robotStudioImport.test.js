@@ -176,9 +176,13 @@ test('verified direct guard-to-trade edges are source-linked, but complex bodies
     '}'
   ].join('\n');
   const analysis = analyzeMqlSource(source, 'guard.mq5');
-  assert.equal(analysis.links.length, 2);
+  // The nested *inner* direct call is recognized; the outer multi-branch guard is not.
+  assert.equal(analysis.links.length, 3);
   assert.equal(analysis.links[0].action, 'OrderSend');
   assert.equal(analysis.links[1].action, 'trade.Buy');
+  assert.equal(analysis.links[2].action, 'trade.Buy');
+  assert.equal(analysis.links.some((wire) => wire.from === analysis.conditions.find((c) => c.lhs === 'risk').id), false);
+  assert.equal(analysis.links.some((wire) => wire.from === analysis.conditions.find((c) => c.lhs === 'count').id), false);
   const spreadCondition = analysis.conditions.find((c) => c.lhs === 'spread');
   const adjusted = patchImportedSource(analysis, { [spreadCondition.id]: { operator: '>', value: 3.5 } });
   assert.match(adjusted, /if \(spread > 3\.5\) OrderSend/);
