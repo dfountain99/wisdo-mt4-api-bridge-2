@@ -8,6 +8,66 @@
  */
 export const MAX_SOURCE_BYTES = 4 * 1024 * 1024;
 
+/** Decode common MetaTrader source encodings; reject undecodable files to avoid corruption. */
+export function decodeMqlFile(input) {
+  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
+  if (bytes.byteLength > MAX_SOURCE_BYTES) throw new Error('Source exceeds the 4 MB browser import limit.');
+  if (bytes.byteLength === 0) throw new Error('Source file is empty.');
+  let encoding = 'utf-8', offset = 0, bom = false;
+  if (bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
+    encoding = 'utf-8'; offset = 3; bom = true;
+  } else if (bytes[0] === 0xFF && bytes[1] === 0xFE) {
+    encoding = 'utf-16le'; offset = 2; bom = true;
+  } else if (bytes[0] === 0xFE && bytes[1] === 0xFF) {
+    encoding = 'utf-16be'; offset = 2; bom = true;
+  } else {
+    // Older MQL sources sometimes contain UTF-16 without a BOM.
+    const sampled = Math.min(bytes.length, 512);
+    let even = 0, odd = 0, pairs = 0;
+    for (let i = 0; i + 1 < sampled; i += 2) {
+      pairs++;
+      if (bytes[i] === 0) even++;
+      if (bytes[i + 1] === 0) odd++;
+    }
+    if (pairs >= 8 && odd / pairs > 0.3 && even / pairs < 0.08) encoding = 'utf-16le';
+    if (pairs >= 8 && even / pairs > 0.3 && odd / pairs < 0.08) encoding = 'utf-16be';
+  }
+  try {
+    const text = new TextDecoder(encoding, { fatal: true }).decode(bytes.subarray(offset));
+    if (text.includes('\0')) throw new Error('Binary NUL characters were detected.');
+    if (!text.trim()) throw new Error('Source file has no code.');
+    return { text, encoding, bom };
+  } catch (error) {
+    throw new Error('Source encoding was not readable without data loss (UTF-8/UTF-16 supported): ' + error.message);
+  }
+}
+
+/** Preserve the imported encoding and BOM when exporting modified source. */
+export function encodeMqlSource(text, codec = {}) {
+  const encoding = codec.encoding || 'utf-8';
+  const bom = codec.bom === true;
+  if (typeof text !== 'string') throw new Error('Source text is required.');
+  if (encoding === 'utf-8') {
+    const encoded = new TextEncoder().encode(text);
+    if (!bom) return encoded;
+    const withBom = new Uint8Array(encoded.length + 3);
+    withBom.set([0xEF, 0xBB, 0xBF]);
+    withBom.set(encoded, 3);
+    return withBom;
+  }
+  if (encoding !== 'utf-16le' && encoding !== 'utf-16be') throw new Error('Unsupported source encoding.');
+  const out = new Uint8Array(text.length * 2 + (bom ? 2 : 0));
+  if (bom) out.set(encoding === 'utf-16le' ? [0xFF, 0xFE] : [0xFE, 0xFF]);
+  const offset = bom ? 2 : 0;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (encoding === 'utf-16le') { out[offset + 2*i] = code & 255; out[offset + 2*i + 1] = code >>> 8; }
+    else { out[offset + 2*i] = code >>> 8; out[offset + 2*i + 1] = code & 255; }
+  }
+  return out;
+}
+
+
 const KEYWORDS = [
   ['tick', 'OnTick', 'OnTick() · Tick event'],
   ['timer', 'OnTimer', 'OnTimer() · Scheduled event'],
