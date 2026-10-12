@@ -11,6 +11,22 @@ This adds a first-party beginner-oriented trading robot editor inspired by the *
 - Compiling, backtesting and installing are done in MetaEditor/MetaTrader 4 by the user.
 - No server-side storage, voice commands, copier connection, trading API execution, actual canvas drag/drop, MQL5 export or guaranteed profit is in this MVP.
 
+## Import & Rebuild (MQL4 / MQL5 source)
+
+- On the same `/app/robot-studio` page choose **Import my existing MQ4 / MQ5**.
+- Accept plaintext `.mq4` and `.mq5` source files up to 4 MB; compiled `.ex4` and `.ex5` binaries cannot be decompiled.
+- Decode UTF-8 (including BOM) or UTF-16 LE/BE (including BOM or common BOM-less formats) and retain original line endings and encoding on export. If unchanged, the original source bytes are exported.
+- Identify global `input`, `sinput`, and `extern` scalar literals; common indicator references; handlers including `OnTick`, `OnTimer`, `OnInit`; order operations; conditionals; and external include/import hints.
+- Reconstruct a five-lane, interactive visual workspace. Blocks may be dragged and dropped to organize the view, or moved with accessible ↑ / ↓ controls.
+- Code-linked fields safely update **scalar input defaults** and **simple numeric `if (identifier OP number)` comparisons** in exactly mapped locations. All other logic, comments, declarations, MQL-specific platform logic and custom methods are preserved unchanged.
+- Download a source file in its original MT4 or MT5 format. No strategy execution, direct account connection, server upload, source-to-platform conversion or hidden decompilation occurs.
+- Reordering discovery cards does **not** change execution order. Nontrivial rewiring of condition branches, indicator calculation graphs, custom functions, pointers, loops and cross-file includes requires a grammar/parser and dependency-preserving intermediate representation, plus compiler and test gates. The UI states this limit explicitly.
+- This module is a **best-effort source explorer**; it does not pretend to produce a complete or verified control-flow graph of arbitrary MQL files.
+
+## Verification
+
+`node --test tests/robotStudioImport.test.js` exercises MQL4/MQL5 imports, source-preserving edits, safety validation, original encodings and the visual import workspace.
+
 ## Generated EA behavior
 
 - Processes a signal at the beginning of each chart candle using closed-bar EMA (and optional RSI) data.
