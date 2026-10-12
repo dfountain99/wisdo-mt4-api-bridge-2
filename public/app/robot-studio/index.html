@@ -65,11 +65,12 @@
     .reverse-node p{font-size:12px;color:#bad0e0;line-height:1.45;margin:6px 0}.reverse-node small{color:#98adc0;font-size:11px}
     .reverse-control{display:grid;gap:6px;margin-top:12px}.reverse-control span{font-size:12px;color:#c7dde8}.reverse-control input{width:100%;min-width:0;background:#030d18;border:1px solid #4a6a80;color:#f6fdff;border-radius:8px;padding:10px;min-height:40px}
     .reverse-control input[type=checkbox]{width:24px;min-height:24px;accent-color:#4ed2ef}
-    .reverse-control input[readonly]{color:#879bae}.reverse-move-controls{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:10px}.reverse-move-controls button{min-width:36px;min-height:36px;padding:6px}
+    .reverse-control input[readonly]{color:#879bae}.reverse-condition-editor{display:grid;gap:7px;margin-top:12px;font-size:12px;color:#d6e9f6}.reverse-condition-fields{display:grid;grid-template-columns:90px minmax(0,1fr);gap:8px}.reverse-condition-fields select,.reverse-condition-fields input{min-width:0;width:100%;padding:9px;border:1px solid #4a6a80;border-radius:8px;background:#030d18;color:#fff}.reverse-move-controls{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:10px}.reverse-move-controls button{min-width:36px;min-height:36px;padding:6px}
     .reverse-move-controls select{flex:1;min-width:140px;min-height:36px;background:#0a1828;color:white;border:1px solid #435a6d;border-radius:8px;padding:6px;font-size:12px}
     .reverse-code{min-height:330px;max-height:580px}.reverse-change{display:flex;gap:10px;align-items:start;justify-content:space-between;flex-wrap:wrap;margin:7px 0;border-top:1px solid #2c4156;padding:10px 0;font-size:12px}
     .reverse-change code{word-break:break-all;color:#9cecd5}.reverse-side{position:sticky;top:12px;align-self:start}.reverse-note{font-size:12px;color:#f3dcac;line-height:1.6}
     @media(max-width:850px){.reverse-layout{grid-template-columns:1fr}.reverse-side{position:static}}
+    .import-anchor{align-self:center;display:inline-flex;align-items:center;min-height:42px;padding:8px 4px;font-size:13px;font-weight:850;color:#f8d68b;text-decoration:underline}
   </style>
 </head>
 <body>
@@ -80,7 +81,7 @@
   </header>
   <section class="hero">
     <div><div class="eyebrow">Your trading idea, turned into logic</div><h1>Build a robot.<br>Without writing code.</h1><p>Choose entry rules, add optional filters, set protection, and download an editable MetaTrader 4 Expert Advisor. Your strategy stays in this browser until you export it.</p></div>
-    <div class="actions"><button id="start-new">New robot</button><button class="primary" id="save-draft">Save on this device</button></div>
+    <div class="actions"><a class="import-anchor" href="#import-rebuild">↓ Import my existing MQ4 / MQ5</a><button id="start-new">New robot</button><button class="primary" id="save-draft">Save on this device</button></div>
   </section>
   <ol class="steps"><li><b>01.</b> Choose a starting strategy</li><li><b>02.</b> Customize the visual flow</li><li><b>03.</b> Export, compile & backtest</li></ol>
   <div class="columns">
@@ -174,7 +175,7 @@
       <div class="reverse-layout">
         <section>
           <div class="panel-head"><h3>Reconstructed visual blocks</h3><button id="reverse-layout-reset" type="button">Reset layout</button></div>
-          <p class="help">Drag discovered cards between groups, or use ↑ / ↓ and group selectors on mobile. Layout moves are visual only; changing a <strong>CODE-LINKED INPUT</strong> changes the matching original source default.</p>
+          <p class="help">Drag discovered cards between groups, or use ↑ / ↓ and group selectors on mobile. Layout moves are visual only; editing a <strong>CODE-LINKED INPUT</strong> or a supported simple numeric condition updates the exact mapped source.</p>
           <div id="reverse-canvas" class="reverse-canvas" aria-label="Editable source reconstruction board"></div>
         </section>
         <section class="reverse-side">
@@ -187,7 +188,7 @@
               <button id="reverse-reset" type="button">Undo input edits</button>
             </div>
             <label class="field"><span>Preserved source preview</span><textarea id="reverse-source-preview" class="preview reverse-code" readonly spellcheck="false"></textarea></label>
-            <p class="reverse-note">Only directly mapped scalar input defaults are editable in this release. Nested conditional logic, loop behavior, custom functions and imported libraries need a future compiler-grade parser before they can be safely rewired.</p>
+            <p class="reverse-note">Only directly mapped scalar input defaults and simple identifier-versus-number comparisons are editable in this release. Nested conditions, loops, custom functions, and imported libraries need a compiler-grade parser before they can be safely rewired.</p>
           </div>
         </section>
       </div>
