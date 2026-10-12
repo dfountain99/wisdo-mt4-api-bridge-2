@@ -60,5 +60,11 @@ test('studio is registered and navigation contains the intended route', () => {
   const portal = fs.readFileSync(new URL('../server/deadshotSite.js', import.meta.url), 'utf8');
   assert.match(routes, /slug: 'robot-studio'/);
   assert.match(portal, /'\x2fapp\x2frobot-studio', 'Robot Studio'/);
+  const memberWorkspace = fs.readFileSync(new URL('../server/majorUpgradeRoutes.js', import.meta.url), 'utf8');
+  const workspaceMenu = memberWorkspace.match(/function workspaceShell\(page,user,content=null\)\{\s*const nav=(\[[^;]+\]);/);
+  assert.ok(workspaceMenu, 'Current WISDO member workspace must define its navigation');
+  assert.match(workspaceMenu[1], /\['robot-studio','Robot Studio'\]/, 'Robot Studio must appear in the actual member sidebar');
+  assert.match(memberWorkspace, /\$\{nav\.map\(\(\[p,l\]\)=>`<a/, 'Sidebar must render the workspace menu');
+  assert.match(memberWorkspace, /<select class="input mobile-page-nav" id="mobile-page-nav"/, 'Mobile page selector must render the same menu');
   assert.ok(fs.existsSync(new URL('../public/app/robot-studio/index.html', import.meta.url)));
 });
