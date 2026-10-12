@@ -1,5 +1,7 @@
 import {
   MAX_SOURCE_BYTES,
+  decodeMqlFile,
+  encodeMqlSource,
   analyzeMqlSource,
   patchImportedSource,
   getSourceChanges
@@ -18,6 +20,8 @@ let edits = {};
 let order = [];
 let activeDrag = null;
 let nextOriginalFile = '';
+let originalBytes = null;
+let sourceCodec = { encoding: 'utf-8', bom: false };
 
 function message(text, error = false) {
   const status = element('reverse-status');
@@ -27,8 +31,8 @@ function message(text, error = false) {
 function cleanFileName(name) {
   return String(name || 'imported_robot.mq4').replace(/[^A-Za-z0-9_. -]/g, '_').slice(0, 120);
 }
-function exportText(name, code) {
-  const blob = new Blob([code], { type: 'text/plain;charset=utf-8' });
+function exportText(name, bytes) {
+  const blob = new Blob([bytes], { type: 'application/octet-stream' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -302,10 +306,13 @@ async function importFile(file) {
   if (!/\.mq[45]$/i.test(name)) return message('Choose an editable .mq4 or .mq5 source file; .ex4/.ex5 binaries cannot be imported.', true);
   if (file.size > MAX_SOURCE_BYTES) return message('This version supports source files up to 4 MB.', true);
   try {
-    const source = await file.text();
-    const result = analyzeMqlSource(source, name);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const decoded = decodeMqlFile(bytes);
+    const result = analyzeMqlSource(decoded.text, name);
     showAnalysis(result);
-    message('Analyzed ' + name + '. Imported source stays on this device. Read-only discoveries preserve unsupported code.');
+    originalBytes = bytes;
+    sourceCodec = { encoding: decoded.encoding, bom: decoded.bom };
+    message('Analyzed ' + name + ' (' + decoded.encoding + '). Source stays on this device. Unsupported constructs are preserved.');
   } catch (error) { message('Import failed: ' + error.message, true); }
 }
 const chooser = element('reverse-file');
@@ -325,7 +332,9 @@ target.addEventListener('drop', (e) => {
 });
 element('reverse-download').addEventListener('click', () => {
   try {
-    exportText(cleanFileName(nextOriginalFile), sourceResult());
+    const changes = getSourceChanges(analysis, edits);
+    const exported = changes.length === 0 && originalBytes ? originalBytes : encodeMqlSource(sourceResult(), sourceCodec);
+    exportText(cleanFileName(nextOriginalFile), exported);
     message('Source downloaded in original ' + analysis.platform + ' format. Compile in MetaEditor and test on demo. Custom logic was retained.');
   } catch (error) { message(error.message, true); }
 });
