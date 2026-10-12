@@ -54,7 +54,7 @@
     @media(max-width:1150px){.columns{grid-template-columns:1fr 1fr}.right{grid-column:1/-1}.hero{grid-template-columns:1fr}}
     @media(max-width:680px){.shell{padding:14px 12px 50px}.columns{grid-template-columns:1fr}.right{grid-column:auto}.panel{padding:15px}.hero .actions{width:100%}.hero .actions button{flex:1}.fields{grid-template-columns:1fr 1fr}}
 
-    .reverse-section{margin-top:24px;scroll-margin-top:16px}.reverse-top{display:flex;gap:14px;justify-content:space-between;flex-wrap:wrap;align-items:center}
+.filter-drop-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0 18px}.filter-drop{min-height:62px;display:grid;place-items:center;text-align:center;border:1.5px dashed #50768d;border-radius:12px;padding:10px;color:#a1d7e6;font-size:12px;background:#0c263255}.filter-remove{border-color:#8c644b;color:#e5c3aa;background:#281e1855}.filter-drop.drag-over{border-color:#ffda89;background:#2e301e}.node[data-active-filter]{cursor:grab;border-color:#d6b76d}.import-anchor{display:inline-flex;align-items:center;justify-content:center;border-radius:11px;padding:10px 14px;min-height:42px;border:1px solid #caa963;color:#f7d78f;text-decoration:none;font-weight:800}.reverse-connected-action{border-left:3px solid #efc46e;padding:8px 11px;background:#282719;color:#dff6ff;margin:9px 0;font-size:12px}.reverse-condition-editor button{font-size:12px}.filter-drop-row button{width:100%}@media(max-width:600px){.filter-drop-row{grid-template-columns:1fr}}    .reverse-section{margin-top:24px;scroll-margin-top:16px}.reverse-top{display:flex;gap:14px;justify-content:space-between;flex-wrap:wrap;align-items:center}
     .reverse-top p{margin-bottom:0}.reverse-dropzone{border:2px dashed #49718b;border-radius:16px;padding:20px;margin:16px 0;background:#06162477;display:flex;align-items:center;gap:14px;flex-wrap:wrap}.reverse-dropzone.dragging{border-color:#f7d48e;background:#252014}
     .reverse-output{margin-top:18px}.reverse-badges{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}.reverse-badges span{border:1px solid #486075;border-radius:50px;padding:7px 11px;font-size:12px;color:#e3f4ff}
     .reverse-notices{color:#f5d6a0;font-size:12px;line-height:1.55;padding-left:20px}.reverse-layout{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(270px,.8fr);gap:16px}
@@ -135,12 +135,12 @@
     </section>
     <section class="panel">
       <div class="panel-head"><h2>2. Your visual robot</h2><span class="eyebrow">Live logic</span></div>
-      <p class="muted">Your logic updates instantly. Add or remove optional modules with the controls below; tap them on mobile.</p>
+      <p class="muted">Drag RSI or Time into the strategy flow to attach a real filter, or tap the button on mobile. Drag an active filter into Remove to disconnect it from the exported robot logic.</p>
       <div class="modules" aria-label="Optional building blocks">
-        <button id="toggle-rsi" aria-pressed="false">+ RSI filter</button>
-        <button id="toggle-session" aria-pressed="false">+ Time filter</button>
+        <button id="toggle-rsi" draggable="true" data-filter-drag="rsi" aria-pressed="false">+ RSI filter</button>
+        <button id="toggle-session" draggable="true" data-filter-drag="session" aria-pressed="false">+ Time filter</button>
       </div>
-      <div id="flow-graph" class="graph" aria-live="polite"></div>
+      <div id="flow-graph" class="graph" aria-live="polite" aria-label="Strategy logic drop area"></div><div class="filter-drop-row"><div id="filter-add-zone" class="filter-drop" aria-label="Drop RSI or time filter here">Drop filter here to connect to robot</div><div id="filter-remove-zone" class="filter-drop filter-remove" aria-label="Drop an enabled filter here">Drop enabled filter here to remove</div></div>
       <div class="block-meta"><span>Chart timeframe</span><span>Completed candle</span><span>Single position</span><span>Spread check</span><span>Stop-loss / target</span></div>
       <div class="warning">Safety: generated robots may lose money. The percentage-risk setting is only an estimate based on broker tick values; fills, gaps, commissions, and slippage can increase actual losses. Never enable live trading directly from a new strategy.</div>
       <div id="studio-status" class="status" role="status" aria-live="polite"></div>
