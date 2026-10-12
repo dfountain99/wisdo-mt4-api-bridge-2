@@ -89,6 +89,7 @@ const PUBLIC_NAV = [
   ['/live', 'Live Desks'],
   ['/growth', 'Start Free'],
   ['/pricing', 'Pricing'],
+  ['/app/robot-studio', 'Build a Robot'],
   ['/faq', 'FAQ'],
   ['/contact', 'Support'],
 ];
