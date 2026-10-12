@@ -72,6 +72,16 @@ function renderGraph() {
     const detail = document.createElement('p');
     detail.textContent = step.detail;
     node.append(number, title, detail);
+    const kind = step.title === 'RSI confirmation' ? 'rsi' : step.title === 'Trading schedule' ? 'session' : null;
+    if (kind) {
+      node.dataset.activeFilter = kind;
+      node.setAttribute('aria-label', step.title + ', active draggable strategy filter');
+      node.draggable = true;
+      node.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/plain', 'filter:' + kind);
+        e.dataTransfer.effectAllowed = 'move';
+      });
+    }
     graph.append(node);
   });
 }
@@ -104,6 +114,38 @@ fields.forEach((element) => {
     render();
   });
 });
+// These drag/drop operations change the same source-generating strategy flags as the form.
+const FILTER_FLAGS = { rsi: 'rsiEnabled', session: 'sessionEnabled' };
+function applyFilterDrag(e, enabled) {
+  e.preventDefault();
+  const raw = e.dataTransfer.getData('text/plain');
+  const kind = raw.startsWith('filter:') ? raw.slice(7) : '';
+  if (!Object.prototype.hasOwnProperty.call(FILTER_FLAGS, kind)) return;
+  if (!enabled && !draft[FILTER_FLAGS[kind]]) return showStatus('Drag an active filter to Remove.');
+  setDraft({ ...draft, [FILTER_FLAGS[kind]]: enabled },
+    (enabled ? 'Connected ' : 'Disconnected ') + kind.toUpperCase() + ' filter. The generated MQL4 behavior has updated.');
+}
+for (const element of $('[data-filter-drag]')) {
+  element.addEventListener('dragstart', (e) => {
+    e.dataTransfer.setData('text/plain', 'filter:' + element.dataset.filterDrag);
+    e.dataTransfer.effectAllowed = 'copyMove';
+  });
+}
+for (const zone of ['#flow-graph', '#filter-add-zone', '#filter-remove-zone']) {
+  const target = $(zone);
+  target.addEventListener('dragenter', (e) => {
+    if (e.dataTransfer.types.includes('text/plain')) { e.preventDefault(); target.classList.add('drag-over'); }
+  });
+  target.addEventListener('dragover', (e) => {
+    if (e.dataTransfer.types.includes('text/plain')) { e.preventDefault(); e.dataTransfer.dropEffect = zone === '#filter-remove-zone' ? 'move' : 'copy'; }
+  });
+  target.addEventListener('dragleave', () => target.classList.remove('drag-over'));
+  target.addEventListener('drop', (e) => {
+    target.classList.remove('drag-over');
+    applyFilterDrag(e, zone !== '#filter-remove-zone');
+  });
+}
+
 $('#toggle-rsi').addEventListener('click', () => setDraft({ ...draft, rsiEnabled: !draft.rsiEnabled }));
 $('#toggle-session').addEventListener('click', () => setDraft({ ...draft, sessionEnabled: !draft.sessionEnabled }));
 const presets = {
