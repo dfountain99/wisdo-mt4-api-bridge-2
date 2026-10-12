@@ -248,6 +248,48 @@ function parseSimpleConditions(source, mask) {
   return results;
 }
 
+/**
+ * Recognize high-confidence single-statement guard -> trade-call edges.
+ * Nested/custom/multi-statement bodies are deliberately not guessed.
+ * This does not make those actions rewritable; only the mapped comparison changes.
+ */
+function traceDirectTradeEdges(source, mask, conditions) {
+  const links = [];
+  const actionRE = /^(?:(OrderSend|OrderClose|OrderModify|OrderDelete|OrderSendAsync)\s*|([A-Za-z_]\w*)\s*\.\s*(Buy|Sell|PositionClose|PositionModify)\s*)\(/;
+  for (const condition of conditions) {
+    let p = mask.indexOf(')', condition.valueEnd);
+    if (p < 0) continue;
+    p++;
+    while (/\s/.test(mask[p] || '')) p++;
+    const braced = mask[p] === '{';
+    if (braced) {
+      p++;
+      while (/\s/.test(mask[p] || '')) p++;
+    }
+    const action = actionRE.exec(mask.slice(p, p + 150));
+    if (!action) continue;
+    const actionName = action[1] || (action[2] + '.' + action[3]);
+    let depth = 1, at = p + action[0].length;
+    while (depth > 0 && at < mask.length && at < p + 10000) {
+      if (mask[at] === '(') depth++;
+      if (mask[at] === ')') depth--;
+      at++;
+    }
+    if (depth !== 0) continue;
+    while (/\s/.test(mask[at] || '')) at++;
+    if (mask[at] !== ';') continue;
+    at++;
+    while (/\s/.test(mask[at] || '')) at++;
+    if (braced && mask[at] !== '}') continue;
+    links.push({
+      id: 'wire-' + condition.id, from: condition.id, action: actionName,
+      kind: 'direct-true-branch', line: lineNumber(source, p),
+      confidence: 'single direct trade call'
+    });
+  }
+  return links;
+}
+
 function detectionsFromRegex(mask, source, definitions, prefix, description) {
   const found = [];
   for (const [key, regex] of definitions) {
@@ -305,6 +347,7 @@ export function analyzeMqlSource(source, filename) {
   const mask = maskSource(source);
   const inputs = parseInputs(source, mask);
   const conditions = parseSimpleConditions(source, mask);
+  const links = traceDirectTradeEdges(source, mask, conditions);
   const { nodes, includes } = extractSpecial(mask, source, platform);
   const inputNodes = inputs.map((input) => ({
     id: input.id, category: 'parameter', label: input.name,
@@ -327,7 +370,7 @@ export function analyzeMqlSource(source, filename) {
   if (!inputs.length) notices.push('No directly editable scalar input/extern literals were found.');
   if (platform === 'MT5') notices.push('MQL5 uses different order and indicator APIs than MQL4; no automatic MT4/MT5 conversion is performed.');
   return {
-    filename, source, platform, inputs, conditions,
+    filename, source, platform, inputs, conditions, links,
     nodes: [...inputNodes, ...conditionNodes, ...nodes],
     notices, stats: {
       lines: source.split(/\r?\n/).length,
