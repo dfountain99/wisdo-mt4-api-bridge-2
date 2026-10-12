@@ -113,6 +113,26 @@ test('refuses non-source imports and code injection in scalar defaults', () => {
   assert.throws(() => patchImportedSource(a, { arbitrary: true }), /Unknown input block/);
 });
 
+test('simple numeric if conditions become editable blocks without touching adjacent logic', () => {
+  const code = 'void OnTick() {\n  if (spread >= 2.5) return; // control spread\n  if (flag && ready) return;\n  if (volume < 100) Print("low");\n}\n';
+  const analysis = analyzeMqlSource(code, 'logic.mq4');
+  assert.equal(analysis.conditions.length, 2);
+  assert.equal(analysis.stats.editableConditions, 2);
+  const spread = analysis.conditions.find(c => c.lhs === 'spread');
+  const volume = analysis.conditions.find(c => c.lhs === 'volume');
+  assert.equal(patchImportedSource(analysis), code);
+  const patched = patchImportedSource(analysis, {
+    [spread.id]: { operator: '<', value: 3.75 },
+    [volume.id]: { operator: '>=', value: 200 }
+  });
+  assert.match(patched, /if \(spread < 3\.75\) return;/);
+  assert.match(patched, /if \(volume >= 200\) Print\("low"\)/);
+  assert.match(patched, /if \(flag && ready\) return;/);
+  assert.equal(getSourceChanges(analysis, { [spread.id]: { operator: '<', value: 3.75 } }).length, 1);
+  assert.throws(() => patchImportedSource(analysis, { [spread.id]: { operator: '; OrderSend(', value: 2 } }), /Invalid comparison operator/);
+  assert.throws(() => patchImportedSource(analysis, { [spread.id]: { operator: '>', value: '2; OrderSend(' } }), /finite comparison/);
+});
+
 test('browser UI has required workspace controls and source import script', () => {
   const html = fs.readFileSync(new URL('../public/app/robot-studio/index.html', import.meta.url), 'utf8');
   for (const id of ['reverse-file', 'reverse-dropzone', 'reverse-canvas', 'reverse-diff', 'reverse-download', 'reverse-source-preview']) {
