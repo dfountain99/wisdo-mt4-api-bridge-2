@@ -48,6 +48,20 @@ test('rejects fabricated arbitrary MQL rewiring and invalid source edits',()=>{
   assert.throws(()=>updateSourceCondition(b,id,'&&',1),/comparison operator/);
   assert.throws(()=>updateSourceInput(b,'unknown',1),/Unknown mapped input/);
 });
+test('MQ5 CTrade source uses the same source-backed canvas without pretending to generate MT4',()=>{
+  const mq5=[
+    '#include <Trade/Trade.mqh>',
+    'CTrade trade;',
+    'input int RiskThreshold = 2;',
+    'void OnTick(){ if(RiskThreshold > 1) trade.Buy(0.01); }'
+  ].join('\n')+'\n';
+  const a=sourceBlueprint(mq5,'portfolio.mq5');
+  assert.equal(a.platform,'MT5');
+  assert.ok(a.nodes.some(n=>n.type==='action'&&n.label==='trade.Buy'));
+  const field=a.hospital.inputs.find(n=>n.name==='RiskThreshold');
+  updateSourceInput(a,field.id,4);
+  assert.equal(compileSourceBlueprint(a).source,mq5.replace('RiskThreshold = 2','RiskThreshold = 4'));
+});
 test('moving imported cards changes the layout, not robot code',()=>{
   const a=sourceBlueprint(example,'custom.mq4'),n=a.nodes[0];
   moveSourceNode(a,n.id,550,500);assert.equal(n.x,550);
