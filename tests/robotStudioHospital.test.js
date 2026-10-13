@@ -35,6 +35,7 @@ test('real HIGHTOWER SONIC and stop-risk adjustments map to exact original sourc
   const atr=a.inputs.find(i=>i.name==='DirectUseATRTrailingStop');
   assert.ok(sonic&&stop&&atr);
   assert.equal(sonic.hospitalKind,'integer');
+  assert.ok(sonic.usedBy.length > 0, 'SONIC control references should be linked to real functions');
   assert.equal(stop.hospitalKind,'enum');
   assert.ok(stop.options.includes(stop.original));
   const other=stop.options.find(value=>value!==stop.original);
@@ -90,6 +91,9 @@ void OnTick() { if(BotMode==MODE_ACTIVE) CallTrade(); }
   assert.equal(patchHospitalSource(a,{[mode.id]:'MODE_OFF'}),src.replace('BotMode=MODE_ACTIVE;','BotMode=MODE_OFF;'));
   assert.equal(patchHospitalSource(a),src);
   assert.equal(a.stats.references,2);
+  assert.deepEqual(a.inputs.find(i=>i.name==='BotMode').usedBy,['OnTick']);
+  assert.deepEqual(a.inputs.find(i=>i.name==='Example').usedBy,['Condition']);
+  assert.deepEqual(getHospitalChanges(a,{[mode.id]:'MODE_OFF'})[0].referencedBy,['OnTick']);
 });
 
 test('symbol grouping is based on source names, not invented function semantics', () => {
