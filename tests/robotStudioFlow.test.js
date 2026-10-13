@@ -89,6 +89,16 @@ test('graph builder refuses script injection, malformed numeric values and unsup
   assert.throws(()=>deserializeFlow(JSON.stringify(h)));
 });
 
+test('malicious prototype-like block types and off-board positions are rejected',()=>{
+  const g=exampleFlow();
+  g.nodes[1].type='constructor';
+  assert.match(validateFlow(g).join(' '),/unknown block type/);
+  assert.throws(()=>deserializeFlow(JSON.stringify(g)),/unknown block type/);
+  const h=exampleFlow();
+  h.nodes[0].x=7000;
+  assert.match(validateFlow(h).join(' '),/invalid canvas coordinates/);
+});
+
 test('graph round trip keeps connections, positions and settings, while validating before import',()=>{
   const g=exampleFlow();
   g.settings.name='WISDO HIGHTOWER Test';
