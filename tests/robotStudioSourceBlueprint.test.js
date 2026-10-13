@@ -1,0 +1,55 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  sourceBlueprint,moveSourceNode,updateSourceInput,updateSourceCondition,
+  attachSourceGate,removeSourceGate,compileSourceBlueprint,sourceEdges
+} from '../public/js/robot-studio-source-graph-core.js';
+const example=[
+  '#property strict','input double AllowedSpread = 1.5;',
+  'input int TradeThreshold = 2;',
+  'void OnTick() {',
+  '  if (TradeThreshold > 1) OrderSend(Symbol(), OP_BUY, 0.01, Ask, 2, 0, 0);',
+  '}'
+].join('\n')+'\n';
+test('MQ4 source becomes real original input and verified trade-condition blocks',()=>{
+  const a=sourceBlueprint(example,'custom.mq4');
+  assert.equal(a.platform,'MT4');
+  assert.equal(a.analysis.links.length,1);
+  assert.ok(a.nodes.some(n=>n.type==='module'));
+  assert.ok(a.nodes.some(n=>n.type==='condition'));
+  assert.ok(a.nodes.some(n=>n.type==='action'&&n.label==='OrderSend'));
+  assert.ok(sourceEdges(a).some(e=>e.kind==='verified'));
+  assert.deepEqual(compileSourceBlueprint(a),{source:example,changes:[]});
+});
+test('editing original inputs and conditions changes exactly those source regions',()=>{
+  const a=sourceBlueprint(example,'custom.mq4');
+  const input=a.hospital.inputs.find(x=>x.name==='AllowedSpread');
+  const guard=a.analysis.conditions[0];
+  updateSourceInput(a,input.id,2.25);updateSourceCondition(a,guard.id,'>=',4);
+  const result=compileSourceBlueprint(a);
+  assert.equal(result.source,example.replace('AllowedSpread = 1.5;','AllowedSpread = 2.25;').replace('TradeThreshold > 1','TradeThreshold >= 4'));
+  assert.equal(result.changes.length,3);
+});
+test('adding/removing a new AND-condition is round-trip source editing',()=>{
+  const a=sourceBlueprint(example,'custom.mq4'),guard=a.analysis.conditions[0];
+  const g=attachSourceGate(a,guard.id,{input:'AllowedSpread',operator:'<',threshold:2.5},'gate-1');
+  assert.ok(sourceEdges(a).some(e=>e.kind==='gate'));
+  assert.equal(compileSourceBlueprint(a).source,example.replace('if (TradeThreshold > 1)','if (TradeThreshold > 1 && (AllowedSpread < 2.5))'));
+  g.threshold=3;
+  assert.match(compileSourceBlueprint(a).source,/AllowedSpread < 3/);
+  removeSourceGate(a,g.id);assert.equal(compileSourceBlueprint(a).source,example);
+});
+test('rejects fabricated arbitrary MQL rewiring and invalid source edits',()=>{
+  const a=sourceBlueprint('#property strict\nvoid OnTick(){if(GetSignal()) OrderSend(Symbol(),OP_BUY,0.01,Ask,2,0,0);}\n','opaque.mq4');
+  assert.equal(a.analysis.links.length,0);
+  assert.throws(()=>attachSourceGate(a,'any',{input:'bad',operator:'<',threshold:2}),/verified direct-trade/);
+  const b=sourceBlueprint(example,'safe.mq4'),id=b.analysis.conditions[0].id;
+  assert.throws(()=>attachSourceGate(b,id,{input:'OrderSend',operator:'>',threshold:1}),/numeric global input/);
+  assert.throws(()=>updateSourceCondition(b,id,'&&',1),/comparison operator/);
+  assert.throws(()=>updateSourceInput(b,'unknown',1),/Unknown mapped input/);
+});
+test('moving imported cards changes the layout, not robot code',()=>{
+  const a=sourceBlueprint(example,'custom.mq4'),n=a.nodes[0];
+  moveSourceNode(a,n.id,550,500);assert.equal(n.x,550);
+  assert.equal(compileSourceBlueprint(a).source,example);
+});
