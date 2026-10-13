@@ -125,6 +125,7 @@ function drawInput(input) {
   }
   control.setAttribute('aria-label','Edit '+input.name);
   wrapper.append(control);
+  if(input.isInternalDefault)wrapper.append(span('INTERNAL DEFAULT · MAY BE OVERRIDDEN AT RUNTIME','hosp-readonly'));
   if(input.usedBy?.length) {
     const info=button('Used in '+input.usedBy.length+' function(s) · inspect',()=>{
       const linked=caseFile.functions.find(f=>input.usedBy.includes(f.name));
