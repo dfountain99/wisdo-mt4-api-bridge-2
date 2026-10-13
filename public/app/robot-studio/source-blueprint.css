@@ -1,0 +1,59 @@
+/* Import existing MQ4/MQ5 directly onto the primary Blueprint canvas */
+#flow-builder .fx-focus-actions .fx-import-source-action{
+  flex-shrink:0;order:-1;
+  color:#102520;
+  font-weight:900;letter-spacing:.02em;
+  border:1px solid #f7dfa0;
+  background:linear-gradient(115deg,#f9e5af,#b6eacf);
+  box-shadow:0 2px 17px #f0d7993b;
+}
+#flow-builder .fx-focus-actions .fx-import-source-action:hover,
+#flow-builder .fx-focus-actions .fx-import-source-action:focus-visible{
+  background:#f9e5af;color:#15251c;
+}
+#flow-builder .fx-source-session{
+  padding:9px clamp(12px,2.3vw,32px);
+  border-bottom:1px solid #587b5e;
+  background:linear-gradient(90deg,#2b3723,#152a29);
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  font-size:11px;color:#b4dfc6;
+}
+#flow-builder .fx-source-session[hidden]{display:none!important}
+#flow-builder .fx-source-session strong{color:#f0dfa6;overflow-wrap:anywhere}
+#flow-builder .fx-source-session button{margin-left:auto;font-size:11px;padding:7px 12px;min-height:34px;background:#102e2b;color:#eaf7e0;border:1px solid #638c73}
+#flow-builder .fx-source-node{
+  background:linear-gradient(145deg,#123532,#0a252b);
+  border-color:#739b77;min-height:147px;
+}
+#flow-builder .fx-source-module{border-top-color:#c5ac69}
+#flow-builder .fx-source-condition{border-top-color:#84e2c5}
+#flow-builder .fx-source-input{border-top-color:#7cbae0}
+#flow-builder .fx-source-action{border-top-color:#e5bc70}
+#flow-builder .fx-source-gate{border:2px solid #c7b16e;border-top:4px solid #eccc7e;background:linear-gradient(120deg,#3c3424,#172e2a)}
+#flow-builder .fx-source-badge{font:800 9px/1.3 ui-monospace,monospace;letter-spacing:.075em;
+ display:inline-flex;align-items:center;border:1px solid #436956;border-radius:30px;color:#b2ecc5;padding:5px 7px;margin-top:9px}
+#flow-builder .fx-source-gate .fx-source-badge{color:#f2d68d;border-color:#bd9b59}
+#flow-builder .fx-source-verified{stroke:#88e4bd}
+#flow-builder .fx-source-gate-wire{stroke:#efc574;stroke-dasharray:5 4}
+#flow-builder .fx-source-caution{
+  color:#dfcd9d;background:#322f205c;border:1px solid #b3a56d66;padding:9px 11px;border-radius:9px;
+  font-size:11px;line-height:1.55;margin:10px 0
+}
+#flow-builder .fx-source-settings{display:grid;gap:8px}
+#flow-builder .fx-source-settings .fx-field{background:#0e2425;border:1px solid #3c6355;border-radius:10px;padding:10px}
+#flow-builder .fx-source-settings .fx-source-action,#flow-builder .fx-source-input-editor .fx-source-action{
+  display:block;width:100%;white-space:normal;text-align:left;margin:7px 0;padding:11px;
+  border:1px solid #496e60;background:#14332c;color:#e4fadf;font-size:11px
+}
+#flow-builder .fx-source-input-editor{padding:9px;border:1px solid #3f6657;border-radius:11px;background:#0c2526;margin:12px 0}
+#flow-builder .fx-source-input-editor h4{color:#f3e2b0}
+@media(max-width:780px){
+  #flow-builder .fx-focus-actions .fx-import-source-action{position:sticky;left:0;z-index:2;box-shadow:8px 0 13px #071d24}
+  #flow-builder .fx-source-session{padding:7px 11px}
+  #flow-builder .fx-source-session span{display:none}
+}
+
+/* Source function references are informational only, visually distinct from true flow. */
+#flow-builder .fx-source-function{border:1px dashed #518a9c;border-top:4px solid #72b6c5;background:linear-gradient(135deg,#103340,#0b2529)}
+#flow-builder .fx-source-function .fx-source-badge{border-color:#518a9c;color:#9bd4e5}
+#flow-builder .fx-source-reference{stroke:#79b7d0;stroke-dasharray:4 8;stroke-width:1.8}
