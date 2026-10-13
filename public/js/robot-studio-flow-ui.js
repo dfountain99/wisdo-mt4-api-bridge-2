@@ -3,6 +3,7 @@ import {
   FLOW_KEY,BLOCKS,exampleFlow,freshNode,connectFlow,removeFlowNode,
   validateFlow,generateFlowMql4,deserializeFlow,exportFlowJson,MAX_FLOW_NODES
 } from './robot-studio-flow-core.js';
+import {makeSourceCanvas} from './robot-studio-source-graph-ui.js';
 
 const $ = id=>document.getElementById(id);
 const BOARD_WIDTH=1120, BOARD_HEIGHT=850, NODE_WIDTH=200;
@@ -84,6 +85,8 @@ function makeElement(tag,className,text){
   if(text!==undefined)el.textContent=text;
   return el;
 }
+const sourceMode=makeSourceCanvas({$,surface,nodes:nodesArea,edges:edgesSvg,inspector:$('fx-inspector'),
+  code,errorsBox,edgeList,tell,openDrawer,getZoom:()=>zoom,download:emitFile});
 function portLabel(p){return p==='next'?'NEXT':p==='true'?'TRUE':'FALSE';}
 function snap(n){return Math.max(0,Math.min(8000,Math.round(n/10)*10));}
 function coordinate(event){
@@ -112,6 +115,7 @@ function palette(){
   }
 }
 function addBlock(type,pos){
+  if(sourceMode.active())return tell('Imported EA blocks are source-linked. Open a verified IF block to attach a new AND gate, or choose an imported gate from the block library.',true);
   if(graph.nodes.length>=MAX_FLOW_NODES)return tell('Maximum '+MAX_FLOW_NODES+' blocks reached.',true);
   if(type==='tick')return tell('One OnTick event already exists. Connect its output to new blocks.',true);
   counter++;
@@ -337,6 +341,7 @@ function evaluate(){
   $('fx-graph-stats').textContent=graph.nodes.length+' nodes · '+graph.edges.length+' links';
 }
 function render(){
+  if(sourceMode.active()){sourceMode.render();return;}
   renderNodes();renderInspector();controls();edgeList.replaceChildren();
   for(const [i,e] of graph.edges.entries())edgeList.append(lineRow(e,i));
   evaluate();
@@ -345,15 +350,23 @@ function safeStorage(fn){
   try{fn();}catch(e){tell('Browser storage unavailable: '+e.message,true);}
 }
 function loadProject(payload){
-  graph=deserializeFlow(payload);selected=graph.nodes[0]?.id||'';pending=null;render();tell('Validated visual strategy project loaded.');
+  const validated=deserializeFlow(payload);
+  sourceMode.clear();
+  graph=validated;selected=graph.nodes[0]?.id||'';pending=null;render();tell('Validated visual strategy project loaded.');
 }
-$('fx-new').addEventListener('click',()=>{graph=exampleFlow();selected='buy-signal';pending=null;render();tell('Started a new sample flow. All trades remain source-only.');});
-$('fx-save').addEventListener('click',()=>safeStorage(()=>{localStorage.setItem(FLOW_KEY,exportFlowJson(graph));tell('Validated graph saved on this device.');}));
+$('fx-new').addEventListener('click',()=>{
+  if(sourceMode.active()&&!confirm('Leave the imported robot? Download the edited source first if you want to keep changes.'))return;
+  sourceMode.clear();graph=exampleFlow();selected='buy-signal';pending=null;render();tell('Started a new sample flow. All trades remain source-only.');});
+$('fx-save').addEventListener('click',()=>{
+  if(sourceMode.active())return tell('Imported source is not saved in browser storage. Download the edited MQ4/MQ5 from Code / Export to keep your work.');
+  safeStorage(()=>{localStorage.setItem(FLOW_KEY,exportFlowJson(graph));tell('Validated graph saved on this device.');});});
 $('fx-export-json').addEventListener('click',()=>{
+  if(sourceMode.active()){try{sourceMode.exportReport();tell('Downloaded source-mapping report (does not contain your full original EA).');}catch(e){tell(e.message,true);}return;}
   try{emitFile(safeName(graph.settings.name)+'.wisdo-flow.json',exportFlowJson(graph),'application/json');tell('Exported editable graph project.');}
   catch(e){tell(e.message,true);}
 });
 $('fx-download-mq4').addEventListener('click',()=>{
+  if(sourceMode.active()){try{sourceMode.exportSource();tell('Edited '+sourceMode.session.platform+' source downloaded. Compile in MetaEditor and test on demo.');}catch(e){tell(e.message,true);}return;}
   try{emitFile(safeName(graph.settings.name)+'.mq4',generateFlowMql4(graph));tell('MQ4 downloaded. You must compile in MetaEditor and backtest on a demo account.');}
   catch(e){tell(e.message,true);}
 });
@@ -365,6 +378,7 @@ $('fx-project-file').addEventListener('change',async e=>{
   try{loadProject(await file.text());}catch(err){tell('Import rejected: '+err.message,true);}
 });
 $('fx-copy').addEventListener('click',async()=>{
+  if(sourceMode.active())return tell('Imported source preview may be truncated. Use Export Edited Source for the complete code.');
   try{await navigator.clipboard.writeText(code.value);tell('Generated code copied.');}
   catch{tell('Clipboard permission unavailable; select the code preview to copy manually.',true);}
 });
@@ -392,6 +406,23 @@ $('fx-zoom-in').addEventListener('click',()=>setZoom(zoom+.15));
 $('fx-zoom-out').addEventListener('click',()=>setZoom(zoom-.15));
 $('fx-zoom-fit').addEventListener('click',fitZoom);
 setZoom(1);
+$('fx-import-source').addEventListener('click',()=>$('fx-source-file-input').click());
+$('fx-source-file-input').addEventListener('change',async e=>{
+  const file=e.target.files?.[0];e.target.value='';
+  if(!file)return;
+  tell('Reading and reconstructing '+file.name+' into the main blueprint…');
+  try{
+    await sourceMode.load(file);
+    palette();
+    const pal=$('fx-palette');
+    const action=makeElement('button','fx-palette-block');
+    action.type='button';action.textContent='⊕ Add source-linked AND gate';
+    action.addEventListener('click',()=>sourceMode.addGate());
+    pal.prepend(action);
+    fitZoom();
+  }catch(err){tell('Import blocked: '+err.message,true);}
+});
+$('fx-source-new').addEventListener('click',()=>$('fx-new').click());
 surface.addEventListener('dragover',e=>{
   if(e.dataTransfer.types.includes('text/plain'))e.preventDefault();
 });
