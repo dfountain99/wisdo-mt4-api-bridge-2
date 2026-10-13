@@ -4,7 +4,7 @@ import {sourceBlueprint,moveSourceNode,updateSourceInput,updateSourceCondition,
   attachSourceGate,removeSourceGate,reconnectSourceGate,expandSourceModule,compileSourceBlueprint,sourceEdges,sourceCaseSummary,setSourceView,visibleSourceNodes,sourceCategorySummary
 } from './robot-studio-source-graph-core.js';
 
-export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox,edgeList,tell,openDrawer,getZoom,download,onSize,onFit,onResetSize}){
+export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox,edgeList,tell,openDrawer,getZoom,download,onSize,onFit,onResetSize,getViewportWidth}){
   let session=null,bytes=null,encoding=null,selected='',compiled=null;
   const active=()=>!!session;
   const all=()=>session?visibleSourceNodes(session):[];
@@ -20,6 +20,7 @@ export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox
   function row(title,control,cb){const x=e('label','fx-field');x.append(e('span','',title),control);control.addEventListener('change',cb);return x;}
   function setView(mode,category=null){
     if(!session)return;
+    session.phoneMode=(getViewportWidth?.()||999)>0&&(getViewportWidth?.()||999)<640;
     setSourceView(session,mode,category);
     selected=visibleSourceNodes(session)[0]?.id||'';
     render();
@@ -252,6 +253,7 @@ export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox
     const raw=new Uint8Array(await file.arrayBuffer()),decoded=decodeMqlFile(raw);
     const parsed=sourceBlueprint(decoded.text,file.name);
     session=parsed;bytes=raw;encoding={encoding:decoded.encoding,bom:decoded.bom};
+    session.phoneMode=(getViewportWidth?.()||999)<640;
     selected=visibleSourceNodes(parsed)[0]?.id||'';render();
     tell('Imported '+file.name+': ALL '+parsed.hospital.functions.length+' function blocks are visible. Collapse to eight engines at any time.');
     return sourceCaseSummary(parsed);
