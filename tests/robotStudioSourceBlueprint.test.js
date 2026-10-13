@@ -53,3 +53,33 @@ test('moving imported cards changes the layout, not robot code',()=>{
   moveSourceNode(a,n.id,550,500);assert.equal(n.x,550);
   assert.equal(compileSourceBlueprint(a).source,example);
 });
+
+test('large original HIGHTOWER v6.21 keeps its advanced functions while editing source default',async()=>{
+  const fs=await import('node:fs');
+  const text=fs.readFileSync(new URL('../mql4/HIGHTOWER_UNITY_CAMPAIGN_v6_21.mq4',import.meta.url),'utf8');
+  assert.ok(text.length>500000);
+  const a=sourceBlueprint(text,'HIGHTOWER_UNITY_CAMPAIGN_v6_21.mq4');
+  assert.ok(a.represented.functions>20);
+  assert.ok(a.represented.inputs>40);
+  assert.ok(a.nodes.some(n=>n.type==='module'));
+  const sonic=a.hospital.inputs.find(i=>i.name==='DirectSonicNodesBetweenCores');
+  assert.ok(sonic);
+  updateSourceInput(a,sonic.id,12);
+  assert.equal(compileSourceBlueprint(a).source,
+    text.replace('DirectSonicNodesBetweenCores=24;','DirectSonicNodesBetweenCores=12;'));
+});
+test('top navigation handles native phone/laptop MQ4/MQ5 import and complete source export',async()=>{
+  const fs=await import('node:fs');
+  const html=fs.readFileSync(new URL('../public/app/robot-studio/index.html',import.meta.url),'utf8');
+  const script=fs.readFileSync(new URL('../public/js/robot-studio-flow-ui.js',import.meta.url),'utf8');
+  const imported=fs.readFileSync(new URL('../public/js/robot-studio-source-graph-ui.js',import.meta.url),'utf8');
+  assert.match(html,/id="fx-import-source"/);
+  assert.match(html,/id="fx-source-file-input" type="file" accept="\.mq4,\.mq5"/);
+  assert.ok(html.indexOf('id="fx-import-source"')<html.indexOf('id="fx-flow-board"'));
+  assert.match(html,/source-blueprint\.css/);
+  assert.match(script,/sourceMode\.load\(file\)/);
+  assert.match(script,/sourceMode\.exportSource\(\)/);
+  assert.match(imported,/attachSourceGate\(/);
+  assert.match(imported,/removeSourceGate\(/);
+  assert.match(imported,/openDrawer\('inspector'\)/);
+});
