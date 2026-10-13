@@ -114,17 +114,20 @@ export function attachSourceGate(caseFile,guardId,{input,operator,threshold},gat
     y:coord((reference?.y||380)-105,690),source:guardId,input,operator,threshold:Number(value),editable:true,
     evidence:'exact added numeric conjunction'};
   caseFile.gates.push(gate);
+  setSourceView(caseFile,caseFile.view,caseFile.activeCategory);
   return gate;
 }
 export function removeSourceGate(caseFile,id){
   const index=caseFile.gates.findIndex(g=>g.id===id);
   if(index<0)throw new Error('Gate not found.');
   caseFile.gates.splice(index,1);
+  setSourceView(caseFile,caseFile.view,caseFile.activeCategory);
 }
 export function reconnectSourceGate(caseFile,id,guardId){
   const gate=caseFile.gates.find(g=>g.id===id);
   if(!gate||!caseFile.analysis.links.some(l=>l.from===guardId))throw new Error('Only verified trade guards can receive a gate.');
   gate.source=guardId;
+  setSourceView(caseFile,caseFile.view,caseFile.activeCategory);
 }
 /** Legacy module expansion now opens the complete category, with no nine-function cap. */
 export function expandSourceModule(caseFile,category){
@@ -134,7 +137,7 @@ export function expandSourceModule(caseFile,category){
   return chosen.functions.length;
 }
 export function sourceEdges(caseFile){
-  const expanded=caseFile.nodes.filter(n=>n.type==='function');
+  const expanded=caseFile.view==='category'?visibleSourceNodes(caseFile).filter(n=>n.type==='function'):[];
   const byName=new Map(caseFile.hospital.functions.filter(f=>expanded.some(n=>n.source===f.id)).map(f=>[f.name,'fn-'+f.id]));
   const references=[];
   for(const n of expanded){
@@ -196,6 +199,7 @@ export function compileSourceBlueprint(caseFile){
 }
 export function sourceCaseSummary(caseFile){
   return {name:caseFile.filename,platform:caseFile.platform,...caseFile.represented,
+    shown:visibleSourceNodes(caseFile).length,
     displayedNodes:visibleSourceNodes(caseFile).length,view:caseFile.view,category:caseFile.activeCategory,
     editableGates:caseFile.gates.length,unverified:caseFile.hospital.functions.length,
     warning:'Only exact mapped values and optional numeric AND gates in verified single-action guards alter the imported source. Other nodes are inspect-only.'};
