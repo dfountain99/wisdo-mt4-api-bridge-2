@@ -201,6 +201,20 @@ export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox
     tell('Imported '+file.name+' into the main Blueprint: '+parsed.represented.functions+' functions mapped. Unknown execution links remain protected.');
     return sourceCaseSummary(parsed);
   }
+  function addGate(){
+    if(!session)return tell('Import MQ4/MQ5 source first.',true);
+    const guard=session.analysis.conditions.find(c=>session.analysis.links.some(l=>l.from===c.id));
+    const current=session.analysis.conditions.find(c=>'guard-'+c.id===selected);
+    const target=current&&session.analysis.links.some(l=>l.from===current.id)?current:guard;
+    if(!target||!session.numericInputs.length)return tell('No verified direct-trade IF with a mapped numeric input is available for this code. Custom function rewiring remains protected.',true);
+    try{
+      const gate=attachSourceGate(session,target.id,{
+        input:session.numericInputs[0].name,operator:'<',threshold:1
+      });
+      selected=gate.id;render();openDrawer('inspector');
+      tell('Added a real source-linked AND gate. Configure it in Inspector before exporting.');
+    }catch(err){tell(err.message,true);}
+  }
   function clear(){
     session=null;bytes=null;encoding=null;selected='';compiled=null;
     $('fx-source-session').hidden=true;$('fx-download-mq4').textContent='Export MT4 code (.mq4)';
@@ -216,5 +230,5 @@ export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox
       changes:compiled.changes.map(({kind,label})=>({kind,label})),compiled:false,backtested:false};
     download(session.filename+'.wisdo-report.json',new TextEncoder().encode(JSON.stringify(report,null,2)),'application/json');
   }
-  return {active,load,render,clear,exportSource,exportReport,get session(){return session;}};
+  return {active,load,render,clear,addGate,exportSource,exportReport,get session(){return session;}};
 }
