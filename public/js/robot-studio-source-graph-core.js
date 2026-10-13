@@ -6,6 +6,8 @@
  */
 import { analyzeHospitalSource, getHospitalChanges } from './robot-studio-hospital-core.js';
 import { analyzeMqlSource, patchImportedSource, getSourceChanges } from './robot-studio-import-core.js';
+import {buildSourceHierarchy,setSourceView,visibleSourceNodes,rememberSourcePosition,sourceCategorySummary,sourceViewEdges} from './robot-studio-source-views.js';
+export {setSourceView,visibleSourceNodes,sourceCategorySummary};
 
 const OPERATORS=['<','>','<=','>=','==','!='];
 const maxNodes=38;
@@ -67,20 +69,17 @@ export function sourceBlueprint(source,filename){
     }));
   }
   if(!nodes.length)nodes.push({id:'opaque-all',type:'module',label:'Custom MQL source',detail:'No safe executable links recognized.',x:80,y:125,editable:false,source:'custom',evidence:'unmapped'});
-  return {
+  return buildSourceHierarchy({
     schema:'wisdo-source-blueprint-v1',filename,platform:analysis.platform,analysis,hospital,
     nodes:nodes.slice(0,maxNodes),edges,updates:{},gates:[],
     numericInputs:listNumericInputs(hospital),
     represented:{functions:hospital.functions.length,inputs:hospital.inputs.length,conditions:analysis.conditions.length,
       verifiedActions:direct.length,shown:nodes.length},
     original:source
-  };
+  });
 }
 export function moveSourceNode(caseFile,id,x,y){
-  const node=caseFile.nodes.find(n=>n.id===id)||caseFile.gates.find(n=>n.id===id);
-  if(!node)throw new Error('Unknown source block.');
-  node.x=coord(x,920);node.y=coord(y,690);
-  return node;
+  return rememberSourcePosition(caseFile,id,x,y);
 }
 export function updateSourceInput(caseFile,id,value){
   const item=caseFile.hospital.inputs.find(i=>i.id===id);
@@ -127,21 +126,12 @@ export function reconnectSourceGate(caseFile,id,guardId){
   if(!gate||!caseFile.analysis.links.some(l=>l.from===guardId))throw new Error('Only verified trade guards can receive a gate.');
   gate.source=guardId;
 }
-/** Expand actual source functions as separate inspectable nodes, not generated logic. */
+/** Legacy module expansion now opens the complete category, with no nine-function cap. */
 export function expandSourceModule(caseFile,category){
-  const group=caseFile.hospital.groups.find(g=>g.id===category);
-  if(!group)throw new Error('Unknown source module.');
-  const base=caseFile.nodes.filter(n=>n.type!=='function');
-  const allowance=Math.max(0,Math.min(9,maxNodes-base.length-caseFile.gates.length));
-  const expanded=group.functions.slice(0,allowance).map((f,i)=>({
-    id:'fn-'+f.id,type:'function',label:f.name,
-    detail:'lines '+f.line+'–'+f.endLine+' · '+f.calls.length+' source references',
-    x:50+(i%3)*340,y:415+Math.floor(i/3)*130,source:f.id,editable:false,
-    evidence:'Lexical source references only; NOT a proven execution or timing sequence'
-  }));
-  caseFile.nodes=[...base,...expanded];
-  caseFile.expandedModule=category;
-  return expanded.length;
+  const chosen=caseFile.categories.find(g=>g.id===category||(category==='custom'&&g.id==='bridge'));
+  if(!chosen)throw new Error('Unknown source module.');
+  setSourceView(caseFile,'category',chosen.id);
+  return chosen.functions.length;
 }
 export function sourceEdges(caseFile){
   const expanded=caseFile.nodes.filter(n=>n.type==='function');
@@ -154,9 +144,10 @@ export function sourceEdges(caseFile){
       if(to&&to!==n.id)references.push({from:n.id,to,kind:'reference',label:'NAME REFERENCE, NOT EXECUTION'});
     }
   }
-  return [...caseFile.edges,...caseFile.gates.map(g=>({
+  const candidates=[...caseFile.edges,...caseFile.gates.map(g=>({
     from:g.id,to:'guard-'+g.source,kind:'gate',label:'AND'
-  })),...references];
+  })),...(caseFile.view==='category'?references:[])];
+  return sourceViewEdges(caseFile,candidates);
 }
 function buildSourcePatches(caseFile){
   const {hospital,analysis,updates}=caseFile,changes=[];
@@ -205,7 +196,7 @@ export function compileSourceBlueprint(caseFile){
 }
 export function sourceCaseSummary(caseFile){
   return {name:caseFile.filename,platform:caseFile.platform,...caseFile.represented,
-    displayedNodes:caseFile.nodes.length+caseFile.gates.length,
+    displayedNodes:visibleSourceNodes(caseFile).length,view:caseFile.view,category:caseFile.activeCategory,
     editableGates:caseFile.gates.length,unverified:caseFile.hospital.functions.length,
     warning:'Only exact mapped values and optional numeric AND gates in verified single-action guards alter the imported source. Other nodes are inspect-only.'};
 }
