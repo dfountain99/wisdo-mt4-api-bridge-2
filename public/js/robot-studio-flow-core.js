@@ -38,7 +38,7 @@ export function exampleFlow(){
     nodes:[
       freshNode('tick','tick',72,220),
       freshNode('ema','buy-signal',380,100),
-      freshNode('ema','sell-signal',380,400),
+      { ...freshNode('ema','sell-signal',380,400), params: {direction:'down',fast:9,slow:21} },
       freshNode('buy','buy-action',750,90),
       freshNode('sell','sell-action',750,400),
       freshNode('wait','no-trade',750,610)
