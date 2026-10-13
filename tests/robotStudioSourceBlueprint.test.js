@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   sourceBlueprint,moveSourceNode,updateSourceInput,updateSourceCondition,
-  attachSourceGate,removeSourceGate,compileSourceBlueprint,sourceEdges
+  attachSourceGate,removeSourceGate,expandSourceModule,compileSourceBlueprint,sourceEdges
 } from '../public/js/robot-studio-source-graph-core.js';
 const example=[
   '#property strict','input double AllowedSpread = 1.5;',
@@ -61,6 +61,21 @@ test('MQ5 CTrade source uses the same source-backed canvas without pretending to
   const field=a.hospital.inputs.find(n=>n.name==='RiskThreshold');
   updateSourceInput(a,field.id,4);
   assert.equal(compileSourceBlueprint(a).source,mq5.replace('RiskThreshold = 2','RiskThreshold = 4'));
+});
+test('expanding original functions creates reference-only inspectable canvas edges',()=>{
+  const source=[
+    '#property strict',
+    'bool RiskSignal(){return true;}',
+    'void RiskEngine(){if(RiskSignal()) Print("allowed");}',
+    'void OnTick(){RiskEngine();}'
+  ].join('\n')+'\n';
+  const a=sourceBlueprint(source,'custom.mq4');
+  const count=expandSourceModule(a,'risk');
+  assert.equal(count,2);
+  assert.ok(a.nodes.some(n=>n.type==='function'&&n.label==='RiskEngine'));
+  assert.ok(a.nodes.some(n=>n.type==='function'&&n.label==='RiskSignal'));
+  assert.ok(sourceEdges(a).some(edge=>edge.kind==='reference'&&edge.label.includes('NOT EXECUTION')));
+  assert.equal(compileSourceBlueprint(a).source,source);
 });
 test('moving imported cards changes the layout, not robot code',()=>{
   const a=sourceBlueprint(example,'custom.mq4'),n=a.nodes[0];
