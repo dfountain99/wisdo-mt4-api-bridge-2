@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.64"
+#property version   "1.66"
 #property description "Culture Coin MT4 Reporter - WISDO sync-account + close-authority copy/manual/profit dashboard"
 
 #include "include/WISDO_CampaignProtocol.mqh"
@@ -89,7 +89,7 @@ input color DashboardWarnColor = clrOrange;
 input color DashboardBadColor = clrTomato;
 input color DashboardTextColor = clrSilver;
 
-string REPORTER_VERSION = "1.64";
+string REPORTER_VERSION = "1.66";
 string STATUS_LABEL = "CultureCoinReporterStatus";
 string DASH_PREFIX = "CEM_WISDO_DASH_";
 string g_lastStatus = "Waiting";

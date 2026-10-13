@@ -3,8 +3,8 @@
 //| STRUCTURE FLOW • CONTINUATION POINTS • PRIMARY HOLD • ONE COMMANDER |
 //+------------------------------------------------------------------+
 #property strict
-#property version "6.21"
-#property description "v6.20: rail-held campaigns, section collectors, evidence-extended runners, realized milestones, bounded risk. Source release: requires MetaEditor compilation and demo validation."
+#property version "6.22"
+#property description "v6.22: live broker-time schedule overrides + two-minute scalp watchdog. Source release: requires MetaEditor compilation and demo validation."
 
 enum Direction { DIR_SELL=-1, DIR_FLAT=0, DIR_BUY=1 };
 enum HT_OraclePhase { ORACLE_ACCUMULATION=0, ORACLE_EXPANSION=1, ORACLE_DISTRIBUTION=2 };
@@ -2766,25 +2766,93 @@ int HT6NormalizeHour(int hour)
    return hour;
 }
 
+int HT6NormalizeDayMinute(int minuteOfDay)
+{
+   if(minuteOfDay<0) return 0;
+   if(minuteOfDay>1439) return 1439;
+   return minuteOfDay;
+}
+
+string HT6SchedulePrefix()
+{
+   string identity=(IsTesting() || IsOptimization()?"TEST|":"LIVE|")+AccountServer()+"|"+Symbol()+"|"+IntegerToString(MagicNumber);
+   uint hash=2166136261;
+   for(int i=0;i<StringLen(identity);i++){hash^=(uint)StringGetCharacter(identity,i);hash*=16777619;}
+   return "WCO1_"+IntegerToString(AccountNumber())+"_"+IntegerToString((int)hash)+"_";
+}
+
+double HT6ScheduleRead(string name)
+{
+   string key=HT6SchedulePrefix()+name;
+   return GlobalVariableCheck(key)?GlobalVariableGet(key):0.0;
+}
+
+bool HT6ScheduleOverrideActive()
+{
+   return HT6ScheduleRead("scheduleOverride")>=0.5;
+}
+
+int HT6EffectiveTradingWindowMode()
+{
+   if(!HT6ScheduleOverrideActive())return (int)DirectTradingWindowMode;
+   return (int)MathMax(0,MathMin(2,HT6ScheduleRead("scheduleMode")));
+}
+
+int HT6EffectiveWindowCount()
+{
+   if(HT6EffectiveTradingWindowMode()!=TIME_WINDOW_CUSTOM_TWO_WINDOWS)return 1;
+   if(!HT6ScheduleOverrideActive())return 2;
+   return (int)MathMax(1,MathMin(2,HT6ScheduleRead("scheduleWindowCount")));
+}
+
+int HT6EffectiveWindowStartMinute(int index)
+{
+   int mode=HT6EffectiveTradingWindowMode();
+   if(mode==TIME_WINDOW_ALL_HOURS)return 0;
+   if(mode==TIME_WINDOW_LONDON_AND_NEWYORK)return 7*60;
+   if(HT6ScheduleOverrideActive())
+      return HT6NormalizeDayMinute((int)HT6ScheduleRead(index==2?"scheduleW2StartMinute":"scheduleW1StartMinute"));
+   return HT6NormalizeHour(index==2?DirectWindow2StartHour:DirectWindow1StartHour)*60;
+}
+
+int HT6EffectiveWindowEndMinute(int index)
+{
+   int mode=HT6EffectiveTradingWindowMode();
+   if(mode==TIME_WINDOW_ALL_HOURS)return 0;
+   if(mode==TIME_WINDOW_LONDON_AND_NEWYORK)return 21*60;
+   if(HT6ScheduleOverrideActive())
+      return HT6NormalizeDayMinute((int)HT6ScheduleRead(index==2?"scheduleW2EndMinute":"scheduleW1EndMinute"));
+   return HT6NormalizeHour(index==2?DirectWindow2EndHour:DirectWindow1EndHour)*60;
+}
+
+bool HT6MinuteInWindow(int minuteOfDay,int startMinute,int endMinute)
+{
+   minuteOfDay=HT6NormalizeDayMinute(minuteOfDay);
+   startMinute=HT6NormalizeDayMinute(startMinute);
+   endMinute=HT6NormalizeDayMinute(endMinute);
+   if(startMinute==endMinute)return true;
+   if(startMinute<endMinute)return (minuteOfDay>=startMinute && minuteOfDay<endMinute);
+   return (minuteOfDay>=startMinute || minuteOfDay<endMinute);
+}
+
 bool HT6HourInWindow(int hour,int startHour,int endHour)
 {
-   hour=HT6NormalizeHour(hour);
-   startHour=HT6NormalizeHour(startHour);
-   endHour=HT6NormalizeHour(endHour);
-   if(startHour==endHour) return true; // explicit full-day window
-   if(startHour<endHour) return (hour>=startHour && hour<endHour);
-   return (hour>=startHour || hour<endHour); // overnight window
+   return HT6MinuteInWindow(HT6NormalizeHour(hour)*60,HT6NormalizeHour(startHour)*60,HT6NormalizeHour(endHour)*60);
 }
 
 bool HT6DirectTradingWindowAllows(datetime now)
 {
-   int hour=TimeHour(now);
-   if(DirectTradingWindowMode==TIME_WINDOW_ALL_HOURS) return true;
-   if(DirectTradingWindowMode==TIME_WINDOW_LONDON_AND_NEWYORK)
-      return (hour>=7 && hour<21); // broker-clock London through New York
-   if(DirectTradingWindowMode==TIME_WINDOW_CUSTOM_TWO_WINDOWS)
-      return HT6HourInWindow(hour,DirectWindow1StartHour,DirectWindow1EndHour)
-          || HT6HourInWindow(hour,DirectWindow2StartHour,DirectWindow2EndHour);
+   int minuteOfDay=TimeHour(now)*60+TimeMinute(now);
+   int mode=HT6EffectiveTradingWindowMode();
+   if(mode==TIME_WINDOW_ALL_HOURS)return true;
+   if(mode==TIME_WINDOW_LONDON_AND_NEWYORK)return HT6MinuteInWindow(minuteOfDay,7*60,21*60);
+   if(mode==TIME_WINDOW_CUSTOM_TWO_WINDOWS)
+   {
+      bool allowed=HT6MinuteInWindow(minuteOfDay,HT6EffectiveWindowStartMinute(1),HT6EffectiveWindowEndMinute(1));
+      if(!allowed && HT6EffectiveWindowCount()>1)
+         allowed=HT6MinuteInWindow(minuteOfDay,HT6EffectiveWindowStartMinute(2),HT6EffectiveWindowEndMinute(2));
+      return allowed;
+   }
    return false;
 }
 
@@ -12546,6 +12614,11 @@ bool H620EntryAllows(int dir,double price,double stop,string &why)
    if(h620LastEntryTime>0 && TimeCurrent()-h620LastEntryTime<H620EntrySpacingSeconds){why="ENTRY COOLDOWN";return false;}
    if(h620Phase==1 && h620LastEntry>0 && MathAbs(price-h620LastEntry)<atr*H620EntrySpacingATR){why="ENTRY TOO CLOSE";return false;}
    double anchor=(h620FlipContext?h620BrokenRail:(dir==DIR_BUY?gHT6Flow.upperRail:gHT6Flow.lowerRail));
+   // After a two-minute scalp timeout, the first resumed campaign uses the
+   // just-finished basket's median entry as its launch reference. HIGHTOWER
+   // still owns every normal spread, room, stop and risk gate.
+   if(h620FutureGoal==23 && h620Phase!=1 && WcoRead(WcoEA(),"scalpTimeoutAt")>0 && WcoRead(WcoEA(),"scalpMedian")>0)
+      anchor=WcoRead(WcoEA(),"scalpMedian");
    // Continuations use a fresh closed-bar launch, not a distant campaign seed.
    if(gHT6ContinuationAddOrderContext) anchor=iClose(Symbol(),SignalTF,1);
    if(anchor<=0 || MathAbs(price-anchor)>atr*H620MaximumEntryStretchATR){why="ENTRY STRETCHED FROM LAUNCH";return false;}
@@ -12622,6 +12695,17 @@ void H620Register(int ticket,int dir,double stop,int role)
       h620LastEntry=OrderOpenPrice();
    }
    h620LastEntryTime=TimeCurrent();H620Persist();
+   // Two-minute scalp watchdog: a broker-confirmed campaign entry is the reset
+   // event. Persist the new deadline immediately instead of waiting for a later tick.
+   if(h620FutureGoal==23)
+   {
+      string scalpPrefix=WcoEA();
+      int scalpReset=(int)WcoRead(scalpPrefix,"durationSaved");if(scalpReset<=0)scalpReset=120;
+      WcoWrite(scalpPrefix,"scalpBaselineEntry",(double)h620LastEntryTime);
+      WcoWrite(scalpPrefix,"scalpDirection",dir);
+      WcoWrite(scalpPrefix,"goalCampaign",h620Id);
+      h620FutureUntil=TimeGMT()+scalpReset;h620FuturePaused=false;WcoSaveGoal();
+   }
    if(gHT6SonicFlowOrderContext && h620FutureGoal==12){WcoWrite(WcoEA(),"burstRemaining",MathMax(0,WcoRead(WcoEA(),"burstRemaining")-1));GlobalVariablesFlush();}
    if(wcoEvaluation>0){WcoAck(wcoEvaluation,6);wcoEvaluation=0;}
    Print("H620 ASSIGN ticket=",ticket," campaign=",DoubleToString(h620Id,0)," role=",role," rail=",h620Rail);

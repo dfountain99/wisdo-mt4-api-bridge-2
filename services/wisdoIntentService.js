@@ -135,6 +135,9 @@ export class WisdoIntentService {
     if (/pause trading|stop new entries|stop trading today|no more entries|stop stacking|let (?:these|the) trades run without adding|take a break|sit out for now/.test(ask)) return command('STOP_NEW_ENTRIES', 'STOP_ENTRIES', {}, 0.97, { rawText: raw });
     if (/resume trading|start new entries|start trading again|you can trade now|resume my strategy/.test(ask)) return command('RESUME_TRADING', 'START_ENTRIES', {}, 0.97, { rawText: raw });
 
+    if (/(?:arm|activate|start|run|turn on).{0,24}(?:2|two)[ -]?minute.{0,28}scalp|(?:2|two)[ -]?minute.{0,28}scalp.{0,24}(?:game plan|system|watchdog|mode)/.test(ask))
+      return command('ARM_TWO_MIN_SCALP','WISDO_CAMPAIGN',{action:'ARM_TWO_MIN_SCALP',durationSeconds:120},0.995,{rawText:raw,requiresExplicitConfirmation:true});
+
     // V19 direct directional entry stays on the verified HIGHTOWER mailbox.
     // WISDO chooses the requested side; HIGHTOWER still owns spread, risk,
     // trading-window, AutoTrading, structure-stop and broker legality gates.
@@ -243,6 +246,7 @@ export class WisdoIntentService {
         CLEAR_RUNTIME_OVERRIDES:'CLEAR_RUNTIME_OVERRIDES',
         WIDEN_EXISTING_STOPS:'WIDEN_EXISTING_STOPS',
         DIRECTIONAL_ENTRY_IF_VALID:'DIRECT_ENTRY_IF_VALID',
+        ARM_TWO_MIN_SCALP:'ARM_TWO_MIN_SCALP',
       };
       const action=String(parameters.action||'').toUpperCase();
       if(!canonicalByAction[action])return deterministic;

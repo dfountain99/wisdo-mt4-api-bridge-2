@@ -42,10 +42,10 @@ test('V15 loads one purpose-built stylesheet and fresh route cache keys', async 
     fs.readFile(new URL('../public/js/workspace.js',import.meta.url),'utf8'),
     fs.readFile(new URL('../public/service-worker.js',import.meta.url),'utf8'),
   ]);
-  assert.match(runtime,/wisdo-live-manager-v15\.css\?v=20261002-v17-intent-os/);
+  assert.match(runtime,/wisdo-live-manager-v15\.css\?v=20261005-v20-scalp-hold/);
   assert.match(css,/\.lm-command-card/);
   assert.match(css,/\.lm-risk-grid/);
   assert.match(css,/\.wisdo-v12-time-layout/);
-  assert.match(workspace,/v=20261002-v17-intent-os/);
-  assert.match(worker,/wisdo-static-v17\.0\.0-intent-os/);
+  assert.match(workspace,/v=20261005-v20-scalp-hold/);
+  assert.match(worker,/wisdo-static-v20\.0\.0-scalp-hold/);
 });

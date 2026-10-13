@@ -327,3 +327,16 @@ html.wisdo-core-mobile-active,html.wisdo-core-mobile-active body{overscroll-beha
 @media(prefers-reduced-motion:reduce){
   .wisdo-v103-control-token,.wisdo-v103-handoff-path:after,.wisdo-v10-floor-node.active .wisdo-v10-node-ring:after{animation:none!important}
 }
+
+/* Hold-to-arm two-minute scalp watchdog. */
+.wisdo-v10-time-core{appearance:none;-webkit-appearance:none;width:100%;font:inherit;color:inherit;text-align:center;cursor:pointer;touch-action:manipulation;-webkit-touch-callout:none;user-select:none;overflow:hidden}
+.wisdo-v10-time-core svg{pointer-events:none}
+.wisdo-v10-time-core .arm-progress{fill:none;stroke:#e2b85e;stroke-width:2.3;stroke-linecap:round;opacity:0;filter:drop-shadow(0 0 7px rgba(226,184,94,.55));transition:stroke-dashoffset .03s linear,opacity .16s ease}
+.wisdo-v10-time-core em{position:absolute;left:8px;right:8px;bottom:4px;color:#7593a2;font-size:5.5px;font-style:normal;font-weight:800;letter-spacing:.07em;pointer-events:none}
+.wisdo-v10-time-core[data-arm-state="holding"] .arm-progress,.wisdo-v10-time-core[data-arm-state="sending"] .arm-progress{opacity:1}
+.wisdo-v10-time-core[data-arm-state="holding"] em,.wisdo-v10-time-core[data-arm-state="sending"] em{color:#e2b85e}
+.wisdo-v10-time-core[data-arm-state="active"] em{color:#77f0bd}
+.wisdo-v10-time-core[data-arm-state="waiting"] em{color:#ffb36d}
+.wisdo-v10-time-core[data-arm-state="unavailable"]{cursor:not-allowed}
+.wisdo-v10-time-engine[data-temporal-mode="scalp"] .wisdo-v10-time-head b{color:#77f0bd;border-color:rgba(119,240,189,.3)}
+.wisdo-v10-time-engine[data-temporal-mode="scalp-wait"] .wisdo-v10-time-head b{color:#ffb36d;border-color:rgba(255,179,109,.3)}

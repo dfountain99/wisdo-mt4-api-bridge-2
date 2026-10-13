@@ -70,7 +70,7 @@ test('V17 MQL arms HIGHTOWER reversal proof instead of forcing an opposite order
     fs.readFile(new URL('../mql4/CultureCoin_MT4_Reporter.mq4',import.meta.url),'utf8'),
     fs.readFile(new URL('../mql4/HIGHTOWER_UNITY_CAMPAIGN_v6_21.mq4',import.meta.url),'utf8'),
   ]);
-  assert.match(bridge,/op>22/);
+  assert.match(bridge,/op>25/);
   assert.match(bridge,/counterDirection/);
   assert.match(bridge,/referencePrice/);
   assert.match(receiver,/WcoArmCounterIfValid/);
@@ -83,7 +83,7 @@ test('V17 MQL arms HIGHTOWER reversal proof instead of forcing an opposite order
   assert.doesNotMatch(receiver.slice(start,end),/OrderSend\s*\(/);
   assert.match(ea,/bool H620TryFlip\(\)/);
   assert.match(ea,/HT6EinsteinOpenStructureHold\(dir\)/);
-  assert.match(reporter,/REPORTER_VERSION = "1\.64"/);
+  assert.match(reporter,/REPORTER_VERSION = "1\.66"/);
   assert.match(reporter,/\"stopLoss\"/);
   assert.match(reporter,/counter-campaign intention is armed/);
 });
@@ -149,8 +149,8 @@ test('V17 deployment enables live voice authority but keeps explicit safety impl
   assert.match(render,/WISDO_VOICE_EXECUTION_MODE\s*\n\s*value: LIVE_AUTHORIZED/);
   assert.match(safety,/requiresStrongConfirmation/);
   assert.match(safety,/WIDEN_EXISTING_STOPS/);
-  assert.match(workspace,/v=20261002-v17-intent-os/);
-  assert.match(worker,/wisdo-static-v17\.0\.0-intent-os/);
+  assert.match(workspace,/v=20261005-v20-scalp-hold/);
+  assert.match(worker,/wisdo-static-v20\.0\.0-scalp-hold/);
 });
 
 
@@ -196,6 +196,19 @@ test('V18 behavior compiler recognizes conversational campaign management phrase
   assert.equal(collect.verification.receipt,'mt4_reporter');
 });
 
+test('V20 two-minute scalp phrase compiles to the fixed verified watchdog command',async()=>{
+  const service=new WisdoIntentService();
+  const intent=service.deterministic('activate the 2 minute scalp game plan',{symbol:'XAUUSD'});
+  assert.equal(intent.type,'ACTION');
+  assert.equal(intent.intent,'ARM_TWO_MIN_SCALP');
+  assert.equal(intent.commandName,'WISDO_CAMPAIGN');
+  assert.equal(intent.parameters.action,'ARM_TWO_MIN_SCALP');
+  assert.equal(intent.parameters.durationSeconds,120);
+  assert.equal(intent.requiresExplicitConfirmation,true);
+  const { WisdoSafetyService }=await import('../services/wisdoSafetyService.js');
+  assert.equal(new WisdoSafetyService().classify(intent),'DANGEROUS');
+});
+
 test('V19 direct buy and sell phrases compile to the verified HIGHTOWER mailbox',()=>{
   const service=new WisdoIntentService();
   const buy=service.deterministic('buy now',{symbol:'XAUUSD'});
@@ -233,12 +246,12 @@ test('V19 MQL direct entry remains behind HIGHTOWER structure and broker gates',
     fs.readFile(new URL('../mql4/include/WISDO_ReporterCampaign.mqh',import.meta.url),'utf8'),
     fs.readFile(new URL('../mql4/CultureCoin_MT4_Reporter.mq4',import.meta.url),'utf8'),
   ]);
-  assert.match(bridge,/op>22/);
+  assert.match(bridge,/op>25/);
   assert.match(bridge,/requestedDirection/);
   assert.match(receiver,/WcoDirectionalEntryIfValid/);
   assert.match(receiver,/gHT6Flow\.primaryDirection!=dir/);
   assert.match(receiver,/HT6EinsteinOpenStructureHold\(dir\)/);
   assert.match(receiver,/op==22/);
-  assert.match(reporter,/REPORTER_VERSION = "1\.64"/);
+  assert.match(reporter,/REPORTER_VERSION = "1\.66"/);
   assert.match(reporter,/requested directional entry opened through HIGHTOWER normal gates/);
 });

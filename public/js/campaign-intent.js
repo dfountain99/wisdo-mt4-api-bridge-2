@@ -10,6 +10,7 @@ export function parseCampaignIntent(input) {
   if (/^cancel (?:the |my )?(?:future goal|standing intention)$/.test(text)) return { action: 'CANCEL_GOAL' };
   if ((m = text.match(/^(?:end|close) (?:this |the )?campaign (?:in|after) (\d+) (seconds?|minutes?|hours?)$/))) return { action: 'END_AFTER', durationSeconds: duration(m[1], m[2]) };
   if ((m = text.match(/^after (?:this |the )?campaign ends[,]? pause(?: for)? (\d+) (seconds?|minutes?|hours?)$/))) return { action: 'AFTER_CAMPAIGN', durationSeconds: duration(m[1], m[2]) };
+  if (/^(?:(?:arm|activate|start|run) (?:the )?)?(?:2|two)[ -]minute (?:game plan )?scalp(?: system| watchdog| mode)?$/.test(text) || /^(?:arm|activate|start|run) (?:the )?(?:scalp )?(?:2|two)[ -]minute (?:game plan|system|watchdog|mode)$/.test(text)) return { action: 'ARM_TWO_MIN_SCALP', durationSeconds: 120 };
   if ((m = text.match(/^(?:prepare|arm) (?:a )?(ten|\d+)[ -](?:burst |trade )?sonic(?: attack| window)?(?: (?:for|on) the next valid entry)?$/))) return { action: 'ARM_SONIC', burstCount: m[1] === 'ten' ? 10 : Number(m[1]), durationSeconds: 900 };
   if (/^(?:promote|assign) (?:selected trades|selection) (?:to |as )?runners?$/.test(text)) return { action: 'ASSIGN_RUNNER' };
   if (/^(?:convert|assign) (?:selected trades|selection) (?:to |as )?collectors?$/.test(text)) return { action: 'ASSIGN_COLLECTOR' };
