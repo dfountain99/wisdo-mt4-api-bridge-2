@@ -84,7 +84,7 @@ function previewSource() {
     if(!list.length) diffs.textContent='No source changes. Export returns the original uploaded bytes.';
     for(const change of list) {
       const row=document.createElement('div');row.className='hosp-diff-row';
-      row.append(span(change.name+' · line '+change.line),span(change.from+' → '+change.to,'hosp-mono'));
+      row.append(span(change.name+' · line '+change.line+' · referenced in '+change.referencedBy.length+' function(s)'),span(change.from+' → '+change.to,'hosp-mono'));
       diffs.append(row);
     }
     status(list.length?list.length+' precisely mapped edit(s) staged. Not compiled or backtested.':'X-ray complete. Source preserved exactly until a supported input is changed.');
@@ -125,6 +125,15 @@ function drawInput(input) {
   }
   control.setAttribute('aria-label','Edit '+input.name);
   wrapper.append(control);
+  if(input.usedBy?.length) {
+    const info=button('Used in '+input.usedBy.length+' function(s) · inspect',()=>{
+      const linked=caseFile.functions.find(f=>input.usedBy.includes(f.name));
+      if(linked)showFunction(linked);
+      el('hosp-function-inspect').scrollIntoView({behavior:'smooth',block:'nearest'});
+    },'hosp-impact-link');
+    wrapper.append(info);
+    info.title='Source-level identifier references only. This does not prove an execution or trading impact.';
+  }
   if(input.hospitalKind==='readonly')wrapper.append(span('UNMAPPED • SOURCE PRESERVED','hosp-readonly'));
   return wrapper;
 }
