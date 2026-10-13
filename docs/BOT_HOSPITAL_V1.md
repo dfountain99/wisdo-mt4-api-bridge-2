@@ -17,7 +17,7 @@ All standard imports run fully in the browser. The HIGHTOWER sample is downloade
 - MQL4/MQL5 source is **not** compiled, executed, decompiled, or backtested by this interface.
 - This is a lexical browser-based source X-ray. It does not resolve preprocessor branches/macros, cross-file symbol identity, all overloaded methods, declaration shadowing, or dynamic dispatch. False positives and missing references are possible.
 - An in-file function reference is **not an execution edge**, and an identifier match in a function is **not proof that a parameter affects live trading**.
-- Source edits are limited to original, precisely located input declarations. Enum changes are restricted to the enumerators defined in the imported file. All other source and custom function bodies stay intact.
+- Source edits are limited to precisely located user input defaults and top-level internal **enum** defaults. Enum changes are restricted to declared enumerators in the imported source; internal defaults may be assigned new values later by EA functions and are explicitly flagged. Other globals, function bodies, and unsupported custom logic stay intact.
 - A source that cannot be safely mapped stays read-only. Module drag-and-drop **only changes the visual order**.
 - The UI does not claim it repaired compilation failures, performance issues, stop logic, or trading bugs; exporting an updated input value is not proof of correctness.
 - External includes, imports, and custom indicator dependencies may require additional files. This version reports them but does not ingest dependency archives or inspect them.
