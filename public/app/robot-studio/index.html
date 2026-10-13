@@ -228,7 +228,14 @@
     <div class="fx-blueprint-main">
       <div id="fx-source-session" class="fx-source-session" hidden>
         <strong id="fx-source-file">Imported source</strong>
-        <span>Source-backed graph · unknown functions are protected</span>
+        <div class="fx-source-view-controls" role="group" aria-label="Imported robot function view">
+          <button id="fx-source-all" type="button" aria-pressed="true">◈ All functions</button>
+          <button id="fx-source-collapse" type="button" aria-pressed="false">▣ Collapse to 8 engines</button>
+          <label class="fx-source-category-select"><span>Work within engine</span>
+            <select id="fx-source-category" aria-label="Focus one robot engine category"><option value="">Choose engine…</option></select>
+          </label>
+          <button id="fx-source-arrange" type="button" title="Restore tidy block positions">Auto arrange</button>
+        </div>
         <button id="fx-source-new" type="button">New blank flow</button>
       </div>
       <div class="fx-canvas-chrome" aria-label="Blueprint status">
