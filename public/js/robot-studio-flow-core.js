@@ -224,7 +224,7 @@ export function generateFlowMql4(raw){
     if(!id)return;
     const n=byId.get(id),pad='  '.repeat(level);
     if(n.type==='buy'||n.type==='sell'){
-      lines.push(pad+'SubmitTrade('+(n.type==='buy'?'OP_BUY':'OP_SELL')+');');return;
+      lines.push(pad+'if ('+(n.type==='buy'?'AllowBuy':'AllowSell')+') SubmitTrade('+(n.type==='buy'?'OP_BUY':'OP_SELL')+');');return;
     }
     if(n.type==='wait')return;
     lines.push(pad+'if ('+emitCondition(n)+') {');
