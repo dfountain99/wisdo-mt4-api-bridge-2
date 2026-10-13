@@ -21,6 +21,23 @@ test('all imported HIGHTOWER functions are shown by default, not capped at nine 
   assert.equal(compileSourceBlueprint(graph).source,hightower);
 });
 
+test('a generated 333-function MQL robot displays all 333 nodes and collapses without loss',()=>{
+  const code='#property strict\n'+Array.from({length:333},(_,i)=>{
+    const suffix=String(i).padStart(3,'0');
+    return 'void CustomUnit'+suffix+'(){ }\n';
+  }).join('')+'void OnTick(){CustomUnit000();}\n';
+  const graph=sourceBlueprint(code,'custom_333.mq4');
+  assert.equal(graph.hospital.functions.length,334);
+  assert.equal(visibleSourceNodes(graph).filter(n=>n.type==='function').length,334);
+  assert.ok(graph.dimensions.height>7000);
+  setSourceView(graph,'collapsed');
+  assert.equal(visibleSourceNodes(graph).length,8);
+  const other=sourceCategorySummary(graph).find(c=>c.id==='bridge');
+  assert.ok(other.functions>=333,'all custom functions must remain in the eighth umbrella');
+  setSourceView(graph,'category','bridge');
+  assert.ok(visibleSourceNodes(graph).filter(n=>n.type==='function').length>=333);
+  assert.equal(compileSourceBlueprint(graph).source,code);
+});
 test('collapse always yields precisely eight engines without dropping unmatched custom functions',()=>{
   const graph=make(),summary=sourceCategorySummary(graph);
   assert.equal(summary.length,8);
