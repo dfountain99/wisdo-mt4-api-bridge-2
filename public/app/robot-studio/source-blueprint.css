@@ -52,3 +52,8 @@
   #flow-builder .fx-source-session{padding:7px 11px}
   #flow-builder .fx-source-session span{display:none}
 }
+
+/* Source function references are informational only, visually distinct from true flow. */
+#flow-builder .fx-source-function{border:1px dashed #518a9c;border-top:4px solid #72b6c5;background:linear-gradient(135deg,#103340,#0b2529)}
+#flow-builder .fx-source-function .fx-source-badge{border-color:#518a9c;color:#9bd4e5}
+#flow-builder .fx-source-reference{stroke:#79b7d0;stroke-dasharray:4 8;stroke-width:1.8}
