@@ -19,6 +19,7 @@ test('actual 803KB HIGHTOWER source produces substantive code-based anatomy, not
   assert.ok(a.stats.references > 10, 'references to real in-file functions detected');
   const enums = a.inputs.filter(i=>i.hospitalKind==='enum');
   assert.ok(enums.length > 3, 'named HIGHTOWER preset options are mapped to dropdowns');
+  assert.ok(enums.some(i=>i.isInternalDefault),'advanced internal state presets are discoverable without inventing their meaning');
   assert.ok(a.groups.find(g=>g.id==='sonic').inputs.some(i=>i.name==='DirectSonicNodesBetweenCores'));
   assert.ok(a.groups.find(g=>g.id==='protection').inputs.some(i=>i.name==='DirectStopLossMode'));
   assert.equal(patchHospitalSource(a),actualHighTower,'unchanged program must round-trip exactly');
@@ -73,6 +74,7 @@ test('static X-ray conservatively preserves source and identifies only in-file c
 #include <Custom.mqh>
 enum HT_BotMode { MODE_OFF=0, MODE_ACTIVE=1, MODE_AUTO=2 };
 input HT_BotMode BotMode=MODE_ACTIVE;
+HT_BotMode InternalDefault=MODE_AUTO;
 input bool UseVault=true;
 input int Example=2;
 bool Condition() { return Example > 0; }
@@ -83,6 +85,10 @@ void OnTick() { if(BotMode==MODE_ACTIVE) CallTrade(); }
   const mode=a.inputs.find(i=>i.name==='BotMode');
   assert.deepEqual(mode.options,['MODE_OFF','MODE_ACTIVE','MODE_AUTO']);
   assert.equal(mode.hospitalKind,'enum');
+  const internal=a.inputs.find(i=>i.name==='InternalDefault');
+  assert.ok(internal?.isInternalDefault);
+  assert.equal(internal.hospitalKind,'enum');
+  assert.equal(patchHospitalSource(a,{[internal.id]:'MODE_OFF'}),src.replace('InternalDefault=MODE_AUTO;','InternalDefault=MODE_OFF;'));
   const onTick=a.functions.find(f=>f.name==='OnTick');
   const callTrade=a.functions.find(f=>f.name==='CallTrade');
   assert.deepEqual(onTick.calls,['CallTrade']);
