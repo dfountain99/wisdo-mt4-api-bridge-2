@@ -142,6 +142,7 @@ export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox
     container.append(button('＋ Add code-linked gate',()=>{
       try{
         const gate=attachSourceGate(session,cond.id,{input:target.value,operator:operator.value,threshold:threshold.value});
+        setSourceView(session,session.view,session.activeCategory);
         selected=gate.id;render();tell('AND gate attached to verified trade condition. Exported source updated.');
       }catch(err){tell(err.message,true);}
     }));
@@ -168,7 +169,9 @@ export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox
     container.append(row('Mapped input',lhs,change),row('Operator',operator,change),
       row('Threshold',number,change),row('Connect to direct-trade IF',destination,change));
     container.append(button('Disconnect / remove added gate',()=>{
-      removeSourceGate(session,g.id);selected='';render();
+      removeSourceGate(session,g.id);
+      setSourceView(session,session.view,session.activeCategory);
+      selected='';render();
       tell('Added gate removed. Original source condition restored.');
     }));
   }
@@ -263,6 +266,8 @@ export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox
       const gate=attachSourceGate(session,target.id,{
         input:session.numericInputs[0].name,operator:'<',threshold:1
       });
+      if(session.view==='collapsed')setSourceView(session,'all');
+      else setSourceView(session,session.view,session.activeCategory);
       selected=gate.id;render();openDrawer('inspector');
       tell('Added a real source-linked AND gate. Configure it in Inspector before exporting.');
     }catch(err){tell(err.message,true);}
