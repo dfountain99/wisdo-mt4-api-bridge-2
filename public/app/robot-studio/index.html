@@ -214,6 +214,8 @@
         </div>
       </div>
       <nav class="fx-focus-actions" aria-label="Blueprint workspace tools">
+        <button id="fx-import-source" type="button" class="fx-import-source-action" aria-label="Import existing MQ4 or MQ5 source from phone or computer">↥ IMPORT MQ4 / MQ5</button>
+        <input id="fx-source-file-input" type="file" accept=".mq4,.mq5" hidden>
         <button type="button" data-fx-open="blocks" aria-expanded="false" aria-controls="fx-palette-panel">＋ Blocks</button>
         <button type="button" data-fx-open="inspector" aria-expanded="false" aria-controls="fx-inspector-panel">◇ Inspector</button>
         <button type="button" data-fx-open="risk" aria-expanded="false" aria-controls="fx-risk-panel">⛨ Risk</button>
@@ -223,6 +225,11 @@
       </nav>
     </header>
     <div class="fx-blueprint-main">
+      <div id="fx-source-session" class="fx-source-session" hidden>
+        <strong id="fx-source-file">Imported source</strong>
+        <span>Source-backed graph · unknown functions are protected</span>
+        <button id="fx-source-new" type="button">New blank flow</button>
+      </div>
       <div class="fx-canvas-chrome" aria-label="Blueprint status">
         <span class="fx-focus-title">Robot Logic Blueprint</span>
         <span id="fx-compile-state" class="fx-state">Graph validation</span>
@@ -263,7 +270,7 @@
       <div class="fx-drawer-head"><h3>Robot Safety &amp; Risk</h3><button type="button" class="fx-drawer-close" data-fx-close aria-label="Close risk panel">×</button></div>
       <div class="fx-drawer-body">
         <p class="help">Shared trade limits apply to the generated robot, regardless of which branch opens an order.</p>
-        <div id="fx-global-settings"></div>
+        <div id="fx-global-settings"></div><p class="fx-source-caution">Imported source preserves original order and custom functions. Only mapped settings and verified added gates alter the saved code.</p>
         <h3>Flow Connections</h3>
         <div id="fx-edges-list"></div>
       </div>
@@ -308,7 +315,7 @@
           <button type="button" data-fx-studio="import"><span aria-hidden="true">↧</span><span><strong>Import &amp; Rebuild</strong><small>Review MQ4/MQ5 source and mapped inputs</small></span></button>
           <button type="button" data-fx-studio="builder"><span aria-hidden="true">⬡</span><span><strong>Quick Robot Builder</strong><small>Beginner MT4 crossover strategies and presets</small></span></button>
         </div>
-        <p class="fx-quiet-note">Returning to Visual Flow Builder restores the same in-browser graph. The compiler is limited to the supported typed blocks.</p>
+        <p class="fx-quiet-note">Returning to Visual Flow Builder restores the same in-browser graph. The compiler is limited to the supported typed blocks. Import MQ4/MQ5 from the top bar to see your existing custom EA on this canvas.</p>
       </div>
     </aside>
   </section>
