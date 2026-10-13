@@ -57,3 +57,28 @@
 #flow-builder .fx-source-function{border:1px dashed #518a9c;border-top:4px solid #72b6c5;background:linear-gradient(135deg,#103340,#0b2529)}
 #flow-builder .fx-source-function .fx-source-badge{border-color:#518a9c;color:#9bd4e5}
 #flow-builder .fx-source-reference{stroke:#79b7d0;stroke-dasharray:4 8;stroke-width:1.8}
+
+/* Hundreds of actual function blocks: show a readable category navigator. */
+#flow-builder .fx-source-session{
+  display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px 15px;
+  max-height:145px;
+}
+#flow-builder .fx-source-session>strong{grid-column:1/-1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#flow-builder .fx-source-view-controls{display:flex;gap:7px;align-items:center;min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:thin;scrollbar-color:#567c67 transparent;padding:4px 2px}
+#flow-builder .fx-source-view-controls button{flex-shrink:0;margin:0;min-height:39px;border-radius:9px;padding:8px 12px;font-weight:750}
+#flow-builder .fx-source-view-controls button[aria-pressed="true"]{border-color:#e2c87f;color:#271f13;background:#e9d495}
+#flow-builder .fx-source-category-select{display:flex;align-items:center;flex:0 0 auto;margin:0;gap:8px;color:#aad8bc;font-size:11px}
+#flow-builder .fx-source-category-select span{display:inline!important;white-space:nowrap;color:#a9d2bc}
+#flow-builder .fx-source-category-select select{max-width:250px;min-height:39px;color:#edffef;background:#102a2a;border:1px solid #7ba488;border-radius:9px;padding:7px;font-size:11px}
+#flow-builder #fx-source-new{margin:0;min-height:39px;white-space:nowrap;border-radius:9px}
+#flow-builder .fx-source-function .fx-node-desc{color:#9ebccd}
+#flow-builder .fx-source-module{cursor:pointer;box-shadow:inset 0 1px #f6da9f25,0 9px 30px #0008}
+#flow-builder .fx-source-module .fx-node-head strong{color:#fbdfa0}
+@media(max-width:780px){
+  #flow-builder .fx-source-session{grid-template-columns:minmax(0,1fr) auto;max-height:150px;padding:6px 9px}
+  #flow-builder .fx-source-view-controls{grid-column:1/-1;grid-row:2;order:2}
+  #flow-builder .fx-source-session>strong{grid-column:1;grid-row:1}
+  #flow-builder #fx-source-new{grid-column:2;grid-row:1}
+  #flow-builder .fx-source-category-select span{display:none!important}
+  #flow-builder .fx-source-category-select select{max-width:185px}
+}
