@@ -79,3 +79,142 @@ export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox
     }
     wires();
   }
+  function editParameter(item,container){
+    const value=Object.hasOwn(session.updates,item.id)?session.updates[item.id]:item.value;
+    const kind=item.hospitalKind;
+    const field=kind==='enum'?select(item.options,value):input(kind==='bool'?'checkbox':['integer','decimal'].includes(kind)?'number':'text',value);
+    if(kind==='bool')field.checked=Boolean(value);
+    if(kind==='readonly')field.disabled=true;
+    container.append(row(item.name+' · '+item.type,field,()=>{
+      try{
+        const next=kind==='bool'?field.checked:['integer','decimal'].includes(kind)?Number(field.value):field.value;
+        updateSourceInput(session,item.id,next);refresh();tell('Mapped '+item.name+' default updated in source.');
+      }catch(err){tell(err.message,true);}
+    }));
+    if(item.isInternalDefault)container.append(e('p','fx-source-caution','Internal default: EA code may override this at runtime.'));
+    if(item.usedBy?.length)container.append(e('p','help','Referenced in '+item.usedBy.slice(0,8).join(', ')));
+  }
+  function editCondition(cond,container){
+    const state=session.updates[cond.id]||{operator:cond.operator,value:cond.value};
+    const op=select(['<','>','<=','>=','==','!='],state.operator);
+    const val=input('number',state.value);
+    const change=()=>{
+      try{updateSourceCondition(session,cond.id,op.value,val.value);draw();refresh();
+        tell('Mapped IF condition updated at its original source location.');
+      }catch(err){tell(err.message,true);}
+    };
+    container.append(row('IF '+cond.lhs+' · comparison',op,change),row('Numeric threshold',val,change));
+    if(!session.analysis.links.some(l=>l.from===cond.id))return;
+    container.append(e('h4','','Attach a new AND-condition block'));
+    if(!session.numericInputs.length){container.append(e('p','help','No mapped numeric inputs available.'));return;}
+    const names=session.numericInputs.slice(0,150).map(i=>i.name);
+    const target=select(names,names[0]),operator=select(['<','>','<=','>=','==','!='],'<'),threshold=input('number',1);
+    container.append(row('Numeric input already in EA',target,()=>{}),
+      row('New operator',operator,()=>{}),row('New threshold',threshold,()=>{}));
+    container.append(button('＋ Add code-linked gate',()=>{
+      try{
+        const gate=attachSourceGate(session,cond.id,{input:target.value,operator:operator.value,threshold:threshold.value});
+        selected=gate.id;render();tell('AND gate attached to verified trade condition. Exported source updated.');
+      }catch(err){tell(err.message,true);}
+    }));
+  }
+  function editGate(g,container){
+    const guards=session.analysis.links.map(l=>session.analysis.conditions.find(c=>c.id===l.from)).filter(Boolean);
+    const options=session.numericInputs.map(i=>i.name);
+    const lhs=select(options,g.input),operator=select(['<','>','<=','>=','==','!='],g.operator);
+    const number=input('number',g.threshold),destination=select(guards.map(c=>c.id),g.source);
+    for(const o of destination.options){
+      const cond=guards.find(c=>c.id===o.value);if(cond)o.textContent='Line '+cond.line+' : '+cond.lhs+' '+cond.operator+' '+cond.valueOriginal;
+    }
+    const change=()=>{
+      try{
+        if(!options.includes(lhs.value)||number.value.trim()===''||!Number.isFinite(Number(number.value)))
+          throw new Error('Select a mapped input and a valid number.');
+        reconnectSourceGate(session,g.id,destination.value);
+        g.input=lhs.value;g.operator=operator.value;g.threshold=Number(number.value);
+        g.label='AND '+g.input+' '+g.operator+' '+g.threshold;
+        compileSourceBlueprint(session);
+        render();tell('Code-linked gate moved or edited. The exported source has changed.');
+      }catch(err){tell(err.message,true);}
+    };
+    container.append(row('Mapped input',lhs,change),row('Operator',operator,change),
+      row('Threshold',number,change),row('Connect to direct-trade IF',destination,change));
+    container.append(button('Disconnect / remove added gate',()=>{
+      removeSourceGate(session,g.id);selected='';render();
+      tell('Added gate removed. Original source condition restored.');
+    }));
+  }
+  function inspect(){
+    inspector.replaceChildren();
+    const node=find(selected);
+    if(!node){inspector.append(e('p','help','Tap any reconstructed source node to inspect.'));return;}
+    inspector.append(e('h3','',node.label),e('p','fx-source-caution',node.evidence));
+    if(node.type==='gate'){editGate(node,inspector);return;}
+    if(node.type==='condition'){
+      const item=session.analysis.conditions.find(c=>c.id===node.source);
+      if(item)editCondition(item,inspector);
+      return;
+    }
+    if(node.type==='input'){
+      const item=session.hospital.inputs.find(i=>i.id===node.source);
+      if(item)editParameter(item,inspector);
+      return;
+    }
+    if(node.type==='module'){
+      const group=session.hospital.groups.find(g=>g.id===node.source);
+      if(!group)return;
+      inspector.append(e('p','help',group.functions.length+' actual functions · '+group.inputs.length+' controls (classification by names).'));
+      const query=input('search','');query.placeholder='Search function or input names';
+      inspector.append(query);
+      const results=e('div','fx-source-settings');inspector.append(results);
+      const update=()=>{
+        const term=query.value.toLowerCase();results.replaceChildren();
+        for(const item of group.inputs.filter(i=>i.name.toLowerCase().includes(term)).slice(0,80))
+          editParameter(item,results);
+        results.append(e('h4','','Function source · read only'));
+        for(const fn of group.functions.filter(f=>f.name.toLowerCase().includes(term)).slice(0,25)){
+          results.append(button(fn.name+' · line '+fn.line,()=>{
+            code.value=session.original.slice(fn.bodyStart,fn.bodyEnd).slice(0,24000);
+            openDrawer('code');tell('Original function displayed. Complex function rewrites are locked.');
+          }));
+        }
+      };
+      query.addEventListener('input',update);update();
+    }else inspector.append(e('p','help','Original trade call preserved. Only verified numeric guards accept added gates.'));
+  }
+  function render(){
+    if(!session)return;
+    $('fx-source-session').hidden=false;
+    $('fx-source-file').textContent=session.filename+' · '+session.platform+' · '+session.represented.inputs+' inputs · '+session.represented.functions+' functions';
+    $('fx-download-mq4').textContent='Export edited '+session.platform+' source';
+    draw();inspect();refresh();
+    $('fx-global-settings').replaceChildren(e('p','fx-source-caution','Imported EA settings are edited from mapped blocks. The starter bot risk settings do NOT apply to this code.'));
+    edgeList.replaceChildren(e('p','help',session.edges.length+' verified direct trade links · '+session.gates.length+' editable added gates.'));
+  }
+  async function load(file){
+    if(!file||!/\.mq[45]$/i.test(file.name))throw new Error('Choose an editable .mq4/.mq5 file; .ex4/.ex5 cannot be reconstructed.');
+    if(file.size>MAX_SOURCE_BYTES)throw new Error('Maximum import size is 4 MB.');
+    const raw=new Uint8Array(await file.arrayBuffer()),decoded=decodeMqlFile(raw);
+    const parsed=sourceBlueprint(decoded.text,file.name);
+    session=parsed;bytes=raw;encoding={encoding:decoded.encoding,bom:decoded.bom};
+    selected=parsed.nodes[0].id;render();
+    tell('Imported '+file.name+' into the main Blueprint: '+parsed.represented.functions+' functions mapped. Unknown execution links remain protected.');
+    return sourceCaseSummary(parsed);
+  }
+  function clear(){
+    session=null;bytes=null;encoding=null;selected='';compiled=null;
+    $('fx-source-session').hidden=true;$('fx-download-mq4').textContent='Export MT4 code (.mq4)';
+  }
+  function exportSource(){
+    if(!session||!compiled)throw new Error('Import source first or fix invalid source edits.');
+    const data=compiled.changes.length?encodeMqlSource(compiled.source,encoding):bytes;
+    download(session.filename.replace(/[^A-Za-z0-9_. -]/g,'_').slice(0,120),data,'application/octet-stream');
+  }
+  function exportReport(){
+    if(!session||!compiled)throw new Error('Import source first.');
+    const report={...sourceCaseSummary(session),
+      changes:compiled.changes.map(({kind,label})=>({kind,label})),compiled:false,backtested:false};
+    download(session.filename+'.wisdo-report.json',new TextEncoder().encode(JSON.stringify(report,null,2)),'application/json');
+  }
+  return {active,load,render,clear,exportSource,exportReport,get session(){return session;}};
+}
