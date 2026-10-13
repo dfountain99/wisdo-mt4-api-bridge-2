@@ -114,6 +114,32 @@ function balancedEnd(mask, start, left, right) {
   }
   return -1;
 }
+function parseInternalEnumDefaults(source, mask, loc, enums, knownInputs) {
+  const lookup=new Map(enums.map(e=>[e.name,new Set(e.options.map(o=>o.name))]));
+  const occupied=new Set(knownInputs.map(x=>x.start));
+  const found=[];
+  const re=/\b([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\s*;/g;
+  let match;
+  while((match=re.exec(mask))) {
+    const [statement,type,name,defaultValue]=match;
+    const values=lookup.get(type);
+    if(!values || !values.has(defaultValue) || loc.depths[match.index]!==0)continue;
+    const beforeLine=mask.lastIndexOf('\n',match.index-1)+1;
+    if(mask.slice(beforeLine,match.index).includes('#'))continue;
+    const valueStart=match.index+statement.lastIndexOf(defaultValue);
+    if(occupied.has(valueStart))continue;
+    const item={
+      id:'global-enum-'+match.index,name,type,modifier:'internal-default',
+      original:defaultValue,value:defaultValue,kind:'readonly',
+      hospitalKind:'enum',options:[...values],start:valueStart,end:valueStart+defaultValue.length,
+      line:loc.line(match.index),category:classifyHospitalSymbol(name),
+      isInternalDefault:true
+    };
+    found.push(item);
+    occupied.add(valueStart);
+  }
+  return found;
+}
 function parseFunctions(source, mask, loc) {
   const result = [];
   const defs = /\b([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*\(/g;
@@ -167,7 +193,8 @@ function hospitalReport(source, mask, base, funcs, enums, loc) {
     note('review', 'No recognized event entry function', 'The importer did not identify an entry-point definition. Libraries and indicators can be valid without one.');
   if (loc.finalDepth) note('review', 'Brace balance needs review', 'The lexical scan finished with unmatched opening braces. This is not a compiler diagnosis.');
   const enumInputs = base.inputs.filter(x => enums.some(e => e.name === x.type && e.options.some(o => o.name === x.original)));
-  note('info', 'Visual input coverage', base.inputs.filter(x => x.kind !== 'readonly').length + ' scalar inputs and ' + enumInputs.length + ' recognized enum dropdowns can be edited with exact-source patches.');
+  const internalDefaults=parseInternalEnumDefaults(source,mask,loc,enums,base.inputs);
+  note('info', 'Visual input coverage', base.inputs.filter(x => x.kind !== 'readonly').length + ' scalar inputs, ' + enumInputs.length + ' regular enum dropdowns and ' + internalDefaults.length + ' advanced internal enum defaults can be edited via exact source spans. Internal defaults may be overwritten at runtime.');
   note('info', 'Compiler required', 'No MQL compiler, terminal strategy tester, market-data backtest or semantic equivalence proof ran in the browser.');
   return findings;
 }
@@ -183,8 +210,9 @@ export function analyzeHospitalSource(source, filename) {
     const enumEditable = options.includes(item.original);
     return { ...item, category: classifyHospitalSymbol(item.name),
       hospitalKind: enumEditable ? 'enum' : item.kind,
-      options: enumEditable ? options : [] };
+      options: enumEditable ? options : [], isInternalDefault: false };
   });
+  inputs.push(...parseInternalEnumDefaults(source,masked,locator,enums,base.inputs));
   // Source-level references, not runtime values: expose the function(s) that
   // mention each input so a human can inspect the actual dependency before edits.
   const inputNames = new Set(inputs.map(i => i.name));
@@ -237,6 +265,7 @@ export function getHospitalChanges(hospital, updates = {}) {
   for (const [key, next] of Object.entries(updates)) {
     const input = inputs.get(key);
     if (!input) throw new Error('Unknown mapped hospital input: ' + key);
+    // Step may alter initial state but not a user-exposed MT4 input.
     const value = editedLiteral(hospital, input, next);
     if (value !== input.original) changes.push({
       name: input.name, line: input.line, from: input.original, to: value,
