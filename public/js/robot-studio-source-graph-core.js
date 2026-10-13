@@ -34,11 +34,11 @@ export function sourceBlueprint(source,filename){
   }));
   // Discover direct guard -> trade-call edges only when source scanner verifies a
   // single statement branch. Same-condition links are individually visible.
-  const direct=analysis.links.slice(0,8), conditionMap=new Map(analysis.conditions.map(c=>[c.id,c]));
+  const direct=analysis.links.slice(0,6), conditionMap=new Map(analysis.conditions.map(c=>[c.id,c]));
   direct.forEach((edge,i)=>{
     const guard=conditionMap.get(edge.from);
     if(!guard)return;
-    const x=65+(i%3)*340,y=425+Math.floor(i/3)*138;
+    const x=60+(i%2)*500,y=400+Math.floor(i/2)*145;
     nodes.push({id:'guard-'+guard.id,type:'condition',label:'IF '+guard.lhs+' '+guard.operator+' '+guard.valueOriginal,
       detail:'line '+guard.line+' · exact numeric condition',x,y,source:guard.id,editable:true,evidence:'verified direct call'});
     nodes.push({id:'action-'+i,type:'action',label:edge.action,detail:'line '+edge.line+' · original trade call preserved',
@@ -46,13 +46,25 @@ export function sourceBlueprint(source,filename){
     edges.push({from:'guard-'+guard.id,to:'action-'+i,kind:'verified',label:'TRUE'});
   });
   if(nodes.length<maxNodes){
-    const featured=hospital.inputs.filter(i=>i.hospitalKind!=='readonly').slice(0,Math.min(8,maxNodes-nodes.length));
+    const featured=hospital.inputs.filter(i=>i.hospitalKind!=='readonly').slice(0,Math.min(direct.length?0:4,maxNodes-nodes.length));
     featured.forEach((item,i)=>{
       const j=nodes.length;
       nodes.push({id:'param-'+item.id,type:'input',label:item.name,detail:item.type+' · line '+item.line,
-        x:60+(i%4)*260,y:315+Math.floor(i/4)*145,source:item.id,editable:true,
+        x:60+(i%4)*260,y:425+Math.floor(i/4)*145,source:item.id,editable:true,
         evidence:item.isInternalDefault?'internal initial default':'declared input'});
     });
+  }
+  // When no direct trade linkage can be established, still show precise
+  // editable IF thresholds, but do not draw fabricated execution wires.
+  if(!direct.length){
+    const extras=analysis.conditions.slice(0,4);
+    extras.forEach((guard,i)=>nodes.push({
+      id:'guard-'+guard.id,type:'condition',
+      label:'IF '+guard.lhs+' '+guard.operator+' '+guard.valueOriginal,
+      detail:'line '+guard.line+' · executable path unverified',
+      x:65+(i%4)*260,y:615,source:guard.id,editable:true,
+      evidence:'exact predicate; surrounding execution unknown'
+    }));
   }
   if(!nodes.length)nodes.push({id:'opaque-all',type:'module',label:'Custom MQL source',detail:'No safe executable links recognized.',x:80,y:125,editable:false,source:'custom',evidence:'unmapped'});
   return {
