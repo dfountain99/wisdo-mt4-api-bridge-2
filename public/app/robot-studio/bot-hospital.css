@@ -1,0 +1,64 @@
+
+/* Bot Hospital: medical-command-center workbench. All controls stay native HTML. */
+.hosp-panel{background:radial-gradient(ellipse at 75% -30%,#13524655,transparent 55%),linear-gradient(155deg,#0e2a2b,#06191f);border:1px solid #467567;border-radius:22px;padding:clamp(15px,2.5vw,30px);box-shadow:0 12px 60px #0005}
+.hosp-title{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.hosp-title h2{font-size:clamp(26px,3vw,39px);margin:7px 0}
+.hosp-title p{max-width:720px;color:#acc9c1;font-size:13px;margin:8px 0 0}
+.hosp-title .pill{color:#b3e9c5;border-color:#497a5d}
+.hosp-admission{display:flex;gap:20px;align-items:center;flex-wrap:wrap;min-height:155px;border:1.5px dashed #598978;border-radius:17px;padding:22px;margin:22px 0 15px;background:repeating-linear-gradient(45deg,#102824 0 8px,#102725 8px 16px)}
+.hosp-admission.dragging{background:#245344;box-shadow:0 0 25px #2cb8893b}
+.hosp-admission h3{font-size:16px;margin-bottom:8px}
+.hosp-admission p{font-size:12px;color:#b0c5be;max-width:550px}
+.hosp-admission-actions{display:flex;gap:10px;flex-wrap:wrap}
+.hosp-admission-actions button{min-height:46px}
+.hosp-admission-actions #hosp-example{background:rgba(218,170,79,.15);color:#f4dc9f;border-color:#9d7950}
+.hosp-warning{display:flex;gap:13px;align-items:start;color:#e5d6b2;font-size:12px;line-height:1.65;border:1px solid #96744477;background:#211d135b;border-radius:12px;padding:12px 15px;margin:12px 0}
+.hosp-status{background:#102d2c;border:1px solid #407f70;color:#b4efda;border-radius:11px;font-size:12px;padding:12px;margin-bottom:16px}
+.hosp-status.error{color:#ffd1c4;background:#3c2225;border-color:#ac615f}
+.hosp-case-meta{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:14px 0}
+.hosp-case-meta strong{font-size:16px;color:#e5fff5}
+.hosp-case-meta p{font-size:11px;color:#a7cabc;margin:6px 0}
+.hosp-layout{display:grid;grid-template-columns:minmax(190px,.7fr) minmax(310px,1.2fr) minmax(320px,1.05fr);gap:14px;align-items:start}
+.hosp-box{background:#0a1c21;border:1px solid #426259;border-radius:16px;padding:16px;min-width:0}
+.hosp-box h3{font-size:15px;color:#ecfcef}
+.hosp-box p{color:#9fbdaf}
+.hosp-modules{display:grid;gap:8px;margin-top:14px}
+.hosp-module-card{text-align:left;display:grid;grid-template-columns:30px 1fr;gap:3px 8px;width:100%;border:1px solid #42635d;background:#102b2a;color:#edf9ed;padding:12px;border-radius:12px;min-width:0;cursor:grab;touch-action:auto}
+.hosp-module-card:hover,.hosp-module-card[aria-pressed=true]{background:#20413a;border-color:#90dfaf}
+.hosp-module-symbol{grid-row:span 2;color:#ecd080;font-size:20px;text-align:center}
+.hosp-module-title{font-size:12px;font-weight:800}
+.hosp-module-count{font-size:10px;color:#a0bfb5}
+.hosp-inspector{max-height:1250px;overflow:auto;scrollbar-color:#496a61 transparent}
+.hosp-subheading{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.hosp-section-kicker{font-size:10px;letter-spacing:.15em;color:#b4ddb9;font-weight:800;text-transform:uppercase}
+.hosp-parameter-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:14px 0 25px}
+.hosp-input{display:grid;gap:6px;min-width:0;background:#10282b;border:1px solid #34584e;border-radius:10px;padding:10px;overflow:hidden}
+.hosp-input>span:first-child{font-size:10px;color:#a7d4be;overflow-wrap:anywhere}
+.hosp-input input,.hosp-input select{width:100%;min-width:0;min-height:39px;color:#f8fff9;background:#08181c;border:1px solid #3a6159;border-radius:8px;padding:8px;font-size:12px}
+.hosp-input input[type=checkbox]{width:25px;min-height:25px;accent-color:#92edbe}
+.hosp-input input[readonly]{color:#a1adaa}
+.hosp-readonly{font-size:9px;color:#d7b88e}
+.hosp-search-wrap{margin:16px 0}
+.hosp-search-wrap input{min-height:44px;width:100%;background:#06151a;border:1px solid #587a69;border-radius:9px;color:#f7fff9;padding:10px}
+.hosp-fn-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:12px 0}
+.hosp-fn-btn{font:10px/1.4 ui-monospace,monospace;white-space:normal;overflow-wrap:anywhere;min-width:0;text-align:left;background:#0f2b2a;color:#b9f1d7;border:1px solid #365c52;padding:9px;border-radius:8px}
+.hosp-function-inspect{border:1px solid #3f6b5b;background:#061b1e;border-radius:10px;padding:12px;min-width:0}
+.hosp-function-inspect h4{margin:4px 0 9px;color:#e4f6e8;overflow-wrap:anywhere}
+.hosp-function-links{font:11px/1.55 ui-monospace,monospace;overflow-wrap:anywhere;color:#c7e9b7}
+.hosp-function-code{max-height:265px;overflow:auto;white-space:pre;font:11px/1.55 ui-monospace,monospace;color:#b5e1cf;background:#030d12;border-radius:9px;padding:10px}
+.hosp-diagnostics{display:grid;gap:9px;max-height:310px;overflow:auto;margin:14px 0 20px}
+.hosp-diagnostic{border:1px solid #366659;background:#0e302b;border-left:3px solid #6ac9a5;border-radius:9px;padding:10px}
+.hosp-diagnostic[data-severity=review]{border-left-color:#eac575;background:#30281a67}
+.hosp-diagnostic strong{color:#e4efe5;font-size:12px}
+.hosp-diagnostic p{margin:7px 0 0;font-size:11px;line-height:1.5}
+.hosp-action-row{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.hosp-action-row button{flex:1 1 125px;min-height:44px;font-size:12px}
+.hosp-diff{max-height:190px;overflow:auto;display:grid;gap:7px;background:#07171b;padding:9px;border:1px solid #365549;border-radius:11px;margin:12px 0;color:#b0cbbf;font-size:11px}
+.hosp-diff-row{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;border-bottom:1px solid #335345;padding-bottom:6px}
+.hosp-mono{font:11px/1.45 ui-monospace,monospace;color:#dcefb6;overflow-wrap:anywhere}
+.hosp-source{width:100%;min-height:420px;max-height:760px;resize:vertical;background:#030e11;color:#bfecce;border:1px solid #355749;border-radius:10px;padding:11px;font:11px/1.5 ui-monospace,monospace}
+.hosp-source-summary{font-size:11px;color:#b0cfc2;margin:9px 0}
+.hosp-footnote{font-size:11px;color:#c5b98a;line-height:1.6}
+@media(max-width:1290px){.hosp-layout{grid-template-columns:minmax(200px,.8fr) minmax(300px,1.2fr)}.hosp-source-panel{grid-column:1/-1}.hosp-diagnostics{max-height:none}}
+@media(max-width:850px){.hosp-layout{grid-template-columns:minmax(0,1fr)}.hosp-source-panel{grid-column:auto}.hosp-parameter-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:590px){.hosp-panel{padding:14px}.hosp-parameter-list,.hosp-fn-list{grid-template-columns:1fr}.hosp-admission-actions{width:100%}.hosp-admission-actions button{width:100%}.hosp-admission{padding:16px}.hosp-source{min-height:300px}}

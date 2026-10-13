@@ -73,6 +73,7 @@
     .import-anchor{align-self:center;display:inline-flex;align-items:center;min-height:42px;padding:8px 4px;font-size:13px;font-weight:850;color:#f8d68b;text-decoration:underline}
   </style>
   <link rel="stylesheet" href="/app/robot-studio/robot-studio-v2.css" media="screen" data-studio-theme>
+  <link rel="stylesheet" href="/app/robot-studio/bot-hospital.css" media="screen">
 </head>
 <body>
 <main class="shell">
@@ -117,6 +118,7 @@
     <div class="mode-list" role="tablist" aria-label="Robot Studio workspace mode">
       <button class="mode-tab" id="mode-create-tab" data-studio-view="builder" role="tab" aria-controls="builder-view" aria-selected="true" type="button"><span class="mode-icon" aria-hidden="true">⬡</span><span><strong>CREATE A ROBOT</strong><small>Visual strategy blueprint · MT4</small></span></button>
       <button class="mode-tab" id="mode-import-tab" data-studio-view="import" role="tab" aria-controls="import-rebuild" aria-selected="false" type="button"><span class="mode-icon" aria-hidden="true">⌘</span><span><strong>IMPORT &amp; REBUILD</strong><small>Source-aware explorer · MQ4 / MQ5</small></span></button>
+      <button class="mode-tab" id="mode-hospital-tab" data-studio-view="hospital" role="tab" aria-controls="bot-hospital" aria-selected="false" type="button"><span class="mode-icon" aria-hidden="true">✚</span><span><strong>BOT HOSPITAL</strong><small>X-ray · Repair · Recover</small></span></button>
     </div>
     <div class="mode-live">LOCAL-FIRST / NO BROKER CONNECTION</div>
   </div>
@@ -236,10 +238,91 @@
       </div>
     </div>
   </section>
+  <section id="bot-hospital" role="tabpanel" aria-labelledby="mode-hospital-tab" tabindex="0" hidden>
+    <div class="hosp-panel">
+      <header class="hosp-title">
+        <div>
+          <div class="eyebrow">03 / BOT HOSPITAL · SOURCE FORENSICS</div>
+          <h2>Give your robot an X-ray.</h2>
+          <p>Admit advanced HIGHTOWER and custom MQ4/MQ5 source files. See their real controls, function references, state engines and dependencies. Make precisely mapped changes without flattening or rewriting their custom logic.</p>
+        </div>
+        <span class="pill">NONEXECUTING · BETA</span>
+      </header>
+      <div class="hosp-admission" id="hosp-drop">
+        <div style="flex:1 1 280px">
+          <div class="eyebrow">01 / ADMISSION</div>
+          <h3>Bring in an existing robot</h3>
+          <p>Your file is analyzed on your device; unsupported functions and code are preserved. Accepts .mq4/.mq5 source up to 4 MB. Compiled EX4/EX5 files cannot be reconstructed.</p>
+        </div>
+        <div class="hosp-admission-actions">
+          <button type="button" class="primary" id="hosp-choose">+ Import a robot file</button>
+          <button type="button" id="hosp-example">Load HIGHTOWER v6.21 from GitHub</button>
+          <input id="hosp-file" type="file" accept=".mq4,.mq5" hidden>
+        </div>
+      </div>
+      <div class="hosp-warning">⚕︎ Source X-ray is not compiler verification. Function-call references are not a proven execution graph. Only supported input defaults and validated enum selections change source; dragging diagnostic modules changes their display order, never the robot's trading behavior. Compile and test on demo before deployment.</div>
+      <div id="hosp-status" class="hosp-status" role="status" aria-live="polite">Ready for admission. Load HIGHTOWER from public GitHub source or import your own .mq4/.mq5 file.</div>
+      <div id="hosp-case" hidden>
+        <div class="hosp-case-meta">
+          <div>
+            <div class="eyebrow">ADMITTED CASE FILE</div>
+            <strong id="hosp-case-filename"></strong>
+            <p id="hosp-case-stats"></p>
+          </div>
+          <div class="hosp-action-row">
+            <button type="button" id="hosp-backup">Download original backup</button>
+            <button type="button" id="hosp-reset">Undo mapped edits</button>
+          </div>
+        </div>
+        <div class="hosp-search-wrap">
+          <label class="field"><span>Search modules, functions, controls</span><input id="hosp-search" type="search" placeholder="SONIC, campaign, margin, ATR, OrderSend…" autocomplete="off"></label>
+        </div>
+        <div class="hosp-layout">
+          <section class="hosp-box">
+            <div class="hosp-section-kicker">02 / SYSTEM ANATOMY</div>
+            <h3>Robot systems</h3>
+            <p class="help">Select a subsystem to inspect it. Drag to organize visually—no code paths are rearranged.</p>
+            <div class="hosp-modules" id="hosp-modules"></div>
+          </section>
+          <section class="hosp-box hosp-inspector">
+            <div class="hosp-subheading">
+              <div><div class="hosp-section-kicker">03 / CODE-LINKED SURGERY</div><h3 id="hosp-group-title">Select a module</h3></div>
+              <span class="pill">LOCAL EDITS</span>
+            </div>
+            <p class="help" id="hosp-group-caption"></p>
+            <h3>Mapped controls</h3>
+            <div class="hosp-parameter-list" id="hosp-parameter-controls"></div>
+            <h3>Functions and references</h3>
+            <p class="help">Click a function to inspect its original implementation. Calls indicate references—not proven timing or safe rewiring.</p>
+            <div id="hosp-functions" class="hosp-fn-list"></div>
+            <div id="hosp-function-inspect" class="hosp-function-inspect"></div>
+          </section>
+          <section class="hosp-box hosp-source-panel">
+            <div class="hosp-subheading">
+              <div><div class="hosp-section-kicker">04 / DIAGNOSIS & RECOVERY</div><h3>Source truth monitor</h3></div>
+              <button type="button" id="hosp-show-full">Show entire source</button>
+            </div>
+            <p class="help">Findings indicate things to review, not confirmed bugs. A valid MetaEditor compile and Strategy Tester run still need to be performed separately.</p>
+            <div class="hosp-diagnostics" id="hosp-diagnostics"></div>
+            <h3>Precisely mapped changes</h3>
+            <div id="hosp-diff" class="hosp-diff" aria-live="polite"></div>
+            <p id="hosp-source-summary" class="hosp-source-summary"></p>
+            <label class="field"><span>Preserved MQL source preview</span><textarea id="hosp-source-preview" class="hosp-source" readonly spellcheck="false"></textarea></label>
+            <div class="hosp-action-row">
+              <button type="button" id="hosp-export" class="gold" disabled>Export repaired MQ4 / MQ5</button>
+              <button type="button" id="hosp-report" disabled>Export diagnosis report</button>
+            </div>
+            <p class="hosp-footnote">No code is executed on this website. No strategy is compiled, backtested, paired to an account, or deployed by this workbench. Original source bytes remain available as a backup.</p>
+          </section>
+        </div>
+      </div>
+    </div>
+  </section>
   <footer class="foot">WISDO ROBOT STUDIO / COMMAND DECK V2 · Source editing only · Compile and demo-test before trading · Independent of fxDreema</footer>
 </main>
 <script type="module" src="/js/robot-studio-ui.js"></script>
 <script type="module" src="/js/robot-studio-import-ui.js"></script>
 <script type="module" src="/js/robot-studio-workspace.js"></script>
+<script type="module" src="/js/robot-studio-hospital-ui.js"></script>
 </body>
 </html>
