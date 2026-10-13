@@ -2,23 +2,25 @@
 const createPanel = document.getElementById('builder-view');
 const importPanel = document.getElementById('import-rebuild');
 const hospitalPanel = document.getElementById('bot-hospital');
+const flowPanel = document.getElementById('flow-builder');
 const switcher = document.getElementById('mode-switch');
 const tabs = Array.from(document.querySelectorAll('[data-studio-view]'));
 const count = document.getElementById('studio-module-count');
 
-const modeFromHash = () => location.hash === '#bot-hospital' ? 'hospital' : location.hash === '#import-rebuild' ? 'import' : 'builder';
+const modeFromHash = () => location.hash === '#bot-hospital' ? 'hospital' : location.hash === '#import-rebuild' ? 'import' : location.hash === '#builder-view' ? 'builder' : 'flow';
 function activate(mode, { navigate = false, focus = false } = {}) {
-  const current = mode === 'import' ? 'import' : mode === 'hospital' && hospitalPanel ? 'hospital' : 'builder';
+  const current = mode === 'import' ? 'import' : mode === 'hospital' && hospitalPanel ? 'hospital' : mode === 'flow' && flowPanel ? 'flow' : 'builder';
   createPanel.hidden = current !== 'builder';
   importPanel.hidden = current !== 'import';
   if (hospitalPanel) hospitalPanel.hidden = current !== 'hospital';
+  if (flowPanel) flowPanel.hidden = current !== 'flow';
   for (const tab of tabs) {
     const selected = tab.dataset.studioView === current;
     tab.setAttribute('aria-selected', String(selected));
     tab.tabIndex = selected ? 0 : -1;
   }
   if (navigate) {
-    const hash = current === 'hospital' ? '#bot-hospital' : current === 'import' ? '#import-rebuild' : '#builder-view';
+    const hash = current === 'hospital' ? '#bot-hospital' : current === 'import' ? '#import-rebuild' : current === 'flow' ? '#flow-builder' : '#builder-view';
     if (location.hash !== hash) history.pushState({ robotStudioMode: current }, '', hash);
   }
   if (focus) {

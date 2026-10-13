@@ -74,6 +74,7 @@
   </style>
   <link rel="stylesheet" href="/app/robot-studio/robot-studio-v2.css" media="screen" data-studio-theme>
   <link rel="stylesheet" href="/app/robot-studio/bot-hospital.css" media="screen">
+  <link rel="stylesheet" href="/app/robot-studio/flow-builder.css" media="screen">
 </head>
 <body>
 <main class="shell">
@@ -116,6 +117,7 @@
   </div>
   <div class="mode-switch" id="mode-switch">
     <div class="mode-list" role="tablist" aria-label="Robot Studio workspace mode">
+      <button class="mode-tab" id="mode-flow-tab" data-studio-view="flow" role="tab" aria-controls="flow-builder" aria-selected="false" type="button"><span class="mode-icon" aria-hidden="true">◇</span><span><strong>VISUAL FLOW BUILDER</strong><small>Connect blocks · Generate real MQ4</small></span></button>
       <button class="mode-tab" id="mode-create-tab" data-studio-view="builder" role="tab" aria-controls="builder-view" aria-selected="true" type="button"><span class="mode-icon" aria-hidden="true">⬡</span><span><strong>CREATE A ROBOT</strong><small>Visual strategy blueprint · MT4</small></span></button>
       <button class="mode-tab" id="mode-import-tab" data-studio-view="import" role="tab" aria-controls="import-rebuild" aria-selected="false" type="button"><span class="mode-icon" aria-hidden="true">⌘</span><span><strong>IMPORT &amp; REBUILD</strong><small>Source-aware explorer · MQ4 / MQ5</small></span></button>
       <button class="mode-tab" id="mode-hospital-tab" data-studio-view="hospital" role="tab" aria-controls="bot-hospital" aria-selected="false" type="button"><span class="mode-icon" aria-hidden="true">✚</span><span><strong>BOT HOSPITAL</strong><small>X-ray · Repair · Recover</small></span></button>
@@ -200,6 +202,81 @@
       <div class="group"><h3>Planned WISDO integration</h3><p class="help">Next: cloud drafts per member, richer drag-and-drop blocks, verified backtests, WISDO bot pairing, and Command Center controls. None of these are implied by exporting this EA.</p></div>
     </section>
   </div>
+  </section>
+  <section id="flow-builder" role="tabpanel" aria-labelledby="mode-flow-tab" tabindex="0" hidden>
+    <div class="mode-heading fx-mode-heading">
+      <div><div class="eyebrow">02 / FXDREEMA-INSPIRED CANVAS</div>
+        <h2>Draw the logic. Generate the robot.</h2>
+        <p>Drag blocks onto the blueprint, connect each output socket to another block's input, and edit the settings. The connections become real MQL4 true/false branches.</p>
+      </div>
+      <span class="pill">VALIDATED FLOW → MQ4 · DEMO ONLY</span>
+    </div>
+    <div class="fx-board-top">
+      <div class="fx-controls">
+        <button id="fx-new" type="button">↻ Example robot</button>
+        <button id="fx-save" type="button">Save local project</button>
+        <button id="fx-import" type="button">Import flow JSON</button>
+        <input type="file" id="fx-project-file" accept=".json,application/json" hidden>
+        <button id="fx-clear-pending" type="button">Cancel connection</button>
+      </div>
+      <span id="fx-graph-stats" class="fx-state">0 nodes · 0 links</span>
+    </div>
+    <div id="fx-status" role="status" aria-live="polite" class="fx-status">Choose a block and connect it to the graph. Generated source stays in your browser.</div>
+    <div class="fx-layout">
+      <aside id="fx-palette-panel" class="fx-panel fx-palette-panel">
+        <div class="panel-head"><h3>Block Library</h3><span class="eyebrow">ADD</span></div>
+        <p class="help">Tap a block to add it. On desktop, drag it onto the canvas.</p>
+        <div id="fx-palette" class="fx-palette"></div>
+      </aside>
+      <section class="fx-panel" aria-label="Interactive visual robot logic">
+        <div class="panel-head">
+          <h3>Robot Logic Blueprint</h3>
+          <span id="fx-compile-state" class="fx-state">Graph validation</span>
+        </div>
+        <button id="fx-palette-toggle" type="button" aria-expanded="true" aria-controls="fx-palette-panel">Toggle block palette</button>
+        <p class="fx-usage">Move a block by dragging its header. Tap an output dot, then the INPUT dot of another block. Desktop: drag an output dot to another block's input. Green is TRUE, amber is FALSE. Scroll sideways on your phone.</p>
+        <div id="fx-board-scroll" class="fx-board-scroll" tabindex="0" aria-label="Scrollable node graph canvas">
+          <div id="fx-flow-board" class="fx-board">
+            <svg id="fx-edges" class="fx-edges" viewBox="0 0 1120 850" aria-hidden="true"></svg>
+            <div id="fx-nodes" class="fx-nodes"></div>
+          </div>
+        </div>
+        <div class="fx-controls" style="margin-top:14px">
+          <button class="gold" id="fx-download-mq4" type="button">Export MT4 code (.mq4)</button>
+          <button id="fx-export-json" type="button">Export editable graph</button>
+          <button id="fx-copy" type="button">Copy generated code</button>
+        </div>
+      </section>
+      <aside class="fx-right">
+        <section class="fx-panel">
+          <div class="panel-head"><h3>Selected Block</h3><span class="eyebrow">INSPECT</span></div>
+          <div id="fx-inspector" aria-live="polite">Click a block to edit its settings.</div>
+        </section>
+        <section class="fx-panel">
+          <div class="panel-head"><h3>Robot Safety &amp; Risk</h3><span class="eyebrow">SETTINGS</span></div>
+          <p class="help">Shared trade limits apply to every trade action in this new flow.</p>
+          <div id="fx-global-settings"></div>
+          <h3>Connections</h3>
+          <div id="fx-edges-list"></div>
+        </section>
+      </aside>
+    </div>
+    <section class="fx-output" aria-label="Generated code and validation">
+      <div class="fx-panel">
+        <div class="panel-head"><h3>Live MQ4 Code Preview</h3><span class="eyebrow">SOURCE</span></div>
+        <textarea class="preview" id="fx-code" readonly spellcheck="false" aria-label="Generated MetaTrader 4 code"></textarea>
+      </div>
+      <div class="fx-panel">
+        <h3>Validation / Repair Bench</h3>
+        <div id="fx-errors" class="fx-errors" aria-live="polite"></div>
+        <div class="fx-validation-guide">
+          <h3>What changes the bot?</h3>
+          Reconnecting TRUE/FALSE sockets changes the generated MQL4 <code>if / else</code> flow. Editing block parameters changes the actual condition expression.
+          <p>No compiled binaries, account binding or live trades. The exporter uses a limited set of built-in triggers, filters and trade actions. Arbitrary HIGHTOWER source is still inspected and safely edited in Bot Hospital, not converted to a verified rewritable graph here.</p>
+          <p><strong>Required before live trading:</strong> MetaEditor compilation, Strategy Tester, independent risk review, then deliberate authorization.</p>
+        </div>
+      </div>
+    </section>
   </section>
   <section id="import-rebuild" class="panel reverse-section" role="tabpanel" aria-labelledby="mode-import-tab" tabindex="0" hidden>
     <div class="reverse-top">
@@ -324,5 +401,6 @@
 <script type="module" src="/js/robot-studio-import-ui.js"></script>
 <script type="module" src="/js/robot-studio-workspace.js"></script>
 <script type="module" src="/js/robot-studio-hospital-ui.js"></script>
+<script type="module" src="/js/robot-studio-flow-ui.js"></script>
 </body>
 </html>
