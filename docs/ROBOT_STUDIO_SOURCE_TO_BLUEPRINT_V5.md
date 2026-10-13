@@ -9,6 +9,7 @@ Open \`/app/robot-studio\`. **IMPORT MQ4 / MQ5** is the first button in the uppe
 - Automatically analyze the actual imported file, including HIGHTOWER, using the existing Bot Hospital and source-guard discovery engines.
 - Display source-backed subsystem **inventory cards**, mapped settings, editable numeric IF conditions, and only verified single-action IF-to-trade-call links on the **main fullscreen graph**. These are different from the forward-only starter compiler; unknown functions are **not** represented as verified executable edges.
 - Tap modules to browse/search real original function names and inspect/edit recognized global settings and enum presets. Complex functions are inspect-only.
+- **Expand a subsystem into individual original MQL function cards** on the main canvas. Dashed lines identify only lexical in-file function-name references; they are explicitly NOT trusted execution-path connections, and they do not support code rewiring.
 - Edit precisely mapped input defaults and simple numeric IF comparisons. Any original source not mapped is preserved.
 - On a verified direct-trade IF, **add a new AND-condition block** referencing an existing numeric input. Change its comparator or threshold, disconnect it, or reassign it to another verified IF. Unlike cosmetic card rearranging, these edits genuinely alter the downloaded MQL source.
 - Move cards on the canvas visually; card position alone never rewrites the EA.
