@@ -4,7 +4,7 @@
  * All function definitions are retained as individual inspectable nodes.
  */
 const CATEGORY_IDS=['structure','sonic','campaign','risk','protection','collection','session','bridge'];
-const WIDTH_ALL=1510, WIDTH_FOCUS=1260, WIDTH_COLLAPSED=1140;
+const WIDTH_ALL=1510, WIDTH_FOCUS=1260, WIDTH_FOCUS_PHONE=660, WIDTH_COLLAPSED=1140;
 const CARD_X=240, CARD_Y=145;
 const clamp=(x,min,max)=>Math.min(max,Math.max(min,x));
 export function buildSourceHierarchy(caseFile){
@@ -70,9 +70,9 @@ export function setSourceView(c,view,category=null){
     cursor=500;
   } else{
     const focus=view==='category';
-    width=focus?WIDTH_FOCUS:WIDTH_ALL;
+    width=focus?(c.phoneMode?WIDTH_FOCUS_PHONE:WIDTH_FOCUS):WIDTH_ALL;
     const categories=focus?c.categories.filter(t=>t.id===category):c.categories;
-    const columns=focus?5:6;
+    const columns=focus?(c.phoneMode?2:5):6;
     for(const group of categories){
       const header=c.nodes.find(n=>n.id==='module-'+group.id);
       add(header,35,cursor);
