@@ -100,7 +100,7 @@ function makeElement(tag,className,text){
 }
 const sourceMode=makeSourceCanvas({$,surface,nodes:nodesArea,edges:edgesSvg,inspector:$('fx-inspector'),
   code,errorsBox,edgeList,tell,openDrawer,getZoom:()=>zoom,download:emitFile,
-  onSize:resizeBoard,onFit:fitZoom,onResetSize:()=>resizeBoard(1120,850)});
+  onSize:resizeBoard,onFit:fitZoom,onResetSize:()=>resizeBoard(1120,850),getViewportWidth:()=>scroll.clientWidth});
 function portLabel(p){return p==='next'?'NEXT':p==='true'?'TRUE':'FALSE';}
 function snap(n){return Math.max(0,Math.min(8000,Math.round(n/10)*10));}
 function coordinate(event){
