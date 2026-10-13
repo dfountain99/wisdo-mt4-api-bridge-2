@@ -90,7 +90,8 @@ export function installWisdoVisualFidelityV2({THREE,scene,renderer,quality='medi
   const root=new THREE.Group();root.name='WisdoVisualFidelityV2';scene.add(root);const disposables=[];
   const touchLike=Boolean(globalThis.matchMedia?.('(pointer: coarse)')?.matches||navigator.maxTouchPoints>0);const resolvedQuality=quality==='low'?'low':quality==='high'?'high':'medium';
   const previousExposure=renderer.toneMappingExposure;renderer.toneMappingExposure=Math.min(previousExposure||1.25,touchLike?1.26:1.34);
-  const tower=createHeroTowerIdentity(THREE,root,disposables,resolvedQuality);const bridge=createModeBridge(THREE,root,disposables);const globe=createCommandGlobe(THREE,root,disposables,resolvedQuality);const districts=createDistrictIdentity(THREE,root,disposables,resolvedQuality);createWetPlaza(THREE,root,disposables,resolvedQuality);createSloganSigns(THREE,root,disposables);
+  const tower=createHeroTowerIdentity(THREE,root,disposables,resolvedQuality);const bridge=createModeBridge(THREE,root,disposables);const globe=createCommandGlobe(THREE,root,disposables,resolvedQuality);const districts=createDistrictIdentity(THREE,root,disposables,resolvedQuality);createWetPlaza(THREE,root,disposables,resolvedQuality);
+  if(!touchLike)createSloganSigns(THREE,root,disposables);
   const objectNames=['WisdoArcadeWorldHeroBillboard','WisdoArcadeTowerCrown','WisdoModeBridge','WisdoCommandGlobe','WisdoEcosystemDistrictLabels'];
   const diagnostics=Object.freeze({active:true,revision:REVISION,artDirection:'WISDO_CYBER_LUXURY_FINANCIAL_CITY',touchLike,quality:resolvedQuality,objects:objectNames,objectCount:objectNames.length,executionFromVisualLayer:false});
   globalThis.WisdoVisualFidelityV2Diagnostics=diagnostics;document.documentElement.dataset.wisdoVisualV2='active';window.dispatchEvent(new CustomEvent('wisdo:visual-v2-ready',{detail:diagnostics}));

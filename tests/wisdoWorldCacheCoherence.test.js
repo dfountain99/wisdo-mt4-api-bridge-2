@@ -11,7 +11,7 @@ test('World entry rotates production-facing assets to the visual fidelity V4 rev
   assert.match(primary,/\/app\/world\/babylon-city\/\?entry=production-v1/);
   assert.match(primary,/\/app\/world\/legacy\.html/);
   assert.match(html,new RegExp(`data-world-build=\"${REVISION.replaceAll('.','\\.')}\"`));
-  assert.match(html,/world3d-production\.js\?v=2026\.09\.17\.visual-fidelity-v4/);
+  assert.match(html,/world3d-production\.js\?v=2026\.09\.25\.city-phone-fix/);
   assert.match(html,/world-debug-runtime\.js\?v=2026\.09\.17\.visual-fidelity-v4/);
   assert.match(html,/visual-fidelity-v2\.css\?v=2026\.09\.17\.visual-fidelity-v4/);
   assert.match(html,/visual-fidelity-v3\.css\?v=2026\.09\.17\.visual-fidelity-v4/);
@@ -19,15 +19,17 @@ test('World entry rotates production-facing assets to the visual fidelity V4 rev
   assert.doesNotMatch(html,/visual-fidelity-v2"/);
 });
 
-test('changed V4 production wrapper and fidelity composition use one explicit V4 revision',()=>{
+test('changed phone modules use a new cache identity while unchanged V4 imports stay pinned',()=>{
   const wrapper=read('public/app/world/world3d-production.js');
   const fidelity=read('public/app/world/production-fidelity-layer-v4.js');
   for(const source of [wrapper,fidelity]){
     const localImports=[...source.matchAll(/from ['\"](\.\/?[^'\"]+\.js(?:\?[^'\"]*)?)['\"]/g)].map((match)=>match[1]);
     assert.ok(localImports.length>0,'expected local ESM imports');
-    for(const specifier of localImports)assert.match(specifier,/\?v=2026\.09\.17\.visual-fidelity-v4$/);
+    for(const specifier of localImports)assert.match(specifier,/\?v=2026\.09\.(?:17\.visual-fidelity-v4|25\.city-phone-fix)$/);
     assert.doesNotMatch(source,/runtime-recovery-v4/);
   }
+  assert.match(wrapper,/production-fidelity-layer-v4\.js\?v=2026\.09\.25\.city-phone-fix/);
+  assert.match(fidelity,/production-fidelity-layer\.js\?v=2026\.09\.25\.city-phone-fix/);
 });
 
 test('core still publishes render context directly instead of prototype interception',()=>{
