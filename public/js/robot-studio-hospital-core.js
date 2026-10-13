@@ -185,6 +185,20 @@ export function analyzeHospitalSource(source, filename) {
       hospitalKind: enumEditable ? 'enum' : item.kind,
       options: enumEditable ? options : [] };
   });
+  // Source-level references, not runtime values: expose the function(s) that
+  // mention each input so a human can inspect the actual dependency before edits.
+  const inputNames = new Set(inputs.map(i => i.name));
+  const usage = new Map(inputs.map(i => [i.name, []]));
+  for (const fn of functions) {
+    const used = new Set();
+    const identifiers = /\b[A-Za-z_]\w*\b/g;
+    const body = masked.slice(fn.bodyStart + 1, fn.bodyEnd - 1);
+    let match;
+    while ((match = identifiers.exec(body))) if (inputNames.has(match[0])) used.add(match[0]);
+    fn.usesInputs = [...used];
+    for (const name of used) usage.get(name).push(fn.name);
+  }
+  for (const input of inputs) input.usedBy = [...new Set(usage.get(input.name) || [])];
   const groups = MODULES.map(([id, title, icon]) => {
     const members = functions.filter(f => f.category === id);
     const controls = inputs.filter(i => i.category === id);
@@ -226,7 +240,8 @@ export function getHospitalChanges(hospital, updates = {}) {
     const value = editedLiteral(hospital, input, next);
     if (value !== input.original) changes.push({
       name: input.name, line: input.line, from: input.original, to: value,
-      start: input.start, end: input.end, category: input.category
+      start: input.start, end: input.end, category: input.category,
+      referencedBy: input.usedBy || []
     });
   }
   return changes.sort((a, b) => b.start - a.start);
@@ -251,7 +266,7 @@ export function hospitalManifest(hospital, updates = {}) {
       functions: g.functions.map(f => ({ name: f.name, line: f.line, calls: f.calls })),
       exposedInputs: g.inputs.map(i => i.name)
     })), diagnostics: hospital.diagnostics,
-    changes: changes.map(({ name, line, from, to, category }) => ({ name, line, from, to, category })),
+    changes: changes.map(({ name, line, from, to, category, referencedBy }) => ({ name, line, from, to, category, referencedBy })),
     compiled: false, backtested: false, equivalentToOriginal: changes.length === 0 ? 'source-unchanged' : 'not-verified'
   };
 }
