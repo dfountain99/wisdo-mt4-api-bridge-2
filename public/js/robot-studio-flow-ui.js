@@ -56,16 +56,16 @@ function toggleDrawer(name,trigger=null){
 }
 function setZoom(raw){
   if(!Number.isFinite(raw))return;
-  zoom=Math.min(1.5,Math.max(.45,Math.round(raw*100)/100));
+  zoom=Math.min(1.5,Math.max(.25,Math.round(raw*100)/100));
   surface.style.transform='scale('+zoom+')';
   zoomSpace.style.width=Math.ceil(BOARD_WIDTH*zoom)+'px';
   zoomSpace.style.height=Math.ceil(BOARD_HEIGHT*zoom)+'px';
   $('fx-zoom-label').textContent=Math.round(zoom*100)+'%';
-  $('fx-zoom-out').disabled=zoom<=.45;
+  $('fx-zoom-out').disabled=zoom<=.25;
   $('fx-zoom-in').disabled=zoom>=1.5;
 }
 function fitZoom(){
-  const usableW=Math.max(300,scroll.clientWidth-36),usableH=Math.max(220,scroll.clientHeight-32);
+  const usableW=Math.max(180,scroll.clientWidth-36),usableH=Math.max(220,scroll.clientHeight-32);
   setZoom(Math.min(usableW/BOARD_WIDTH,usableH/BOARD_HEIGHT,1.5));
   scroll.scrollTop=0;scroll.scrollLeft=0;
   tell('Blueprint fitted to the available screen. Zoom in for full-size editing.');
