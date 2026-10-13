@@ -65,15 +65,15 @@ test('MQ5 CTrade source uses the same source-backed canvas without pretending to
 test('expanding original functions creates reference-only inspectable canvas edges',()=>{
   const source=[
     '#property strict',
-    'bool RiskSignal(){return true;}',
-    'void RiskEngine(){if(RiskSignal()) Print("allowed");}',
+    'bool RiskCheck(){return true;}',
+    'void RiskEngine(){if(RiskCheck()) Print("allowed");}',
     'void OnTick(){RiskEngine();}'
   ].join('\n')+'\n';
   const a=sourceBlueprint(source,'custom.mq4');
   const count=expandSourceModule(a,'risk');
   assert.equal(count,2);
   assert.ok(a.nodes.some(n=>n.type==='function'&&n.label==='RiskEngine'));
-  assert.ok(a.nodes.some(n=>n.type==='function'&&n.label==='RiskSignal'));
+  assert.ok(a.nodes.some(n=>n.type==='function'&&n.label==='RiskCheck'));
   assert.ok(sourceEdges(a).some(edge=>edge.kind==='reference'&&edge.label.includes('NOT EXECUTION')));
   assert.equal(compileSourceBlueprint(a).source,source);
 });
