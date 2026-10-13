@@ -6,7 +6,8 @@ import {
 import {makeSourceCanvas} from './robot-studio-source-graph-ui.js';
 
 const $ = id=>document.getElementById(id);
-const BOARD_WIDTH=1120, BOARD_HEIGHT=850, NODE_WIDTH=200;
+let BOARD_WIDTH=1120, BOARD_HEIGHT=850;
+const NODE_WIDTH=200;
 let graph=exampleFlow(), selected='buy-signal',pending=null,counter=0;
 const svgNS='http://www.w3.org/2000/svg';
 const surface=$('fx-flow-board');
@@ -67,9 +68,21 @@ function setZoom(raw){
 }
 function fitZoom(){
   const usableW=Math.max(180,scroll.clientWidth-36),usableH=Math.max(220,scroll.clientHeight-32);
-  setZoom(Math.min(usableW/BOARD_WIDTH,usableH/BOARD_HEIGHT,1.5));
+  // Tall imported maps contain every source function: fit the WIDTH, not
+  // 10,000px of height into one screen (which would make labels unreadable).
+  const isTall=sourceMode.active()&&BOARD_HEIGHT>1550;
+  setZoom(Math.min(usableW/BOARD_WIDTH,isTall?1.15:usableH/BOARD_HEIGHT,1.5));
   scroll.scrollTop=0;scroll.scrollLeft=0;
-  tell('Blueprint fitted to the available screen. Zoom in for full-size editing.');
+  tell(isTall?'Full function map sized to screen width. Scroll down for every function, or collapse to eight engines.':
+    'Blueprint fitted to available screen. Zoom in for detailed editing.');
+}
+function resizeBoard(width,height){
+  BOARD_WIDTH=Math.max(800,Math.min(2400,Math.ceil(width)));
+  BOARD_HEIGHT=Math.max(850,Math.min(90000,Math.ceil(height)));
+  surface.style.width=BOARD_WIDTH+'px';
+  surface.style.height=BOARD_HEIGHT+'px';
+  edgesSvg.setAttribute('viewBox','0 0 '+BOARD_WIDTH+' '+BOARD_HEIGHT);
+  setZoom(zoom);
 }
 
 function tell(message,err=false){status.textContent=message;status.classList.toggle('error',err);}
@@ -86,7 +99,8 @@ function makeElement(tag,className,text){
   return el;
 }
 const sourceMode=makeSourceCanvas({$,surface,nodes:nodesArea,edges:edgesSvg,inspector:$('fx-inspector'),
-  code,errorsBox,edgeList,tell,openDrawer,getZoom:()=>zoom,download:emitFile});
+  code,errorsBox,edgeList,tell,openDrawer,getZoom:()=>zoom,download:emitFile,
+  onSize:resizeBoard,onFit:fitZoom,onResetSize:()=>resizeBoard(1120,850)});
 function portLabel(p){return p==='next'?'NEXT':p==='true'?'TRUE':'FALSE';}
 function snap(n){return Math.max(0,Math.min(8000,Math.round(n/10)*10));}
 function coordinate(event){
