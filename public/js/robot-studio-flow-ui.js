@@ -351,12 +351,12 @@ function safeStorage(fn){
 }
 function loadProject(payload){
   const validated=deserializeFlow(payload);
-  sourceMode.clear();
+  sourceMode.clear();palette();
   graph=validated;selected=graph.nodes[0]?.id||'';pending=null;render();tell('Validated visual strategy project loaded.');
 }
 $('fx-new').addEventListener('click',()=>{
   if(sourceMode.active()&&!confirm('Leave the imported robot? Download the edited source first if you want to keep changes.'))return;
-  sourceMode.clear();graph=exampleFlow();selected='buy-signal';pending=null;render();tell('Started a new sample flow. All trades remain source-only.');});
+  sourceMode.clear();palette();graph=exampleFlow();selected='buy-signal';pending=null;render();tell('Started a new sample flow. All trades remain source-only.');});
 $('fx-save').addEventListener('click',()=>{
   if(sourceMode.active())return tell('Imported source is not saved in browser storage. Download the edited MQ4/MQ5 from Code / Export to keep your work.');
   safeStorage(()=>{localStorage.setItem(FLOW_KEY,exportFlowJson(graph));tell('Validated graph saved on this device.');});});
@@ -406,9 +406,7 @@ $('fx-zoom-in').addEventListener('click',()=>setZoom(zoom+.15));
 $('fx-zoom-out').addEventListener('click',()=>setZoom(zoom-.15));
 $('fx-zoom-fit').addEventListener('click',fitZoom);
 setZoom(1);
-$('fx-import-source').addEventListener('click',()=>$('fx-source-file-input').click());
-$('fx-source-file-input').addEventListener('change',async e=>{
-  const file=e.target.files?.[0];e.target.value='';
+async function importSourceFile(file){
   if(!file)return;
   tell('Reading and reconstructing '+file.name+' into the main blueprint…');
   try{
@@ -421,12 +419,19 @@ $('fx-source-file-input').addEventListener('change',async e=>{
     pal.prepend(action);
     fitZoom();
   }catch(err){tell('Import blocked: '+err.message,true);}
+}
+$('fx-import-source').addEventListener('click',()=>$('fx-source-file-input').click());
+$('fx-source-file-input').addEventListener('change',async e=>{
+  const file=e.target.files?.[0];e.target.value='';
+  await importSourceFile(file);
 });
 $('fx-source-new').addEventListener('click',()=>$('fx-new').click());
 surface.addEventListener('dragover',e=>{
-  if(e.dataTransfer.types.includes('text/plain'))e.preventDefault();
+  if(e.dataTransfer.types.includes('text/plain')||e.dataTransfer.types.includes('Files'))e.preventDefault();
 });
 surface.addEventListener('drop',e=>{
+  const file=e.dataTransfer?.files?.[0];
+  if(file){e.preventDefault();importSourceFile(file);return;}
   const raw=e.dataTransfer.getData('text/plain');
   if(!raw.startsWith('wisdo:block:'))return;
   e.preventDefault();
