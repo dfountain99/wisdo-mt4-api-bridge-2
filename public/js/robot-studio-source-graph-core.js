@@ -127,10 +127,36 @@ export function reconnectSourceGate(caseFile,id,guardId){
   if(!gate||!caseFile.analysis.links.some(l=>l.from===guardId))throw new Error('Only verified trade guards can receive a gate.');
   gate.source=guardId;
 }
+/** Expand actual source functions as separate inspectable nodes, not generated logic. */
+export function expandSourceModule(caseFile,category){
+  const group=caseFile.hospital.groups.find(g=>g.id===category);
+  if(!group)throw new Error('Unknown source module.');
+  const base=caseFile.nodes.filter(n=>n.type!=='function');
+  const allowance=Math.max(0,Math.min(9,maxNodes-base.length-caseFile.gates.length));
+  const expanded=group.functions.slice(0,allowance).map((f,i)=>({
+    id:'fn-'+f.id,type:'function',label:f.name,
+    detail:'lines '+f.line+'–'+f.endLine+' · '+f.calls.length+' source references',
+    x:50+(i%3)*340,y:415+Math.floor(i/3)*130,source:f.id,editable:false,
+    evidence:'Lexical source references only; NOT a proven execution or timing sequence'
+  }));
+  caseFile.nodes=[...base,...expanded];
+  caseFile.expandedModule=category;
+  return expanded.length;
+}
 export function sourceEdges(caseFile){
+  const expanded=caseFile.nodes.filter(n=>n.type==='function');
+  const byName=new Map(caseFile.hospital.functions.filter(f=>expanded.some(n=>n.source===f.id)).map(f=>[f.name,'fn-'+f.id]));
+  const references=[];
+  for(const n of expanded){
+    const f=caseFile.hospital.functions.find(item=>item.id===n.source);
+    for(const name of f?.calls||[]){
+      const to=byName.get(name);
+      if(to&&to!==n.id)references.push({from:n.id,to,kind:'reference',label:'NAME REFERENCE, NOT EXECUTION'});
+    }
+  }
   return [...caseFile.edges,...caseFile.gates.map(g=>({
     from:g.id,to:'guard-'+g.source,kind:'gate',label:'AND'
-  }))];
+  })),...references];
 }
 function buildSourcePatches(caseFile){
   const {hospital,analysis,updates}=caseFile,changes=[];
