@@ -1,7 +1,7 @@
 /* WISDO Source Canvas: runs locally, never executes uploaded MQL. */
 import {decodeMqlFile,encodeMqlSource,MAX_SOURCE_BYTES} from './robot-studio-import-core.js';
 import {sourceBlueprint,moveSourceNode,updateSourceInput,updateSourceCondition,
-  attachSourceGate,removeSourceGate,reconnectSourceGate,compileSourceBlueprint,sourceEdges,sourceCaseSummary
+  attachSourceGate,removeSourceGate,reconnectSourceGate,expandSourceModule,compileSourceBlueprint,sourceEdges,sourceCaseSummary
 } from './robot-studio-source-graph-core.js';
 
 export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox,edgeList,tell,openDrawer,getZoom,download}){
@@ -38,7 +38,7 @@ export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox
       const path=document.createElementNS('http://www.w3.org/2000/svg','path');
       const x=a.x+200,y=a.y+68,p=b.x,q=b.y+63,m=Math.max(48,Math.abs(p-x)/2);
       path.setAttribute('d','M '+x+' '+y+' C '+(x+m)+' '+y+', '+(p-m)+' '+q+', '+p+' '+q);
-      path.setAttribute('class','fx-connector '+(link.kind==='gate'?'fx-source-gate-wire':'fx-source-verified'));
+      path.setAttribute('class','fx-connector '+(link.kind==='gate'?'fx-source-gate-wire':link.kind==='reference'?'fx-source-reference':'fx-source-verified'));
       path.setAttribute('fill','none');path.setAttribute('stroke-width','3');
       edges.append(path);
     }
@@ -160,10 +160,28 @@ export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox
       if(item)editParameter(item,inspector);
       return;
     }
+    if(node.type==='function'){
+      const fn=session.hospital.functions.find(f=>f.id===node.source);
+      if(!fn)return;
+      inspector.append(e('p','help','References named functions: '+(fn.calls.join(', ')||'None identified')));
+      inspector.append(e('p','help','Mentions mapped inputs: '+(fn.usesInputs?.slice(0,24).join(', ')||'None identified')));
+      inspector.append(button('Inspect original function source',()=>{
+        code.value=session.original.slice(fn.bodyStart,fn.bodyEnd).slice(0,50000);
+        openDrawer('code');tell('Original function shown. Rewiring this opaque code is not verified.');
+      }));
+      return;
+    }
     if(node.type==='module'){
       const group=session.hospital.groups.find(g=>g.id===node.source);
       if(!group)return;
       inspector.append(e('p','help',group.functions.length+' actual functions · '+group.inputs.length+' controls (classification by names).'));
+      inspector.append(button('◈ Expand functions on blueprint',()=>{
+        try{
+          const amount=expandSourceModule(session,group.id);
+          render();tell('Showing '+amount+' real function blocks for '+group.title+'. Dashed wires mean source-name references, NOT verified execution.');
+          openDrawer(null);
+        }catch(err){tell(err.message,true);}
+      }));
       const query=input('search','');query.placeholder='Search function or input names';
       inspector.append(query);
       const results=e('div','fx-source-settings');inspector.append(results);
