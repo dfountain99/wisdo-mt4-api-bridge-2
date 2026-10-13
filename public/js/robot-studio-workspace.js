@@ -14,6 +14,8 @@ function activate(mode, { navigate = false, focus = false } = {}) {
   importPanel.hidden = current !== 'import';
   if (hospitalPanel) hospitalPanel.hidden = current !== 'hospital';
   if (flowPanel) flowPanel.hidden = current !== 'flow';
+  // Only the visual blueprint takes over the viewport; specialist tools remain navigable.
+  document.body?.classList?.toggle('studio-blueprint-mode',current==='flow');
   for (const tab of tabs) {
     const selected = tab.dataset.studioView === current;
     tab.setAttribute('aria-selected', String(selected));
