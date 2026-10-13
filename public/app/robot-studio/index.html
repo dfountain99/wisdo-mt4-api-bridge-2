@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>WISDO Robot Studio | Build your first MT4 robot</title>
+  <title>WISDO Robot Studio | Strategy Command Deck</title>
   <style>
     :root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#060a12;color:#eef4ff;--gold:#efc46e;--cyan:#58d5fa;--muted:#9daabe;--line:#334357;--bg:#0d1625}
     *{box-sizing:border-box}[hidden]{display:none!important}
@@ -72,18 +72,59 @@
     @media(max-width:850px){.reverse-layout{grid-template-columns:1fr}.reverse-side{position:static}}
     .import-anchor{align-self:center;display:inline-flex;align-items:center;min-height:42px;padding:8px 4px;font-size:13px;font-weight:850;color:#f8d68b;text-decoration:underline}
   </style>
+  <link rel="stylesheet" href="/app/robot-studio/robot-studio-v2.css" media="screen" data-studio-theme>
 </head>
 <body>
 <main class="shell">
   <header class="top">
-    <div class="brand"><span class="mark" aria-hidden="true">W</span><span>WISDO <span style="color:var(--gold)">ROBOT STUDIO</span><span class="small" style="display:block;letter-spacing:normal;font-weight:500">Connect · Copy · Control</span></span></div>
-    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span class="pill">MT4 · STARTER BUILDER</span><a href="/app/dashboard">← Back to WISDO</a></div>
+    <div class="brand"><span class="mark" aria-hidden="true">W</span><span>WISDO <span style="color:var(--studio-gold)">ROBOT STUDIO</span><span class="small" style="display:block;letter-spacing:.14em;font-weight:500">STRATEGY COMMAND DECK / V2</span></span></div>
+    <nav class="top-links" aria-label="Robot Studio navigation">
+      <span class="pill">SOURCE FIRST · DEMO TESTING</span>
+      <a href="/app/command-center">← Command Center</a>
+      <a href="/app/dashboard">Member Desk ↗</a>
+    </nav>
   </header>
-  <section class="hero">
-    <div><div class="eyebrow">Your trading idea, turned into logic</div><h1>Build a robot.<br>Without writing code.</h1><p>Choose entry rules, add optional filters, set protection, and download an editable MetaTrader 4 Expert Advisor. Your strategy stays in this browser until you export it.</p></div>
-    <div class="actions"><a class="import-anchor" href="#import-rebuild">↓ Import my existing MQ4 / MQ5</a><button id="start-new">New robot</button><button class="primary" id="save-draft">Save on this device</button></div>
+  <section class="hero" aria-labelledby="studio-heading">
+    <div class="hero-copy">
+      <div class="eyebrow">WISDO // AUTOMATION WORKBENCH</div>
+      <h1 id="studio-heading">Your strategy.<br><em>Your rules.</em><br>Your robot.</h1>
+      <p>Design an MT4 strategy on a visual canvas, or bring an existing MQ4/MQ5 robot into an editable source-aware workspace. Build without guessing what the underlying code is doing.</p>
+      <div class="actions">
+        <a class="import-anchor" href="#import-rebuild" data-studio-go="import">↧ Reverse-engineer a robot</a>
+        <button id="start-new" type="button">↻ New robot</button>
+        <button class="primary" id="save-draft" type="button">Save local draft</button>
+      </div>
+    </div>
+    <div class="hero-visual" aria-label="Conceptual robot signal to trade diagram, not live account status">
+      <div class="visual-top"><span>WISDO / ENGINE BLUEPRINT</span><span>LOCAL WORKSPACE</span></div>
+      <div class="visual-flow" aria-hidden="true">
+        <div class="visual-node"><span class="symbol">⌁</span><strong>SIGNAL</strong><small>Market logic</small></div>
+        <span class="flow-arrow">→</span>
+        <div class="visual-node"><span class="symbol">◇</span><strong>GUARD</strong><small>Risk filters</small></div>
+        <span class="flow-arrow">→</span>
+        <div class="visual-node"><span class="symbol">↗</span><strong>ACTION</strong><small>EA source</small></div>
+      </div>
+      <div class="visual-foot"><span>01 INPUT</span><span>—</span><span>02 VALIDATE</span><span>—</span><b>03 EXPORT</b></div>
+    </div>
   </section>
-  <ol class="steps"><li><b>01.</b> Choose a starting strategy</li><li><b>02.</b> Customize the visual flow</li><li><b>03.</b> Export, compile & backtest</li></ol>
+  <div class="top-metrics" aria-label="Studio capabilities">
+    <div class="top-metric"><div class="metric-num">02</div><div class="metric-label">WAYS TO START<br>BUILD OR IMPORT</div></div>
+    <div class="top-metric"><div class="metric-num">4 MB</div><div class="metric-label">MAX MQ4/MQ5<br>SOURCE IMPORT</div></div>
+    <div class="top-metric"><div class="metric-num" id="studio-module-count">—</div><div class="metric-label">ACTIVE LOGIC<br>BLOCKS IN BUILDER</div></div>
+    <div class="top-metric"><div class="metric-num">0</div><div class="metric-label">AUTOMATED<br>LIVE ORDERS</div></div>
+  </div>
+  <div class="mode-switch" id="mode-switch">
+    <div class="mode-list" role="tablist" aria-label="Robot Studio workspace mode">
+      <button class="mode-tab" id="mode-create-tab" data-studio-view="builder" role="tab" aria-controls="builder-view" aria-selected="true" type="button"><span class="mode-icon" aria-hidden="true">⬡</span><span><strong>CREATE A ROBOT</strong><small>Visual strategy blueprint · MT4</small></span></button>
+      <button class="mode-tab" id="mode-import-tab" data-studio-view="import" role="tab" aria-controls="import-rebuild" aria-selected="false" type="button"><span class="mode-icon" aria-hidden="true">⌘</span><span><strong>IMPORT &amp; REBUILD</strong><small>Source-aware explorer · MQ4 / MQ5</small></span></button>
+    </div>
+    <div class="mode-live">LOCAL-FIRST / NO BROKER CONNECTION</div>
+  </div>
+  <section id="builder-view" role="tabpanel" aria-labelledby="mode-create-tab" tabindex="0">
+    <div class="mode-heading">
+      <div><div class="eyebrow">01 / STRATEGY ARCHITECTURE</div><h2>Build from the first signal.</h2><p>Configure the recipe on the left, inspect the active flow, then export reviewed source.</p></div>
+      <span class="pill">MT4 SOURCE GENERATOR</span>
+    </div>
   <div class="columns">
     <section class="panel">
       <div class="panel-head"><h2>1. Set up your robot</h2><span class="eyebrow">Rules</span></div>
@@ -157,10 +198,11 @@
       <div class="group"><h3>Planned WISDO integration</h3><p class="help">Next: cloud drafts per member, richer drag-and-drop blocks, verified backtests, WISDO bot pairing, and Command Center controls. None of these are implied by exporting this EA.</p></div>
     </section>
   </div>
-  <section id="import-rebuild" class="panel reverse-section">
+  </section>
+  <section id="import-rebuild" class="panel reverse-section" role="tabpanel" aria-labelledby="mode-import-tab" tabindex="0" hidden>
     <div class="reverse-top">
-      <div><div class="eyebrow">Source to visual workspace</div><h2>4. Import & rebuild an existing MT4 / MT5 robot</h2><p class="muted">Bring a .mq4 or .mq5 source file. WISDO discovers rules, groups editable inputs into cards, and preserves your original code.</p></div>
-      <div class="pill">BETA · SOURCE EXPLORER</div>
+      <div><div class="eyebrow">02 / CODE-TO-CANVAS RECONSTRUCTION</div><h2>Bring your existing robot to life.</h2><p class="muted">Bring a .mq4 or .mq5 source file. WISDO discovers rules, groups editable inputs into cards, and preserves your original code.</p></div>
+      <div class="pill">MQ4 / MQ5 · BETA</div>
     </div>
     <div id="reverse-dropzone" class="reverse-dropzone">
       <button id="reverse-choose" class="primary" type="button">Import .mq4 / .mq5</button>
@@ -175,7 +217,7 @@
       <div class="reverse-layout">
         <section>
           <div class="panel-head"><h3>Reconstructed visual blocks</h3><button id="reverse-layout-reset" type="button">Reset layout</button></div>
-          <p class="help">Drag discovered cards between groups, or use ↑ / ↓ and group selectors on mobile. Layout moves are visual only; editing a <strong>CODE-LINKED INPUT</strong> or a supported simple numeric condition updates the exact mapped source.</p>
+          <p class="help">Drag discovered cards between groups, or use ↑ / ↓ and group selectors on mobile. Layout moves are visual only; editing a <strong>CODE-LINKED RULE</strong> or a supported simple numeric condition updates the exact mapped source.</p>
           <div id="reverse-canvas" class="reverse-canvas" aria-label="Editable source reconstruction board"></div>
         </section>
         <section class="reverse-side">
@@ -194,9 +236,10 @@
       </div>
     </div>
   </section>
-  <footer class="foot">WISDO Robot Studio v1 · Browser draft + MT4 export only · Independent implementation, not affiliated with fxDreema</footer>
+  <footer class="foot">WISDO ROBOT STUDIO / COMMAND DECK V2 · Source editing only · Compile and demo-test before trading · Independent of fxDreema</footer>
 </main>
 <script type="module" src="/js/robot-studio-ui.js"></script>
 <script type="module" src="/js/robot-studio-import-ui.js"></script>
+<script type="module" src="/js/robot-studio-workspace.js"></script>
 </body>
 </html>
