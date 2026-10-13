@@ -19,6 +19,7 @@ export const BLOCKS = Object.freeze({
   wait: { title:'End / do nothing', icon:'◼', group:'Action', ports:[], description:'Ends this branch without trading.' }
 });
 const TYPES = Object.keys(BLOCKS);
+const known = type => Object.prototype.hasOwnProperty.call(BLOCKS,type);
 const defaultParams = {
   tick: {}, ema: { direction:'up',fast:9,slow:21 },
   rsi: { mode:'below', period:14, threshold:30 },
@@ -28,7 +29,7 @@ const defaultParams = {
 const int = (n,lo,hi) => Number.isInteger(n) && n>=lo && n<=hi;
 const num = (n,lo,hi) => typeof n==='number' && Number.isFinite(n) && n>=lo && n<=hi;
 export function freshNode(type,id,x=120,y=100){
-  if(!BLOCKS[type])throw new Error('Unsupported block type: '+type);
+  if(!known(type))throw new Error('Unsupported block type: '+type);
   return { id, type, x, y, params: { ...defaultParams[type] } };
 }
 export function exampleFlow(){
@@ -88,8 +89,8 @@ export function validateFlow(g){
     if(!n || typeof n!=='object' || !/^[a-zA-Z0-9_-]{1,64}$/.test(n.id||'')){errors.push('Invalid block ID.');continue;}
     if(byId.has(n.id))errors.push('Duplicate block ID: '+n.id);
     byId.set(n.id,n);
-    if(!BLOCKS[n.type]){errors.push(n.id+': unknown block type.');continue;}
-    if(!num(n.x,0,8000)||!num(n.y,0,8000))errors.push(n.id+': invalid canvas coordinates.');
+    if(!known(n.type)){errors.push(n.id+': unknown block type.');continue;}
+    if(!num(n.x,0,920)||!num(n.y,0,700))errors.push(n.id+': invalid canvas coordinates.');
     if(!n.params||typeof n.params!=='object'||Array.isArray(n.params))errors.push(n.id+': invalid parameters.');
     else checkParams(n,errors);
   }
@@ -100,7 +101,7 @@ export function validateFlow(g){
     if(!e || typeof e!=='object'){errors.push('Invalid connection.');continue;}
     const a=byId.get(e.from), b=byId.get(e.to);
     if(!a || !b){errors.push('Connection points at a missing block.');continue;}
-    if(!BLOCKS[a.type]?.ports.includes(e.port)){errors.push('Invalid output port on '+e.from+'.');continue;}
+    if(!known(a.type)||!BLOCKS[a.type].ports.includes(e.port)){errors.push('Invalid output port on '+e.from+'.');continue;}
     if(e.to===e.from)errors.push('Block cannot link to itself.');
     if(b.type==='tick')errors.push('OnTick event cannot receive a connection.');
     const key=e.from+'|'+e.port;
@@ -117,7 +118,7 @@ export function validateFlow(g){
       if(visited.has(id))return;
       visited.add(id);active.add(id);
       const node=byId.get(id);
-      if(node&&BLOCKS[node.type])for(const port of BLOCKS[node.type].ports){
+      if(node&&known(node.type))for(const port of BLOCKS[node.type].ports){
         const next=outgoing.get(id+'|'+port);
         if(next)walk(next);
       }
@@ -134,7 +135,7 @@ export function validateFlow(g){
 export function connectFlow(raw, from, port, to){
   const g=structuredClone(raw);
   const source=g.nodes.find(n=>n.id===from),target=g.nodes.find(n=>n.id===to);
-  if(!source||!target||!BLOCKS[source.type].ports.includes(port)||target.type==='tick'||from===to)
+  if(!source||!target||!known(source.type)||!BLOCKS[source.type].ports.includes(port)||target.type==='tick'||from===to)
     throw new Error('Select a valid output port and another non-event block.');
   g.edges=g.edges.filter(e=>!(e.from===from&&e.port===port)&&e.to!==to);
   g.edges.push({from,port,to});
