@@ -1,13 +1,13 @@
 /* WISDO Source Canvas: runs locally, never executes uploaded MQL. */
 import {decodeMqlFile,encodeMqlSource,MAX_SOURCE_BYTES} from './robot-studio-import-core.js';
 import {sourceBlueprint,moveSourceNode,updateSourceInput,updateSourceCondition,
-  attachSourceGate,removeSourceGate,reconnectSourceGate,expandSourceModule,compileSourceBlueprint,sourceEdges,sourceCaseSummary
+  attachSourceGate,removeSourceGate,reconnectSourceGate,expandSourceModule,compileSourceBlueprint,sourceEdges,sourceCaseSummary,setSourceView,visibleSourceNodes,sourceCategorySummary
 } from './robot-studio-source-graph-core.js';
 
-export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox,edgeList,tell,openDrawer,getZoom,download}){
+export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox,edgeList,tell,openDrawer,getZoom,download,onSize,onFit,onResetSize}){
   let session=null,bytes=null,encoding=null,selected='',compiled=null;
   const active=()=>!!session;
-  const all=()=>session?[...session.nodes,...session.gates]:[];
+  const all=()=>session?visibleSourceNodes(session):[];
   const find=id=>all().find(n=>n.id===id);
   const e=(tag,cls='',value)=>{
     const item=document.createElement(tag);item.className=cls;
@@ -18,12 +18,37 @@ export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox
   const input=(type,value)=>{const x=e('input');x.type=type;x.value=String(value);if(type==='number')x.step='any';return x;};
   const select=(values,value)=>{const x=e('select');for(const v of values){const o=e('option','',v);o.value=v;x.append(o);}x.value=String(value);return x;};
   function row(title,control,cb){const x=e('label','fx-field');x.append(e('span','',title),control);control.addEventListener('change',cb);return x;}
+  function setView(mode,category=null){
+    if(!session)return;
+    setSourceView(session,mode,category);
+    selected=visibleSourceNodes(session)[0]?.id||'';
+    render();
+    onFit?.();
+    tell(mode==='all'?'All '+session.hospital.functions.length+' functions shown. Scroll to explore or collapse to eight engines.':
+      mode==='collapsed'?'Collapsed to eight engines. Tap an engine to work inside its functions.':
+      'Focused '+session.categories.find(c=>c.id===category)?.title+'. All its functions are visible.');
+  }
+  function setupNavigation(){
+    const categories=sourceCategorySummary(session);
+    const selectBox=$('fx-source-category');
+    selectBox.replaceChildren();
+    const none=e('option','', 'Choose engine…');none.value='';selectBox.append(none);
+    for(const c of categories){
+      const option=e('option','',c.title+' ('+c.functions+')');
+      option.value=c.id;selectBox.append(option);
+    }
+    selectBox.value=session.view==='category'?session.activeCategory:'';
+    $('fx-source-all').setAttribute('aria-pressed',String(session.view==='all'));
+    $('fx-source-collapse').setAttribute('aria-pressed',String(session.view==='collapsed'));
+    $('fx-source-file').textContent=session.filename+' · '+session.platform+' · '+
+      session.hospital.functions.length+' total functions · '+all().length+' shown';
+  }
   function refresh(){
     try{
       compiled=compileSourceBlueprint(session);
       code.value=compiled.source.slice(0,125000)+(compiled.source.length>125000?'\n// Preview truncated; export includes complete source.':'');
       $('fx-compile-state').textContent=session.platform+' SOURCE · '+compiled.changes.length+' mapped edit(s) · NOT COMPILED';
-      $('fx-graph-stats').textContent=all().length+' shown · '+session.represented.functions+' functions';
+      $('fx-graph-stats').textContent=all().filter(n=>n.type==='function').length+'/'+session.hospital.functions.length+' functions · '+all().length+' cards';
       $('fx-download-mq4').disabled=false;$('fx-export-json').disabled=false;
       errorsBox.replaceChildren(e('p','fx-source-caution','Unverified execution logic stays read-only. Compiler and demo testing are still required.'));
     }catch(err){
@@ -55,7 +80,10 @@ export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox
         e('strong','',n.label.length>42?n.label.slice(0,39)+'…':n.label));
       card.append(head,e('div','fx-node-desc',n.detail),
         e('span','fx-source-badge',n.type==='gate'?'EDITABLE LINK':n.editable?'SOURCE-LINKED':'SOURCE X-RAY'));
-      const choose=()=>{selected=n.id;draw();inspect();openDrawer('inspector');};
+      const choose=()=>{
+        if(n.type==='module'&&session.view==='collapsed'){setView('category',n.category);return;}
+        selected=n.id;draw();inspect();openDrawer('inspector');
+      };
       card.addEventListener('click',choose);
       card.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();choose();}});
       head.addEventListener('pointerdown',ev=>{
@@ -174,11 +202,16 @@ export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox
     if(node.type==='module'){
       const group=session.hospital.groups.find(g=>g.id===node.source);
       if(!group)return;
-      inspector.append(e('p','help',group.functions.length+' actual functions · '+group.inputs.length+' controls (classification by names).'));
+      const major=session.categories.find(cat=>cat.id===node.category);
+      const related=major?.buckets||[group.id];
+      const allFunctions=related.flatMap(key=>session.hospital.groups.find(g=>g.id===key)?.functions||[]);
+      const allInputs=related.flatMap(key=>session.hospital.groups.find(g=>g.id===key)?.inputs||[]);
+      inspector.append(e('p','help',allFunctions.length+' actual functions · '+allInputs.length+' controls (classification by names).'));
+      inspector.append(button('Open this engine on the blueprint',()=>{setView('category',node.category);openDrawer(null);}));
       inspector.append(button('◈ Expand functions on blueprint',()=>{
         try{
-          const amount=expandSourceModule(session,group.id);
-          render();tell('Showing '+amount+' real function blocks for '+group.title+'. Dashed wires mean source-name references, NOT verified execution.');
+          const amount=expandSourceModule(session,node.category);
+          render();onFit?.();tell('Showing ALL '+amount+' original function blocks for '+group.title+'. Dashed wires are lexical references, not verified trade execution.');
           openDrawer(null);
         }catch(err){tell(err.message,true);}
       }));
@@ -187,10 +220,10 @@ export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox
       const results=e('div','fx-source-settings');inspector.append(results);
       const update=()=>{
         const term=query.value.toLowerCase();results.replaceChildren();
-        for(const item of group.inputs.filter(i=>i.name.toLowerCase().includes(term)).slice(0,80))
+        for(const item of allInputs.filter(i=>i.name.toLowerCase().includes(term)).slice(0,80))
           editParameter(item,results);
         results.append(e('h4','','Function source · read only'));
-        for(const fn of group.functions.filter(f=>f.name.toLowerCase().includes(term)).slice(0,25)){
+        for(const fn of allFunctions.filter(f=>f.name.toLowerCase().includes(term)).slice(0,25)){
           results.append(button(fn.name+' · line '+fn.line,()=>{
             code.value=session.original.slice(fn.bodyStart,fn.bodyEnd).slice(0,24000);
             openDrawer('code');tell('Original function displayed. Complex function rewrites are locked.');
@@ -203,7 +236,8 @@ export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox
   function render(){
     if(!session)return;
     $('fx-source-session').hidden=false;
-    $('fx-source-file').textContent=session.filename+' · '+session.platform+' · '+session.represented.inputs+' inputs · '+session.represented.functions+' functions';
+    setupNavigation();
+    onSize?.(session.dimensions.width,session.dimensions.height);
     $('fx-download-mq4').textContent='Export edited '+session.platform+' source';
     draw();inspect();refresh();
     $('fx-global-settings').replaceChildren(e('p','fx-source-caution','Imported EA settings are edited from mapped blocks. The starter bot risk settings do NOT apply to this code.'));
@@ -215,8 +249,8 @@ export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox
     const raw=new Uint8Array(await file.arrayBuffer()),decoded=decodeMqlFile(raw);
     const parsed=sourceBlueprint(decoded.text,file.name);
     session=parsed;bytes=raw;encoding={encoding:decoded.encoding,bom:decoded.bom};
-    selected=parsed.nodes[0].id;render();
-    tell('Imported '+file.name+' into the main Blueprint: '+parsed.represented.functions+' functions mapped. Unknown execution links remain protected.');
+    selected=visibleSourceNodes(parsed)[0]?.id||'';render();
+    tell('Imported '+file.name+': ALL '+parsed.hospital.functions.length+' function blocks are visible. Collapse to eight engines at any time.');
     return sourceCaseSummary(parsed);
   }
   function addGate(){
@@ -236,6 +270,7 @@ export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox
   function clear(){
     session=null;bytes=null;encoding=null;selected='';compiled=null;
     $('fx-source-session').hidden=true;$('fx-download-mq4').textContent='Export MT4 code (.mq4)';
+    onResetSize?.();
   }
   function exportSource(){
     if(!session||!compiled)throw new Error('Import source first or fix invalid source edits.');
@@ -248,5 +283,17 @@ export function makeSourceCanvas({$,surface,nodes,edges,inspector,code,errorsBox
       changes:compiled.changes.map(({kind,label})=>({kind,label})),compiled:false,backtested:false};
     download(session.filename+'.wisdo-report.json',new TextEncoder().encode(JSON.stringify(report,null,2)),'application/json');
   }
-  return {active,load,render,clear,addGate,exportSource,exportReport,get session(){return session;}};
+  $('fx-source-all').addEventListener('click',()=>setView('all'));
+  $('fx-source-collapse').addEventListener('click',()=>setView('collapsed'));
+  $('fx-source-category').addEventListener('change',event=>{
+    const category=event.target.value;
+    setView(category?'category':'collapsed',category||null);
+  });
+  $('fx-source-arrange').addEventListener('click',()=>{
+    if(!session)return;
+    session.positions?.delete(session.view==='category'?'category:'+session.activeCategory:session.view);
+    setView(session.view,session.activeCategory);
+    tell('Rearranged displayed blocks into source-category rows. EA logic and edits unchanged.');
+  });
+  return {active,load,render,clear,addGate,setView,exportSource,exportReport,get session(){return session;},get dimensions(){return session?.dimensions;}};
 }
