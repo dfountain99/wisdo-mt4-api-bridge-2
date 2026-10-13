@@ -9,6 +9,11 @@ const BOARD_WIDTH=1120, BOARD_HEIGHT=850, NODE_WIDTH=200;
 let graph=exampleFlow(), selected='buy-signal',pending=null,counter=0;
 const svgNS='http://www.w3.org/2000/svg';
 const surface=$('fx-flow-board');
+const flowShell=$('flow-builder');
+const zoomSpace=$('fx-zoom-spacer');
+let zoom=1;
+let activeDrawer=null;
+let lastDrawerTrigger=null;
 const status=$('fx-status');
 const code=$('fx-code');
 const scroll=$('fx-board-scroll');
@@ -23,6 +28,49 @@ const options=[
   ['Actions',['buy','sell','wait']]
 ];
 const safeName=(s)=>String(s||'WISDO_FLOW').replace(/[^A-Za-z0-9_.-]/g,'_').slice(0,85);
+
+// The canvas fills the viewport. Additional tools never consume permanent canvas width.
+function openDrawer(name, trigger=null){
+  const names=new Set(['blocks','inspector','risk','code','projects','studios']);
+  if(name!==null&&!names.has(name))return;
+  activeDrawer=name;
+  if(name!==null&&trigger)lastDrawerTrigger=trigger;
+  if(name===null)delete flowShell.dataset.fxDrawer;
+  else flowShell.dataset.fxDrawer=name;
+  for(const panel of flowShell.querySelectorAll('[data-fx-panel]')){
+    const isOpen=panel.dataset.fxPanel===name;
+    panel.inert=!isOpen;
+    panel.setAttribute('aria-hidden',String(!isOpen));
+    if(isOpen&&trigger)panel.querySelector('[data-fx-close]')?.focus({preventScroll:true});
+  }
+  for(const btn of flowShell.querySelectorAll('[data-fx-open]')){
+    btn.setAttribute('aria-expanded',String(btn.dataset.fxOpen===name));
+  }
+  if(name===null&&lastDrawerTrigger){
+    lastDrawerTrigger.focus?.({preventScroll:true});
+    lastDrawerTrigger=null;
+  }
+}
+function toggleDrawer(name,trigger=null){
+  openDrawer(activeDrawer===name?null:name,trigger);
+}
+function setZoom(raw){
+  if(!Number.isFinite(raw))return;
+  zoom=Math.min(1.5,Math.max(.45,Math.round(raw*100)/100));
+  surface.style.transform='scale('+zoom+')';
+  zoomSpace.style.width=Math.ceil(BOARD_WIDTH*zoom)+'px';
+  zoomSpace.style.height=Math.ceil(BOARD_HEIGHT*zoom)+'px';
+  $('fx-zoom-label').textContent=Math.round(zoom*100)+'%';
+  $('fx-zoom-out').disabled=zoom<=.45;
+  $('fx-zoom-in').disabled=zoom>=1.5;
+}
+function fitZoom(){
+  const usableW=Math.max(300,scroll.clientWidth-36),usableH=Math.max(220,scroll.clientHeight-32);
+  setZoom(Math.min(usableW/BOARD_WIDTH,usableH/BOARD_HEIGHT,1.5));
+  scroll.scrollTop=0;scroll.scrollLeft=0;
+  tell('Blueprint fitted to the available screen. Zoom in for full-size editing.');
+}
+
 function tell(message,err=false){status.textContent=message;status.classList.toggle('error',err);}
 function emitFile(name,data,type='text/plain;charset=utf-8'){
   const url=URL.createObjectURL(new Blob([data],{type})),a=document.createElement('a');
@@ -40,8 +88,8 @@ function portLabel(p){return p==='next'?'NEXT':p==='true'?'TRUE':'FALSE';}
 function snap(n){return Math.max(0,Math.min(8000,Math.round(n/10)*10));}
 function coordinate(event){
   const rect=surface.getBoundingClientRect();
-  return {x:Math.min(BOARD_WIDTH-220,Math.max(10,snap(event.clientX-rect.left))),
-          y:Math.min(BOARD_HEIGHT-155,Math.max(10,snap(event.clientY-rect.top)))};
+  return {x:Math.min(BOARD_WIDTH-220,Math.max(10,snap((event.clientX-rect.left)/zoom))),
+          y:Math.min(BOARD_HEIGHT-155,Math.max(10,snap((event.clientY-rect.top)/zoom)))};
 }
 function palette(){
   const root=$('fx-palette');root.replaceChildren();
@@ -136,8 +184,8 @@ function drawNode(node){
     function moving(e){
       if(Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>4)changed=true;
       if(!changed)return;
-      node.x=Math.min(BOARD_WIDTH-220,Math.max(8,snap(ox+e.clientX-sx)));
-      node.y=Math.min(BOARD_HEIGHT-160,Math.max(8,snap(oy+e.clientY-sy)));
+      node.x=Math.min(BOARD_WIDTH-220,Math.max(8,snap(ox+(e.clientX-sx)/zoom)));
+      node.y=Math.min(BOARD_HEIGHT-160,Math.max(8,snap(oy+(e.clientY-sy)/zoom)));
       el.style.left=node.x+'px';el.style.top=node.y+'px';svgDraw();
     }
     function finished(){
@@ -170,7 +218,7 @@ function drawNode(node){
     el.append(portBtn);
     el.append(makeElement('span','fx-port-label fx-label-'+port,portLabel(port)));
   }
-  el.addEventListener('click',()=>{selected=node.id;renderInspector();renderNodes();});
+  el.addEventListener('click',()=>{selected=node.id;renderInspector();renderNodes();openDrawer('inspector');});
   return el;
 }
 function renderNodes(){
@@ -320,10 +368,30 @@ $('fx-copy').addEventListener('click',async()=>{
   try{await navigator.clipboard.writeText(code.value);tell('Generated code copied.');}
   catch{tell('Clipboard permission unavailable; select the code preview to copy manually.',true);}
 });
-$('fx-palette-toggle').addEventListener('click',()=>{
-  const p=$('fx-palette-panel');p.hidden=!p.hidden;
-  $('fx-palette-toggle').setAttribute('aria-expanded',String(!p.hidden));
+// The old mobile palette toggle remains available to preserve keyboard and project controls.
+$('fx-palette-toggle').addEventListener('click',()=>toggleDrawer('blocks'));
+for(const btn of flowShell.querySelectorAll('[data-fx-open]')){
+  btn.addEventListener('click',()=>toggleDrawer(btn.dataset.fxOpen,btn));
+}
+for(const btn of flowShell.querySelectorAll('[data-fx-close]')){
+  btn.addEventListener('click',()=>openDrawer(null));
+}
+$('fx-drawer-backdrop').addEventListener('click',()=>openDrawer(null));
+document.addEventListener('keydown',event=>{
+  if(event.key==='Escape'&&activeDrawer!==null&&flowShell.hidden===false){
+    event.preventDefault();openDrawer(null);
+  }
 });
+for(const btn of flowShell.querySelectorAll('[data-fx-studio]')){
+  btn.addEventListener('click',()=>{
+    const target=document.querySelector('[data-studio-view="'+btn.dataset.fxStudio+'"]');
+    if(target){openDrawer(null);target.click();}
+  });
+}
+$('fx-zoom-in').addEventListener('click',()=>setZoom(zoom+.15));
+$('fx-zoom-out').addEventListener('click',()=>setZoom(zoom-.15));
+$('fx-zoom-fit').addEventListener('click',fitZoom);
+setZoom(1);
 surface.addEventListener('dragover',e=>{
   if(e.dataTransfer.types.includes('text/plain'))e.preventDefault();
 });
