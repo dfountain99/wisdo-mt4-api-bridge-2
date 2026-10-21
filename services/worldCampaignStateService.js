@@ -231,9 +231,9 @@ export class WorldCampaignStateService {
       campaigns,
       selectedCampaignId: campaigns[0]?.campaignId || null,
       financial: {
-        balance: finite(snapshot.balance, 0),
-        equity: finite(snapshot.equity, 0),
-        floatingPL: finite(snapshot.floatingPL, 0),
+        balance: finite(snapshot.balance, null),
+        equity: finite(snapshot.equity, null),
+        floatingPL: finite(snapshot.floatingPL, null),
         margin: finite(snapshot.margin, 0),
         freeMargin: finite(snapshot.freeMargin, 0),
         marginLevel: finite(snapshot.marginLevel, 0),
