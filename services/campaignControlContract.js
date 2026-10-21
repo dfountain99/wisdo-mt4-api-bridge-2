@@ -110,7 +110,7 @@ export function campaignPacket(action, body, state) {
   const c = state.campaignControl;
   if (!c || !c.live) fail('A fresh campaign EA connection is required.');
   if (c.pendingId && c.pendingId !== c.ackId) fail('The EA is still processing an earlier command.');
-  if (Number(body.eaCampaignId) !== c.campaignId) fail('Campaign changed. Preview the current campaign again.');
+  if (!['CHAIN_ARM','CHAIN_CANCEL','CHAIN_PAUSE','CHAIN_RESUME'].includes(action) && Number(body.eaCampaignId) !== c.campaignId) fail('Campaign changed. Preview the current campaign again.');
   const definition = CAMPAIGN_ACTIONS[action];
   if (!definition) fail('Unsupported campaign instruction.');
   const duration = Number(body.durationSeconds || 0);
