@@ -18,6 +18,14 @@ export function mountCampaignCommand(host, { accountId, api }) {
     </style><div class="wco-heading"><div><span class="eyebrow">WISDO Command OS</span><h2>Campaign canvas</h2></div><a class="btn ghost" href="/app/accounts">Connection</a></div>
     <div class="wco-layout"><section class="wco-map"><div class="wco-top"><button class="wco-orb" aria-label="Tap for summary; hold to speak">WISDO</button><div><strong data-health>Connecting to your account…</strong><p data-goal class="muted"></p></div></div><div class="wco-meta" data-meta></div><div class="wco-empty" data-empty></div><svg class="wco-canvas" viewBox="0 0 800 520" aria-label="Campaign levels, targets and rail" role="img"></svg><label class="wco-zoom">DEPTH <input data-zoom type="range" min="1" max="4" step="0.1" value="1"></label><div data-trades class="wco-trades" aria-label="Select trades"></div><small class="muted">Drag a target or rail to a confirmed pivot. Circle trade dots to select a group. Pinch to zoom. All changes open a preview.</small><section class="wco-analytics" data-spatial-analytics aria-live="polite"></section><section class="wco-inspector" data-spatial-inspector hidden></section></section>
     <aside class="card wco-side"><section class="vibe-core" data-vibe-core hidden></section><span class="eyebrow">Speak · select · shape</span><h3>Plan your next action</h3><label>Your instruction<textarea data-text rows="3" placeholder="Wisdo, after each win pause 15 minutes"></textarea></label><div class="wco-actions"><button class="btn" data-voice>Speak</button><button class="btn" data-interpret>Interpret & preview</button></div><label>Action<select data-action>${Object.entries(labels).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label><label data-duration-label>Duration in minutes<input type="number" data-duration min="0.016667" max="10080" value="15" step="any"></label><label data-burst-label>SONIC entries (maximum 10)<input type="number" data-burst min="1" max="10" value="10"></label><label data-level-label>Confirmed destination<select data-level><option value="">Waiting for EA levels</option></select></label><div class="wco-actions"><button class="btn" data-preview>Preview action</button><button class="btn primary wco-hold" data-arm disabled aria-pressed="false">Hold to confirm</button><button class="btn ghost" data-dismiss>Clear preview</button></div><p role="status" aria-live="polite" class="wco-message" data-message>No command sent. Preview first, then hold to confirm.</p><label><input type="checkbox" data-speak> WISDO Voice feedback</label><small>Pauses block entries while existing protection continues. A new intention replaces the previous standing rule. “Enter now” requests the EA’s normal evaluation.</small><details><summary>Command history</summary><ol class="wco-log" data-log></ol></details></aside></div>`;
+  const scheduleUi=document.createElement('section');scheduleUi.className='wco-schedule';scheduleUi.innerHTML='<h3>Live EA Weekly Schedule · Broker clock</h3><p data-schedule-status>Checking EA schedule capability…</p><label>Start hour <select data-schedule-start></select></label><label>End hour (exclusive) <select data-schedule-end></select></label><div data-schedule-days></div><button type="button" class="btn" data-schedule-preview disabled>Preview schedule change</button><small>Schedule edits require confirmation and EA-reported schedule telemetry. Existing positions continue to be managed.</small>';
+  host.appendChild(scheduleUi);
+  const scheduleStart=scheduleUi.querySelector('[data-schedule-start]'),scheduleEnd=scheduleUi.querySelector('[data-schedule-end]');
+  for(let hour=0;hour<24;hour++){for(const el of [scheduleStart,scheduleEnd]){const opt=document.createElement('option');opt.value=String(hour);opt.textContent=String(hour).padStart(2,'0')+':00';el.appendChild(opt);}}
+  scheduleStart.value='7';scheduleEnd.value='21';
+  const scheduleDays=scheduleUi.querySelector('[data-schedule-days]');
+  ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach((name,i)=>{const label=document.createElement('label');label.style.display='inline-flex';label.style.margin='4px 10px 4px 0';const input=document.createElement('input');input.type='checkbox';input.value=String(i);input.checked=i>=1&&i<=5;label.appendChild(input);label.appendChild(document.createTextNode(' '+name));scheduleDays.appendChild(label);});
+  const guardianStyle=document.createElement('style');guardianStyle.textContent='.wco-top{top:20px!important}.wco-orb{width:142px!important;height:142px!important;font-size:62px!important;box-shadow:0 0 35px #c59d4388!important;transition:transform .35s,filter .35s}.wco-orb[data-mood=winning]{filter:drop-shadow(0 0 15px #42e88c);animation:guardianHappy 1.6s infinite}.wco-orb[data-mood=sick]{filter:grayscale(.6);animation:guardianSick 2.3s infinite}.wco-orb[data-mood=struggling]{filter:sepia(.7)}.wco-orb[data-mood=offline],.wco-orb[data-mood=drained]{opacity:.45;filter:grayscale(1)}.wco-orb[data-mood=sleeping]{filter:saturate(.5)}@keyframes guardianHappy{50%{transform:translateY(-8px) scale(1.07)}}@keyframes guardianSick{50%{transform:rotate(-5deg) scale(.95)}}.wco-schedule{background:#0a1724;border:1px solid #8f712e;border-radius:16px;padding:16px;margin:16px 0;color:#f7dfac}.wco-schedule select{background:#152536;color:white;padding:7px;margin-left:8px}.wco-schedule small{display:block;margin-top:8px;color:#c9c1ad}';host.appendChild(guardianStyle);
   const spatialAnalytics = createSpatialAnalytics(host);
   let spatialInteraction = null, vibeCore = null;
   const say = async text => {
@@ -46,6 +54,8 @@ export function mountCampaignCommand(host, { accountId, api }) {
     clearPreview();busy=true;
     try {
       let action=intent.action || q('[data-action]').value;
+      const capability=state?.capabilities?.[action];
+      if(!capability?.available)throw Error(capability?.reason||'This command is not verified for the selected EA.');
       const c=state.campaignControl;
       let level=levels().find(l=>l.id===Number(q('[data-level]').value));
       if (intent.notches) {
@@ -56,7 +66,7 @@ export function mountCampaignCommand(host, { accountId, api }) {
       }
       if (intent.levelId)level=levels().find(l=>l.id===intent.levelId);
       if(action==='PROTECT_RAIL' && !level)level=levels().filter(l=>c.direction*(l.price-c.rail)>0).sort((a,b)=>c.direction*(a.price-b.price))[0];
-      const body={action,accountId,burstCount:intent.burstCount ?? Number(q('[data-burst]').value),eaCampaignId:c?.campaignId,durationSeconds:intent.durationSeconds ?? Math.round(Number(q('[data-duration]').value)*60),tickets:selectedTickets(),levelId:level?.id,levelPrice:level?.price};
+      const body={action,accountId,burstCount:intent.burstCount ?? Number(q('[data-burst]').value),eaCampaignId:c?.campaignId,durationSeconds:intent.durationSeconds ?? Math.round(Number(q('[data-duration]').value)*60),tickets:selectedTickets(),levelId:level?.id,levelPrice:level?.price,...(action==='SET_EA_SCHEDULE'?{slotMasks:intent.slotMasks}: {})};
       const result=await api('/api/world/command/propose',{method:'POST',body:JSON.stringify(body)});
       if(stopped)return;
       proposal=result.proposal;lastIntent=body;q('[data-action]').value=action;updateFields();
@@ -74,6 +84,7 @@ export function mountCampaignCommand(host, { accountId, api }) {
       if(stopped)return;receipt=result.receipt;message('Queued by WISDO. Waiting for Reporter delivery and the EA’s separate acknowledgement.');void poll();
     }catch(error){message(`${error.message} Check command history before retrying an uncertain request.`);}finally{busy=false;}
   };
+  scheduleUi.querySelector('[data-schedule-preview]').onclick=()=>{const start=Number(scheduleStart.value),end=Number(scheduleEnd.value);const slotMasks=Array.from(scheduleDays.querySelectorAll('input')).map(el=>{if(!el.checked)return 0;let mask=0;for(let hour=0;hour<24;hour++)if(start===end||(start<end?hour>=start&&hour<end:hour>=start||hour<end))mask|=1<<hour;return mask;});void preview({action:'SET_EA_SCHEDULE',slotMasks});};
   q('[data-arm]').onpointerdown=e=>{if(!proposal || busy)return;e.preventDefault();q('[data-arm]').setPointerCapture(e.pointerId);holding=true;heldAt=performance.now();q('[data-arm]').setAttribute('aria-pressed','true');holdTimer=setTimeout(commit,proposal.holdRequiredMs+30);};
   q('[data-arm]').onpointerup=cancelHold;q('[data-arm]').onpointercancel=cancelHold;q('[data-arm]').onlostpointercapture=cancelHold;
   q('[data-arm]').onkeydown=e=>{if(![' ','Enter'].includes(e.key)||e.repeat||!proposal)return;e.preventDefault();holding=true;heldAt=performance.now();holdTimer=setTimeout(commit,proposal.holdRequiredMs+30);};q('[data-arm]').onkeyup=cancelHold;q('[data-arm]').onblur=cancelHold;
@@ -99,15 +110,24 @@ export function mountCampaignCommand(host, { accountId, api }) {
   let yFor = () => 0, priceFor = () => 0;
   const draw = () => {
     const c=state?.campaignControl, trades=positions(), ls=levels();
-    powerDock?.update({positions:(state?.campaigns||[]).flatMap(x=>x.positions||[]),live:Boolean(c?.live)});
+    powerDock?.update({positions:(state?.campaigns||[]).flatMap(x=>x.positions||[]),live:Boolean(c?.live),capabilities:state?.capabilities||{}});
+    const accountEquity=Number(state?.account?.equity??state?.account?.currentEquity??NaN);
+    const mood=Number.isFinite(accountEquity)&&accountEquity<=0?'drained':(!c?.live)?'offline':(Number(c.progress?.floating||0)<0&&Number(c.progress?.campaignBase||0)>0&&Math.abs(Number(c.progress.floating))/Number(c.progress.campaignBase)>.05)?'sick':Number(c.progress?.floating||0)>0?'winning':Number(c.progress?.floating||0)<0?'struggling':c?.paused?'sleeping':'watching';
+    const orb=q('.wco-orb');orb.dataset.mood=mood;orb.textContent=({offline:'◌',drained:'🥀',sick:'🤒',winning:'😄',struggling:'😟',sleeping:'😴',watching:'🦉'})[mood];orb.title='Guardian mood: '+mood+' · based on reported campaign telemetry';
     const oldLevel=q('[data-level]').value;
     q('[data-level]').innerHTML=ls.length?ls.map(l=>`<option value="${l.id}">${escape(l.price)} · confirmed pivot</option>`).join(''):'<option value="">No verified levels</option>';
     if(ls.some(l=>String(l.id)===oldLevel))q('[data-level]').value=oldLevel;
+    const scheduleReady=Boolean(state?.capabilities?.SET_EA_SCHEDULE?.available);
+    scheduleUi.querySelector('[data-schedule-preview]').disabled=!scheduleReady;
+    scheduleUi.querySelector('[data-schedule-status]').textContent=scheduleReady?(c.scheduleActive?(c.scheduleAllowed?'EA confirmed: current hour allowed':'EA confirmed: current hour blocked'):'EA receiver ready; schedule not active'):(state?.capabilities?.SET_EA_SCHEDULE?.reason||'Schedule receiver unavailable');
     q('[data-health]').textContent=c?.live?`${c.symbol} · campaign EA connected`:`${state?.executionHealth?.reporter || 'Waiting'} · campaign controls unavailable`;
     q('[data-goal]').textContent=c?`${goalLabels[c.goal] || 'EA rule active'}${c.remainingSeconds?` · ${Math.ceil(c.remainingSeconds/60)} min remaining`:''}${c.paused?' · entries paused':''}${c.goal===12?` · ${c.burstRemaining} SONIC entries remaining`:''}`:'Waiting for campaign telemetry';
     q('[data-meta]').textContent=c?`Campaign ${c.campaignId || 'not started'} · ${c.direction===1?'BUY':c.direction===-1?'SELL':'FLAT'} · Rail ${c.rail || '—'} · Banked milestones ${c.banked}`:'No campaign values have been supplied.';
     q('[data-empty]').hidden=Boolean(c);q('[data-empty]').textContent=state?.account?'Install Reporter 1.60 and H620 receiver 6.21 on the same terminal. Enable campaign control with the exact symbol and magic number. Existing account data remains available in Trade controls.':'Select a Reporter-backed account to connect this canvas.';
-    q('[data-preview]').disabled=!c?.live;q('[data-interpret]').disabled=!c?.live;
+    const selectedAction=q('[data-action]').value;
+    const selectedCapability=state?.capabilities?.[selectedAction];
+    q('[data-preview]').disabled=!selectedCapability?.available;q('[data-preview]').title=selectedCapability?.reason||'';
+    q('[data-interpret]').disabled=!c?.live;
     for(const ticket of selected)if(!trades.some(t=>String(t.ticket)===ticket))selected.delete(ticket);
     q('[data-trades]').innerHTML=trades.map(t=>`<label><input type="checkbox" data-ticket="${escape(t.ticket)}" ${selected.has(String(t.ticket))?'checked':''} ${t.role===0?'disabled':''}>${['HOLD','COLLECTOR','RUNNER'][t.role]} #${escape(t.ticket)} · ${Number(t.floatingMoney).toFixed(2)}</label>`).join('') || '<p class="muted">No campaign positions reported.</p>';
     q('[data-trades]').querySelectorAll('input').forEach(el=>el.onchange=()=>{clearPreview();el.checked?selected.add(el.dataset.ticket):selected.delete(el.dataset.ticket);draw();});
@@ -149,5 +169,5 @@ export function mountCampaignCommand(host, { accountId, api }) {
   powerDock=mountEaPowerDock(host,{onCommand:async(action)=>preview({action})});
   updateFields();if(accountId)void poll();else{q('[data-health]').textContent='Select an account';q('[data-preview]').disabled=true;q('[data-interpret]').disabled=true;}
   const onBlur=()=>cancelHold();window.addEventListener('blur',onBlur);
-  return ()=>{stopped=true;clearTimeout(timer);clearTimeout(holdTimer);clearTimeout(orbTimer);spatialInteraction?.cleanup();strokeLanguage?.cleanup();powerDock?.destroy();recognition?.abort();audio?.pause();window.removeEventListener('blur',onBlur);};
+  return ()=>{stopped=true;clearTimeout(timer);clearTimeout(holdTimer);clearTimeout(orbTimer);spatialInteraction?.cleanup();strokeLanguage?.cleanup();powerDock?.destroy();guardianStyle.remove();scheduleUi.remove();recognition?.abort();audio?.pause();window.removeEventListener('blur',onBlur);};
 }
