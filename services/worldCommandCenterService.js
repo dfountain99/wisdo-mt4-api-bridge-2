@@ -93,7 +93,7 @@ export class WorldCommandCenterService {
       }
       if (CAMPAIGN_ACTIONS[key] && !snapshot.campaignControl?.live) { available = false; reason = 'Campaign EA telemetry is missing or stale. Install the campaign receiver and match Reporter symbol/magic.'; }
       if (['SET_STOP_ATR','SET_TRAIL_ATR','TRIM_CAMPAIGN','CLEAR_RUNTIME_OVERRIDES','WIDEN_EXISTING_STOPS'].includes(key) && Number(snapshot.campaignControl?.managerOpsVersion||0)<1) {available=false;reason='This EA only supports bursts. Load the manager-compatible Rewire update to control stops, trails and trims.';}
-      if (key==='SET_EA_SCHEDULE' && (!snapshot.campaignControl?.live||snapshot.campaignControl?.scheduleVersion!==1)) {available=false;reason='Weekly schedule requires updated HIGHTOWER v6.21 code and matching Reporter; the website alone cannot enforce hours.';}
+      if (key==='SET_EA_SCHEDULE' && (!snapshot.campaignControl?.live||snapshot.campaignControl?.scheduleVersion!==1)) {available=false;reason='Weekly schedule requires a compatible HIGHTOWER v6.21 or Rewire v6.12 EA with the matching updated Reporter; the website alone cannot enforce hours.';}
       connected[key] = { key, label: definition.label, command: definition.command, safetyLevel: definition.level, scope: definition.scope, available, reason, connected: true };
     }
     for (const [key, reason] of Object.entries(NOT_CONNECTED)) connected[key] = { key, label: key.replaceAll('_', ' '), available: false, connected: false, reason, safetyLevel: key.includes('CLOSE') || key === 'LOCK_PROFIT' ? 3 : 2 };
@@ -151,7 +151,7 @@ export class WorldCommandCenterService {
     const packet = CAMPAIGN_ACTIONS[action] ? campaignPacket(action, { ...body, eaCampaignId: body.eaCampaignId ?? snapshot.campaignControl?.campaignId }, snapshot) : null;
     const affected = this.affectedFor(snapshot, action, body);
     const weeklyMasks=action==='SET_EA_SCHEDULE'?normalizeWeeklyMasks(body.slotMasks):null;
-    if(action==='SET_EA_SCHEDULE' && (!affected.campaign||!snapshot.campaignControl?.live||String(affected.campaign.symbol)!==String(snapshot.campaignControl.symbol)||Number(affected.campaign.magicNumber)!==Number(snapshot.campaignControl.magic))) {const error=new Error('Selected EA lane does not match the Reporter symbol and MagicNumber.');error.statusCode=409;throw error;}
+    if(action==='SET_EA_SCHEDULE' && (!snapshot.campaignControl?.live || (affected.campaign && (String(affected.campaign.symbol)!==String(snapshot.campaignControl.symbol)||Number(affected.campaign.magicNumber)!==Number(snapshot.campaignControl.magic))))) {const error=new Error('Selected EA lane does not match the Reporter symbol and MagicNumber.');error.statusCode=409;throw error;}
     if (action === 'CLOSE_POSITION' && !affected.position) { const error = new Error('The selected position is no longer open.'); error.statusCode = 409; throw error; }
     if (action === 'CLOSE_CAMPAIGN' && (!affected.campaign || !affected.campaign.canTargetByMagic || affected.campaign.magicNumber == null)) { const error = new Error('This campaign cannot be safely targeted by the current Reporter command contract.'); error.statusCode = 409; throw error; }
 
@@ -172,8 +172,8 @@ export class WorldCommandCenterService {
       definition,
       campaignId: affected.campaign?.campaignId || null,
       positionId: affected.position?.ticket || null,
-      symbol: affected.campaign?.symbol || affected.position?.symbol || clean(body.symbol, 32).toUpperCase() || null,
-      magicNumber: affected.campaign?.magicNumber ?? null,
+      symbol: action==='SET_EA_SCHEDULE' ? snapshot.campaignControl.symbol : (affected.campaign?.symbol || affected.position?.symbol || clean(body.symbol, 32).toUpperCase() || null),
+      magicNumber: action==='SET_EA_SCHEDULE' ? snapshot.campaignControl.magic : (affected.campaign?.magicNumber ?? null),
       affectedCount: affected.count,
       createdAt,
       expiresAt: new Date(expiresAtMs).toISOString(),
