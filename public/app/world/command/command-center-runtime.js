@@ -274,7 +274,7 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     q('#lmProgressPercent').textContent=target>base?`${(progressRatio*100).toFixed(1)}%`:'NO TARGET';
     q('#lmProgressCaption').textContent=target>base?`${money(Math.max(0,base+realized+floating),currency)} tracked toward ${money(target,currency)}`:'Set a verified campaign target to activate progress';
     q('#lmVictoryLine').textContent=control?.live?`✦ ${realized>=0?'Realized gains':'Realized result'} ${money(realized,currency)} · Floating ${money(floating,currency)} · ${control.paused?'CAMPAIGN PAUSED':'LIVE'} `:'Guardian waiting for EA campaign telemetry.';
-    const equityNow=Number(commandState.financial?.equity??account?.equity??account?.currentEquity);
+    const equityNow=(commandState.financial?.equity??account?.equity??account?.currentEquity)==null?NaN:Number(commandState.financial?.equity??account?.equity??account?.currentEquity);
     const stressRatio=base>0?Math.abs(Math.min(floating,0))/base:0;
     const guardianMood=Number.isFinite(equityNow)&&equityNow<=0?'drained':!receiverReady?'standby':control?.paused?'resting':stressRatio>=0.08?'sick':floating<0?'protecting':floating>0?'celebrating':'watching';
     q('#lmAvatarStage').dataset.mood=guardianMood;
@@ -317,7 +317,7 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
 
     timeEngine.setState(commandState,campaign);
     weeklyEditor.setState(commandState,campaign,capability('SET_EA_SCHEDULE'));
-    const reportedEquity=Number(commandState.financial?.equity??account?.equity??account?.currentEquity);
+    const reportedEquity=(commandState.financial?.equity??account?.equity??account?.currentEquity)==null?NaN:Number(commandState.financial?.equity??account?.equity??account?.currentEquity);
     targetTracker.setState({accountId:account?.accountId,equity:Number.isFinite(reportedEquity)?reportedEquity:null});
     powerDock.update({positions:(commandState.campaigns||[]).flatMap(x=>x.positions||[]),live:receiverReady,capabilities:commandState.capabilities||{}});
     const diagnostic=q('#lmReceiverDiagnostics');
