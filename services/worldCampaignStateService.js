@@ -3,7 +3,7 @@ import { AccountSelectionService } from './accountSelectionService.js';
 import { movementForTrade, resolveInstrumentMetadata } from './worldMarketStateService.js';
 
 const clean = (value, max = 120) => String(value ?? '').replace(/\u0000/g, '').trim().slice(0, max);
-const finite = (value, fallback = null) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+const finite = (value, fallback = null) => value == null || value === '' ? fallback : Number.isFinite(Number(value)) ? Number(value) : fallback;
 const boolOrNull = (value) => typeof value === 'boolean' ? value : value === 1 || value === '1' || String(value).toLowerCase() === 'true' ? true : value === 0 || value === '0' || String(value).toLowerCase() === 'false' ? false : null;
 
 function firstFinite(...values) {
