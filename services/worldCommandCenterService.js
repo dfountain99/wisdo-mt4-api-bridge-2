@@ -149,13 +149,19 @@ export class WorldCommandCenterService {
   async propose(userId, body = {}) {
     this.cleanupProposals();
     const requestedAction = clean(body.action, 64).toUpperCase();
-    const action = requestedAction;
-    const definition = COMMAND_DEFINITIONS[action];
-    if (!definition) {
-      const reason = NOT_CONNECTED[action] || 'Unknown World Command action.';
-      const error = new Error(reason); error.statusCode = NOT_CONNECTED[action] ? 409 : 400; error.code = NOT_CONNECTED[action] ? 'not_connected' : 'unknown_action'; throw error;
+    if (!COMMAND_DEFINITIONS[requestedAction]) {
+      const reason = NOT_CONNECTED[requestedAction] || 'Unknown World Command action.';
+      const error = new Error(reason); error.statusCode = NOT_CONNECTED[requestedAction] ? 409 : 400; error.code = NOT_CONNECTED[requestedAction] ? 'not_connected' : 'unknown_action'; throw error;
     }
     const snapshot = await this.state(userId, { accountId: clean(body.accountId, 160) });
+    // Rewire does not implement operation 18. Normalizing on the authenticated
+    // server means web and voice Add requests use the same supported operation.
+    // Full Unity receiver version 1 keeps its existing evaluate-add semantics.
+    const action = requestedAction==='ADD_IF_VALID' &&
+      snapshot.campaignControl?.live &&
+      Number(snapshot.campaignControl?.managerOpsVersion||0)!==1
+        ? 'ARM_SONIC' : requestedAction;
+    const definition = COMMAND_DEFINITIONS[action];
     const capability = snapshot.capabilities[action];
     if (!capability?.available) {
       const error = new Error(capability?.reason || 'Command is unavailable.'); error.statusCode = 409; error.code = 'command_unavailable'; throw error;
