@@ -31,6 +31,7 @@ export function createWisdoWeeklyScheduleEditor(host,{onApply}={}){
      const identity=[account,symbol,magic,...reported].join('|');
      if(reported.length===7&&lastApplied!==identity){
        lastApplied=identity;
+       if(dirty && reported.every((mask,index)=>Number(mask)===Number(masks[index])))dirty=false;
        if(!dirty){masks=reported.slice();paint();}
        badge.textContent=dirty?'UNSAVED BROKER SCHEDULE':'EA SCHEDULE REPORTED';
        message.textContent=dirty?'Local draft differs from EA; review and apply to enforce changes.':'EA confirmed '+(c.scheduleAllowed?'current broker hour allowed.':'current broker hour blocked.');
