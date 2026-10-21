@@ -104,6 +104,9 @@ export class WorldCommandCenterService {
         available=false;reason='This live SONIC window requires an active Rewire campaign.';
       }
       if (['SET_STOP_ATR','SET_TRAIL_ATR','TRIM_CAMPAIGN','CLEAR_RUNTIME_OVERRIDES','WIDEN_EXISTING_STOPS'].includes(key) && Number(snapshot.campaignControl?.managerOpsVersion||0)<1) {available=false;reason='This EA only supports bursts. Load the manager-compatible Rewire update to control stops, trails and trims.';}
+      if (['CHAIN_ARM','CHAIN_CANCEL','CHAIN_PAUSE','CHAIN_RESUME'].includes(key) && Number(snapshot.campaignControl?.behaviorVersion||0)!==13){available=false;reason='Compatible V13 EA and Reporter behavior telemetry required.';}
+      if (['CHAIN_CANCEL','CHAIN_PAUSE','CHAIN_RESUME'].includes(key) && !snapshot.campaignControl?.behaviorActive){available=false;reason='No active staged chain.';}
+      if (['COUNTER_IF_VALID','DIRECTIONAL_ENTRY_IF_VALID'].includes(key) && Number(snapshot.campaignControl?.behaviorVersion||0)===13){available=false;reason='V13 assigns these operation IDs to staged-chain controls.';}
       if (key==='SET_EA_SCHEDULE' && (!snapshot.campaignControl?.live||snapshot.campaignControl?.scheduleVersion!==1)) {available=false;reason='Weekly schedule requires a compatible HIGHTOWER v6.21 or Rewire v6.12 EA with the matching updated Reporter; the website alone cannot enforce hours.';}
       connected[key] = { key, label: definition.label, command: definition.command, safetyLevel: definition.level, scope: definition.scope, available, reason, connected: true };
     }
