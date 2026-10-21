@@ -56,6 +56,7 @@ function markup(){
               <button class="lm-example" type="button" data-example="move stop losses to 1.6 ATR">STOP 1.6 ATR</button>
               <button class="lm-example" type="button" data-example="trim half of the campaign">TRIM HALF</button>
               <button class="lm-example" type="button" data-example="add another position now">ADD IF VALID</button>
+              <button class="lm-btn" type="button" data-manual-add="one">ADD ONE NOW<span>Request one SONIC entry · normal risk checks</span></button>
               <button class="lm-example" type="button" data-example="intentionally widen my existing stop losses to 2 ATR">WIDEN STOPS</button>
               <button class="lm-example" type="button" data-example="return stops to normal EA management">RETURN TO EA</button>
             </div>
@@ -327,6 +328,13 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
       }
       diagnostic.innerHTML=report.join('');
     }
+    const addButton=q('[data-manual-add]');
+    if(addButton){
+      const action=Number(control?.managerOpsVersion)===1?'ADD_IF_VALID':'ARM_SONIC';
+      const addCap=capability(action);
+      addButton.disabled=addCap?.available!==true;
+      addButton.title=addCap?.available?'Request one new entry under current broker limits':addCap?.reason||'EA receiver unavailable';
+    }
     const managerCommands=['SET_STOP_ATR','SET_TRAIL_ATR','TRIM_CAMPAIGN'];
     const blocked=managerCommands.filter(name=>capability(name)?.available!==true);
     const notice=q('#lmManagerCapabilityNotice');
@@ -470,6 +478,10 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
 
   overlay.querySelectorAll('[data-example]').forEach((button)=>button.addEventListener('click',()=>{q('#lmIntentInput').value=button.dataset.example||'';q('#lmIntentInput').focus();}));
   overlay.querySelectorAll('[data-live-action]').forEach((button)=>button.addEventListener('click',()=>arm(button.dataset.liveAction,{})));
+  overlay.querySelectorAll('[data-manual-add]').forEach((button)=>button.addEventListener('click',()=>arm(
+    commandState?.campaignControl?.managerOpsVersion===1?'ADD_IF_VALID':'ARM_SONIC',
+    commandState?.campaignControl?.managerOpsVersion===1?{}:{burstCount:1,durationSeconds:30}
+  )));
   overlay.querySelectorAll('[data-manager-action]').forEach((button)=>button.addEventListener('click',()=>{
     const action=button.dataset.managerAction;
     const options={};

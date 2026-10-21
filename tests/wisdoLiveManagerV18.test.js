@@ -93,3 +93,13 @@ test('V19 Live Manager exposes account-scoped diagnostics instead of silently de
  assert.match(source,/scheduleVersion/);
  assert.match(source,/cap\?\.reason/);
 });
+
+test('V19 Add One uses the supported Rewire SONIC operation instead of incompatible add operation 18',async()=>{
+ const ui=await fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8');
+ const svc=await fs.readFile(new URL('../services/worldCommandCenterService.js',import.meta.url),'utf8');
+ assert.match(ui,/data-manual-add="one"/);
+ assert.match(ui,/'ARM_SONIC'/);
+ assert.match(ui,/burstCount:1,durationSeconds:30/);
+ assert.match(svc,/key==='ADD_IF_VALID'/);
+ assert.match(svc,/operation 12/);
+});
