@@ -92,6 +92,17 @@ export class WorldCommandCenterService {
         available = false; reason = 'No active campaign has one verified magic number for safe targeting.';
       }
       if (CAMPAIGN_ACTIONS[key] && !snapshot.campaignControl?.live) { available = false; reason = 'Campaign EA telemetry is missing or stale. Install the campaign receiver and match Reporter symbol/magic.'; }
+      // Operation 18 is not supported by the Rewire mailbox, regardless of telemetry.
+      // Even if an older EA omits the manager version, do not expose op18 as a clickable Add.
+      if (key==='ADD_IF_VALID' && Number(snapshot.campaignControl?.managerOpsVersion||0)!==1) {
+        available=false;reason='This HIGHTOWER Rewire only supports a manual SONIC addition (operation 12). Use ADD ONE instead of operation 18.';
+      }
+      if (key==='ARM_SONIC' && Number(snapshot.campaignControl?.managerOpsVersion||0)===12 &&
+          snapshot.campaignControl?.phase!==1) {
+        // Manual entry may seed a flat Rewire lane; v6.12 publishes phase 0 when flat.
+        // campaignPacket applies its current campaign-phase rule, so do not claim flat seeding here.
+        available=false;reason='This live SONIC window requires an active Rewire campaign.';
+      }
       if (['SET_STOP_ATR','SET_TRAIL_ATR','TRIM_CAMPAIGN','CLEAR_RUNTIME_OVERRIDES','WIDEN_EXISTING_STOPS'].includes(key) && Number(snapshot.campaignControl?.managerOpsVersion||0)<1) {available=false;reason='This EA only supports bursts. Load the manager-compatible Rewire update to control stops, trails and trims.';}
       if (key==='SET_EA_SCHEDULE' && (!snapshot.campaignControl?.live||snapshot.campaignControl?.scheduleVersion!==1)) {available=false;reason='Weekly schedule requires a compatible HIGHTOWER v6.21 or Rewire v6.12 EA with the matching updated Reporter; the website alone cannot enforce hours.';}
       connected[key] = { key, label: definition.label, command: definition.command, safetyLevel: definition.level, scope: definition.scope, available, reason, connected: true };
@@ -137,18 +148,32 @@ export class WorldCommandCenterService {
 
   async propose(userId, body = {}) {
     this.cleanupProposals();
-    const action = clean(body.action, 64).toUpperCase();
-    const definition = COMMAND_DEFINITIONS[action];
-    if (!definition) {
-      const reason = NOT_CONNECTED[action] || 'Unknown World Command action.';
-      const error = new Error(reason); error.statusCode = NOT_CONNECTED[action] ? 409 : 400; error.code = NOT_CONNECTED[action] ? 'not_connected' : 'unknown_action'; throw error;
+    const requestedAction = clean(body.action, 64).toUpperCase();
+    if (!COMMAND_DEFINITIONS[requestedAction]) {
+      const reason = NOT_CONNECTED[requestedAction] || 'Unknown World Command action.';
+      const error = new Error(reason); error.statusCode = NOT_CONNECTED[requestedAction] ? 409 : 400; error.code = NOT_CONNECTED[requestedAction] ? 'not_connected' : 'unknown_action'; throw error;
     }
     const snapshot = await this.state(userId, { accountId: clean(body.accountId, 160) });
+    // Rewire does not implement operation 18. Normalizing on the authenticated
+    // server means web and voice Add requests use the same supported operation.
+    // Full Unity receiver version 1 keeps its existing evaluate-add semantics.
+    const action = requestedAction==='ADD_IF_VALID' &&
+      snapshot.campaignControl?.live &&
+      Number(snapshot.campaignControl?.managerOpsVersion||0)!==1
+        ? 'ARM_SONIC' : requestedAction;
+    const definition = COMMAND_DEFINITIONS[action];
     const capability = snapshot.capabilities[action];
     if (!capability?.available) {
       const error = new Error(capability?.reason || 'Command is unavailable.'); error.statusCode = 409; error.code = 'command_unavailable'; throw error;
     }
-    const packet = CAMPAIGN_ACTIONS[action] ? campaignPacket(action, { ...body, eaCampaignId: body.eaCampaignId ?? snapshot.campaignControl?.campaignId }, snapshot) : null;
+    // Rewire V6.12 implements operation 12 for user-requested SONIC additions.
+    // Operation 18 is a Unity v6.21 evaluate-add instruction, not a direct add in Rewire.
+    // The explicit Add One UI requests ARM_SONIC itself, with a single, bounded ticket.
+    const packet = CAMPAIGN_ACTIONS[action] ? campaignPacket(action, {
+      ...body,
+      ...(action==='ARM_SONIC' ? {burstCount:Math.max(1,Math.min(3,Number(body.burstCount)||1)),durationSeconds:Number(body.durationSeconds)||30} : {}),
+      eaCampaignId:body.eaCampaignId ?? snapshot.campaignControl?.campaignId,
+    }, snapshot) : null;
     const affected = this.affectedFor(snapshot, action, body);
     const weeklyMasks=action==='SET_EA_SCHEDULE'?normalizeWeeklyMasks(body.slotMasks):null;
     if(action==='SET_EA_SCHEDULE' && (!snapshot.campaignControl?.live || (affected.campaign && (String(affected.campaign.symbol)!==String(snapshot.campaignControl.symbol)||Number(affected.campaign.magicNumber)!==Number(snapshot.campaignControl.magic))))) {const error=new Error('Selected EA lane does not match the Reporter symbol and MagicNumber.');error.statusCode=409;throw error;}
