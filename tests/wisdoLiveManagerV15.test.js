@@ -47,5 +47,5 @@ test('V15 loads one purpose-built stylesheet and fresh route cache keys', async 
   assert.match(css,/\.lm-risk-grid/);
   assert.match(css,/\.wisdo-v12-time-layout/);
   assert.match(workspace,/v=20261021-v19-receiver-diagnostics/);
-  assert.match(worker,/wisdo-static-v18\.0\.0-live-manager/);
+  assert.match(worker,/wisdo-static-v19\.0\.0-receiver-diagnostics/);
 });
