@@ -15,7 +15,7 @@ export const INTENT_OS_CAPABILITIES=Object.freeze([
 ]);
 
 function ensureStyles(){
-  const href='/app/world/command/wisdo-live-manager-v15.css?v=20261021-v18-schedule-manager';
+  const href='/app/world/command/wisdo-live-manager-v15.css?v=20261021-v19-receiver-diagnostics';
   let link=document.querySelector('link[data-wisdo-live-manager-v15]');
   if(!link){link=document.createElement('link');link.rel='stylesheet';link.dataset.wisdoLiveManagerV15='1';document.head.appendChild(link);}
   link.href=href;
