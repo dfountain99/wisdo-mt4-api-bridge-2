@@ -12,6 +12,7 @@ export const DEFAULT_WISDO_WORKSPACES = Object.freeze([
   { slug: 'voice-studio', title: 'Wisdo Voice Studio', required: true },
   { slug: 'studio', title: 'Wisdo Studio', required: false },
   { slug: 'robot-studio', title: 'WISDO Robot Studio', required: false },
+  { slug: 'hightower-rewire', title: 'HIGHTOWER Rewire', required: false },
   { slug: 'world', title: 'WISDO World', required: false },
 ]);
 

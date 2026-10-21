@@ -1,5 +1,6 @@
 import { ambientSettingsPage, ambientLifeOsPage, smartHomeTrustCenterPage, securityPrivacyPage } from './ambientSettingsView.js';
 import crypto from 'node:crypto';
+import { normalizeRewireSonicBlast } from '../services/rewireManualCommand.js';
 import { SquarePaymentGateway, encodeSquarePaymentNote } from '../services/squarePaymentService.js';
 import { NotificationDeliveryService } from '../services/notificationDeliveryService.js';
 import { GrowthFunnelService } from '../services/growthFunnelService.js';
@@ -749,6 +750,9 @@ function normalizeWisdoIntent(input = {}) {
     source: input.source || 'website',
   };
 
+  const rewireBlast = normalizeRewireSonicBlast(input);
+  if (rewireBlast) return { ...rewireBlast, ...base };
+
   if (['cem_set_globals','set_globals','bot_globals','risk_update'].includes(action) || String(input.command || '').toUpperCase() === 'CEM_SET_GLOBALS') {
     const globals = Array.isArray(input.globals) ? input.globals : [];
     const singleName = input.globalName || input.globalKey || input.key || input.name || '';
@@ -833,6 +837,7 @@ function mt4ConfirmationPhrase(command, liveData = {}) {
   if (c.includes('EMERGENCY')) return `CONFIRM EMERGENCY CLOSE${suffix}`.trim();
   if (c.includes('CLOSE')) return `CONFIRM CLOSE${suffix}`.trim();
   if (c.includes('LOCK') || c.includes('WALK_AWAY')) return `CONFIRM PROTECT${suffix}`.trim();
+  if (c === 'WISDO_CAMPAIGN') return `CONFIRM SONIC BLAST${suffix}`.trim();
   if (c.includes('MARKET_ORDER')) return `CONFIRM TRADE${suffix}`.trim();
   return `CONFIRM ${c.split('_')[0] || 'COMMAND'}${suffix}`.trim();
 }
@@ -907,6 +912,7 @@ function confirmationRequiredResponse(record, mapped) {
 async function queueMt4ReporterCommand({ mt4CommandService, membership, state, liveData, body = {}, origin = 'website' }) {
   if (!mt4CommandService?.queueCommand) return { ok: false, error: 'MT4 command service is not available in this runtime.' };
   const mapped = mapActionToMt4Command({ ...(body || {}), source: origin });
+  if (mapped.payload?.rewireValidationError) return { ok:false, queued:false, status:'validation_failed', error:mapped.payload.rewireValidationError, mapped };
   const requestedAccountId = getRequestedAccountId(body || {});
   const liveAccountId = liveData?.accountId && liveData.accountId !== 'default' ? liveData.accountId : '';
   const accountId = requestedAccountId || liveAccountId || liveData?.account?.accountId || liveData?.account?.id || null;
@@ -2177,6 +2183,7 @@ function isKnownExecutableAction(action = '') {
     'close_all','close_all_trades','emergency_close','panic_close','emergency_close_all','close_losers','close_losses','close_losing',
     'pause_copier','copier_pause','pause_bot','pause_trading','stop_entries','resume_copier','copier_resume','resume_bot','resume_trading','start_entries',
     'walk_away','walk_away_mode','lock_profit','set_equity_floor','buy','sell','market_order','open_trade','place_trade','take_trade',
+    'sonic_blast','sonic_burst','signet_blast','signet_burst',
     'cem_set_globals','set_globals','bot_globals','risk_update','bot_mode','risk_mode'
   ].includes(String(action || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''));
 }
