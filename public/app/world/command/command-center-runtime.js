@@ -325,7 +325,7 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     targetTracker.setState({accountId:account?.accountId,equity:Number.isFinite(reportedEquity)?reportedEquity:null});
     powerDock.update({positions:(commandState.campaigns||[]).flatMap(x=>x.positions||[]),live:receiverReady,capabilities:commandState.capabilities||{}});
     const bc=commandState.campaignControl||{};
-    q('#lmChainTruth').textContent=bc.behaviorVersion===13?'V13 EA REPORTED':'RECEIVER NOT VERIFIED';
+    q('#lmChainTruth').textContent=bc.behaviorVersion===13&&bc.behaviorEnabled?'V13 ENABLED':'RECEIVER NOT VERIFIED';
     q('#lmChainProgress').textContent=bc.behaviorVersion===13?(bc.behaviorActive?'ACTIVE':'IDLE')+' · Wave '+(bc.behaviorWave||0)+'/'+(bc.behaviorWaveCount||0)+' · Filled '+(bc.behaviorFilled||0)+(bc.behaviorPaused?' · PAUSED':''):'Install compiled V13 EA and updated Reporter to unlock chain commands.';
     overlay.querySelectorAll('[data-chain-action]').forEach(button=>{const cap=capability(button.dataset.chainAction);button.disabled=cap?.available!==true;button.title=cap?.reason||'';});
     const diagnostic=q('#lmReceiverDiagnostics');
