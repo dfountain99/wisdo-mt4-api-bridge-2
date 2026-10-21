@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wisdo-static-v19.0.0-receiver-diagnostics';
+const CACHE_NAME = 'wisdo-static-v20.0.0-manual-add';
 const STATIC_ASSETS = [
   '/js/workspace.js',
   '/js/wisdo-recognition.js',
