@@ -234,7 +234,7 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     const r=latestReceipt;
     if(!r){el.className='lm-receipt';el.textContent='No command sent.';return;}
     const status=String(r.status||'pending').toLowerCase();
-    const commandResult=String(r.result?.message||r.error||'Waiting for HIGHTOWER acknowledgement.');
+    const commandResult=String(r.deliveryOnly && status==='completed' ? 'Reporter delivery recorded. Awaiting independent EA acknowledgement; broker execution is not yet verified.' : r.result?.message||r.error||'Waiting for HIGHTOWER acknowledgement.');
     el.className=`lm-receipt ${status==='completed'?'ok':status==='failed'?'fail':'pending'}`;
     el.innerHTML=`<strong>${esc(status.toUpperCase())}</strong><br>${esc(r.command||'COMMAND')}<br><span>${esc(commandResult)}</span>${r.commandId?`<br><small>ID ${esc(r.commandId)}</small>`:''}`;
   }
