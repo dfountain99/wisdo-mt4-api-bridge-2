@@ -112,6 +112,7 @@ function markup(){
           <section class="lm-card lm-time-host" id="lmTimeHost"></section>
           <section class="lm-card lm-weekly-editor" id="lmWeeklyEditor"></section>
           <section id="lmTargetTracker"></section>
+          <section class="lm-card" id="lmChainControls"><div class="lm-card-head"><div><span class="lm-label">V13 BEHAVIOR CONTROL</span><h2>Sonic Staircase</h2></div><small id="lmChainTruth">RECEIVER CHECK</small></div><p>Current campaign entry triggers a bounded series of waves. Demo verification required. No new EA signal gate.</p><div class="lm-risk-grid"><label>Waves<input id="lmChainWaves" type="number" value="3" min="1" max="4" step="1"></label><label>Trades / wave<input id="lmChainPerWave" type="number" value="2" min="1" max="10" step="1"></label><label>Favorable spacing (broker pips)<input id="lmChainSpacing" type="number" value="5" min="1" max="50" step="0.5"></label></div><div class="lm-quick"><button type="button" data-chain-action="CHAIN_ARM" disabled>ARM CHAIN</button><button type="button" data-chain-action="CHAIN_PAUSE" disabled>PAUSE CHAIN</button><button type="button" data-chain-action="CHAIN_RESUME" disabled>RESUME CHAIN</button><button type="button" data-chain-action="CHAIN_CANCEL" disabled>CANCEL CHAIN</button></div><p id="lmChainProgress">Waiting for verified V13 EA telemetry.</p></section>
           <section id="lmPowerDock"></section>
 
           <section class="lm-card">
@@ -323,6 +324,10 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     const reportedEquity=(commandState.financial?.equity??account?.equity??account?.currentEquity)==null?NaN:Number(commandState.financial?.equity??account?.equity??account?.currentEquity);
     targetTracker.setState({accountId:account?.accountId,equity:Number.isFinite(reportedEquity)?reportedEquity:null});
     powerDock.update({positions:(commandState.campaigns||[]).flatMap(x=>x.positions||[]),live:receiverReady,capabilities:commandState.capabilities||{}});
+    const bc=commandState.campaignControl||{};
+    q('#lmChainTruth').textContent=bc.behaviorVersion===13?'V13 EA REPORTED':'RECEIVER NOT VERIFIED';
+    q('#lmChainProgress').textContent=bc.behaviorVersion===13?(bc.behaviorActive?'ACTIVE':'IDLE')+' · Wave '+(bc.behaviorWave||0)+'/'+(bc.behaviorWaveCount||0)+' · Filled '+(bc.behaviorFilled||0)+(bc.behaviorPaused?' · PAUSED':''):'Install compiled V13 EA and updated Reporter to unlock chain commands.';
+    overlay.querySelectorAll('[data-chain-action]').forEach(button=>{const cap=capability(button.dataset.chainAction);button.disabled=cap?.available!==true;button.title=cap?.reason||'';});
     const diagnostic=q('#lmReceiverDiagnostics');
     if(diagnostic){
       const report=[];
@@ -495,6 +500,12 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
 
   overlay.querySelectorAll('[data-example]').forEach((button)=>button.addEventListener('click',()=>{q('#lmIntentInput').value=button.dataset.example||'';q('#lmIntentInput').focus();}));
   overlay.querySelectorAll('[data-live-action]').forEach((button)=>button.addEventListener('click',()=>arm(button.dataset.liveAction,{})));
+  overlay.querySelectorAll('[data-chain-action]').forEach(button=>button.addEventListener('click',()=>{
+    const action=button.dataset.chainAction;
+    const chainWaves=Number(q('#lmChainWaves').value),chainPerWave=Number(q('#lmChainPerWave').value),chainSpacingPips=Number(q('#lmChainSpacing').value);
+    if(action==='CHAIN_ARM' && (!Number.isInteger(chainWaves)||chainWaves<1||chainWaves>4||!Number.isInteger(chainPerWave)||chainPerWave<1||chainPerWave>10||chainWaves*chainPerWave>40||chainSpacingPips<1||chainSpacingPips>50)){setIntent('Blocked: choose 1–4 waves, 1–10 trades per wave, 40 maximum, and 1–50 pip spacing.','error');return;}
+    arm(action,action==='CHAIN_ARM'?{chainWaves,chainPerWave,chainSpacingPips}:{});
+  }));
   overlay.querySelectorAll('[data-manual-add]').forEach((button)=>button.addEventListener('click',()=>arm(
     commandState?.campaignControl?.managerOpsVersion===1?'ADD_IF_VALID':'ARM_SONIC',
     commandState?.campaignControl?.managerOpsVersion===1?{}:{burstCount:1,durationSeconds:30}
