@@ -104,7 +104,7 @@ export class WorldCommandCenterService {
         available=false;reason='This live SONIC window requires an active Rewire campaign.';
       }
       if (['SET_STOP_ATR','SET_TRAIL_ATR','TRIM_CAMPAIGN','CLEAR_RUNTIME_OVERRIDES','WIDEN_EXISTING_STOPS'].includes(key) && Number(snapshot.campaignControl?.managerOpsVersion||0)<1) {available=false;reason='This EA only supports bursts. Load the manager-compatible Rewire update to control stops, trails and trims.';}
-      if (['CHAIN_ARM','CHAIN_CANCEL','CHAIN_PAUSE','CHAIN_RESUME'].includes(key) && Number(snapshot.campaignControl?.behaviorVersion||0)!==13){available=false;reason='Compatible V13 EA and Reporter behavior telemetry required.';}
+      if (['CHAIN_ARM','CHAIN_CANCEL','CHAIN_PAUSE','CHAIN_RESUME'].includes(key) && (Number(snapshot.campaignControl?.behaviorVersion||0)!==13||snapshot.campaignControl?.behaviorEnabled!==true)){available=false;reason='Compatible V13 EA and Reporter with chain opt-in enabled required.';}
       if (['CHAIN_CANCEL','CHAIN_PAUSE','CHAIN_RESUME'].includes(key) && !snapshot.campaignControl?.behaviorActive){available=false;reason='No active staged chain.';}
       if(key==='CHAIN_ARM' && (!snapshot.campaignControl?.positions?.length || snapshot.campaignControl?.behaviorActive || ![1,-1].includes(snapshot.campaignControl?.direction))){available=false;reason='One active, unambiguous EA-managed position direction is required and no staged chain may be running.';}
       if(key==='CHAIN_PAUSE' && snapshot.campaignControl?.behaviorPaused){available=false;reason='Chain is already paused.';}
