@@ -35,7 +35,7 @@ string BuildCampaignControlJson()
    j+=",\"runtimeTrailStepAtr\":"+DoubleToString(WcoRead(p,"effectiveTrailStepAtr"),4);
    j+=",\"managerOpsVersion\":"+DoubleToString(WcoRead(p,"managerOpsVersion"),0);
    j+=",\"behaviorVersion\":"+DoubleToString(WcoRead(p,"behaviorVersion"),0);
-   j+=",\"behaviorActive\":"+BoolToJson(WcoRead(p,"behaviorActive")>=0.5);
+   j+=",\"behaviorEnabled\":"+BoolToJson(WcoRead(p,"behaviorEnabled")>=0.5);\n   j+=",\"behaviorActive\":"+BoolToJson(WcoRead(p,"behaviorActive")>=0.5);
    j+=",\"behaviorPaused\":"+BoolToJson(WcoRead(p,"behaviorPaused")>=0.5);
    j+=",\"behaviorWave\":"+DoubleToString(WcoRead(p,"behaviorWave"),0);
    j+=",\"behaviorWaveCount\":"+DoubleToString(WcoRead(p,"behaviorWaveCount"),0);
