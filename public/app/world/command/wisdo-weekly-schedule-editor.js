@@ -16,7 +16,7 @@ export function createWisdoWeeklyScheduleEditor(host,{onApply}={}){
  grid.addEventListener('click',e=>{if(e.detail!==0)return;const t=e.target.closest('[data-day][data-hour]');if(t)setCell(Number(t.dataset.day),Number(t.dataset.hour),!hourActive(masks[Number(t.dataset.day)],Number(t.dataset.hour)));});
  host.querySelector('#wswClear').onclick=()=>{masks=Array(7).fill(0);persist()};
  host.querySelector('#wswFull').onclick=()=>{masks=Array(7).fill(0xFFFFFF);persist()};
- apply.addEventListener('click',()=>{if(!armed)return;message.textContent='Previewing account-bound schedule. Hold to confirm in WISDO.';onApply?.([...masks]);});
+ apply.addEventListener('click',()=>{if(!armed)return;message.textContent='Previewing account-bound schedule. Hold to confirm in WISDO.';const slotMasks=[...masks];onApply?.(slotMasks);});
  paint();
  return {setState(state,campaign,cap){
    const account=state?.account?.accountId||'',symbol=campaign?.symbol||state?.campaignControl?.symbol||'',magic=campaign?.magicNumber??state?.campaignControl?.magic??0;
