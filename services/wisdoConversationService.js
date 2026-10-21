@@ -57,7 +57,7 @@ export class WisdoConversationService {
       await this.auditService?.record({userId,sessionId:session.session_id,actorType:'system',eventType:'conversation.failed',detail:{code:error.code||'',message:error.message}}).catch(()=>undefined);
       const text=error.code==='confirmation_pending'?'An instruction is already awaiting confirmation. Say “Confirm Coach, execute” or “cancel” before creating another one. I did not queue a second instruction.':error.code==='trading_offline'?COACH_RESPONSES.offline:error.code==='demo_only_live_blocked'||error.code==='voice_execution_disabled'?COACH_RESPONSES.demoOnly:error.code==='unsupported_action'?COACH_RESPONSES.unsupported:COACH_RESPONSES.failed;
       await this.contextService.message({sessionId:session.session_id,userId,role:'assistant',content:text,responseState:'failed'}).catch(()=>undefined);
-      return this.result(session,'failed',text,true,{error:{code:error.code||'processing_failed'}});
+      return this.result(session,'failed',text,true,{error:{code:error.code||'processing_failed',message:String(error.message||'Unknown processing failure').slice(0,300)}});
     }
   }
 
