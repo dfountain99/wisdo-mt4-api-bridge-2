@@ -1179,6 +1179,9 @@ input int    DirectWindow1StartHour=7;
 input int    DirectWindow1EndHour=16;
 input int    DirectWindow2StartHour=16;
 input int    DirectWindow2EndHour=21;
+// V18 broker-time weekly entry gate, off unless explicitly enabled on this EA.
+// Existing positions remain managed outside scheduled entry hours.
+input bool RewireEnableWeeklySchedule=false;
 input bool   DirectAllowBuyPrimaries=true;
 input bool   DirectAllowSellPrimaries=true;
 input ENUM_TIMEFRAMES DirectSignalTimeframe=PERIOD_M5;
@@ -2779,13 +2782,26 @@ bool HT6HourInWindow(int hour,int startHour,int endHour)
 bool HT6DirectTradingWindowAllows(datetime now)
 {
    int hour=TimeHour(now);
-   if(DirectTradingWindowMode==TIME_WINDOW_ALL_HOURS) return true;
-   if(DirectTradingWindowMode==TIME_WINDOW_LONDON_AND_NEWYORK)
-      return (hour>=7 && hour<21); // broker-clock London through New York
-   if(DirectTradingWindowMode==TIME_WINDOW_CUSTOM_TWO_WINDOWS)
-      return HT6HourInWindow(hour,DirectWindow1StartHour,DirectWindow1EndHour)
-          || HT6HourInWindow(hour,DirectWindow2StartHour,DirectWindow2EndHour);
-   return false;
+   bool legacyWindow=true;
+   if(DirectTradingWindowMode==TIME_WINDOW_LONDON_AND_NEWYORK) legacyWindow=(hour>=7 && hour<21);
+   else if(DirectTradingWindowMode==TIME_WINDOW_CUSTOM_TWO_WINDOWS)
+      legacyWindow=HT6HourInWindow(hour,DirectWindow1StartHour,DirectWindow1EndHour)
+        || HT6HourInWindow(hour,DirectWindow2StartHour,DirectWindow2EndHour);
+   else if(DirectTradingWindowMode!=TIME_WINDOW_ALL_HOURS) legacyWindow=false;
+   if(!legacyWindow || !RewireEnableWeeklySchedule)return legacyWindow;
+   // WISDO CHRONOS v18: Sunday=0, 24 broker hours per day.
+   // Scoped by the active MT4 account, EA magic number and exact chart symbol.
+   string key="CEM.WISDO."+IntegerToString(AccountNumber())+"."+Symbol()+"."+IntegerToString(MagicNumber)+".";
+   int mode=GlobalVariableCheck(key+"ScheduleEnabled")?(int)GlobalVariableGet(key+"ScheduleEnabled"):0;
+   if(mode==2)return false; // fail closed throughout multi-key schedule changes
+   if(mode==0)return true;  // no website override; use the EA legacy hours
+   if(mode!=1)return false;
+   int day=TimeDayOfWeek(now);
+   string dayKey=key+"ScheduleDay"+IntegerToString(day);
+   if(!GlobalVariableCheck(dayKey))return false;
+   double mask=GlobalVariableGet(dayKey);
+   if(mask<0 || mask>16777215.0)return false;
+   return MathMod(MathFloor(mask/MathPow(2.0,hour)),2.0)>=1.0;
 }
 
 void HT6ApplyDirectExecutionInputs()
