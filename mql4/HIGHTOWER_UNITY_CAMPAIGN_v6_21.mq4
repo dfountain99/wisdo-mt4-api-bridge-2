@@ -2776,16 +2776,37 @@ bool HT6HourInWindow(int hour,int startHour,int endHour)
    return (hour>=startHour || hour<endHour); // overnight window
 }
 
+// V18 Broker-clock weekly entry gate. This only blocks NEW entries; existing
+// open positions and normal broker protection continue to be managed.
+bool HT6WeeklyEntryAllowed(datetime now)
+{
+   string prefix="CEM.WISDO."+IntegerToString(AccountNumber())+"."+Symbol()+"."+IntegerToString(MagicNumber)+".";
+   string enabledKey=prefix+"ScheduleEnabled";
+   if(!GlobalVariableCheck(enabledKey))return true; // no website override
+   double mode=GlobalVariableGet(enabledKey);
+   if(mode==0.0)return true; // explicit disabled schedule
+   if(mode!=1.0)return false; // mode 2=atomic update in progress, fail CLOSED
+   int brokerDay=TimeDayOfWeek(now); // Sunday 0, Monday 1, ... Saturday 6
+   string dayKey=prefix+"ScheduleDay"+IntegerToString(brokerDay);
+   if(!GlobalVariableCheck(dayKey))return false;
+   double mask=GlobalVariableGet(dayKey);
+   if(mask<0.0 || mask>16777215.0 || mask!=MathFloor(mask))return false;
+   int brokerHour=TimeHour(now);
+   return MathMod(MathFloor(mask/MathPow(2.0,brokerHour)),2.0)>=1.0;
+}
+
 bool HT6DirectTradingWindowAllows(datetime now)
 {
    int hour=TimeHour(now);
-   if(DirectTradingWindowMode==TIME_WINDOW_ALL_HOURS) return true;
+   bool configuredWindow=true;
    if(DirectTradingWindowMode==TIME_WINDOW_LONDON_AND_NEWYORK)
-      return (hour>=7 && hour<21); // broker-clock London through New York
-   if(DirectTradingWindowMode==TIME_WINDOW_CUSTOM_TWO_WINDOWS)
-      return HT6HourInWindow(hour,DirectWindow1StartHour,DirectWindow1EndHour)
+      configuredWindow=(hour>=7 && hour<21);
+   else if(DirectTradingWindowMode==TIME_WINDOW_CUSTOM_TWO_WINDOWS)
+      configuredWindow=HT6HourInWindow(hour,DirectWindow1StartHour,DirectWindow1EndHour)
           || HT6HourInWindow(hour,DirectWindow2StartHour,DirectWindow2EndHour);
-   return false;
+   else if(DirectTradingWindowMode!=TIME_WINDOW_ALL_HOURS)
+      configuredWindow=false;
+   return configuredWindow && HT6WeeklyEntryAllowed(now);
 }
 
 void HT6ApplyDirectExecutionInputs()

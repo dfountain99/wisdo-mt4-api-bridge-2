@@ -201,7 +201,7 @@ double WcoLatestWin()
 }
 void WcoPublish()
 {
-   string p=WcoEA();double revision=WcoRead(p,"revision");if((int)revision%2!=0)revision++;WcoWrite(p,"revision",revision+1);WcoWrite(p,"version",1);WcoWrite(p,"managerOpsVersion",1);WcoWrite(p,"scheduleVersion",0);WcoWrite(p,"enabled",H620Enabled() && H620EnableFutureGoals && !h620Quarantine?1:0);
+   string p=WcoEA();double revision=WcoRead(p,"revision");if((int)revision%2!=0)revision++;WcoWrite(p,"revision",revision+1);WcoWrite(p,"version",1);WcoWrite(p,"managerOpsVersion",1);WcoWrite(p,"scheduleVersion",1);WcoWrite(p,"enabled",H620Enabled() && H620EnableFutureGoals && !h620Quarantine?1:0);
    WcoWrite(p,"campaign",h620Id);WcoWrite(p,"phase",h620Phase);WcoWrite(p,"direction",h620Dir);
    WcoWrite(p,"rail",h620Rail);WcoWrite(p,"banked",h620BankedLevel);
    double campaignTargetEquity=(h620Base>0?h620Base*MathPow(1.0+H620GrowthMilestonePercent/100.0,h620BankedLevel+1):0);
@@ -217,7 +217,16 @@ void WcoPublish()
    WcoWrite(p,"windowMode",(int)DirectTradingWindowMode);
    WcoWrite(p,"window1Start",HT6NormalizeHour(DirectWindow1StartHour));WcoWrite(p,"window1End",HT6NormalizeHour(DirectWindow1EndHour));
    WcoWrite(p,"window2Start",HT6NormalizeHour(DirectWindow2StartHour));WcoWrite(p,"window2End",HT6NormalizeHour(DirectWindow2EndHour));
-   WcoWrite(p,"scheduleEnforced",DirectTradingWindowMode==TIME_WINDOW_ALL_HOURS?0:1);
+   string wk="CEM.WISDO."+IntegerToString(AccountNumber())+"."+Symbol()+"."+IntegerToString(MagicNumber)+".";
+   int wkMode=GlobalVariableCheck(wk+"ScheduleEnabled")?(int)GlobalVariableGet(wk+"ScheduleEnabled"):0;
+   WcoWrite(p,"scheduleActive",wkMode==1?1:0);
+   WcoWrite(p,"scheduleAllowed",HT6WeeklyEntryAllowed(chronosNow)?1:0);
+   for(int day=0;day<7;day++)
+   {
+      string dayKey=wk+"ScheduleDay"+IntegerToString(day);
+      WcoWrite(p,"scheduleDay"+IntegerToString(day),GlobalVariableCheck(dayKey)?GlobalVariableGet(dayKey):0);
+   }
+   WcoWrite(p,"scheduleEnforced",(DirectTradingWindowMode!=TIME_WINDOW_ALL_HOURS || wkMode!=0)?1:0);
    WcoWrite(p,"windowAllowed",chronosWindowAllowed?1:0);WcoWrite(p,"entryAllowed",chronosEntryAllowed?1:0);
    // MARKET SENSE truth from the active HIGHTOWER organism. Numeric fields only;
    // the website labels them, while the EA remains the authority.
