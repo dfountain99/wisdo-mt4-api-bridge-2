@@ -1,6 +1,7 @@
 import { CAMPAIGN_ACTIONS, campaignPacket } from './campaignControlContract.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { WorldCampaignStateService } from './worldCampaignStateService.js';
+import { validateWeeklyMasks, weeklyScheduleGlobals } from './wisdoWeeklyScheduleContract.js';
 
 const clean = (value, max = 160) => String(value ?? '').replace(/\u0000/g, '').trim().slice(0, max);
 const nowIso = () => new Date().toISOString();
@@ -19,6 +20,7 @@ const COMMAND_DEFINITIONS = Object.freeze({
   STOP_NEW_ENTRIES: { command: 'STOP_ENTRIES', level: 2, scope: 'ACCOUNT', label: 'Stop New Entries', requires: [] },
   RESUME_NEW_ENTRIES: { command: 'START_ENTRIES', level: 2, scope: 'ACCOUNT', label: 'Resume New Entries', requires: [] },
   EMERGENCY_STOP: { command: 'EMERGENCY_STOP', level: 3, scope: 'ACCOUNT', label: 'Emergency Stop', requires: [] },
+  SET_WEEKLY_SCHEDULE: { command: 'CEM_SET_GLOBALS', level: 3, scope: 'CAMPAIGN', label: 'Apply broker-time weekly entry schedule', requires: ['scheduleV1'] },
 });
 
 const NOT_CONNECTED = Object.freeze({
@@ -90,6 +92,12 @@ export class WorldCommandCenterService {
         available = false; reason = 'No active campaign has one verified magic number for safe targeting.';
       }
       if (CAMPAIGN_ACTIONS[key] && !snapshot.campaignControl?.live) { available = false; reason = 'Campaign EA telemetry is missing or stale. Install the campaign receiver and match Reporter symbol/magic.'; }
+      if ((DIRECT_MANAGER_ACTIONS.has(key) || key === 'SET_WEEKLY_SCHEDULE') && (snapshot.campaignControl?.managerVersion || 0) < 2) {
+        available=false;reason='EA has not reported Live Manager V2 capabilities. Rewire V6.11 manual-burst control does not support the V6.21 stop/trail/trim receiver. Attach the matching updated EA and Reporter.';
+      }
+      if (key === 'SET_WEEKLY_SCHEDULE' && snapshot.campaignControl?.schedule?.version !== 1) {
+        available=false;reason='This EA has not reported the broker-time weekly schedule capability.';
+      }
       connected[key] = { key, label: definition.label, command: definition.command, safetyLevel: definition.level, scope: definition.scope, available, reason, connected: true };
     }
     for (const [key, reason] of Object.entries(NOT_CONNECTED)) connected[key] = { key, label: key.replaceAll('_', ' '), available: false, connected: false, reason, safetyLevel: key.includes('CLOSE') || key === 'LOCK_PROFIT' ? 3 : 2 };
@@ -145,6 +153,11 @@ export class WorldCommandCenterService {
       const error = new Error(capability?.reason || 'Command is unavailable.'); error.statusCode = 409; error.code = 'command_unavailable'; throw error;
     }
     const packet = CAMPAIGN_ACTIONS[action] ? campaignPacket(action, { ...body, eaCampaignId: body.eaCampaignId ?? snapshot.campaignControl?.campaignId }, snapshot) : null;
+    const weeklyMasks = action==='SET_WEEKLY_SCHEDULE' ? validateWeeklyMasks(body.weeklyMasks) : null;
+    const scheduleEnabled = action==='SET_WEEKLY_SCHEDULE' ? body.scheduleEnabled===true : false;
+    if (action==='SET_WEEKLY_SCHEDULE' && (!snapshot.campaignControl?.live || !snapshot.campaignControl?.symbol || !snapshot.campaignControl?.magic)) {
+      const err=new Error('A live account-scoped campaign receiver is required for schedule control.');err.statusCode=409;throw err;
+    }
     const affected = this.affectedFor(snapshot, action, body);
     if (action === 'CLOSE_POSITION' && !affected.position) { const error = new Error('The selected position is no longer open.'); error.statusCode = 409; throw error; }
     if (action === 'CLOSE_CAMPAIGN' && (!affected.campaign || !affected.campaign.canTargetByMagic || affected.campaign.magicNumber == null)) { const error = new Error('This campaign cannot be safely targeted by the current Reporter command contract.'); error.statusCode = 409; throw error; }
@@ -157,6 +170,8 @@ export class WorldCommandCenterService {
     const proposal = {
       proposalId,
       packet,
+      weeklyMasks,
+      scheduleEnabled,
       requestId: Date.now() * 1000 + Math.floor(Math.random() * 1000),
       tokenHash: hash(token),
       userId: String(userId),
@@ -165,8 +180,8 @@ export class WorldCommandCenterService {
       definition,
       campaignId: affected.campaign?.campaignId || null,
       positionId: affected.position?.ticket || null,
-      symbol: affected.campaign?.symbol || affected.position?.symbol || clean(body.symbol, 32).toUpperCase() || null,
-      magicNumber: affected.campaign?.magicNumber ?? null,
+      symbol: action==='SET_WEEKLY_SCHEDULE' ? snapshot.campaignControl.symbol : affected.campaign?.symbol || affected.position?.symbol || clean(body.symbol, 32).toUpperCase() || null,
+      magicNumber: action==='SET_WEEKLY_SCHEDULE' ? snapshot.campaignControl.magic : affected.campaign?.magicNumber ?? null,
       affectedCount: affected.count,
       createdAt,
       expiresAt: new Date(expiresAtMs).toISOString(),
@@ -228,6 +243,10 @@ export class WorldCommandCenterService {
       campaignId: proposal.campaignId || undefined,
     };
     if (proposal.packet) Object.assign(base, proposal.packet, { requestId: proposal.requestId, expiresEpoch: Math.floor(Date.now() / 1000) + 90 });
+    if (proposal.action==='SET_WEEKLY_SCHEDULE') {
+      base.magicNumber=proposal.magicNumber;
+      base.globals=weeklyScheduleGlobals({symbol:proposal.symbol,magic:proposal.magicNumber,masks:proposal.weeklyMasks,enabled:proposal.scheduleEnabled});
+    }
     if (proposal.action === 'CLOSE_POSITION') base.ticket = proposal.positionId;
     if (proposal.action === 'CLOSE_CAMPAIGN') base.magicNumber = proposal.magicNumber;
     if (['PAUSE_BOT', 'RESUME_BOT', 'STOP_NEW_ENTRIES', 'RESUME_NEW_ENTRIES'].includes(proposal.action)) {
@@ -256,6 +275,9 @@ export class WorldCommandCenterService {
     if (proposal.action === 'CLOSE_CAMPAIGN' && (!currentAffected.campaign || currentAffected.campaign.magicNumber == null || String(currentAffected.campaign.magicNumber) !== String(proposal.magicNumber))) { const error = new Error('Campaign targeting changed before confirmation. Review the live campaign again.'); error.statusCode = 409; throw error; }
 
     if (proposal.packet) campaignPacket(proposal.action, { ...proposal.packet, tickets: proposal.packet.tickets.split(',').filter(Boolean) }, current);
+    if (proposal.action==='SET_WEEKLY_SCHEDULE' && (current.campaignControl?.symbol!==proposal.symbol || current.campaignControl?.magic!==proposal.magicNumber || current.campaignControl?.schedule?.version!==1)) {
+      const err=new Error('Schedule receiver or symbol/magic changed before confirmation.');err.statusCode=409;throw err;
+    }
     if (proposal.inFlight) { const error = new Error('Command is already being queued.'); error.statusCode = 409; throw error; }
     proposal.inFlight = true;
     const payload = this.payloadFor(proposal, current);

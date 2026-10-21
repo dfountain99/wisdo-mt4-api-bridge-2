@@ -16,6 +16,9 @@ string BuildCampaignControlJson()
    j+=",\"campaignBase\":"+DoubleToString(WcoRead(p,"campaignBase"),2)+",\"campaignRealized\":"+DoubleToString(WcoRead(p,"campaignRealized"),2);
    j+=",\"campaignFloating\":"+DoubleToString(WcoRead(p,"campaignFloating"),2)+",\"milestonePercent\":"+DoubleToString(WcoRead(p,"milestonePercent"),4);
    j+=",\"targetEquity\":"+DoubleToString(WcoRead(p,"targetEquity"),2);
+   j+=",\"managerVersion\":"+DoubleToString(WcoRead(p,"managerVersion"),0)+",\"scheduleVersion\":"+DoubleToString(WcoRead(p,"scheduleVersion"),0);
+   j+=",\"weeklyScheduleMode\":"+DoubleToString(WcoRead(p,"weeklyScheduleMode"),0)+",\"weeklyMasks\":[";
+   for(int wd=0;wd<7;wd++){if(wd>0)j+=",";j+=DoubleToString(WcoRead(p,"weeklyMask"+IntegerToString(wd)),0);}j+="]";
    j+=",\"sessionId\":"+DoubleToString(WcoRead(p,"session"),0)+",\"sessionQuality\":"+DoubleToString(WcoRead(p,"sessionQuality"),4);
    j+=",\"brokerHour\":"+DoubleToString(WcoRead(p,"brokerHour"),0)+",\"brokerMinute\":"+DoubleToString(WcoRead(p,"brokerMinute"),0);
    j+=",\"windowMode\":"+DoubleToString(WcoRead(p,"windowMode"),0);

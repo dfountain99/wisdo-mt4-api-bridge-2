@@ -212,12 +212,17 @@ void WcoPublish()
    bool chronosWindowAllowed=HT6DirectTradingWindowAllows(chronosNow);
    bool wisdoTradingPaused=(GlobalVariableCheck("WISDO_TRADING_PAUSED") && GlobalVariableGet("WISDO_TRADING_PAUSED")>=0.5);
    bool chronosEntryAllowed=(DirectAllowNewEntries && chronosWindowAllowed && !wisdoTradingPaused && !h620FuturePaused && !h620Quarantine);
+   WcoWrite(p,"managerVersion",2);WcoWrite(p,"scheduleVersion",1);
+   string sched="CEM.WS."+IntegerToString(AccountNumber())+"."+IntegerToString(MagicNumber)+"."+Symbol()+".";
+   int schedMode=GlobalVariableCheck(sched+"EN")?(int)GlobalVariableGet(sched+"EN"):0;
+   WcoWrite(p,"weeklyScheduleMode",schedMode);
+   for(int wd=0;wd<7;wd++){string sk=sched+"D"+IntegerToString(wd);WcoWrite(p,"weeklyMask"+IntegerToString(wd),GlobalVariableCheck(sk)?GlobalVariableGet(sk):0);}
    WcoWrite(p,"session",gHT5Session);WcoWrite(p,"sessionQuality",gHT5SessionQuality);
    WcoWrite(p,"brokerHour",TimeHour(chronosNow));WcoWrite(p,"brokerMinute",TimeMinute(chronosNow));
    WcoWrite(p,"windowMode",(int)DirectTradingWindowMode);
    WcoWrite(p,"window1Start",HT6NormalizeHour(DirectWindow1StartHour));WcoWrite(p,"window1End",HT6NormalizeHour(DirectWindow1EndHour));
    WcoWrite(p,"window2Start",HT6NormalizeHour(DirectWindow2StartHour));WcoWrite(p,"window2End",HT6NormalizeHour(DirectWindow2EndHour));
-   WcoWrite(p,"scheduleEnforced",DirectTradingWindowMode==TIME_WINDOW_ALL_HOURS?0:1);
+   WcoWrite(p,"scheduleEnforced",(DirectTradingWindowMode!=TIME_WINDOW_ALL_HOURS || schedMode!=0)?1:0);
    WcoWrite(p,"windowAllowed",chronosWindowAllowed?1:0);WcoWrite(p,"entryAllowed",chronosEntryAllowed?1:0);
    // MARKET SENSE truth from the active HIGHTOWER organism. Numeric fields only;
    // the website labels them, while the EA remains the authority.

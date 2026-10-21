@@ -1,5 +1,8 @@
 import { createWorldCommandRuntime } from './command-runtime.js';
 import { createWisdoTimeEngine } from './wisdo-time-engine.js';
+import { createWisdoWeeklyScheduler } from './wisdo-weekly-scheduler.js';
+import { rankVisual } from './rank-definitions.js';
+import { characterSvg } from './rank-ascension.js';
 
 const esc=(value='')=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
 const finite=(value,fallback=0)=>Number.isFinite(Number(value))?Number(value):fallback;
@@ -36,7 +39,7 @@ function markup(){
         <main class="lm-main">
           <section class="lm-card lm-command-card">
             <div class="lm-command-title">
-              <div><span class="lm-label">VOICE + TEXT → VERIFIED EA COMMANDS</span><h1>Tell WISDO what to do.</h1><p>No character. No game controls. This surface exists to manage the live campaign.</p></div>
+              <div><span class="lm-label">VOICE + TEXT → VERIFIED EA COMMANDS</span><h1>Tell WISDO what to do.</h1><p>WISDO Guardian is back. Controls show actual EA capability and broker results.</p></div>
               <span id="lmLinkPill" class="lm-link-pill bad">LINK CHECKING</span>
             </div>
             <form id="lmComposer" class="lm-composer">
@@ -57,7 +60,8 @@ function markup(){
               <button class="lm-btn good" type="button" data-live-action="RESUME_BOT">RESUME BOT<span>Return to EA logic</span></button>
               <button class="lm-btn" type="button" data-live-action="STOP_NEW_ENTRIES">STOP ENTRIES<span>Manage current trades only</span></button>
               <button class="lm-btn good" type="button" data-live-action="RESUME_NEW_ENTRIES">ALLOW ENTRIES<span>Reopen entry gate</span></button>
-              <button class="lm-btn" type="button" data-manager-action="SET_TRAIL_ATR" data-delta="-0.25">TIGHTEN TRAIL<span>−0.25 ATR</span></button>
+              <button class="lm-btn" type="button" data-manager-action="SET_STOP_ATR" data-stop="1.6">MOVE STOP LOSS<span>1.60 ATR · tighten only</span></button>
+              <button class="lm-btn" type="button" data-manager-action="SET_TRAIL_ATR" data-delta="-0.25">TIGHTEN TRAIL<span>−0.25 ATR · activates on valid movement</span></button>
               <button class="lm-btn" type="button" data-manager-action="TRIM_CAMPAIGN" data-trim="50">TRIM 50%<span>Current campaign</span></button>
               <button class="lm-btn danger" type="button" data-live-action="CLOSE_CAMPAIGN">CLOSE CAMPAIGN<span>Hold confirmation</span></button>
               <button class="lm-btn danger" type="button" data-live-action="EMERGENCY_STOP">EMERGENCY STOP<span>Hold confirmation</span></button>
@@ -72,7 +76,7 @@ function markup(){
               <div class="lm-metric"><small>CAMPAIGN BASE</small><strong id="lmCampaignBase">—</strong></div>
               <div class="lm-metric"><small>NEXT TARGET</small><strong id="lmTargetEquity">—</strong></div>
             </div>
-            <div class="lm-progress"><i id="lmProgressBar"></i></div>
+            <div class="lm-progress-stats"><strong id="lmProgressPct">AWAITING CAMPAIGN DATA</strong><span id="lmProgressDelta">EA VERIFIED PROGRESS ONLY</span></div><div class="lm-progress"><i id="lmProgressBar"></i></div><div class="lm-progress-milestones"><span>LAUNCH</span><span>25%</span><span>50%</span><span>75%</span><span>COLLECT</span></div>
           </section>
 
           <section class="lm-card">
@@ -92,6 +96,7 @@ function markup(){
           </section>
 
           <section class="lm-card lm-time-host" id="lmTimeHost"></section>
+          <section class="lm-card lm-weekly-host" id="lmWeeklyHost"></section>
 
           <section class="lm-card">
             <div class="lm-card-head"><div><span class="lm-label">BROKER TRUTH</span><h2>Open Positions</h2></div><small id="lmPositionSummary">NO OPEN POSITIONS</small></div>
@@ -100,6 +105,7 @@ function markup(){
         </main>
 
         <aside class="lm-side">
+          <section class="lm-card lm-avatar-card"><div class="lm-card-head"><div><span class="lm-label">CHARACTER EVOLUTION</span><h3>WISDO GUARDIAN</h3></div><small id="lmAvatarMood">SCOUT</small></div><div id="lmAvatarCharacter" class="lm-avatar-sculpture">${characterSvg(rankVisual("UNRANKED"))}</div><div class="lm-avatar-label" id="lmAvatarTitle">INITIATE · READY</div><p class="lm-avatar-note">Rank and victories are based on account telemetry, not generated results.</p></section>
           <section class="lm-card">
             <div class="lm-card-head"><div><span class="lm-label">BOUND ACCOUNT</span><h3>Account & Campaign</h3></div></div>
             <select id="lmAccountSelect" class="lm-account-select" aria-label="Trading account"></select>
@@ -212,7 +218,9 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     if(!r){el.className='lm-receipt';el.textContent='No command sent.';return;}
     const status=String(r.status||'pending').toLowerCase();
     el.className=`lm-receipt ${status==='completed'?'ok':status==='failed'?'fail':'pending'}`;
-    el.innerHTML=`<strong>${esc(status.toUpperCase())}</strong><br>${esc(r.command||'COMMAND')}<br><span>${esc(r.result?.message||r.error||'Waiting for HIGHTOWER acknowledgement.')}</span>${r.commandId?`<br><small>ID ${esc(r.commandId)}</small>`:''}`;
+    const detail=r.result?.message||r.error||'Waiting for Reporter → EA acknowledgement.';
+    const notice=r.command==='CEM_SET_GLOBALS'&&status==='completed'?'The Reporter wrote your schedule. Confirm the matching weekly grid in subsequent EA telemetry.':r.command==='WISDO_CAMPAIGN'&&status==='completed'?'A trailing policy can be armed without immediate stop movement. Compare broker SL columns below.':'';
+    el.innerHTML=`<strong>${esc(status.toUpperCase())}</strong><br>${esc(r.command||'COMMAND')}<br><span>${esc(detail)}</span>${notice?`<p>${esc(notice)}</p>`:''}${r.commandId?`<br><small>ID ${esc(r.commandId)}</small>`:''}`;
   }
 
   function renderState(){
@@ -248,6 +256,11 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     q('#lmCampaignBase').textContent=base>0?money(base,currency):'—';
     q('#lmTargetEquity').textContent=target>0?money(target,currency):'—';
     q('#lmProgressBar').style.width=`${(progressRatio*100).toFixed(1)}%`;
+    q('#lmProgressPct').textContent=control?.live?`${(progressRatio*100).toFixed(1)}% TO NEXT MILESTONE`:'AWAITING CAMPAIGN TELEMETRY';
+    q('#lmProgressDelta').textContent=control?.live?`${money(realized+floating,currency)} CAMPAIGN NET MOVEMENT`:'EA REPORTER REQUIRED';
+    q('#lmAvatarMood').textContent=!control?.live?'STANDBY':control.paused?'PROTECTING':(campaign?.positionCount||0)>0?'ACTIVE':'SCOUT MODE';
+    q('#lmAvatarCharacter').dataset.mood=!control?.live?'standby':control.paused?'protecting':(campaign?.positionCount||0)>0?'active':'scout';
+    q('#lmAvatarTitle').textContent=control?.live?`WISDO GUARDIAN · ${control.paused?'PROTECTING':'ACTIVE'}`:'INITIATE · CONNECT THE EA';
     q('#lmCampaignStatus').textContent=control?.live?(control.paused?'EA LIVE · PAUSED':'EA LIVE'):'CAMPAIGN TELEMETRY STANDBY';
 
     const runtime=control?.runtime||{};
@@ -285,6 +298,7 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     });
 
     timeEngine.setState(commandState,campaign);
+    weeklyScheduler.setState(commandState,campaign);
   }
 
   const runtime=createWorldCommandRuntime({
@@ -295,6 +309,7 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
   });
 
   const timeEngine=createWisdoTimeEngine(q('#lmTimeHost'),{resetWindowSeconds:120});
+  const weeklyScheduler=createWisdoWeeklyScheduler(q('#lmWeeklyHost'),{onApply:(weeklyMasks,scheduleEnabled)=>arm('SET_WEEKLY_SCHEDULE',{weeklyMasks,scheduleEnabled})});
 
   function cancelProposal(){
     proposal=null;holdStart=0;clearInterval(holdTimer);holdTimer=0;
@@ -416,6 +431,7 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
   overlay.querySelectorAll('[data-manager-action]').forEach((button)=>button.addEventListener('click',()=>{
     const action=button.dataset.managerAction;
     const options={};
+    if(button.dataset.stop)options.stopAtr=Number(button.dataset.stop);
     if(button.dataset.delta)options.trailDeltaAtr=Number(button.dataset.delta);
     if(button.dataset.trim)options.trimPercent=Number(button.dataset.trim);
     arm(action,options);

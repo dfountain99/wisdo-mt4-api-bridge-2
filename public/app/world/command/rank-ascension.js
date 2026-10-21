@@ -2,7 +2,7 @@ import { rankVisual, rankIndex, rankEvolution } from './rank-definitions.js';
 
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-function characterSvg(def,{mini=false}={}){
+export function characterSvg(def,{mini=false}={}){
   const level=Number(def.level||1);
   const id=`rg${level}${mini?'m':'h'}`;
   const crown=level>=8?`

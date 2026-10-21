@@ -56,6 +56,8 @@ export function normalizeCampaignControl(value) {
       milestonePercent: Math.max(0, num(value.milestonePercent)),
       targetEquity: Math.max(0, num(value.targetEquity)),
     },
+    managerVersion: Math.max(0,Math.trunc(num(value.managerVersion,0))),
+    schedule: {version:Math.max(0,Math.trunc(num(value.scheduleVersion,0))),mode:Math.max(0,Math.min(2,Math.trunc(num(value.weeklyScheduleMode,0)))),masks:Array.isArray(value.weeklyMasks)&&value.weeklyMasks.length===7?value.weeklyMasks.map(x=>Math.max(0,Math.min(281474976710655,Math.trunc(num(x,0))))):Array(7).fill(0)},
     session: {
       reported: sessionReported,
       id: sessionId,

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
-test('V15 Command Center is a trading-first Live Manager with no character presentation', async () => {
+test('V18 Live Manager restores the original WISDO Guardian while preserving trading controls', async () => {
   const runtime=await fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8');
   assert.match(runtime,/WISDO <b>LIVE MANAGER<\/b>/);
   assert.match(runtime,/Tell WISDO what to do/);
@@ -11,7 +11,8 @@ test('V15 Command Center is a trading-first Live Manager with no character prese
   assert.match(runtime,/Open Positions/);
   assert.match(runtime,/Last Verified Receipt/);
   assert.match(runtime,/createWisdoTimeEngine/);
-  assert.doesNotMatch(runtime,/THREE_MODULE_URL|createCampaignCoreRenderer|createRankAscension|createGuardianCommandDeck|createTruthDock|wcV8CharacterChamber|CHARACTER EVOLUTION|LIVE GUARDIAN/i);
+  assert.match(runtime,/lmAvatarCharacter|CHARACTER EVOLUTION/);
+  assert.match(runtime,/createWisdoWeeklyScheduler/);
 });
 
 test('V17 puts natural intent and standing behavior truth at the center of Live Manager', async () => {

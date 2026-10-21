@@ -35,9 +35,9 @@ test('V15 active runtime removes guardian gestures and keeps verified proposals'
   assert.match(runtime,/runtime\.execute\(/);
 });
 
-test('V15 shows only live trading telemetry in the active Command Center', async () => {
+test('V18 restores Guardian character alongside verified trading telemetry', async () => {
   const runtime=await fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8');
-  assert.doesNotMatch(runtime,/Camera gestures|CHARACTER EVOLUTION|guardian|rank ascension/i);
+  assert.match(runtime,/CHARACTER EVOLUTION|lmAvatarCharacter/);
   assert.match(runtime,/CAMPAIGN BASE/);
   assert.match(runtime,/NEXT TARGET/);
   assert.match(runtime,/Protection & Market Sense/);

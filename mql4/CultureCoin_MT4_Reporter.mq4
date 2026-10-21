@@ -1189,7 +1189,7 @@ string CampaignAckMessage(string p,int status)
    if(status<0)return "HIGHTOWER rejected the live manager command after revalidation.";
    if(status==3)return "HIGHTOWER only completed part of the requested campaign change ("+IntegerToString(changed)+"/"+IntegerToString(requested)+").";
    if(op==15)return "EA verified stop ATR policy at "+DoubleToString(WcoRead(p,"effectiveStopAtr"),2)+" ATR; tightened "+IntegerToString(changed)+" existing stop(s) without loosening protected stops.";
-   if(op==16)return "EA verified trailing policy "+DoubleToString(WcoRead(p,"effectiveTrailStartAtr"),2)+"/"+DoubleToString(WcoRead(p,"effectiveTrailDistanceAtr"),2)+"/"+DoubleToString(WcoRead(p,"effectiveTrailStepAtr"),2)+" ATR.";
+   if(op==16)return "EA armed trailing policy "+DoubleToString(WcoRead(p,"effectiveTrailStartAtr"),2)+"/"+DoubleToString(WcoRead(p,"effectiveTrailDistanceAtr"),2)+"/"+DoubleToString(WcoRead(p,"effectiveTrailStepAtr"),2)+" ATR. Stop losses move only when favorable price and broker conditions permit; check the actual SL column.";
    if(op==17)return "EA verified trim on "+IntegerToString(changed)+" of "+IntegerToString(requested)+" requested position(s).";
    if(op==18)return status==6?"EA verified one HIGHTOWER add was opened under normal entry gates.":"HIGHTOWER evaluated the add request without opening exposure.";
    if(op==19)return "EA verified live stop/trail overrides were cleared; visible EA inputs are authoritative again.";

@@ -2779,13 +2779,25 @@ bool HT6HourInWindow(int hour,int startHour,int endHour)
 bool HT6DirectTradingWindowAllows(datetime now)
 {
    int hour=TimeHour(now);
-   if(DirectTradingWindowMode==TIME_WINDOW_ALL_HOURS) return true;
-   if(DirectTradingWindowMode==TIME_WINDOW_LONDON_AND_NEWYORK)
-      return (hour>=7 && hour<21); // broker-clock London through New York
-   if(DirectTradingWindowMode==TIME_WINDOW_CUSTOM_TWO_WINDOWS)
-      return HT6HourInWindow(hour,DirectWindow1StartHour,DirectWindow1EndHour)
-          || HT6HourInWindow(hour,DirectWindow2StartHour,DirectWindow2EndHour);
-   return false;
+   bool legacy=true;
+   if(DirectTradingWindowMode==TIME_WINDOW_LONDON_AND_NEWYORK) legacy=(hour>=7 && hour<21);
+   else if(DirectTradingWindowMode==TIME_WINDOW_CUSTOM_TWO_WINDOWS)
+      legacy=HT6HourInWindow(hour,DirectWindow1StartHour,DirectWindow1EndHour) || HT6HourInWindow(hour,DirectWindow2StartHour,DirectWindow2EndHour);
+   else if(DirectTradingWindowMode!=TIME_WINDOW_ALL_HOURS) legacy=false;
+   string key="CEM.WS."+IntegerToString(AccountNumber())+"."+IntegerToString(MagicNumber)+"."+Symbol()+".";
+   int mode=GlobalVariableCheck(key+"EN")?(int)GlobalVariableGet(key+"EN"):0;
+   if(mode==2) return false; // fail closed during atomic seven-day schedule update
+   if(mode!=0 && mode!=1) return false;
+   if(mode==1)
+   {
+      int day=(TimeDayOfWeek(now)+6)%7; // MT4 Sunday=0 -> Monday=0
+      string maskKey=key+"D"+IntegerToString(day);
+      if(!GlobalVariableCheck(maskKey))return false;
+      double mask=GlobalVariableGet(maskKey);
+      int slot=TimeHour(now)*2+(TimeMinute(now)>=30?1:0);
+      if(mask<0 || mask>281474976710655.0 || MathMod(MathFloor(mask/MathPow(2.0,slot)),2.0)<1.0)return false;
+   }
+   return legacy;
 }
 
 void HT6ApplyDirectExecutionInputs()
