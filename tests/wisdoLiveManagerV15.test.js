@@ -32,7 +32,7 @@ test('V15 retains proposal confirmation and verified receipt semantics', async (
   assert.match(runtime,/runtime\.propose\(/);
   assert.match(runtime,/runtime\.execute\(/);
   assert.match(runtime,/HOLD TO CONFIRM/);
-  assert.match(runtime,/Waiting for HIGHTOWER acknowledgement/);
+  assert.match(runtime,/Waiting for HIGHTOWER verified acknowledgement|Waiting for Reporter/);
   assert.match(runtime,/announceReceipt/);
 });
 
@@ -48,5 +48,5 @@ test('V15 loads one purpose-built stylesheet and fresh route cache keys', async 
   assert.match(css,/\.lm-risk-grid/);
   assert.match(css,/\.wisdo-v12-time-layout/);
   assert.match(workspace,/v=20261021-v18-weekly-guardian/);
-  assert.match(worker,/wisdo-static-v17\.0\.0-intent-os/);
+  assert.match(worker,/wisdo-static-v18\.0\.0-weekly-guardian/);
 });
