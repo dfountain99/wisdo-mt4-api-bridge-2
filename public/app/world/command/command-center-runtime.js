@@ -201,7 +201,9 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
   const selectedAccount=()=>commandState?.account||null;
   const capability=(action)=>commandState?.capabilities?.[action]||null;
 
+  let lastIntentMessage='';
   const setIntent=(text,tone='')=>{
+    lastIntentMessage=text;
     const el=q('#lmIntentState');
     if(!el)return;
     el.textContent=text;
@@ -232,8 +234,8 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     const r=latestReceipt;
     if(!r){el.className='lm-receipt';el.textContent='No command sent.';return;}
     const status=String(r.status||'pending').toLowerCase();
-    const commandResult=String(r.result?.message||r.error||'Waiting for HIGHTOWER acknowledgement.');
-    el.className=`lm-receipt ${status==='completed'?'ok':status==='failed'?'fail':'pending'}`;
+    const commandResult=String(r.deliveryOnly && status==='completed' ? 'Reporter delivery recorded. Awaiting independent EA acknowledgement; broker execution is not yet verified.' : r.result?.message||r.error||'Waiting for HIGHTOWER acknowledgement.');
+    el.className=`lm-receipt ${status==='completed'&&!r.deliveryOnly?'ok':status==='failed'?'fail':'pending'}`;
     el.innerHTML=`<strong>${esc(status.toUpperCase())}</strong><br>${esc(r.command||'COMMAND')}<br><span>${esc(commandResult)}</span>${r.commandId?`<br><small>ID ${esc(r.commandId)}</small>`:''}`;
   }
 
@@ -252,7 +254,8 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     q('#lmScopeLink').textContent=receiverReady?'EA RECEIVER LIVE':health.commandLinkReady?'REPORTER ONLY':'NOT READY';
     q('#lmLinkPill').textContent=receiverReady?'EA RECEIVER LIVE':health.commandLinkReady?'REPORTER ONLY':'LINK NOT READY';
     q('#lmLinkPill').className=`lm-link-pill ${receiverReady?'live':'bad'}`;
-    setIntent(receiverReady?'Receiver reachable. Manager controls require the compatible EA version and verified broker receipts.':health.commandLinkReady?'Reporter is online, but the EA campaign receiver is not verified. Manager commands are unavailable.':'Reporter/terminal command link not ready. Check pairing, symbol and MagicNumber.',receiverReady?'live':'error');
+    // Preserve the last command status. Connection health has its own link pill and diagnostics.
+    if(!lastIntentMessage) setIntent(receiverReady?'Receiver reachable. Manager controls require the compatible EA version and verified broker receipts.':health.commandLinkReady?'Reporter online; EA receiver not verified.':'Reporter/terminal link not ready.',receiverReady?'live':'error');
 
     const accounts=commandState.accounts||[];
     q('#lmAccountSelect').innerHTML=accounts.map((row)=>`<option value="${esc(row.accountId)}" ${String(row.accountId)===String(account?.accountId)?'selected':''}>${esc(row.nickname||row.accountId)}${row.mt4Login?` · MT4 ${esc(row.mt4Login)}`:''}</option>`).join('');
