@@ -110,7 +110,7 @@ export function mountCampaignCommand(host, { accountId, api }) {
   let yFor = () => 0, priceFor = () => 0;
   const draw = () => {
     const c=state?.campaignControl, trades=positions(), ls=levels();
-    powerDock?.update({positions:(state?.campaigns||[]).flatMap(x=>x.positions||[]),live:Boolean(c?.live)});
+    powerDock?.update({positions:(state?.campaigns||[]).flatMap(x=>x.positions||[]),live:Boolean(c?.live),capabilities:state?.capabilities||{}});
     const accountEquity=Number(state?.account?.equity??state?.account?.currentEquity??NaN);
     const mood=Number.isFinite(accountEquity)&&accountEquity<=0?'drained':(!c?.live)?'offline':(Number(c.progress?.floating||0)<0&&Number(c.progress?.campaignBase||0)>0&&Math.abs(Number(c.progress.floating))/Number(c.progress.campaignBase)>.05)?'sick':Number(c.progress?.floating||0)>0?'winning':Number(c.progress?.floating||0)<0?'struggling':c?.paused?'sleeping':'watching';
     const orb=q('.wco-orb');orb.dataset.mood=mood;orb.textContent=({offline:'◌',drained:'🥀',sick:'🤒',winning:'😄',struggling:'😟',sleeping:'😴',watching:'🦉'})[mood];orb.title='Guardian mood: '+mood+' · based on reported campaign telemetry';
