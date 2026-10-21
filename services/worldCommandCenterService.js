@@ -151,7 +151,7 @@ export class WorldCommandCenterService {
     const packet = CAMPAIGN_ACTIONS[action] ? campaignPacket(action, { ...body, eaCampaignId: body.eaCampaignId ?? snapshot.campaignControl?.campaignId }, snapshot) : null;
     const affected = this.affectedFor(snapshot, action, body);
     const weeklyMasks=action==='SET_EA_SCHEDULE'?normalizeWeeklyMasks(body.slotMasks):null;
-    if(action==='SET_EA_SCHEDULE' && (!affected.campaign||!snapshot.campaignControl?.live||String(affected.campaign.symbol)!==String(snapshot.campaignControl.symbol)||Number(affected.campaign.magicNumber)!==Number(snapshot.campaignControl.magic))) {const error=new Error('Selected EA lane does not match the Reporter symbol and MagicNumber.');error.statusCode=409;throw error;}
+    if(action==='SET_EA_SCHEDULE' && (!snapshot.campaignControl?.live || !snapshot.campaignControl?.symbol || !snapshot.campaignControl?.magic || (affected.campaign && (String(affected.campaign.symbol)!==String(snapshot.campaignControl.symbol) || Number(affected.campaign.magicNumber)!==Number(snapshot.campaignControl.magic))))) {const error=new Error('Selected EA lane does not match the Reporter symbol and MagicNumber.');error.statusCode=409;throw error;}
     if (action === 'CLOSE_POSITION' && !affected.position) { const error = new Error('The selected position is no longer open.'); error.statusCode = 409; throw error; }
     if (action === 'CLOSE_CAMPAIGN' && (!affected.campaign || !affected.campaign.canTargetByMagic || affected.campaign.magicNumber == null)) { const error = new Error('This campaign cannot be safely targeted by the current Reporter command contract.'); error.statusCode = 409; throw error; }
 
@@ -172,8 +172,8 @@ export class WorldCommandCenterService {
       definition,
       campaignId: affected.campaign?.campaignId || null,
       positionId: affected.position?.ticket || null,
-      symbol: affected.campaign?.symbol || affected.position?.symbol || clean(body.symbol, 32).toUpperCase() || null,
-      magicNumber: affected.campaign?.magicNumber ?? null,
+      symbol: action==='SET_EA_SCHEDULE'?snapshot.campaignControl.symbol:affected.campaign?.symbol || affected.position?.symbol || clean(body.symbol, 32).toUpperCase() || null,
+      magicNumber: action==='SET_EA_SCHEDULE'?snapshot.campaignControl.magic:affected.campaign?.magicNumber ?? null,
       affectedCount: affected.count,
       createdAt,
       expiresAt: new Date(expiresAtMs).toISOString(),

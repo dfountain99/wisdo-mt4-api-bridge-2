@@ -13,11 +13,13 @@ test('V18 weekly calendar validates exactly seven broker-time 24-hour masks',()=
 });
 test('V18 emits account-scoped 7 weekday masks and activation LAST',()=>{
   const g=buildWeeklyScheduleGlobals({symbol:'XAUUSDm',magicNumber:26080204,masks:[1,2,4,8,16,32,64]});
-  assert.equal(g.length,8);
-  assert.equal(g[0].name,'CEM.WISDO.__ACCOUNT__.XAUUSDm.26080204.ScheduleDay0');
-  assert.equal(g[6].value,64);
-  assert.equal(g[7].name,'CEM.WISDO.__ACCOUNT__.XAUUSDm.26080204.ScheduleEnabled');
-  assert.equal(g[7].value,1);
+  assert.equal(g.length,9);
+  assert.equal(g[0].name,'CEM.WISDO.__ACCOUNT__.XAUUSDm.26080204.ScheduleEnabled');
+  assert.equal(g[0].value,2);
+  assert.equal(g[1].name,'CEM.WISDO.__ACCOUNT__.XAUUSDm.26080204.ScheduleDay0');
+  assert.equal(g[7].value,64);
+  assert.equal(g[8].name,'CEM.WISDO.__ACCOUNT__.XAUUSDm.26080204.ScheduleEnabled');
+  assert.equal(g[8].value,1);
   assert.throws(()=>buildWeeklyScheduleGlobals({symbol:'',magicNumber:26080204,masks:Array(7).fill(0)}),/Exact EA symbol/);
 });
 test('V18 controls are not advertised on old Rewire V6.11 receiver',()=>{
