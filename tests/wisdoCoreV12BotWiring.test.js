@@ -198,5 +198,6 @@ test('V15 Live Manager uses bot-driven time telemetry and verified command propo
   assert.match(runtime, /runtime\.propose\(/);
   assert.match(runtime, /runtime\.execute\(/);
   assert.match(runtime, /OPEN POSITIONS|Open Positions/);
-  assert.doesNotMatch(runtime, /guardian|CHARACTER EVOLUTION|rank ascension/i);
+  assert.match(runtime,/lmAvatarStage/); // visual character is restored without bypassing proposals
+  assert.doesNotMatch(runtime,/beginGuardianGesture|Camera gestures/i);
 });

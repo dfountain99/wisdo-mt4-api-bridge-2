@@ -37,7 +37,8 @@ test('V15 active runtime removes guardian gestures and keeps verified proposals'
 
 test('V15 shows only live trading telemetry in the active Command Center', async () => {
   const runtime=await fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8');
-  assert.doesNotMatch(runtime,/Camera gestures|CHARACTER EVOLUTION|guardian|rank ascension/i);
+  assert.match(runtime,/lmAvatarStage/); // restored visual Guardian, not gesture-control authority
+  assert.doesNotMatch(runtime,/Camera gestures|beginGuardianGesture/i);
   assert.match(runtime,/CAMPAIGN BASE/);
   assert.match(runtime,/NEXT TARGET/);
   assert.match(runtime,/Protection & Market Sense/);
@@ -49,8 +50,8 @@ test('V15 release assets are cache-busted and load only the Live Manager stylesh
     fs.readFile(new URL('../public/service-worker.js',import.meta.url),'utf8'),
     fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8'),
   ]);
-  assert.match(workspace,/v=20261002-v17-intent-os/);
-  assert.match(worker,/wisdo-static-v17\.0\.0-intent-os/);
+  assert.match(workspace,/v=20261021-v18-schedule-manager/);
+  assert.match(worker,/wisdo-static-v18\.0\.0-live-manager/);
   assert.match(runtime,/wisdo-live-manager-v15\.css/);
   assert.doesNotMatch(runtime,/wisdo-core-v11-truth-dock\.css|wisdo-core-v8-rank-ascension\.css/);
 });
