@@ -3,6 +3,8 @@ import { createWisdoTimeEngine } from './wisdo-time-engine.js';
 import { createWisdoWeeklyScheduleEditor } from './wisdo-weekly-schedule-editor.js';
 import { characterSvg } from './rank-ascension.js';
 import { rankVisual } from './rank-definitions.js';
+import { mountEaPowerDock } from '../../../js/ea-power-dock.js';
+import { createLiveTargetTracker } from './live-target-tracker.js';
 
 const esc=(value='')=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
 const finite=(value,fallback=0)=>Number.isFinite(Number(value))?Number(value):fallback;
@@ -15,10 +17,12 @@ export const INTENT_OS_CAPABILITIES=Object.freeze([
 ]);
 
 function ensureStyles(){
-  const href='/app/world/command/wisdo-live-manager-v15.css?v=20261021-v20-add-one-rewire';
+  const href='/app/world/command/wisdo-live-manager-v15.css?v=20261021-v23-real-power-dock';
   let link=document.querySelector('link[data-wisdo-live-manager-v15]');
   if(!link){link=document.createElement('link');link.rel='stylesheet';link.dataset.wisdoLiveManagerV15='1';document.head.appendChild(link);}
   link.href=href;
+  let guardianStyle=document.querySelector('style[data-wisdo-avatar-v13]');
+  if(!guardianStyle){guardianStyle=document.createElement('style');guardianStyle.dataset.wisdoAvatarV13='1';guardianStyle.textContent='.lm-avatar-stage{transform:scale(1.32);transform-origin:top right;margin:14px 24px 45px 35px;min-width:180px}.lm-avatar-stage[data-mood=celebrating]{filter:drop-shadow(0 0 24px #38d68b);animation:wgCelebrate 1.9s ease-in-out infinite}.lm-avatar-stage[data-mood=sick]{filter:grayscale(.65);animation:wgIll 3s ease-in-out infinite}.lm-avatar-stage[data-mood=drained]{filter:grayscale(1);opacity:.45;transform:scale(1.13) translateY(12px)}.lm-avatar-stage[data-mood=protecting]{filter:drop-shadow(0 0 18px #e95348)}.lm-avatar-stage[data-mood=resting]{filter:saturate(.45)}@keyframes wgCelebrate{50%{transform:scale(1.4) translateY(-7px)}}@keyframes wgIll{50%{transform:scale(1.26) rotate(-3deg)}}';document.head.appendChild(guardianStyle);}
 }
 
 function markup(){
@@ -107,6 +111,8 @@ function markup(){
 
           <section class="lm-card lm-time-host" id="lmTimeHost"></section>
           <section class="lm-card lm-weekly-editor" id="lmWeeklyEditor"></section>
+          <section id="lmTargetTracker"></section>
+          <section id="lmPowerDock"></section>
 
           <section class="lm-card">
             <div class="lm-card-head"><div><span class="lm-label">BROKER TRUTH</span><h2>Open Positions</h2></div><small id="lmPositionSummary">NO OPEN POSITIONS</small></div>
@@ -268,8 +274,11 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     q('#lmProgressPercent').textContent=target>base?`${(progressRatio*100).toFixed(1)}%`:'NO TARGET';
     q('#lmProgressCaption').textContent=target>base?`${money(Math.max(0,base+realized+floating),currency)} tracked toward ${money(target,currency)}`:'Set a verified campaign target to activate progress';
     q('#lmVictoryLine').textContent=control?.live?`✦ ${realized>=0?'Realized gains':'Realized result'} ${money(realized,currency)} · Floating ${money(floating,currency)} · ${control.paused?'CAMPAIGN PAUSED':'LIVE'} `:'Guardian waiting for EA campaign telemetry.';
-    q('#lmAvatarStage').dataset.mood=!receiverReady?'standby':control?.paused?'defending':floating>0?'pressing':floating<0?'protecting':'watching';
-    q('#lmAvatarMood').textContent=!receiverReady?'LINK NEEDED':control?.paused?'DEFENDING':floating>0?'PRESSING':floating<0?'PROTECTING':'WATCHING';
+    const equityNow=(commandState.financial?.equity??account?.equity??account?.currentEquity)==null?NaN:Number(commandState.financial?.equity??account?.equity??account?.currentEquity);
+    const stressRatio=base>0?Math.abs(Math.min(floating,0))/base:0;
+    const guardianMood=Number.isFinite(equityNow)&&equityNow<=0?'drained':!receiverReady?'standby':control?.paused?'resting':stressRatio>=0.08?'sick':floating<0?'protecting':floating>0?'celebrating':'watching';
+    q('#lmAvatarStage').dataset.mood=guardianMood;
+    q('#lmAvatarMood').textContent=({drained:'DRAINED',standby:'LINK NEEDED',resting:'RESTING',sick:'SICK · DRAWDOWN',protecting:'PROTECTING · RED',celebrating:'CELEBRATING · GREEN',watching:'WATCHING'})[guardianMood];
     q('#lmCampaignStatus').textContent=control?.live?(control.paused?'EA LIVE · PAUSED':'EA LIVE'):'CAMPAIGN TELEMETRY STANDBY';
 
     const runtime=control?.runtime||{};
@@ -308,6 +317,9 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
 
     timeEngine.setState(commandState,campaign);
     weeklyEditor.setState(commandState,campaign,capability('SET_EA_SCHEDULE'));
+    const reportedEquity=(commandState.financial?.equity??account?.equity??account?.currentEquity)==null?NaN:Number(commandState.financial?.equity??account?.equity??account?.currentEquity);
+    targetTracker.setState({accountId:account?.accountId,equity:Number.isFinite(reportedEquity)?reportedEquity:null});
+    powerDock.update({positions:(commandState.campaigns||[]).flatMap(x=>x.positions||[]),live:receiverReady,capabilities:commandState.capabilities||{}});
     const diagnostic=q('#lmReceiverDiagnostics');
     if(diagnostic){
       const report=[];
@@ -360,6 +372,8 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
 
   const timeEngine=createWisdoTimeEngine(q('#lmTimeHost'),{resetWindowSeconds:120});
   const weeklyEditor=createWisdoWeeklyScheduleEditor(q('#lmWeeklyEditor'),{onApply:(slotMasks)=>arm('SET_EA_SCHEDULE',{slotMasks,campaignId:selectedCampaignId})});
+  const targetTracker=createLiveTargetTracker(q('#lmTargetTracker'));
+  const powerDock=mountEaPowerDock(q('#lmPowerDock'),{onCommand:async(action)=>{const receipt=await arm(action,{burstCount:1,durationSeconds:30,campaignId:selectedCampaignId});if(!receipt)throw new Error('EA or server rejected the command. Review the Live Manager status.');return receipt;}});
 
   function cancelProposal(){
     proposal=null;holdStart=0;clearInterval(holdTimer);holdTimer=0;
@@ -545,5 +559,5 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
   };
   window.addEventListener('wisdo:account-selected',workspaceHandler);
 
-  return {open,close,stop(){runtime.stop();timeEngine.destroy();clearInterval(holdTimer);window.removeEventListener('keydown',keyHandler,true);window.removeEventListener('wisdo:account-selected',workspaceHandler);document.documentElement.classList.remove('wisdo-live-manager-active');overlay.remove();}};
+  return {open,close,stop(){runtime.stop();timeEngine.destroy();powerDock.destroy();targetTracker.destroy();clearInterval(holdTimer);window.removeEventListener('keydown',keyHandler,true);window.removeEventListener('wisdo:account-selected',workspaceHandler);document.documentElement.classList.remove('wisdo-live-manager-active');overlay.remove();}};
 }

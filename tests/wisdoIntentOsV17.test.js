@@ -149,7 +149,7 @@ test('V17 deployment enables live voice authority but keeps explicit safety impl
   assert.match(render,/WISDO_VOICE_EXECUTION_MODE\s*\n\s*value: LIVE_AUTHORIZED/);
   assert.match(safety,/requiresStrongConfirmation/);
   assert.match(safety,/WIDEN_EXISTING_STOPS/);
-  assert.match(workspace,/v=20261021-v20-add-one-rewire/);
+  assert.match(workspace,/v=20261021-v23-real-power-dock/);
   assert.match(worker,/wisdo-static-v20\.0\.0-add-one-rewire/);
 });
 
