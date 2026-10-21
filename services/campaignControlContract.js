@@ -54,7 +54,7 @@ export function normalizeCampaignControl(value) {
     managerOpsVersion: Math.max(0,Math.trunc(num(value.managerOpsVersion,0))),
     scheduleVersion: Math.max(0,Math.trunc(num(value.scheduleVersion,0))),
     behaviorVersion: Math.max(0,Math.trunc(num(value.behaviorVersion,0))),
-    behaviorActive:bool(value.behaviorActive),behaviorPaused:bool(value.behaviorPaused),
+    behaviorEnabled:bool(value.behaviorEnabled),behaviorActive:bool(value.behaviorActive),behaviorPaused:bool(value.behaviorPaused),
     behaviorWave:Math.max(0,Math.trunc(num(value.behaviorWave,0))),behaviorWaveCount:Math.max(0,Math.trunc(num(value.behaviorWaveCount,0))),
     behaviorFilled:Math.max(0,Math.trunc(num(value.behaviorFilled,0))),behaviorWaveFilled:Math.max(0,Math.trunc(num(value.behaviorWaveFilled,0))),behaviorLastPrice:num(value.behaviorLastPrice,0),
     scheduleActive:bool(value.scheduleActive),scheduleAllowed:bool(value.scheduleAllowed),
@@ -117,7 +117,7 @@ export function campaignPacket(action, body, state) {
   if ([1, 3, 6, 7, 12].includes(definition.code) && (!Number.isInteger(duration) || duration < 1 || duration > 604800)) fail('Choose a duration between 1 second and 7 days.');
   if ([2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20].includes(definition.code) && c.phase !== 1) fail('This instruction requires an active campaign.');
   const chainOp=['CHAIN_ARM','CHAIN_CANCEL','CHAIN_PAUSE','CHAIN_RESUME'].includes(action);
-  if(chainOp&&c.behaviorVersion!==13)fail('V13 staged chain receiver is not verified.');
+  if(chainOp&&(c.behaviorVersion!==13||!c.behaviorEnabled))fail('V13 staged chain receiver not verified or disabled on the EA.');
   if(['CHAIN_CANCEL','CHAIN_PAUSE','CHAIN_RESUME'].includes(action)&&!c.behaviorActive)fail('No active chain to control.');
   const chainWaves=Number(body.chainWaves),chainPerWave=Number(body.chainPerWave),chainSpacingPips=Number(body.chainSpacingPips);
   if(action==='CHAIN_ARM'&& (c.behaviorActive||!c.positions?.length||![1,-1].includes(c.direction)))fail('Requires a single existing EA position direction and an idle chain.');
