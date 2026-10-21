@@ -36,8 +36,8 @@ export function mountEaPowerDock(host,{onCommand}={}){
     hasPosition=positions.length>0;isLive=Boolean(live);
     for(const p of EA_POWERS){
       const b=grid.querySelector('[data-power-id="'+p.id+'"]');
-      b.classList.toggle('gold',hasPosition);
-      b.disabled=!hasPosition||!isLive;
+      b.classList.toggle('gold',hasPosition && Boolean(p.action) && isLive);
+      b.disabled=!hasPosition||!isLive||!p.action;
       b.querySelector('small').textContent=!hasPosition?'AWAITING TRADE':!isLive?'RECEIVER OFFLINE':p.action?'PREVIEW AVAILABLE':'ADAPTER REQUIRED';
       b.title=p.action?'Uses existing proposal and confirmation':'Not wired to MT4: unavailable until adapter installed';
     }
