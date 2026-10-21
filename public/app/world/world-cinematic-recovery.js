@@ -1,6 +1,6 @@
-import { installCinematicWorldLayer } from './world-cinematic-layer.js';
+import { installCinematicWorldLayer } from './world-cinematic-layer.js?v=2026.09.25.city-phone-fix';
 import { createThreeRuntimeCompat, publishVisualRuntimeError, removeSceneObjectsByName } from './world-runtime-compat.js';
-import { installEmergencyWisdoOperator } from './world-operator-fallback.js';
+import { installEmergencyWisdoOperator } from './world-operator-fallback.js?v=2026.09.25.city-phone-fix';
 
 function addDisposable(list, value) { if (value) list.push(value); return value; }
 
