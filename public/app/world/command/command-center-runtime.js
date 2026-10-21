@@ -15,7 +15,7 @@ export const INTENT_OS_CAPABILITIES=Object.freeze([
 ]);
 
 function ensureStyles(){
-  const href='/app/world/command/wisdo-live-manager-v15.css?v=20261021-v18-schedule-manager';
+  const href='/app/world/command/wisdo-live-manager-v15.css?v=20261021-v19-receiver-diagnostics';
   let link=document.querySelector('link[data-wisdo-live-manager-v15]');
   if(!link){link=document.createElement('link');link.rel='stylesheet';link.dataset.wisdoLiveManagerV15='1';document.head.appendChild(link);}
   link.href=href;
@@ -70,6 +70,10 @@ function markup(){
               <button class="lm-btn danger" type="button" data-live-action="EMERGENCY_STOP">EMERGENCY STOP<span>Hold confirmation</span></button>
             </div>
             <p class="lm-intent warn" id="lmManagerCapabilityNotice" role="status">Checking whether this EA can modify broker stops, trails, and trims.</p>
+            <details class="lm-receiver-diagnostics" id="lmReceiverDiagnosticPanel" open>
+              <summary>WHY ARE MY CONTROLS NOT WORKING?</summary>
+              <div id="lmReceiverDiagnostics" aria-live="polite">Waiting for account telemetry.</div>
+            </details>
           </section>
 
           <section class="lm-card">
@@ -303,6 +307,26 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
 
     timeEngine.setState(commandState,campaign);
     weeklyEditor.setState(commandState,campaign,capability('SET_EA_SCHEDULE'));
+    const diagnostic=q('#lmReceiverDiagnostics');
+    if(diagnostic){
+      const report=[];
+      const chk=(good,label,detail)=>report.push('<div class="lm-diag-row"><span class="'+(good?'lm-diag-good':'lm-diag-bad')+'">'+(good?'● READY':'● CHECK')+'</span><strong>'+esc(label)+'</strong><small>'+esc(String(detail))+'</small></div>');
+      chk(!!account,'Selected WISDO account',account?.nickname||'Select the paired account.');
+      chk(!!health.commandLinkReady,'Reporter / command polling',health.commandLinkReady?'Connected to WISDO.':'Reporter pairing, WebRequest or terminal health is missing.');
+      const age=Number(control?.ageSeconds);
+      chk(!!control?.live,'EA campaign heartbeat',control?.live?'Fresh EA heartbeat.':control?'Heartbeat stale or EA receiver disabled (age: '+(Number.isFinite(age)?age+' s':'unknown')+').':'No campaign receiver detected. Compile and attach matching Rewire EA in the Reporter terminal.');
+      const version=Number(control?.managerOpsVersion||0);
+      chk(!!control?.live&&version>=1,'Stop / trail / trim receiver',version?'Reported managerOpsVersion = '+version+'.':'No compatible manager version reported. Rewire v6.12 requires the exact account pin and RewireAllowLiveManager=true.');
+      chk(!!control?.live&&Number(control?.scheduleVersion)===1,'Weekly trading schedule','Reported scheduleVersion = '+Number(control?.scheduleVersion||0)+'. RewireEnableWeeklySchedule must be true for Rewire.');
+      chk(!!control?.symbol&&Number(control?.magic)>0,'Reporter symbol + MagicNumber',control?.symbol?(control.symbol+' · magic '+(Number(control.magic)||'missing')):'Reporter CampaignControlSymbol/Magic must match one attached EA.');
+      const positions=(campaign?.positions||[]).length;
+      chk(positions>0,'Positions to manage',positions>0?positions+' selected campaign position(s).':'No selected open positions: stop, trail and trim have nothing to modify. Schedules can still be configured.');
+      for(const action of ['SET_STOP_ATR','SET_TRAIL_ATR','TRIM_CAMPAIGN','SET_EA_SCHEDULE']){
+        const cap=capability(action);
+        if(cap?.available!==true)report.push('<div class="lm-diag-reason"><strong>'+esc(action.replaceAll('_',' '))+'</strong><small>'+esc(cap?.reason||'Not advertised as executable by the selected EA.')+'</small></div>');
+      }
+      diagnostic.innerHTML=report.join('');
+    }
     const managerCommands=['SET_STOP_ATR','SET_TRAIL_ATR','TRIM_CAMPAIGN'];
     const blocked=managerCommands.filter(name=>capability(name)?.available!==true);
     const notice=q('#lmManagerCapabilityNotice');
