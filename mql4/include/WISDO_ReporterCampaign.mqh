@@ -33,6 +33,11 @@ string BuildCampaignControlJson()
    j+=",\"runtimeTrailStartAtr\":"+DoubleToString(WcoRead(p,"effectiveTrailStartAtr"),4);
    j+=",\"runtimeTrailDistanceAtr\":"+DoubleToString(WcoRead(p,"effectiveTrailDistanceAtr"),4);
    j+=",\"runtimeTrailStepAtr\":"+DoubleToString(WcoRead(p,"effectiveTrailStepAtr"),4);
+   j+=",\"managerOpsVersion\":"+DoubleToString(WcoRead(p,"managerOpsVersion"),0);
+   j+=",\"scheduleVersion\":"+DoubleToString(WcoRead(p,"scheduleVersion"),0);
+   j+=",\"scheduleActive\":"+BoolToJson(WcoRead(p,"scheduleActive")>=0.5);
+   j+=",\"scheduleAllowed\":"+BoolToJson(WcoRead(p,"scheduleAllowed")>=0.5);
+   j+=",\"scheduleDays\":[";for(int d=0;d<7;d++){if(d>0)j+=",";j+=DoubleToString(WcoRead(p,"scheduleDay"+IntegerToString(d)),0);}j+="]";
    j+=",\"ackId\":"+DoubleToString(WcoRead(p,"ack"),0);
    j+=",\"ackStatus\":"+DoubleToString(WcoRead(p,"ackStatus"),0)+",\"pendingId\":"+DoubleToString(WcoRead(p,"slot"),0)+",\"levels\":[";
    int count=(int)MathMin(16,WcoRead(p,"levelCount"));
