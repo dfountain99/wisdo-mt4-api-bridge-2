@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wisdo-static-v17.0.0-intent-os';
+const CACHE_NAME = 'wisdo-static-v18.0.0-weekly-guardian';
 const STATIC_ASSETS = [
   '/js/workspace.js',
   '/js/wisdo-recognition.js',

@@ -27,5 +27,5 @@ test('actual EA enforces broker-time schedule; Reporter publishes the seven mask
 });
 test('character and color-coded editor show actual schedule, not a pretend active state',async()=>{
  const [ui,sched,rank]=await Promise.all(['../public/app/world/command/command-center-runtime.js','../public/app/world/command/wisdo-weekly-scheduler.js','../public/app/world/command/rank-ascension.js'].map(f=>fs.readFile(new URL(f,import.meta.url),'utf8')));
- assert.match(ui,/lmAvatarCharacter/);assert.match(ui,/createWisdoWeeklyScheduler/);assert.match(sched,/onApply/);assert.match(sched,/capability\.available/);assert.match(rank,/export function characterSvg/);
+ assert.match(ui,/lmAvatarCharacter/);assert.match(ui,/createWisdoWeeklyScheduler/);assert.match(sched,/onApply/);assert.match(sched,/capability\?\.available/);assert.match(rank,/export function characterSvg/);
 });
