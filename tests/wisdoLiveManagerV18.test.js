@@ -13,11 +13,13 @@ test('V18 weekly calendar validates exactly seven broker-time 24-hour masks',()=
 });
 test('V18 emits account-scoped 7 weekday masks and activation LAST',()=>{
   const g=buildWeeklyScheduleGlobals({symbol:'XAUUSDm',magicNumber:26080204,masks:[1,2,4,8,16,32,64]});
-  assert.equal(g.length,8);
-  assert.equal(g[0].name,'CEM.WISDO.__ACCOUNT__.XAUUSDm.26080204.ScheduleDay0');
-  assert.equal(g[6].value,64);
-  assert.equal(g[7].name,'CEM.WISDO.__ACCOUNT__.XAUUSDm.26080204.ScheduleEnabled');
-  assert.equal(g[7].value,1);
+  assert.equal(g.length,9);
+  assert.equal(g[0].name,'CEM.WISDO.__ACCOUNT__.XAUUSDm.26080204.ScheduleEnabled');
+  assert.equal(g[0].value,2); // fail-closed during update
+  assert.equal(g[1].name,'CEM.WISDO.__ACCOUNT__.XAUUSDm.26080204.ScheduleDay0');
+  assert.equal(g[7].value,64);
+  assert.equal(g[8].name,'CEM.WISDO.__ACCOUNT__.XAUUSDm.26080204.ScheduleEnabled');
+  assert.equal(g[8].value,1);
   assert.throws(()=>buildWeeklyScheduleGlobals({symbol:'',magicNumber:26080204,masks:Array(7).fill(0)}),/Exact EA symbol/);
 });
 test('V18 controls are not advertised on old Rewire V6.11 receiver',()=>{
@@ -49,4 +51,15 @@ test('V18 UI uses code-verified Guardian and a confirmed broker-clock schedule e
   assert.match(schedule,/slotMasks/);
   assert.match(receiver,/managerOpsVersion/);
   assert.match(bridge,/scheduleVersion/);
+});
+
+test('V18 weekly schedule gate is enforced in the actual HIGHTOWER entry path, not just shown in UI', async()=>{
+ const ea=await fs.readFile(new URL('../mql4/HIGHTOWER_UNITY_CAMPAIGN_v6_21.mq4',import.meta.url),'utf8');
+ const receiver=await fs.readFile(new URL('../mql4/include/WISDO_H620Receiver.mqh',import.meta.url),'utf8');
+ assert.match(ea,/bool HT6WeeklyEntryAllowed\(datetime now\)/);
+ assert.match(ea,/return configuredWindow && HT6WeeklyEntryAllowed\(now\)/);
+ assert.match(ea,/mode!=1\.0\)return false/);
+ assert.match(ea,/ScheduleDay/);
+ assert.match(receiver,/scheduleVersion\",1/);
+ assert.match(receiver,/scheduleDay/);
 });

@@ -11,5 +11,9 @@ export function buildWeeklyScheduleGlobals({symbol,magicNumber,masks}={}) {
   const clean=String(symbol||'').trim(),magic=Number(magicNumber);
   if(!/^[A-Za-z0-9._-]{3,30}$/.test(clean)||!Number.isSafeInteger(magic)||magic<=0)throw Object.assign(new Error('Exact EA symbol and magic required for scheduling.'),{statusCode:409});
   const hours=normalizeWeeklyMasks(masks),prefix='CEM.WISDO.__ACCOUNT__.'+clean+'.'+magic+'.';
-  return [...hours.map((value,day)=>({name:prefix+'ScheduleDay'+day,value})),{name:prefix+'ScheduleEnabled',value:1}];
+  // Two-phase fail-closed update: pause new entries before writing all masks.
+  // Reporter writes each Global Variable in array order. If interrupted, mode 2 remains blocked.
+  return [{name:prefix+'ScheduleEnabled',value:2},
+    ...hours.map((value,day)=>({name:prefix+'ScheduleDay'+day,value})),
+    {name:prefix+'ScheduleEnabled',value:1}];
 }

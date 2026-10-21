@@ -93,7 +93,7 @@ export class WorldCommandCenterService {
       }
       if (CAMPAIGN_ACTIONS[key] && !snapshot.campaignControl?.live) { available = false; reason = 'Campaign EA telemetry is missing or stale. Install the campaign receiver and match Reporter symbol/magic.'; }
       if (['SET_STOP_ATR','SET_TRAIL_ATR','TRIM_CAMPAIGN','CLEAR_RUNTIME_OVERRIDES','WIDEN_EXISTING_STOPS'].includes(key) && snapshot.campaignControl?.managerOpsVersion===0) {available=false;reason='This EA only supports bursts. Load the manager-compatible Rewire update to control stops, trails and trims.';}
-      if (key==='SET_EA_SCHEDULE' && (!snapshot.campaignControl?.live||snapshot.campaignControl?.scheduleVersion!==1)) {available=false;reason='Weekly schedule requires the updated EA with RewireEnableWeeklySchedule=true.';}
+      if (key==='SET_EA_SCHEDULE' && (!snapshot.campaignControl?.live||snapshot.campaignControl?.scheduleVersion!==1)) {available=false;reason='Weekly schedule requires updated HIGHTOWER v6.21 code and matching Reporter; the website alone cannot enforce hours.';}
       connected[key] = { key, label: definition.label, command: definition.command, safetyLevel: definition.level, scope: definition.scope, available, reason, connected: true };
     }
     for (const [key, reason] of Object.entries(NOT_CONNECTED)) connected[key] = { key, label: key.replaceAll('_', ' '), available: false, connected: false, reason, safetyLevel: key.includes('CLOSE') || key === 'LOCK_PROFIT' ? 3 : 2 };
