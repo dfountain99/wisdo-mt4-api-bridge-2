@@ -57,7 +57,10 @@ export function registerWorldCommandRoutes(app, {
         selectedTicket: req.body?.selectedTicket || null,
         text,
       });
-      res.status(result.state === 'queued' ? 202 : 200).json({ ok: result.ok !== false, ...result });
+      const failure = result.state === 'failed' && result.error?.message
+        ? { ...result, text: `${result.text} Reason: ${result.error.message}`, troubleshooting: { code: result.error.code, reason: result.error.message } }
+        : result;
+      res.status(failure.state === 'queued' ? 202 : failure.state === 'failed' ? 422 : 200).json({ ok: failure.ok !== false, ...failure });
     } catch (error) {
       res.status(statusFor(error)).json({ ok:false, error:error.message, code:error.code || null });
     }

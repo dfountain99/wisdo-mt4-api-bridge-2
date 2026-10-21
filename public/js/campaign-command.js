@@ -1,4 +1,5 @@
 import { parseCampaignIntent } from './campaign-intent.js';
+import { mountEaPowerDock } from './ea-power-dock.js';
 import { createSpatialAnalytics } from './spatial-analytics.js';
 import { createSpatialInteraction } from './spatial-interaction.js';
 import { createVibeCore } from './vibe-core.js';
@@ -8,6 +9,7 @@ const labels = { PAUSE_FOR: 'Pause entries for a duration', AFTER_COMPOUND: 'Aft
 const ackLabels = { '-2': 'EA processing interrupted or still in progress; inspect terminal before retrying.', '-1': 'EA rejected the instruction. Market, ticket or protection checks failed.', 1: 'EA accepted the instruction.', 2: 'EA reports selected broker target modifications succeeded.', 3: 'Partial broker result. Inspect selected trades before retrying.', 4: 'EA accepted reevaluation; normal entry checks still apply.', 5: 'Evaluation finished without an entry.', 6: 'EA reports a broker entry from the evaluation.' };
 const goalLabels = { 0: 'No standing intention', 1: 'Timed entry pause', 2: 'Waiting for next compound milestone', 3: 'After-win pause rule active', 4: 'Waiting for a newly closed opposite candle', 6: 'Campaign closure timer', 7: 'Campaign ended · entries paused until intention cancelled', 8: 'SONIC window complete · SONIC paused until intention cancelled', 9: 'Waiting for campaign end, then pause', 12: 'SONIC window active' };
 export function mountCampaignCommand(host, { accountId, api }) {
+  let powerDock = null;
   let stopped = false, state = null, proposal = null, receipt = null, timer, heldAt = 0, holding = false, holdTimer, busy = false, pollBusy = false, zoom = 1, selected = new Set(), lastIntent = null, lastSpoken = '', recognition = null, audio = null, strokeLanguage = null;
   const q = selector => host.querySelector(selector);
   host.innerHTML = `<style>
@@ -97,6 +99,7 @@ export function mountCampaignCommand(host, { accountId, api }) {
   let yFor = () => 0, priceFor = () => 0;
   const draw = () => {
     const c=state?.campaignControl, trades=positions(), ls=levels();
+    powerDock?.update({positions:(state?.campaigns||[]).flatMap(x=>x.positions||[]),live:Boolean(c?.live)});
     const oldLevel=q('[data-level]').value;
     q('[data-level]').innerHTML=ls.length?ls.map(l=>`<option value="${l.id}">${escape(l.price)} · confirmed pivot</option>`).join(''):'<option value="">No verified levels</option>';
     if(ls.some(l=>String(l.id)===oldLevel))q('[data-level]').value=oldLevel;
@@ -143,7 +146,8 @@ export function mountCampaignCommand(host, { accountId, api }) {
       if(receipt){const row=(history.receipts||[]).find(r=>r.commandId===receipt.commandId);const c=state.campaignControl;const ack=c?.acknowledgements?.find(a=>a.id===receipt.eaRequestId);if(ack || c?.ackId===receipt.eaRequestId){message((ackLabels[ack?.status ?? c.ackStatus]||'EA acknowledgement received.')+(ack?.requested?` ${ack.changed}/${ack.requested} changes confirmed.`:''));}else if(row?.status==='failed'||row?.status==='expired'){message(`Command ${row.status}: ${row.error||row.result?.message||'no execution confirmed'}`);}else if(row?.completedAt){message('Reporter delivered the instruction. Waiting for an EA acknowledgement; execution is not confirmed.');}}
     }catch(error){if(!stopped){clearPreview();if(state?.campaignControl)state.campaignControl.live=false;draw();message(`Connection unavailable: ${error.message}. Commands disabled.`);}}finally{pollBusy=false;if(!stopped)timer=setTimeout(poll,4000);}
   };
+  powerDock=mountEaPowerDock(host,{onCommand:async(action)=>preview({action})});
   updateFields();if(accountId)void poll();else{q('[data-health]').textContent='Select an account';q('[data-preview]').disabled=true;q('[data-interpret]').disabled=true;}
   const onBlur=()=>cancelHold();window.addEventListener('blur',onBlur);
-  return ()=>{stopped=true;clearTimeout(timer);clearTimeout(holdTimer);clearTimeout(orbTimer);spatialInteraction?.cleanup();strokeLanguage?.cleanup();recognition?.abort();audio?.pause();window.removeEventListener('blur',onBlur);};
+  return ()=>{stopped=true;clearTimeout(timer);clearTimeout(holdTimer);clearTimeout(orbTimer);spatialInteraction?.cleanup();strokeLanguage?.cleanup();powerDock?.destroy();recognition?.abort();audio?.pause();window.removeEventListener('blur',onBlur);};
 }
