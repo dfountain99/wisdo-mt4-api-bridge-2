@@ -32,18 +32,19 @@ export function mountEaPowerDock(host,{onCommand}={}){
     });
   }
   function status(message){lastReceipt=message;wrap.querySelector('.ea-dock-status').textContent=message;}
-  function update({positions=[],live=false}={}){
+  function update({positions=[],live=false,capabilities={}}={}){
     hasPosition=positions.length>0;isLive=Boolean(live);
     for(const p of EA_POWERS){
       const b=grid.querySelector('[data-power-id="'+p.id+'"]');
-      b.classList.toggle('gold',hasPosition && Boolean(p.action) && isLive);
-      b.disabled=!hasPosition||!isLive||!p.action;
-      b.querySelector('small').textContent=!hasPosition?'AWAITING TRADE':!isLive?'RECEIVER OFFLINE':p.action?'PREVIEW AVAILABLE':'ADAPTER REQUIRED';
+      const supported=Boolean(p.action && capabilities?.[p.action]?.available);
+      b.classList.toggle('gold',hasPosition && isLive && supported);
+      b.disabled=!hasPosition||!isLive||!supported;
+      b.querySelector('small').textContent=!hasPosition?'AWAITING TRADE':!isLive?'RECEIVER OFFLINE':supported?'PREVIEW AVAILABLE':p.action?'EA COMMAND BLOCKED':'ADAPTER REQUIRED';
       b.title=p.action?'Uses existing proposal and confirmation':'Not wired to MT4: unavailable until adapter installed';
     }
     if(!hasPosition)status('Waiting for an open position. Nothing will execute.');
     else if(!isLive)status('Trade detected. Gold powers shown, but EA receiver is not ready.');
-    else if(!lastReceipt)status('Trade detected. Gold powers shown. Only server-supported actions can be previewed.');
+    else if(!lastReceipt)status('Trade detected. Gold illuminates only verified EA controls; unsupported powers remain locked.');
   }
   update();
   return {update,destroy(){wrap.remove();style.remove();}};
