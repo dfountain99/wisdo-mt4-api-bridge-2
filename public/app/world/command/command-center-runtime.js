@@ -235,9 +235,22 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     const r=latestReceipt;
     if(!r){el.className='lm-receipt';el.textContent='No command sent.';return;}
     const status=String(r.status||'pending').toLowerCase();
-    const commandResult=String(r.deliveryOnly && status==='completed' ? 'Reporter delivery recorded. Awaiting independent EA acknowledgement; broker execution is not yet verified.' : r.result?.message||r.error||'Waiting for HIGHTOWER acknowledgement.');
-    el.className=`lm-receipt ${status==='completed'&&!r.deliveryOnly?'ok':status==='failed'?'fail':'pending'}`;
-    el.innerHTML=`<strong>${esc(status.toUpperCase())}</strong><br>${esc(r.command||'COMMAND')}<br><span>${esc(commandResult)}</span>${r.commandId?`<br><small>ID ${esc(r.commandId)}</small>`:''}`;
+    const control=commandState?.campaignControl;
+    const requestId=Number(r.eaRequestId);
+    const acknowledged=(r.deliveryOnly && Number.isSafeInteger(requestId) && requestId>0 && control?.live)
+      ? control.acknowledgements?.find(a=>Number(a.id)===requestId)
+        || (Number(control.ackId)===requestId?{status:Number(control.ackStatus)}:null)
+      : null;
+    const code=acknowledged?Number(acknowledged.status):null;
+    const rejected=code!==null&&code<0;
+    const transportOnly=r.deliveryOnly&&status==='completed'&&!acknowledged;
+    const commandResult=String(rejected?'EA REJECTED THE INSTRUCTION · status '+code:
+      acknowledged?'EA ACKNOWLEDGED · status '+code+(code===5?' · armed, not evidence of filled orders':'')+'. Inspect broker position changes before claiming execution.':
+      transportOnly?'Reporter delivery recorded. Awaiting EA acknowledgement; broker execution not verified.':
+      r.result?.message||r.error||'Waiting for HIGHTOWER acknowledgement.');
+    const shownStatus=rejected?'EA REJECTED':acknowledged?'EA ACKNOWLEDGED':transportOnly?'DELIVERED ONLY':status.toUpperCase();
+    el.className=`lm-receipt ${rejected||status==='failed'?'fail':status==='completed'&&!r.deliveryOnly?'ok':'pending'}`;
+    el.innerHTML=`<strong>${esc(shownStatus)}</strong><br>${esc(r.command||'COMMAND')}<br><span>${esc(commandResult)}</span>${r.commandId?`<br><small>ID ${esc(r.commandId)}</small>`:''}`;
   }
 
   function renderState(){
@@ -247,6 +260,8 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     const control=commandState.campaignControl||null;
     const health=commandState.executionHealth||{};
     const currency=commandState.financial?.currency||'USD';
+    // Reconcile latest campaign Reporter receipt against authoritative EA acknowledgements.
+    if(latestReceipt?.deliveryOnly)renderReceipt();
 
     q('#lmScopeAccount').textContent=account?.accountNumberMasked||account?.nickname||'SELECT ACCOUNT';
     q('#lmScopeSymbol').textContent=campaign?.symbol||control?.symbol||'—';
@@ -280,7 +295,14 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     q('#lmVictoryLine').textContent=control?.live?`✦ ${realized>=0?'Realized gains':'Realized result'} ${money(realized,currency)} · Floating ${money(floating,currency)} · ${control.paused?'CAMPAIGN PAUSED':'LIVE'} `:'Guardian waiting for EA campaign telemetry.';
     const equityNow=(commandState.financial?.equity??account?.equity??account?.currentEquity)==null?NaN:Number(commandState.financial?.equity??account?.equity??account?.currentEquity);
     const stressRatio=base>0?Math.abs(Math.min(floating,0))/base:0;
-    const guardianMood=Number.isFinite(equityNow)&&equityNow<=0?'drained':!receiverReady?'standby':control?.paused?'resting':stressRatio>=0.08?'sick':floating<0?'protecting':floating>0?'celebrating':'watching';
+    const balanceNow=Number(commandState.financial?.balance);
+    const healthDrawdown=Number.isFinite(balanceNow)&&balanceNow>0&&Number.isFinite(equityNow)?Math.max(0,(balanceNow-equityNow)/balanceNow):0;
+    const marginLevel=Number(commandState.financial?.marginLevel);
+    const marginStress=Number.isFinite(marginLevel)&&marginLevel>0&&marginLevel<125;
+    const recentWin=Array.isArray(commandState.victoryEvents)&&commandState.victoryEvents.some(event=>{
+      const t=Date.parse(event.closeTime||'');return Number.isFinite(t)&&Date.now()-t>=0&&Date.now()-t<90000&&Number(event.profit)>0;
+    });
+    const guardianMood=!receiverReady?'standby':Number.isFinite(equityNow)&&equityNow<=0?'drained':control?.paused?'resting':healthDrawdown>=0.12||marginStress||stressRatio>=0.08?'sick':floating<0?'protecting':recentWin||floating>0?'celebrating':'watching';
     q('#lmAvatarStage').dataset.mood=guardianMood;
     q('#lmAvatarMood').textContent=({drained:'DRAINED',standby:'LINK NEEDED',resting:'RESTING',sick:'SICK · DRAWDOWN',protecting:'PROTECTING · RED',celebrating:'CELEBRATING · GREEN',watching:'WATCHING'})[guardianMood];
     q('#lmCampaignStatus').textContent=control?.live?(control.paused?'EA LIVE · PAUSED':'EA LIVE'):'CAMPAIGN TELEMETRY STANDBY';

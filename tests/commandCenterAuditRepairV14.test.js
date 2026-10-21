@@ -15,6 +15,6 @@ test('missing broker equity cannot be silently normalized to zero',()=>{
 });
 test('Reporter-only delivery is visibly distinct from broker execution',()=>{
  const view=load('public/app/world/command/command-center-runtime.js');
- assert.match(view,/r\.deliveryOnly && status==='completed'/);
+ assert.match(view,/const transportOnly=r\.deliveryOnly&&status==='completed'&&!acknowledged/);
  assert.match(view,/status==='completed'&&!r\.deliveryOnly/);
 });

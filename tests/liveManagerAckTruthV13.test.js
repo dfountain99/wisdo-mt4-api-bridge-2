@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';const view=readFileSync(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8');
+test('Live Manager reconciles delivery-only commands against EA acknowledgement',()=>{for(const key of ['latestReceipt?.deliveryOnly','eaRequestId','acknowledgements?.find','DELIVERED ONLY','EA REJECTED','EA ACKNOWLEDGED'])assert.ok(view.includes(key),key);});
+test('Guardian mood derives from verified recent win and equity / margin deterioration',()=>{for(const key of ['victoryEvents','healthDrawdown','marginStress','recentWin','drained','sick'])assert.ok(view.includes(key),key);});
