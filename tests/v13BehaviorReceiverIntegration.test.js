@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeCampaignControl,campaignPacket } from '../services/campaignControlContract.js';
 import { readFileSync } from 'node:fs';
-const state=(overrides={})=>({campaignControl:{live:true,symbol:'XAUUSD',magic:26080204,campaignId:42,direction:1,phase:1,positions:[{ticket:123,role:1}],pendingId:0,ackId:0,behaviorVersion:13,behaviorActive:false,...overrides}});
+const state=(overrides={})=>({campaignControl:{live:true,symbol:'XAUUSD',magic:26080204,campaignId:42,direction:1,phase:1,positions:[{ticket:123,role:1}],pendingId:0,ackId:0,behaviorVersion:13,behaviorEnabled:true,behaviorActive:false,...overrides}});
 test('V13 chain defaults closed for older/missing receiver',()=>{
   const c=normalizeCampaignControl({version:1,symbol:'XAUUSD',magic:7,behaviorVersion:13,behaviorActive:true,behaviorWave:2,behaviorFilled:5});
   assert.equal(c.behaviorVersion,13);assert.equal(c.behaviorActive,true);assert.equal(c.behaviorFilled,5);
