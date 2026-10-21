@@ -47,6 +47,10 @@ export function normalizeCampaignControl(value) {
   return { version: 1, symbol: value.symbol, magic: value.magic,
     ageSeconds: value.ageSeconds >= 0 ? num(value.ageSeconds, 999999) : 999999, enabled: value.enabled === true,
     campaignId: num(value.campaignId), phase: num(value.phase), direction: num(value.direction),
+    managerOpsVersion: Math.max(0,Math.trunc(num(value.managerOpsVersion,0))),
+    scheduleVersion: Math.max(0,Math.trunc(num(value.scheduleVersion,0))),
+    scheduleActive:bool(value.scheduleActive),scheduleAllowed:bool(value.scheduleAllowed),
+    scheduleDays:(Array.isArray(value.scheduleDays)?value.scheduleDays:[]).slice(0,7).map(n=>Math.max(0,Math.min(0xFFFFFF,Math.trunc(num(n,0))))),
     rail: num(value.rail), goal: num(value.goal), paused: value.paused === true,
     remainingSeconds: Math.max(0, num(value.remainingSeconds)), banked: num(value.banked),
     progress: {

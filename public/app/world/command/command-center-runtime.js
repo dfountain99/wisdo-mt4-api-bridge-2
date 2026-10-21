@@ -1,5 +1,8 @@
 import { createWorldCommandRuntime } from './command-runtime.js';
 import { createWisdoTimeEngine } from './wisdo-time-engine.js';
+import { createWisdoWeeklyScheduleEditor } from './wisdo-weekly-schedule-editor.js';
+import { characterSvg } from './rank-ascension.js';
+import { rankVisual } from './rank-definitions.js';
 
 const esc=(value='')=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
 const finite=(value,fallback=0)=>Number.isFinite(Number(value))?Number(value):fallback;
@@ -12,7 +15,7 @@ export const INTENT_OS_CAPABILITIES=Object.freeze([
 ]);
 
 function ensureStyles(){
-  const href='/app/world/command/wisdo-live-manager-v15.css?v=20261002-v17-intent-os';
+  const href='/app/world/command/wisdo-live-manager-v15.css?v=20261021-v18-schedule-manager';
   let link=document.querySelector('link[data-wisdo-live-manager-v15]');
   if(!link){link=document.createElement('link');link.rel='stylesheet';link.dataset.wisdoLiveManagerV15='1';document.head.appendChild(link);}
   link.href=href;
@@ -20,7 +23,7 @@ function ensureStyles(){
 
 function markup(){
   return `<section id="wisdoCommandOverlay" class="wisdo-command-overlay" hidden aria-label="WISDO Live Manager">
-    <div class="lm-shell">
+    <div class="lm-shell" data-manager-version="18">
       <header class="lm-top">
         <div class="lm-brand"><span>CONNECT · COPY · CONTROL</span><strong>WISDO <b>LIVE MANAGER</b></strong></div>
         <div class="lm-scope">
@@ -36,7 +39,11 @@ function markup(){
         <main class="lm-main">
           <section class="lm-card lm-command-card">
             <div class="lm-command-title">
-              <div><span class="lm-label">VOICE + TEXT → VERIFIED EA COMMANDS</span><h1>Tell WISDO what to do.</h1><p>No character. No game controls. This surface exists to manage the live campaign.</p></div>
+              <div><span class="lm-label">VOICE + TEXT → VERIFIED EA COMMANDS</span><h1>Tell WISDO what to do.</h1><p>Guardian present · authenticated bot controls · every change needs a verifiable terminal receipt.</p></div>
+              <div class="lm-avatar-stage" id="lmAvatarStage" data-mood="standby" aria-label="WISDO Guardian character">
+                <div class="lm-avatar-lightning"></div><div class="lm-avatar-character">${characterSvg(rankVisual('GOLD'),{mini:true})}</div>
+                <div class="lm-avatar-name"><strong>WISDO GUARDIAN</strong><span id="lmAvatarMood">SCANNING</span></div>
+              </div>
               <span id="lmLinkPill" class="lm-link-pill bad">LINK CHECKING</span>
             </div>
             <form id="lmComposer" class="lm-composer">
@@ -72,7 +79,8 @@ function markup(){
               <div class="lm-metric"><small>CAMPAIGN BASE</small><strong id="lmCampaignBase">—</strong></div>
               <div class="lm-metric"><small>NEXT TARGET</small><strong id="lmTargetEquity">—</strong></div>
             </div>
-            <div class="lm-progress"><i id="lmProgressBar"></i></div>
+            <div class="lm-progress-showcase"><div class="lm-progress"><i id="lmProgressBar"></i><span class="lm-progress-glint"></span></div><div class="lm-progress-stats"><b id="lmProgressPercent">—</b><span id="lmProgressCaption">Awaiting verified account target</span></div></div>
+            <div class="lm-victory-line" id="lmVictoryLine" aria-live="polite">Every favorable movement counts only when HIGHTOWER reports it.</div>
           </section>
 
           <section class="lm-card">
@@ -92,6 +100,7 @@ function markup(){
           </section>
 
           <section class="lm-card lm-time-host" id="lmTimeHost"></section>
+          <section class="lm-card lm-weekly-editor" id="lmWeeklyEditor"></section>
 
           <section class="lm-card">
             <div class="lm-card-head"><div><span class="lm-label">BROKER TRUTH</span><h2>Open Positions</h2></div><small id="lmPositionSummary">NO OPEN POSITIONS</small></div>
@@ -135,7 +144,7 @@ function markup(){
     </div>
 
     <section id="lmProposal" class="lm-proposal" hidden>
-      <span>CONFIRM LIVE COMMAND</span>
+      <span>CONFIRM LIVE COMMAND · MT4 RECEIPT REQUIRED</span>
       <h2 id="lmProposalTitle">—</h2>
       <p id="lmProposalScope">—</p>
       <p id="lmProposalEffect">Server and EA state will be revalidated before execution.</p>
@@ -211,8 +220,9 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     const r=latestReceipt;
     if(!r){el.className='lm-receipt';el.textContent='No command sent.';return;}
     const status=String(r.status||'pending').toLowerCase();
+    const commandResult=String(r.result?.message||r.error||'Waiting for HIGHTOWER acknowledgement.');
     el.className=`lm-receipt ${status==='completed'?'ok':status==='failed'?'fail':'pending'}`;
-    el.innerHTML=`<strong>${esc(status.toUpperCase())}</strong><br>${esc(r.command||'COMMAND')}<br><span>${esc(r.result?.message||r.error||'Waiting for HIGHTOWER acknowledgement.')}</span>${r.commandId?`<br><small>ID ${esc(r.commandId)}</small>`:''}`;
+    el.innerHTML=`<strong>${esc(status.toUpperCase())}</strong><br>${esc(r.command||'COMMAND')}<br><span>${esc(commandResult)}</span>${r.commandId?`<br><small>ID ${esc(r.commandId)}</small>`:''}`;
   }
 
   function renderState(){
@@ -226,10 +236,11 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     q('#lmScopeAccount').textContent=account?.accountNumberMasked||account?.nickname||'SELECT ACCOUNT';
     q('#lmScopeSymbol').textContent=campaign?.symbol||control?.symbol||'—';
     q('#lmScopeCampaign').textContent=campaign?.strategyName||campaign?.campaignId|| (control?.live?`EA ${Math.trunc(finite(control.campaignId))}`:'—');
-    q('#lmScopeLink').textContent=health.commandLinkReady?'EA VERIFIED':'NOT READY';
-    q('#lmLinkPill').textContent=health.commandLinkReady?'EA VERIFIED':'LINK NOT READY';
-    q('#lmLinkPill').className=`lm-link-pill ${health.commandLinkReady?'live':'bad'}`;
-    setIntent(health.commandLinkReady?'Voice and text command paths are ready. HIGHTOWER acknowledgement required for success.':'Reporter/terminal command link is not ready. Nothing will be sent until the link is verified.',health.commandLinkReady?'live':'error');
+    const receiverReady=Boolean(health.commandLinkReady&&control?.live);
+    q('#lmScopeLink').textContent=receiverReady?'EA RECEIVER LIVE':health.commandLinkReady?'REPORTER ONLY':'NOT READY';
+    q('#lmLinkPill').textContent=receiverReady?'EA RECEIVER LIVE':health.commandLinkReady?'REPORTER ONLY':'LINK NOT READY';
+    q('#lmLinkPill').className=`lm-link-pill ${receiverReady?'live':'bad'}`;
+    setIntent(receiverReady?'Receiver reachable. Manager controls require the compatible EA version and verified broker receipts.':health.commandLinkReady?'Reporter is online, but the EA campaign receiver is not verified. Manager commands are unavailable.':'Reporter/terminal command link not ready. Check pairing, symbol and MagicNumber.',receiverReady?'live':'error');
 
     const accounts=commandState.accounts||[];
     q('#lmAccountSelect').innerHTML=accounts.map((row)=>`<option value="${esc(row.accountId)}" ${String(row.accountId)===String(account?.accountId)?'selected':''}>${esc(row.nickname||row.accountId)}${row.mt4Login?` · MT4 ${esc(row.mt4Login)}`:''}</option>`).join('');
@@ -248,6 +259,11 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     q('#lmCampaignBase').textContent=base>0?money(base,currency):'—';
     q('#lmTargetEquity').textContent=target>0?money(target,currency):'—';
     q('#lmProgressBar').style.width=`${(progressRatio*100).toFixed(1)}%`;
+    q('#lmProgressPercent').textContent=target>base?`${(progressRatio*100).toFixed(1)}%`:'NO TARGET';
+    q('#lmProgressCaption').textContent=target>base?`${money(Math.max(0,base+realized+floating),currency)} tracked toward ${money(target,currency)}`:'Set a verified campaign target to activate progress';
+    q('#lmVictoryLine').textContent=control?.live?`✦ ${realized>=0?'Realized gains':'Realized result'} ${money(realized,currency)} · Floating ${money(floating,currency)} · ${control.paused?'CAMPAIGN PAUSED':'LIVE'} `:'Guardian waiting for EA campaign telemetry.';
+    q('#lmAvatarStage').dataset.mood=!receiverReady?'standby':control?.paused?'defending':floating>0?'pressing':floating<0?'protecting':'watching';
+    q('#lmAvatarMood').textContent=!receiverReady?'LINK NEEDED':control?.paused?'DEFENDING':floating>0?'PRESSING':floating<0?'PROTECTING':'WATCHING';
     q('#lmCampaignStatus').textContent=control?.live?(control.paused?'EA LIVE · PAUSED':'EA LIVE'):'CAMPAIGN TELEMETRY STANDBY';
 
     const runtime=control?.runtime||{};
@@ -285,6 +301,12 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     });
 
     timeEngine.setState(commandState,campaign);
+    weeklyEditor.setState(commandState,campaign,capability('SET_EA_SCHEDULE'));
+    overlay.querySelectorAll('[data-manager-action],[data-live-action]').forEach((button)=>{
+      const key=button.dataset.managerAction||button.dataset.liveAction;
+      const cap=capability(key);button.disabled=!cap?.available;
+      button.title=cap?.available?'EA verified capability · click to preview':cap?.reason||'Reporter/EA control capability unavailable';
+    });
   }
 
   const runtime=createWorldCommandRuntime({
@@ -295,6 +317,7 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
   });
 
   const timeEngine=createWisdoTimeEngine(q('#lmTimeHost'),{resetWindowSeconds:120});
+  const weeklyEditor=createWisdoWeeklyScheduleEditor(q('#lmWeeklyEditor'),{onApply:(slotMasks)=>arm('SET_EA_SCHEDULE',{slotMasks,campaignId:selectedCampaignId})});
 
   function cancelProposal(){
     proposal=null;holdStart=0;clearInterval(holdTimer);holdTimer=0;
@@ -309,7 +332,7 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
       const next=await runtime.propose(action,{campaignId:selectedCampaignId,...options});
       if(Number(next.holdRequiredMs||0)<=0){
         latestReceipt=await runtime.execute(next,0);renderReceipt();
-        setIntent('Command delivered. Waiting for HIGHTOWER verified acknowledgement.','live');
+        setIntent('Command queued. Waiting for Reporter poll and EA/broker verification; a queue receipt is not an SL modification.','warn');
         return latestReceipt;
       }
       proposal=next;
@@ -448,7 +471,7 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
         cancelProposal();
         await handleIntentResult(result);
       }else{
-        latestReceipt=await runtime.execute(active,Math.round(elapsed));renderReceipt();setIntent('Command delivered. Waiting for HIGHTOWER verified acknowledgement.','live');cancelProposal();
+        latestReceipt=await runtime.execute(active,Math.round(elapsed));renderReceipt();setIntent('Command QUEUED · waiting for MT4/EA acknowledgment and refreshed position stop/lot data.','warn');cancelProposal();
       }
     }
     catch(error){latestReceipt={status:'failed',command:active.action||'WISDO_INTENT',error:error.message};renderReceipt();setIntent(`Execution failed · ${error.message}`,'error');cancelProposal();}
