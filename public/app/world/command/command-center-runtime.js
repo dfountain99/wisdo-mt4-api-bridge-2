@@ -55,7 +55,7 @@ function markup(){
               <button class="lm-example" type="button" data-example="tighten the trailer a little">TIGHTEN TRAILER</button>
               <button class="lm-example" type="button" data-example="move stop losses to 1.6 ATR">STOP 1.6 ATR</button>
               <button class="lm-example" type="button" data-example="trim half of the campaign">TRIM HALF</button>
-              <button class="lm-example" type="button" data-example="add another position now">ADD IF VALID</button>
+              <button class="lm-example" type="button" data-example="add another position now">ADD ONE · VOICE/TEXT</button>
               <button class="lm-example" type="button" data-example="intentionally widen my existing stop losses to 2 ATR">WIDEN STOPS</button>
               <button class="lm-example" type="button" data-example="return stops to normal EA management">RETURN TO EA</button>
             </div>
@@ -65,6 +65,7 @@ function markup(){
               <button class="lm-btn" type="button" data-live-action="STOP_NEW_ENTRIES">STOP ENTRIES<span>Manage current trades only</span></button>
               <button class="lm-btn good" type="button" data-live-action="RESUME_NEW_ENTRIES">ALLOW ENTRIES<span>Reopen entry gate</span></button>
               <button class="lm-btn" type="button" data-manager-action="SET_TRAIL_ATR" data-delta="-0.25">TIGHTEN TRAIL<span>−0.25 ATR</span></button>
+              <button class="lm-btn good" type="button" data-manager-action="ADD_IF_VALID">ADD ONE NOW<span>Manual Rewire SONIC · verified entry gates</span></button>
               <button class="lm-btn" type="button" data-manager-action="TRIM_CAMPAIGN" data-trim="50">TRIM 50%<span>Current campaign</span></button>
               <button class="lm-btn danger" type="button" data-live-action="CLOSE_CAMPAIGN">CLOSE CAMPAIGN<span>Hold confirmation</span></button>
               <button class="lm-btn danger" type="button" data-live-action="EMERGENCY_STOP">EMERGENCY STOP<span>Hold confirmation</span></button>

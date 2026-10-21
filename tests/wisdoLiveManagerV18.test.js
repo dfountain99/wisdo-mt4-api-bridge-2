@@ -93,3 +93,35 @@ test('V19 Live Manager exposes account-scoped diagnostics instead of silently de
  assert.match(source,/scheduleVersion/);
  assert.match(source,/cap\?\.reason/);
 });
+
+test('Manual add maps Rewire version 12 or burst-only 0 to precisely one scoped SONIC operation 12', async()=>{
+ const {resolveManualAddForEA}=await import('../services/wisdoManualAddProtocol.js');
+ for (const version of [0,12]) {
+  const state={campaignControl:{live:true,enabled:true,phase:1,managerOpsVersion:version,symbol:'XAUUSD',magic:26080204,campaignId:0},
+    campaigns:[{symbol:'XAUUSD',magicNumber:26080204,direction:'BUY',positionCount:1}]};
+  const resolution=resolveManualAddForEA(state,'ADD_IF_VALID');
+  assert.equal(resolution.action,'ARM_SONIC');
+  assert.deepEqual(resolution.params,{burstCount:1,durationSeconds:30,requestedDirection:1});
+  const packet=(await import('../services/campaignControlContract.js')).campaignPacket(resolution.action,{...resolution.params,eaCampaignId:0},state);
+  assert.equal(packet.operation,12);assert.equal(packet.burstCount,1);assert.equal(packet.durationSeconds,30);
+ }
+});
+test('Manual add cannot cross account campaign symbol/magic or invent a market direction',async()=>{
+ const {resolveManualAddForEA}=await import('../services/wisdoManualAddProtocol.js');
+ const state={campaignControl:{live:true,enabled:true,phase:1,managerOpsVersion:12,symbol:'XAUUSD',magic:26080204},campaigns:[]};
+ assert.throws(()=>resolveManualAddForEA(state,'ADD_IF_VALID'),/matching the EA symbol/);
+ state.campaigns=[{symbol:'XAUUSD',magicNumber:26080204,direction:'FLAT',positionCount:2}];
+ assert.throws(()=>resolveManualAddForEA(state,'ADD_IF_VALID'),/direction is not verified/);
+ state.campaigns[0].direction='SELL';
+ assert.equal(resolveManualAddForEA(state,'ADD_IF_VALID').params.requestedDirection,-1);
+ state.campaignControl.enabled=false;
+ assert.throws(()=>resolveManualAddForEA(state,'ADD_IF_VALID'),/No authenticated/);
+});
+test('Manual Add button is a confirmed World Command Center operation and text add retains its voice interpretation',async()=>{
+ const [ui,voice,world]=await Promise.all(['../public/app/world/command/command-center-runtime.js','../services/wisdoExecutionService.js','../services/worldCommandCenterService.js'].map(file=>fs.readFile(new URL(file,import.meta.url),'utf8')));
+ assert.match(ui,/data-manager-action="ADD_IF_VALID"/);
+ assert.match(world,/resolveManualAddForEA\(snapshot,action\)/);
+ assert.match(world,/resolveManualAddForEA\(current,proposal.action\)/);
+ assert.match(voice,/resolveManualAddForEA\(snapshot,action\)/);
+ assert.match(voice,/manual-add:/);
+});

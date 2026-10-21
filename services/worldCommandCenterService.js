@@ -2,6 +2,7 @@ import { CAMPAIGN_ACTIONS, campaignPacket } from './campaignControlContract.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { WorldCampaignStateService } from './worldCampaignStateService.js';
 import { normalizeWeeklyMasks,buildWeeklyScheduleGlobals } from './wisdoWeeklySchedule.js';
+import { resolveManualAddForEA } from './wisdoManualAddProtocol.js';
 
 const clean = (value, max = 160) => String(value ?? '').replace(/\u0000/g, '').trim().slice(0, max);
 const nowIso = () => new Date().toISOString();
@@ -92,6 +93,7 @@ export class WorldCommandCenterService {
         available = false; reason = 'No active campaign has one verified magic number for safe targeting.';
       }
       if (CAMPAIGN_ACTIONS[key] && !snapshot.campaignControl?.live) { available = false; reason = 'Campaign EA telemetry is missing or stale. Install the campaign receiver and match Reporter symbol/magic.'; }
+      if (key==='ADD_IF_VALID' && snapshot.campaignControl?.live && !snapshot.campaignControl?.enabled) { available=false;reason='Manual additions require the EA to advertise an enabled account-pinned campaign receiver.'; }
       if (['SET_STOP_ATR','SET_TRAIL_ATR','TRIM_CAMPAIGN','CLEAR_RUNTIME_OVERRIDES','WIDEN_EXISTING_STOPS'].includes(key) && Number(snapshot.campaignControl?.managerOpsVersion||0)<1) {available=false;reason='This EA only supports bursts. Load the manager-compatible Rewire update to control stops, trails and trims.';}
       if (key==='SET_EA_SCHEDULE' && (!snapshot.campaignControl?.live||snapshot.campaignControl?.scheduleVersion!==1)) {available=false;reason='Weekly schedule requires a compatible HIGHTOWER v6.21 or Rewire v6.12 EA with the matching updated Reporter; the website alone cannot enforce hours.';}
       connected[key] = { key, label: definition.label, command: definition.command, safetyLevel: definition.level, scope: definition.scope, available, reason, connected: true };
@@ -148,7 +150,8 @@ export class WorldCommandCenterService {
     if (!capability?.available) {
       const error = new Error(capability?.reason || 'Command is unavailable.'); error.statusCode = 409; error.code = 'command_unavailable'; throw error;
     }
-    const packet = CAMPAIGN_ACTIONS[action] ? campaignPacket(action, { ...body, eaCampaignId: body.eaCampaignId ?? snapshot.campaignControl?.campaignId }, snapshot) : null;
+    const resolved=resolveManualAddForEA(snapshot,action);
+    const packet = CAMPAIGN_ACTIONS[action] ? campaignPacket(resolved.action, { ...body, ...resolved.params, eaCampaignId: body.eaCampaignId ?? snapshot.campaignControl?.campaignId }, snapshot) : null;
     const affected = this.affectedFor(snapshot, action, body);
     const weeklyMasks=action==='SET_EA_SCHEDULE'?normalizeWeeklyMasks(body.slotMasks):null;
     if(action==='SET_EA_SCHEDULE' && (!snapshot.campaignControl?.live || (affected.campaign && (String(affected.campaign.symbol)!==String(snapshot.campaignControl.symbol)||Number(affected.campaign.magicNumber)!==Number(snapshot.campaignControl.magic))))) {const error=new Error('Selected EA lane does not match the Reporter symbol and MagicNumber.');error.statusCode=409;throw error;}
@@ -263,7 +266,14 @@ export class WorldCommandCenterService {
     if (proposal.action === 'CLOSE_POSITION' && !currentAffected.position) { const error = new Error('Position already closed or changed before confirmation. Refresh Command Core.'); error.statusCode = 409; throw error; }
     if (proposal.action === 'CLOSE_CAMPAIGN' && (!currentAffected.campaign || currentAffected.campaign.magicNumber == null || String(currentAffected.campaign.magicNumber) !== String(proposal.magicNumber))) { const error = new Error('Campaign targeting changed before confirmation. Review the live campaign again.'); error.statusCode = 409; throw error; }
 
-    if (proposal.packet) campaignPacket(proposal.action, { ...proposal.packet, tickets: proposal.packet.tickets.split(',').filter(Boolean) }, current);
+    if (proposal.packet) {
+      const resolved=resolveManualAddForEA(current,proposal.action);
+      const verified=campaignPacket(resolved.action, { ...proposal.packet,tickets:proposal.packet.tickets.split(',').filter(Boolean) },current);
+      if (Number(verified.operation)!==Number(proposal.packet.operation) ||
+          (proposal.action==='ADD_IF_VALID' && Number(verified.requestedDirection)!==Number(resolved.params.requestedDirection||0))) {
+        const e=new Error('The selected EA or campaign direction changed. Review the add request again.');e.statusCode=409;throw e;
+      }
+    }
     if (proposal.action==='SET_EA_SCHEDULE' && (String(current.campaignControl?.symbol)!==String(proposal.symbol)||Number(current.campaignControl?.magic)!==Number(proposal.magicNumber)||current.campaignControl?.scheduleVersion!==1)) {const error=new Error('Bound schedule receiver changed before confirmation.');error.statusCode=409;throw error;}
     if (proposal.inFlight) { const error = new Error('Command is already being queued.'); error.statusCode = 409; throw error; }
     proposal.inFlight = true;
