@@ -83,3 +83,13 @@ test('V19 flat Rewire EA can receive verified website schedule without any open 
   assert.equal(service.proposals.get(result.proposalId).magicNumber,26080204);
   assert.equal(result.affectedCount,0);
 });
+
+test('V19 Live Manager exposes account-scoped diagnostics instead of silently dead buttons',async()=>{
+ const source=await fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8');
+ assert.match(source,/WHY ARE MY CONTROLS NOT WORKING/);
+ assert.match(source,/lmReceiverDiagnostics/);
+ assert.match(source,/managerOpsVersion/);
+ assert.match(source,/RewireAllowLiveManager=true/);
+ assert.match(source,/scheduleVersion/);
+ assert.match(source,/cap\?\.reason/);
+});

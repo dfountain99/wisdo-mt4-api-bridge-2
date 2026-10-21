@@ -65,3 +65,13 @@
 .wsw-legend{display:flex;flex-wrap:wrap;gap:11px;margin:11px 0;font-size:10px;color:#9fb6c8}.wsw-legend b{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px}.wsw-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.wsw-actions button{border:1px solid #5a665e;background:#11222a;color:#f3ead7;border-radius:10px;padding:10px 12px;cursor:pointer;font-weight:800}.wsw-actions button:disabled{opacity:.4;cursor:not-allowed}.wsw-actions button.primary{background:#dfc17c;color:#0c1216}.wsw-status{font-size:11px;color:#e0c68f;margin:9px 0 0}
 @media(max-width:690px){.lm-avatar-stage{flex-basis:96px;width:96px;min-height:118px}.lm-avatar-character{inset:-16px 4px 21px}.lm-avatar-character svg{width:85px}.lm-avatar-name strong,.lm-avatar-name span{font-size:8px}.lm-progress-stats{display:block}}
 @media(prefers-reduced-motion:reduce){.lm-avatar-character,.lm-avatar-lightning,.lm-progress-showcase .lm-progress i,.lm-progress-glint{animation:none}}
+
+/* V19 honest per-capability receiver diagnostics */
+.lm-receiver-diagnostics{margin-top:12px;border:1px solid #50657d;border-radius:12px;padding:12px;background:#091522;color:#dae8f5}
+.lm-receiver-diagnostics summary{cursor:pointer;font-size:12px;letter-spacing:.08em;color:#f3cf8a;font-weight:900}
+#lmReceiverDiagnostics{display:grid;gap:6px;margin-top:11px}
+.lm-diag-row,.lm-diag-reason{padding:8px 10px;border-radius:7px;background:#131e2d;display:grid;grid-template-columns:auto 1fr;column-gap:9px;align-items:baseline;font-size:12px}
+.lm-diag-row small,.lm-diag-reason small{grid-column:2;font-size:11px;color:#aabed0}
+.lm-diag-good{color:#4bf1ae;font-size:10px}.lm-diag-bad{color:#f7a681;font-size:10px}
+.lm-diag-reason{border-left:2px solid #f4b96e;grid-template-columns:1fr}
+.lm-diag-reason small{grid-column:1}
