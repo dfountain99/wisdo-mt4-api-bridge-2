@@ -145,13 +145,13 @@ export function campaignPacket(action, body, state) {
   let counterDirection = Number(body.counterDirection || 0);
   let referencePrice = Number(body.referencePrice || 0);
   let requestedDirection = Number(body.requestedDirection || 0);
-  if (definition.code === 21) {
+  if (action === 'COUNTER_IF_VALID') {
     if (![1, -1].includes(counterDirection)) fail('Counter direction must be BUY or SELL.');
     if (!Number.isFinite(referencePrice) || referencePrice <= 0) fail('A verified stop/close reference price is required before HIGHTOWER can arm a counter campaign.');
     if (c.phase !== 0 && c.phase !== 3) fail('Counter intent can only arm after the prior campaign is flat or already waiting for reversal proof.');
     if (c.positions?.length) fail('Counter intent requires the prior campaign to be flat before arming opposite exposure.');
   }
-  if (definition.code === 22) {
+  if (action === 'DIRECTIONAL_ENTRY_IF_VALID') {
     if (![1, -1].includes(requestedDirection)) fail('Requested entry direction must be BUY or SELL.');
     if (c.phase !== 0) fail('A direct directional entry can only start from a flat HIGHTOWER campaign.');
     if (c.positions?.length) fail('A direct directional entry requires the current HIGHTOWER lane to be flat.');
@@ -165,7 +165,7 @@ export function campaignPacket(action, body, state) {
     if (!level || (body.levelPrice != null && Number(body.levelPrice) !== level.price)) fail('Structure level changed. Preview again.');
     if (definition.code === 9 && c.direction * (level.price - c.rail) <= 0) fail('The campaign rail can only tighten.');
   }
-  return { operation: definition.code, ...(chainOp ? {chainWaves:action==='CHAIN_ARM'?chainWaves:0,chainPerWave:action==='CHAIN_ARM'?chainPerWave:0,chainSpacingPips:action==='CHAIN_ARM'?chainSpacingPips:0}:{}), burstCount, durationSeconds: duration, eaCampaignId: c.campaignId,
+  return { operation: definition.code, ...(chainOp ? {chainWaves:action==='CHAIN_ARM'?chainWaves:0,chainPerWave:action==='CHAIN_ARM'?chainPerWave:0,chainSpacingPips:action==='CHAIN_ARM'?chainSpacingPips:0}:{}), burstCount, durationSeconds: duration, eaCampaignId: chainOp ? 0 : c.campaignId,
     symbol: c.symbol, magicNumber: c.magic, tickets: tickets.join(','),
     levelId: level?.id || 0, levelPrice: level?.price || 0,
     stopAtr, trailStartAtr, trailDistanceAtr, trailStepAtr, trimPercent, runtimeScope, counterDirection, referencePrice, requestedDirection };
