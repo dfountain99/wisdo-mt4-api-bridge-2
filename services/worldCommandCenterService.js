@@ -228,7 +228,8 @@ export class WorldCommandCenterService {
       source: 'wisdo_world_command_center',
       immediate: true,
       priority: proposal.definition.level >= 3 ? 200 : 150,
-      ttlMinutes: 2,
+      // Expire queued campaign instructions BEFORE their 90-second EA deadline.
+      ttlMinutes: proposal.definition.command==='WISDO_CAMPAIGN' ? 1 : 2,
       confirmation: 'confirmed',
       commandId: proposal.clientCommandId,
       clientCommandId: proposal.clientCommandId,

@@ -25,7 +25,9 @@ export class WisdoExecutionService {
       const packet=campaignPacket(resolved.action,{...parameters,...resolved.params,eaCampaignId:snapshot.campaignControl.campaignId},snapshot);
       executable={...parameters,...packet,requestId:Date.now()*1000+Math.floor(Math.random()*1000),expiresEpoch:Math.floor(Date.now()/1000)+90,source:'wisdo_live_manager'};
     }
-    const payload={...executable,deviceId,planId,rawText,safetyLevel,confirmation:confirmationStatus==='CONFIRMED'?'confirmed':undefined,idempotencyKey,dedupeKey:idempotencyKey};
+    const payload={...executable,deviceId,planId,rawText,safetyLevel,confirmation:confirmationStatus==='CONFIRMED'?'confirmed':undefined,
+      ttlMinutes:String(commandName||'').toUpperCase()==='WISDO_CAMPAIGN'?1:undefined,
+      idempotencyKey,dedupeKey:idempotencyKey};
     const command=await this.mt4CommandService.queueCommandForAccount(userId,accountId,commandName,payload);
     await this.receipt({commandId:command.id,userId,accountId,planId,status:'PENDING',result:{intent,parameters,queuedAt:command.createdAt}});
     return command;

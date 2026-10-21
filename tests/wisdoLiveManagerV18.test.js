@@ -125,3 +125,9 @@ test('Manual Add button is a confirmed World Command Center operation and text a
  assert.match(voice,/resolveManualAddForEA\(snapshot,action\)/);
  assert.match(voice,/manual-add:/);
 });
+
+test('WISDO campaign queue TTL is shorter than expiry accepted by the MT4 Reporter',async()=>{
+ const [world,voice]=await Promise.all(['../services/worldCommandCenterService.js','../services/wisdoExecutionService.js'].map(file=>fs.readFile(new URL(file,import.meta.url),'utf8')));
+ assert.match(world,/ttlMinutes: proposal\.definition\.command==='WISDO_CAMPAIGN' \? 1 : 2/);
+ assert.match(voice,/ttlMinutes:String\(commandName\|\|''\)\.toUpperCase\(\)==='WISDO_CAMPAIGN'\?1/);
+});
