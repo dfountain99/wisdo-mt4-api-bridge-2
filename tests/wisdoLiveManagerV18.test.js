@@ -63,3 +63,12 @@ test('V18 weekly schedule gate is enforced in the actual HIGHTOWER entry path, n
  assert.match(receiver,/scheduleVersion\",1/);
  assert.match(receiver,/scheduleDay/);
 });
+
+test('V18 does not advertise stop trail or trim controls when manager capability is omitted',()=>{
+ const cap=WorldCommandCenterService.prototype.capabilitiesFor.call({}, {
+  account:{accountId:'a',ownerUserId:'u'},executionHealth:{commandLinkReady:true},
+  campaigns:[{symbol:'XAUUSD',positionCount:2,canTargetByMagic:true,positions:[]}],
+  campaignControl:{live:true,scheduleVersion:0}
+ },'u');
+ for(const key of ['SET_STOP_ATR','SET_TRAIL_ATR','TRIM_CAMPAIGN'])assert.equal(cap[key].available,false,key);
+});
