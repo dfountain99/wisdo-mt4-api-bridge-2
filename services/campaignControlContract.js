@@ -1,5 +1,9 @@
 // Campaign protocol v1: the EA owns prices, assignments and the final decision.
 export const CAMPAIGN_ACTIONS = Object.freeze({
+  CHAIN_ARM: { code: 21, label: 'Arm V13 staged burst ladder' },
+  CHAIN_CANCEL: { code: 22, label: 'Cancel V13 staged ladder' },
+  CHAIN_PAUSE: { code: 23, label: 'Pause V13 staged ladder' },
+  CHAIN_RESUME: { code: 24, label: 'Resume V13 staged ladder' },
   PAUSE_FOR: { code: 1, label: 'Pause entries for a duration' },
   AFTER_COMPOUND: { code: 2, label: 'After each compound milestone, wait for a new opposite candle' },
   AFTER_WIN: { code: 3, label: 'After each profitable close, pause entries' },
@@ -49,6 +53,10 @@ export function normalizeCampaignControl(value) {
     campaignId: num(value.campaignId), phase: num(value.phase), direction: num(value.direction),
     managerOpsVersion: Math.max(0,Math.trunc(num(value.managerOpsVersion,0))),
     scheduleVersion: Math.max(0,Math.trunc(num(value.scheduleVersion,0))),
+    behaviorVersion: Math.max(0,Math.trunc(num(value.behaviorVersion,0))),
+    behaviorEnabled:bool(value.behaviorEnabled),behaviorActive:bool(value.behaviorActive),behaviorPaused:bool(value.behaviorPaused),
+    behaviorWave:Math.max(0,Math.trunc(num(value.behaviorWave,0))),behaviorWaveCount:Math.max(0,Math.trunc(num(value.behaviorWaveCount,0))),
+    behaviorFilled:Math.max(0,Math.trunc(num(value.behaviorFilled,0))),behaviorWaveFilled:Math.max(0,Math.trunc(num(value.behaviorWaveFilled,0))),behaviorLastPrice:num(value.behaviorLastPrice,0),
     scheduleActive:bool(value.scheduleActive),scheduleAllowed:bool(value.scheduleAllowed),
     scheduleDays:(Array.isArray(value.scheduleDays)?value.scheduleDays:[]).slice(0,7).map(n=>Math.max(0,Math.min(0xFFFFFF,Math.trunc(num(n,0))))),
     rail: num(value.rail), goal: num(value.goal), paused: value.paused === true,
@@ -102,12 +110,19 @@ export function campaignPacket(action, body, state) {
   const c = state.campaignControl;
   if (!c || !c.live) fail('A fresh campaign EA connection is required.');
   if (c.pendingId && c.pendingId !== c.ackId) fail('The EA is still processing an earlier command.');
-  if (Number(body.eaCampaignId) !== c.campaignId) fail('Campaign changed. Preview the current campaign again.');
+  if (!['CHAIN_ARM','CHAIN_CANCEL','CHAIN_PAUSE','CHAIN_RESUME'].includes(action) && Number(body.eaCampaignId) !== c.campaignId) fail('Campaign changed. Preview the current campaign again.');
   const definition = CAMPAIGN_ACTIONS[action];
   if (!definition) fail('Unsupported campaign instruction.');
   const duration = Number(body.durationSeconds || 0);
   if ([1, 3, 6, 7, 12].includes(definition.code) && (!Number.isInteger(duration) || duration < 1 || duration > 604800)) fail('Choose a duration between 1 second and 7 days.');
   if ([2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20].includes(definition.code) && c.phase !== 1) fail('This instruction requires an active campaign.');
+  const chainOp=['CHAIN_ARM','CHAIN_CANCEL','CHAIN_PAUSE','CHAIN_RESUME'].includes(action);
+  if(chainOp&&(c.behaviorVersion!==13||!c.behaviorEnabled))fail('V13 staged chain receiver not verified or disabled on the EA.');
+  if(['CHAIN_CANCEL','CHAIN_PAUSE','CHAIN_RESUME'].includes(action)&&!c.behaviorActive)fail('No active chain to control.');
+  const chainWaves=Number(body.chainWaves),chainPerWave=Number(body.chainPerWave),chainSpacingPips=Number(body.chainSpacingPips);
+  if(action==='CHAIN_ARM'&& (c.behaviorActive||!c.positions?.length||![1,-1].includes(c.direction)))fail('Requires a single existing EA position direction and an idle chain.');
+  if(action==='CHAIN_ARM'&&(!Number.isInteger(chainWaves)||chainWaves<1||chainWaves>4||!Number.isInteger(chainPerWave)||chainPerWave<1||chainPerWave>10||chainWaves*chainPerWave>40||!Number.isFinite(chainSpacingPips)||chainSpacingPips<1||chainSpacingPips>50))fail('Chain exceeds conservative limits: max four waves, ten per wave, 40 orders, spacing 1–50 pips.');
+  if(c.behaviorVersion===13&&['COUNTER_IF_VALID','DIRECTIONAL_ENTRY_IF_VALID'].includes(action))fail('Legacy operations 21/22 conflict with V13 chain receiver.');
   const burstCount = Number(body.burstCount || 0);
   if (definition.code === 12 && (!Number.isInteger(burstCount) || burstCount < 1 || burstCount > 10)) fail('A SONIC window allows 1 to 10 entries, each subject to the normal EA gates.');
   const tickets = [...new Set(Array.isArray(body.tickets) ? body.tickets.map(Number) : [])];
@@ -130,13 +145,13 @@ export function campaignPacket(action, body, state) {
   let counterDirection = Number(body.counterDirection || 0);
   let referencePrice = Number(body.referencePrice || 0);
   let requestedDirection = Number(body.requestedDirection || 0);
-  if (definition.code === 21) {
+  if (action === 'COUNTER_IF_VALID') {
     if (![1, -1].includes(counterDirection)) fail('Counter direction must be BUY or SELL.');
     if (!Number.isFinite(referencePrice) || referencePrice <= 0) fail('A verified stop/close reference price is required before HIGHTOWER can arm a counter campaign.');
     if (c.phase !== 0 && c.phase !== 3) fail('Counter intent can only arm after the prior campaign is flat or already waiting for reversal proof.');
     if (c.positions?.length) fail('Counter intent requires the prior campaign to be flat before arming opposite exposure.');
   }
-  if (definition.code === 22) {
+  if (action === 'DIRECTIONAL_ENTRY_IF_VALID') {
     if (![1, -1].includes(requestedDirection)) fail('Requested entry direction must be BUY or SELL.');
     if (c.phase !== 0) fail('A direct directional entry can only start from a flat HIGHTOWER campaign.');
     if (c.positions?.length) fail('A direct directional entry requires the current HIGHTOWER lane to be flat.');
@@ -150,7 +165,7 @@ export function campaignPacket(action, body, state) {
     if (!level || (body.levelPrice != null && Number(body.levelPrice) !== level.price)) fail('Structure level changed. Preview again.');
     if (definition.code === 9 && c.direction * (level.price - c.rail) <= 0) fail('The campaign rail can only tighten.');
   }
-  return { operation: definition.code, burstCount, durationSeconds: duration, eaCampaignId: c.campaignId,
+  return { operation: definition.code, ...(chainOp ? {chainWaves:action==='CHAIN_ARM'?chainWaves:0,chainPerWave:action==='CHAIN_ARM'?chainPerWave:0,chainSpacingPips:action==='CHAIN_ARM'?chainSpacingPips:0}:{}), burstCount, durationSeconds: duration, eaCampaignId: chainOp ? 0 : c.campaignId,
     symbol: c.symbol, magicNumber: c.magic, tickets: tickets.join(','),
     levelId: level?.id || 0, levelPrice: level?.price || 0,
     stopAtr, trailStartAtr, trailDistanceAtr, trailStepAtr, trimPercent, runtimeScope, counterDirection, referencePrice, requestedDirection };

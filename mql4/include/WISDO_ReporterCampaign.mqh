@@ -34,6 +34,14 @@ string BuildCampaignControlJson()
    j+=",\"runtimeTrailDistanceAtr\":"+DoubleToString(WcoRead(p,"effectiveTrailDistanceAtr"),4);
    j+=",\"runtimeTrailStepAtr\":"+DoubleToString(WcoRead(p,"effectiveTrailStepAtr"),4);
    j+=",\"managerOpsVersion\":"+DoubleToString(WcoRead(p,"managerOpsVersion"),0);
+   j+=",\"behaviorVersion\":"+DoubleToString(WcoRead(p,"behaviorVersion"),0);
+   j+=",\"behaviorEnabled\":"+BoolToJson(WcoRead(p,"behaviorEnabled")>=0.5);\n   j+=",\"behaviorActive\":"+BoolToJson(WcoRead(p,"behaviorActive")>=0.5);
+   j+=",\"behaviorPaused\":"+BoolToJson(WcoRead(p,"behaviorPaused")>=0.5);
+   j+=",\"behaviorWave\":"+DoubleToString(WcoRead(p,"behaviorWave"),0);
+   j+=",\"behaviorWaveCount\":"+DoubleToString(WcoRead(p,"behaviorWaveCount"),0);
+   j+=",\"behaviorFilled\":"+DoubleToString(WcoRead(p,"behaviorFilled"),0);
+   j+=",\"behaviorWaveFilled\":"+DoubleToString(WcoRead(p,"behaviorWaveFilled"),0);
+   j+=",\"behaviorLastPrice\":"+DoubleToString(WcoRead(p,"behaviorLastPrice"),8);
    j+=",\"scheduleVersion\":"+DoubleToString(WcoRead(p,"scheduleVersion"),0);
    j+=",\"scheduleActive\":"+BoolToJson(WcoRead(p,"scheduleActive")>=0.5);
    j+=",\"scheduleAllowed\":"+BoolToJson(WcoRead(p,"scheduleAllowed")>=0.5);
@@ -64,7 +72,7 @@ bool ExecuteCampaignCommand(string json,string &message,int &ticket)
    int op=JsonGetInt(json,"operation",0),duration=JsonGetInt(json,"durationSeconds",0);
    if(!EnableCampaignControl || CampaignControlMagic<=0 || JsonGetString(json,"symbol","")!=CampaignControlSymbol || JsonGetInt(json,"magicNumber",0)!=CampaignControlMagic)
    {message="Campaign control scope is disabled or does not match Reporter inputs";return false;}
-   if(id<=0 || expires<TimeGMT() || expires>TimeGMT()+120 || op<1 || op>22 ||
+   if(id<=0 || expires<TimeGMT() || expires>TimeGMT()+120 || op<1 || op>24 || (op>=23 && op<=24 && WcoRead(p,"behaviorVersion")!=13) ||
       ((op==1 || op==3 || op==6 || op==7 || op==12) && (duration<1 || duration>604800)))
    {message="Invalid or expired campaign instruction";return false;}
    if(WcoRead(p,"ack")>=id){message="Already processed by EA; inspect campaign acknowledgement";return true;}
@@ -75,6 +83,16 @@ bool ExecuteCampaignCommand(string json,string &message,int &ticket)
    if(slot==id && WcoRead(p,"seq")==id){message="Delivered previously; waiting for EA acknowledgement";return true;}
    if(!GlobalVariableCheck(p+"slot")) WcoWrite(p,"slot",0);
    if(!GlobalVariableSetOnCondition(p+"slot",id,0)){message="Campaign mailbox busy; preview again after acknowledgement";return false;}
+   if(op==21)
+   {
+      int waves=JsonGetInt(json,"chainWaves",0),perWave=JsonGetInt(json,"chainPerWave",0);
+      double spacing=JsonGetDouble(json,"chainSpacingPips",0);
+      if(waves<1||waves>4||perWave<1||perWave>10||waves*perWave>40||spacing<1||spacing>50)
+      {WcoWrite(p,"slot",0);message="Unsafe V13 chain parameters";return false;}
+   }
+   WcoWrite(p,"chainWaves",JsonGetInt(json,"chainWaves",0));
+   WcoWrite(p,"chainPerWave",JsonGetInt(json,"chainPerWave",0));
+   WcoWrite(p,"chainSpacingPips",JsonGetDouble(json,"chainSpacingPips",0));
    WcoWrite(p,"burst",JsonGetInt(json,"burstCount",0));WcoWrite(p,"op",op);WcoWrite(p,"duration",duration);WcoWrite(p,"expires",expires);
    WcoWrite(p,"expected",JsonGetDouble(json,"eaCampaignId",-1));
    WcoWrite(p,"levelId",JsonGetDouble(json,"levelId",0));WcoWrite(p,"levelPrice",JsonGetDouble(json,"levelPrice",0));
