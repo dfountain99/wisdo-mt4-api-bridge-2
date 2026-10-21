@@ -74,7 +74,7 @@ test('V18 does not advertise stop trail or trim controls when manager capability
 });
 
 test('V19 flat Rewire EA can receive verified website schedule without any open trade campaign',async()=>{
-  const service=new WorldCommandCenterService({});
+  const service=new WorldCommandCenterService({mt4SyncService:{repository:{}},mt4CommandService:{queueCommandForAccount:async()=>({id:'demo-command'})}});
   service.campaignState={snapshot:async()=>({account:{accountId:'demo-account',ownerUserId:'owner'}, executionHealth:{commandLinkReady:true}, campaigns:[], campaignControl:{live:true,enabled:true,symbol:'XAUUSD',magic:26080204,scheduleVersion:1,managerOpsVersion:1,campaignId:0,phase:0,positions:[]}})};
   const result=await service.propose('owner',{accountId:'demo-account',action:'SET_EA_SCHEDULE',slotMasks:Array(7).fill(0x00ff00)});
   assert.equal(result.action,'SET_EA_SCHEDULE');
