@@ -25,7 +25,7 @@ export function mountCampaignCommand(host, { accountId, api }) {
   scheduleStart.value='7';scheduleEnd.value='21';
   const scheduleDays=scheduleUi.querySelector('[data-schedule-days]');
   ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach((name,i)=>{const label=document.createElement('label');label.style.display='inline-flex';label.style.margin='4px 10px 4px 0';const input=document.createElement('input');input.type='checkbox';input.value=String(i);input.checked=i>=1&&i<=5;label.appendChild(input);label.appendChild(document.createTextNode(' '+name));scheduleDays.appendChild(label);});
-  const guardianStyle=document.createElement('style');guardianStyle.textContent='.wco-top{top:20px!important}.wco-orb{width:142px!important;height:142px!important;font-size:62px!important;box-shadow:0 0 35px #c59d4388!important;transition:transform .35s,filter .35s}.wco-orb[data-mood=winning]{filter:drop-shadow(0 0 15px #42e88c);animation:guardianHappy 1.6s infinite}.wco-orb[data-mood=sick]{filter:grayscale(.6);animation:guardianSick 2.3s infinite}.wco-orb[data-mood=struggling]{filter:sepia(.7)}.wco-orb[data-mood=offline]{opacity:.45;filter:grayscale(1)}.wco-orb[data-mood=sleeping]{filter:saturate(.5)}@keyframes guardianHappy{50%{transform:translateY(-8px) scale(1.07)}}@keyframes guardianSick{50%{transform:rotate(-5deg) scale(.95)}}.wco-schedule{background:#0a1724;border:1px solid #8f712e;border-radius:16px;padding:16px;margin:16px 0;color:#f7dfac}.wco-schedule select{background:#152536;color:white;padding:7px;margin-left:8px}.wco-schedule small{display:block;margin-top:8px;color:#c9c1ad}';host.appendChild(guardianStyle);
+  const guardianStyle=document.createElement('style');guardianStyle.textContent='.wco-top{top:20px!important}.wco-orb{width:142px!important;height:142px!important;font-size:62px!important;box-shadow:0 0 35px #c59d4388!important;transition:transform .35s,filter .35s}.wco-orb[data-mood=winning]{filter:drop-shadow(0 0 15px #42e88c);animation:guardianHappy 1.6s infinite}.wco-orb[data-mood=sick]{filter:grayscale(.6);animation:guardianSick 2.3s infinite}.wco-orb[data-mood=struggling]{filter:sepia(.7)}.wco-orb[data-mood=offline],.wco-orb[data-mood=drained]{opacity:.45;filter:grayscale(1)}.wco-orb[data-mood=sleeping]{filter:saturate(.5)}@keyframes guardianHappy{50%{transform:translateY(-8px) scale(1.07)}}@keyframes guardianSick{50%{transform:rotate(-5deg) scale(.95)}}.wco-schedule{background:#0a1724;border:1px solid #8f712e;border-radius:16px;padding:16px;margin:16px 0;color:#f7dfac}.wco-schedule select{background:#152536;color:white;padding:7px;margin-left:8px}.wco-schedule small{display:block;margin-top:8px;color:#c9c1ad}';host.appendChild(guardianStyle);
   const spatialAnalytics = createSpatialAnalytics(host);
   let spatialInteraction = null, vibeCore = null;
   const say = async text => {
@@ -54,6 +54,8 @@ export function mountCampaignCommand(host, { accountId, api }) {
     clearPreview();busy=true;
     try {
       let action=intent.action || q('[data-action]').value;
+      const capability=state?.capabilities?.[action];
+      if(!capability?.available)throw Error(capability?.reason||'This command is not verified for the selected EA.');
       const c=state.campaignControl;
       let level=levels().find(l=>l.id===Number(q('[data-level]').value));
       if (intent.notches) {
@@ -109,8 +111,9 @@ export function mountCampaignCommand(host, { accountId, api }) {
   const draw = () => {
     const c=state?.campaignControl, trades=positions(), ls=levels();
     powerDock?.update({positions:(state?.campaigns||[]).flatMap(x=>x.positions||[]),live:Boolean(c?.live)});
-    const mood=(!c?.live)?'offline':(Number(c.progress?.floating||0)<0&&Number(c.progress?.campaignBase||0)>0&&Math.abs(Number(c.progress.floating))/Number(c.progress.campaignBase)>.05)?'sick':Number(c.progress?.floating||0)>0?'winning':Number(c.progress?.floating||0)<0?'struggling':c?.paused?'sleeping':'watching';
-    const orb=q('.wco-orb');orb.dataset.mood=mood;orb.textContent=({offline:'◌',sick:'🤒',winning:'😄',struggling:'😟',sleeping:'😴',watching:'🦉'})[mood];orb.title='Guardian mood: '+mood+' · based on reported campaign telemetry';
+    const accountEquity=Number(state?.account?.equity??state?.account?.currentEquity??NaN);
+    const mood=Number.isFinite(accountEquity)&&accountEquity<=0?'drained':(!c?.live)?'offline':(Number(c.progress?.floating||0)<0&&Number(c.progress?.campaignBase||0)>0&&Math.abs(Number(c.progress.floating))/Number(c.progress.campaignBase)>.05)?'sick':Number(c.progress?.floating||0)>0?'winning':Number(c.progress?.floating||0)<0?'struggling':c?.paused?'sleeping':'watching';
+    const orb=q('.wco-orb');orb.dataset.mood=mood;orb.textContent=({offline:'◌',drained:'🥀',sick:'🤒',winning:'😄',struggling:'😟',sleeping:'😴',watching:'🦉'})[mood];orb.title='Guardian mood: '+mood+' · based on reported campaign telemetry';
     const oldLevel=q('[data-level]').value;
     q('[data-level]').innerHTML=ls.length?ls.map(l=>`<option value="${l.id}">${escape(l.price)} · confirmed pivot</option>`).join(''):'<option value="">No verified levels</option>';
     if(ls.some(l=>String(l.id)===oldLevel))q('[data-level]').value=oldLevel;
@@ -121,7 +124,10 @@ export function mountCampaignCommand(host, { accountId, api }) {
     q('[data-goal]').textContent=c?`${goalLabels[c.goal] || 'EA rule active'}${c.remainingSeconds?` · ${Math.ceil(c.remainingSeconds/60)} min remaining`:''}${c.paused?' · entries paused':''}${c.goal===12?` · ${c.burstRemaining} SONIC entries remaining`:''}`:'Waiting for campaign telemetry';
     q('[data-meta]').textContent=c?`Campaign ${c.campaignId || 'not started'} · ${c.direction===1?'BUY':c.direction===-1?'SELL':'FLAT'} · Rail ${c.rail || '—'} · Banked milestones ${c.banked}`:'No campaign values have been supplied.';
     q('[data-empty]').hidden=Boolean(c);q('[data-empty]').textContent=state?.account?'Install Reporter 1.60 and H620 receiver 6.21 on the same terminal. Enable campaign control with the exact symbol and magic number. Existing account data remains available in Trade controls.':'Select a Reporter-backed account to connect this canvas.';
-    q('[data-preview]').disabled=!c?.live;q('[data-interpret]').disabled=!c?.live;
+    const selectedAction=q('[data-action]').value;
+    const selectedCapability=state?.capabilities?.[selectedAction];
+    q('[data-preview]').disabled=!selectedCapability?.available;q('[data-preview]').title=selectedCapability?.reason||'';
+    q('[data-interpret]').disabled=!c?.live;
     for(const ticket of selected)if(!trades.some(t=>String(t.ticket)===ticket))selected.delete(ticket);
     q('[data-trades]').innerHTML=trades.map(t=>`<label><input type="checkbox" data-ticket="${escape(t.ticket)}" ${selected.has(String(t.ticket))?'checked':''} ${t.role===0?'disabled':''}>${['HOLD','COLLECTOR','RUNNER'][t.role]} #${escape(t.ticket)} · ${Number(t.floatingMoney).toFixed(2)}</label>`).join('') || '<p class="muted">No campaign positions reported.</p>';
     q('[data-trades]').querySelectorAll('input').forEach(el=>el.onchange=()=>{clearPreview();el.checked?selected.add(el.dataset.ticket):selected.delete(el.dataset.ticket);draw();});
