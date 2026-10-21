@@ -23,6 +23,6 @@ test('V15 route/cache versions prevent stale character UI from masking Live Mana
     fs.readFile(new URL('../public/js/workspace.js',import.meta.url),'utf8'),
     fs.readFile(new URL('../public/service-worker.js',import.meta.url),'utf8'),
   ]);
-  assert.match(workspace,/v=20261021-v20-add-one-rewire/);
+  assert.match(workspace,/v=20261021-v23-real-power-dock/);
   assert.match(worker,/wisdo-static-v20\.0\.0-add-one-rewire/);
 });
