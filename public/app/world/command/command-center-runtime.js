@@ -373,7 +373,7 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
   const timeEngine=createWisdoTimeEngine(q('#lmTimeHost'),{resetWindowSeconds:120});
   const weeklyEditor=createWisdoWeeklyScheduleEditor(q('#lmWeeklyEditor'),{onApply:(slotMasks)=>arm('SET_EA_SCHEDULE',{slotMasks,campaignId:selectedCampaignId})});
   const targetTracker=createLiveTargetTracker(q('#lmTargetTracker'));
-  const powerDock=mountEaPowerDock(q('#lmPowerDock'),{onCommand:(action)=>arm(action,{burstCount:1,durationSeconds:30,campaignId:selectedCampaignId})});
+  const powerDock=mountEaPowerDock(q('#lmPowerDock'),{onCommand:async(action)=>{const receipt=await arm(action,{burstCount:1,durationSeconds:30,campaignId:selectedCampaignId});if(!receipt)throw new Error('EA or server rejected the command. Review the Live Manager status.');return receipt;}});
 
   function cancelProposal(){
     proposal=null;holdStart=0;clearInterval(holdTimer);holdTimer=0;
