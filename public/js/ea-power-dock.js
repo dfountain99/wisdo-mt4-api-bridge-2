@@ -5,10 +5,7 @@ export const EA_POWERS = ["Sonic Burst","Sniper Entry","Shadow Entry","Echo Trad
   id:index+1, name,
   // Only commands currently recognized by WorldCommandCenterService can be proposed.
   action:({
-    1:'ARM_SONIC',
-    20:'AFTER_CAMPAIGN',
-    26:'AFTER_COMPOUND',
-    27:'END_AFTER'
+    1:'ARM_SONIC'
   })[index+1] || null
 }));
 export function mountEaPowerDock(host,{onCommand}={}){
