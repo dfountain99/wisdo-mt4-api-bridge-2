@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WISDO | HIGHTOWER Rewire</title><style>
+:root{font:15px/1.5 system-ui,Segoe UI,Arial;color:#ebf2ff;background:#070b12;color-scheme:dark}*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:radial-gradient(circle at 20% 0%,#1b2943,#070b12 55%)}
+main{max-width:980px;margin:0 auto;padding:30px 18px 75px}.eyebrow{color:#e9c47d;letter-spacing:.2em;font-size:12px;font-weight:900}
+header{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+h1{font-size:clamp(27px,5vw,44px);letter-spacing:-.035em;margin:6px 0}h2{font-size:18px;margin:0 0 14px}
+p{margin:8px 0 18px;color:#b6c4d8}a{color:#e3be76}
+.panel{background:linear-gradient(150deg,#172234,#0b111b);border:1px solid #304259;border-radius:18px;padding:19px;margin-bottom:16px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:15px}.fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+label{font-size:13px;font-weight:650;color:#b6c4d8;display:flex;flex-direction:column;gap:5px}
+input,select,textarea{width:100%;background:#080e16;border:1px solid #41516a;border-radius:10px;color:#fff;padding:11px;font:inherit}
+textarea{min-height:95px;resize:vertical}button{padding:11px 15px;border-radius:11px;background:#203248;border:1px solid #516580;color:#fff;font:inherit;font-weight:800;cursor:pointer}
+button.primary{background:#d7b371;color:#151309;border-color:#d7b371}button:disabled{opacity:.5;cursor:not-allowed}.bar{display:flex;gap:10px;flex-wrap:wrap;margin-top:13px}
+.output{white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.55 ui-monospace,Consolas,monospace;color:#d9e7f7;background:#080d15;border:1px dashed #41516a;border-radius:12px;padding:12px;min-height:78px}
+.tag{color:#e7bd73;font-weight:900;font-size:13px}.warning{border-color:#886c37;color:#e8c57f}
+small{color:#aebed3;display:block;margin-top:8px}@media(max-width:700px){.grid,.fields{grid-template-columns:1fr}}
+</style></head><body><main>
+<header><div><div class="eyebrow">WISDO / COMMAND CENTER</div><h1>HIGHTOWER REWIRE</h1><p>Einstein • SONIC • Website-controlled manual burst</p></div><a href="/app/wisdo-command-center">← Main Command Center</a></header>
+<section class="panel warning"><strong>Deployment safety:</strong> this page sends a confirmed request, not a guaranteed market fill. Use a DEMO MT4 account to verify the Reporter, exact symbol and MagicNumber, Commander risk checks, and broker acknowledgments before any real-money use. Autonomous harvesting and withdrawals are not enabled here.</section>
+<div class="grid"><div>
+<section class="panel"><h2>1 · Connected identity</h2><div class="fields">
+<label>WISDO account ID<input id="account" autocomplete="off" placeholder="Paired website account ID"></label>
+<label>Broker symbol<input id="symbol" value="XAUUSD" autocomplete="off"></label>
+<label>HIGHTOWER MagicNumber<input id="magic" type="number" min="1" placeholder="Match EA input"></label>
+<label>Requested SONIC orders<select id="count"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option></select></label></div>
+<small>The EA must be attached to the intended chart. Reporter must have EnableCampaignControl enabled and matching symbol + magic.</small></section>
+<section class="panel"><h2>2 · Command</h2>
+<label>Text or voice<textarea id="command">Signet blast now</textarea></label>
+<div class="bar"><button id="speak" type="button">🎙 Speak</button><button id="send" class="primary" type="button">Request burst</button></div>
+<small>Try “signet blast buy now” or “SONIC blast sell”. AUTO direction is chosen by HIGHTOWER only if market flow is unambiguous.</small></section>
+</div><div>
+<section class="panel"><h2>3 · Confirm</h2><p id="hint">Request a command to receive the server-generated confirmation phrase.</p>
+<label>Exact confirmation phrase<input id="phrase" autocomplete="off" placeholder="Enter phrase shown above"></label>
+<button id="confirm" type="button" disabled>Confirm and queue</button></section>
+<section class="panel"><h2>4 · Execution receipt</h2>
+<div class="tag" id="status">IDLE</div><div class="output" id="result" aria-live="polite">No request sent.</div>
+<div class="bar"><button id="refresh" type="button" disabled>Check MT4 acknowledgment</button></div>
+<small>Queued ≠ delivered ≠ filled. A command can be rejected due to pause, spread, risk, margin or expiry.</small></section>
+</div></div>
+<section class="panel"><h2>Supported capability status</h2><p>Manual SONIC burst: confirmation-required and subject to the V6.11 EA bridge. Automatic Einstein/SONIC signals: controlled by your existing EA settings. Compound Continuity, source-function deployment, and Alexa: not activated on this page.</p><a href="/app/robot-studio">Open Robot Studio</a></section>
+</main><script>
+(function(){
+const el=id=>document.getElementById(id);let confirmId='',commandId='';
+function display(s,message){el('status').textContent=s;el('result').textContent=String(message);}
+async function request(url,body){const response=await fetch(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+let payload={};try{payload=await response.json()}catch(e){throw Error('Server did not return JSON. Check login and deployment.')}
+if(!response.ok||payload.ok===false)throw Error(payload.error||payload.message||('HTTP '+response.status));return payload;}
+el('send').onclick=async function(){const accountId=el('account').value.trim(),symbol=el('symbol').value.trim(),magicNumber=Number(el('magic').value),rawText=el('command').value.trim();
+if(!accountId||!symbol||!Number.isSafeInteger(magicNumber)||magicNumber<1||!rawText){display('MISSING DETAILS','Enter account ID, exact broker symbol, MagicNumber and command.');return;}
+if(!/\b(?:signet|sonic)\s+(?:blast|burst)\b/i.test(rawText)){display('UNSUPPORTED','This page supports signet/SONIC blast requests only.');return;}
+try{display('SUBMITTING','Requesting a confirmation ticket. No trade is queued yet.');
+const r=await request('/api/trade-copy/action',{action:'signet_blast',accountId,symbol,magicNumber,burstCount:Number(el('count').value),rawText});
+if(r.confirmationRequired){confirmId=r.confirmationId;el('confirm').disabled=false;el('hint').textContent='Type exactly: '+(r.confirmationPhrase||r.phrase);display('CONFIRMATION REQUIRED','No order has been queued. Confirm within the server expiration window.');return;}
+display('NOT QUEUED',JSON.stringify(r));}catch(e){display('REJECTED',e.message);}};
+el('confirm').onclick=async function(){if(!confirmId)return;try{const r=await request('/api/command/confirm',{confirmationId:confirmId,confirmationPhrase:el('phrase').value.trim()});
+confirmId='';el('confirm').disabled=true;commandId=r.commandId||r.record?.id||'';el('refresh').disabled=!commandId;
+display('QUEUED','Command ID: '+commandId+'\nAwaiting Reporter poll and EA/broker acknowledgment.');}catch(e){display('CONFIRMATION FAILED',e.message);}};
+el('refresh').onclick=async function(){if(!commandId)return;try{const url='/api/command/status?commandId='+encodeURIComponent(commandId)+'&accountId='+encodeURIComponent(el('account').value.trim());const r=await fetch(url,{credentials:'same-origin'});const v=await r.json();if(!r.ok||!v.ok)throw Error(v.error||'Status not available');display(String(v.status||'UNKNOWN').toUpperCase(),JSON.stringify(v.command?.result||v.command?.result_message||v.note||v.command||{},null,2));}catch(e){display('STATUS ERROR',e.message);}};
+el('speak').onclick=function(){const S=window.SpeechRecognition||window.webkitSpeechRecognition;if(!S){display('VOICE UNAVAILABLE','Type the command instead.');return;}const s=new S();s.lang='en-US';s.interimResults=false;s.onresult=e=>{el('command').value=e.results[0][0].transcript};s.onerror=e=>display('VOICE ERROR',e.error);s.start();};
+})();
+</script></body></html>
