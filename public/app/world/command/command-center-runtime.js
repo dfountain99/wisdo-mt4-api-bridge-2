@@ -69,6 +69,7 @@ function markup(){
               <button class="lm-btn danger" type="button" data-live-action="CLOSE_CAMPAIGN">CLOSE CAMPAIGN<span>Hold confirmation</span></button>
               <button class="lm-btn danger" type="button" data-live-action="EMERGENCY_STOP">EMERGENCY STOP<span>Hold confirmation</span></button>
             </div>
+            <p class="lm-intent warn" id="lmManagerCapabilityNotice" role="status">Checking whether this EA can modify broker stops, trails, and trims.</p>
           </section>
 
           <section class="lm-card">
@@ -302,6 +303,15 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
 
     timeEngine.setState(commandState,campaign);
     weeklyEditor.setState(commandState,campaign,capability('SET_EA_SCHEDULE'));
+    const managerCommands=['SET_STOP_ATR','SET_TRAIL_ATR','TRIM_CAMPAIGN'];
+    const blocked=managerCommands.filter(name=>capability(name)?.available!==true);
+    const notice=q('#lmManagerCapabilityNotice');
+    if(notice){
+      notice.hidden=blocked.length===0;
+      notice.textContent=blocked.length
+        ? 'EA MANAGER NOT READY · '+(capability(blocked[0])?.reason||'Install and pair the matching updated HIGHTOWER campaign EA and Culture Coin Reporter. Buttons remain disabled until receiver support is verified.')
+        : '';
+    }
     overlay.querySelectorAll('[data-manager-action],[data-live-action]').forEach((button)=>{
       const key=button.dataset.managerAction||button.dataset.liveAction;
       const cap=capability(key);button.disabled=!cap?.available;
