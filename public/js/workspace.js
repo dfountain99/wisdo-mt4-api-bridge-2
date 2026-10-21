@@ -404,7 +404,7 @@
     // route to keep showing the old Member Desk command model while V7 existed elsewhere.
     root().innerHTML = '<div class="card loading-card">Opening WISDO CORE…</div>';
     try {
-      const { startCampaignCommandCenter } = await import('/app/world/command/command-center-runtime.js?v=20261021-v20-add-one-rewire');
+      const { startCampaignCommandCenter } = await import('/app/world/command/command-center-runtime.js?v=20261021-v23-real-power-dock');
       const initialAccountId = selectedAccountId() || sessionStorage.getItem('wisdo.selectedAccountId') || '';
       const singularity = startCampaignCommandCenter({ initialAccountId });
       singularity.open();
