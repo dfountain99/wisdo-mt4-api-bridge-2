@@ -1,8 +1,6 @@
 import { createWorldCommandRuntime } from './command-runtime.js';
 import { createWisdoTimeEngine } from './wisdo-time-engine.js';
 import { createWisdoWeeklyScheduleEditor } from './wisdo-weekly-schedule-editor.js';
-import { characterSvg } from './rank-ascension.js';
-import { rankVisual } from './rank-definitions.js';
 import { mountEaPowerDock } from '../../../js/ea-power-dock.js';
 import { createLiveTargetTracker } from './live-target-tracker.js';
 
@@ -21,8 +19,9 @@ function ensureStyles(){
   let link=document.querySelector('link[data-wisdo-live-manager-v15]');
   if(!link){link=document.createElement('link');link.rel='stylesheet';link.dataset.wisdoLiveManagerV15='1';document.head.appendChild(link);}
   link.href=href;
-  let guardianStyle=document.querySelector('style[data-wisdo-avatar-v13]');
-  if(!guardianStyle){guardianStyle=document.createElement('style');guardianStyle.dataset.wisdoAvatarV13='1';guardianStyle.textContent='.lm-avatar-stage{transform:scale(1.32);transform-origin:top right;margin:14px 24px 45px 35px;min-width:180px}.lm-avatar-stage[data-mood=celebrating]{filter:drop-shadow(0 0 24px #38d68b);animation:wgCelebrate 1.9s ease-in-out infinite}.lm-avatar-stage[data-mood=sick]{filter:grayscale(.65);animation:wgIll 3s ease-in-out infinite}.lm-avatar-stage[data-mood=drained]{filter:grayscale(1);opacity:.45;transform:scale(1.13) translateY(12px)}.lm-avatar-stage[data-mood=protecting]{filter:drop-shadow(0 0 18px #e95348)}.lm-avatar-stage[data-mood=resting]{filter:saturate(.45)}@keyframes wgCelebrate{50%{transform:scale(1.4) translateY(-7px)}}@keyframes wgIll{50%{transform:scale(1.26) rotate(-3deg)}}';document.head.appendChild(guardianStyle);}
+  let aether=document.querySelector('link[data-wisdo-aether-prism]');
+  if(!aether){aether=document.createElement('link');aether.rel='stylesheet';aether.dataset.wisdoAetherPrism='1';document.head.appendChild(aether);}
+  aether.href='/app/world/command/aether-prism-v1.css?v=20261030-aether-prism-1';
 }
 
 function markup(){
@@ -39,15 +38,42 @@ function markup(){
         <button id="lmClose" class="lm-close" type="button">EXIT</button>
       </header>
 
+      <section class="ap-experience" id="apExperience" data-mode="sentinel" aria-label="WISDO AETHER PRISM living intelligence">
+        <header class="ap-head">
+          <div><strong>WISDO</strong><span>AETHER PRISM · LIVING COMMAND INTELLIGENCE</span></div>
+          <div class="ap-live" id="apLive" data-online="false"><i aria-hidden="true"></i><span id="apLinkText">AWAITING EA LINK</span></div>
+        </header>
+        <div class="ap-stage">
+          <section class="ap-panel ap-core" aria-label="Original campaign telemetry">
+            <span class="ap-panel-eyebrow">ORIGINAL POSITIONS</span><h2>CORE CAMPAIGN</h2>
+            <div class="ap-data-row"><span>Floating P/L</span><strong id="apCoreFloating">—</strong></div>
+            <div class="ap-data-row"><span>Open positions</span><strong id="apCorePositions">—</strong></div>
+            <div class="ap-data-row"><span>Margin level</span><strong id="apCoreMargin">—</strong></div>
+          </section>
+          <div class="ap-figure" role="img" aria-label="WISDO, a bronze and obsidian holographic intelligence transforming into rainbow crystalline energy">
+            <div class="ap-orbit" aria-hidden="true"></div>
+            <img class="ap-character" src="/app/world/command/aether-prism-character-v1.png" alt="" loading="eager" decoding="async">
+            <div class="ap-modes" aria-label="Current character form"><span id="apModeSentinel" aria-current="true">SENTINEL</span><span id="apModePrism" aria-current="false">PRISM</span><span id="apModeGuardian" aria-current="false">GUARDIAN</span></div>
+          </div>
+          <section class="ap-panel ap-recovery" aria-label="PRISM recovery telemetry">
+            <span class="ap-panel-eyebrow">INDEPENDENT RECOVERY</span><h2>PRISM RECOVERY</h2>
+            <div class="ap-data-row"><span>Recovery Bank · net realized</span><strong class="ap-gold" id="apRecoveryBank">—</strong></div>
+            <div class="ap-data-row"><span>Verified cycles</span><strong id="apRecoveryCycles">—</strong></div>
+            <div class="ap-data-row"><span>Next add price</span><strong id="apRecoveryTrigger">—</strong></div>
+          </section>
+        </div>
+        <footer class="ap-footer">
+          <button id="apDrawdownAdd" class="ap-drawdown" type="button" data-prism-ready="false" aria-disabled="true" title="PRISM EA receiver not verified; select to view diagnostics">DRAWDOWN ADD</button>
+          <div class="ap-prism-status" role="status" aria-live="polite"><b id="apPrismState">PRISM RECEIVER NOT VERIFIED</b> · <span id="apCharacterMood">SENTINEL · OBSERVING</span></div>
+          <div class="ap-footnote" id="apRecoveryNotice">Core and PRISM results stay separate. Trading requests require verified EA receiver capability and acknowledgement.</div>
+        </footer>
+      </section>
+
       <div class="lm-grid">
         <main class="lm-main">
           <section class="lm-card lm-command-card">
             <div class="lm-command-title">
               <div><span class="lm-label">VOICE + TEXT → VERIFIED EA COMMANDS</span><h1>Tell WISDO what to do.</h1><p>Guardian present · authenticated bot controls · every change needs a verifiable terminal receipt.</p></div>
-              <div class="lm-avatar-stage" id="lmAvatarStage" data-mood="standby" aria-label="WISDO Guardian character">
-                <div class="lm-avatar-lightning"></div><div class="lm-avatar-character">${characterSvg(rankVisual('GOLD'),{mini:true})}</div>
-                <div class="lm-avatar-name"><strong>WISDO GUARDIAN</strong><span id="lmAvatarMood">SCANNING</span></div>
-              </div>
               <span id="lmLinkPill" class="lm-link-pill bad">LINK CHECKING</span>
             </div>
             <form id="lmComposer" class="lm-composer">
@@ -303,8 +329,28 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
       const t=Date.parse(event.closeTime||'');return Number.isFinite(t)&&Date.now()-t>=0&&Date.now()-t<90000&&Number(event.profit)>0;
     });
     const guardianMood=!receiverReady?'standby':Number.isFinite(equityNow)&&equityNow<=0?'drained':control?.paused?'resting':healthDrawdown>=0.12||marginStress||stressRatio>=0.08?'sick':floating<0?'protecting':recentWin||floating>0?'celebrating':'watching';
-    q('#lmAvatarStage').dataset.mood=guardianMood;
-    q('#lmAvatarMood').textContent=({drained:'DRAINED',standby:'LINK NEEDED',resting:'RESTING',sick:'SICK · DRAWDOWN',protecting:'PROTECTING · RED',celebrating:'CELEBRATING · GREEN',watching:'WATCHING'})[guardianMood];
+    // The PRISM contract is intentionally separate from campaign P/L. Never
+    // attribute normal campaign gains to recovery or infer EA execution from UI state.
+    const prism=control?.prismRecovery||commandState.prismRecovery||null;
+    const prismVerified=receiverReady&&prism?.receiverReady===true&&prism?.reported===true;
+    const prismReady=prismVerified&&capability('PRISM_CONTINUOUS_ADD')?.available===true;
+    const prismActive=prismVerified&&prism?.active===true;
+    const mode=healthDrawdown>=0.12||marginStress||stressRatio>=0.08?'guardian':prismActive?'prism':'sentinel';
+    const stage=q('#apExperience');stage.dataset.mode=mode;stage.dataset.mood=guardianMood;
+    for(const [name,id] of [['sentinel','#apModeSentinel'],['prism','#apModePrism'],['guardian','#apModeGuardian']])q(id).setAttribute('aria-current',String(name===mode));
+    q('#apCharacterMood').textContent=({drained:'ENERGY DEPLETED',standby:'AWAITING CONNECTION',resting:'OBSERVING · PAUSED',sick:'GUARDIAN · DRAWDOWN',protecting:'GUARDIAN · MONITORING',celebrating:'SENTINEL · CELEBRATING',watching:'SENTINEL · OBSERVING'})[guardianMood];
+    q('#apLive').dataset.online=String(receiverReady);q('#apLinkText').textContent=receiverReady?'EA RECEIVER LIVE':'EA LINK UNVERIFIED';
+    q('#apCoreFloating').textContent=money(campaign?.floatingMoney??commandState.financial?.floatingPL??floating,currency);
+    q('#apCoreFloating').className=finite(campaign?.floatingMoney??floating)>=0?'ap-positive':'ap-negative';
+    q('#apCorePositions').textContent=campaign?String(campaign.positionCount||0):'—';
+    q('#apCoreMargin').textContent=Number.isFinite(marginLevel)&&marginLevel>0?`${marginLevel.toFixed(0)}%`:'—';
+    const hasPrismNumber=(value)=>value!==null&&value!==undefined&&value!==''&&Number.isFinite(Number(value));
+    q('#apRecoveryBank').textContent=prismVerified&&hasPrismNumber(prism.netRealized)?money(prism.netRealized,currency):'—';
+    q('#apRecoveryCycles').textContent=prismVerified&&Number.isInteger(Number(prism.cyclesCompleted))&&prism.cyclesCompleted!=null?String(prism.cyclesCompleted):'—';
+    q('#apRecoveryTrigger').textContent=prismVerified&&hasPrismNumber(prism.nextAddPrice)?Number(prism.nextAddPrice).toFixed(2):'—';
+    q('#apPrismState').textContent=prismActive?'PRISM CONTINUOUS · ACTIVE':prismReady?'PRISM RECEIVER · READY':'PRISM RECEIVER NOT VERIFIED';
+    q('#apRecoveryNotice').textContent=prismActive?'PRISM reporting active. Recovery Bank reflects realized net results only; core exposure remains at risk.':prismReady?'PRISM receiver ready. Confirm the action through the verified EA command path.':'Awaiting separate PRISM EA telemetry. Drawdown Add will not silently submit a normal campaign order.';
+    const drawdown=q('#apDrawdownAdd');drawdown.dataset.prismReady=String(prismReady);drawdown.setAttribute('aria-disabled',String(!prismReady));drawdown.title=prismReady?'Request PRISM addition through verified EA proposal':'PRISM EA receiver not verified; select for diagnostics';
     q('#lmCampaignStatus').textContent=control?.live?(control.paused?'EA LIVE · PAUSED':'EA LIVE'):'CAMPAIGN TELEMETRY STANDBY';
 
     const runtime=control?.runtime||{};
@@ -532,6 +578,16 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     commandState?.campaignControl?.managerOpsVersion===1?'ADD_IF_VALID':'ARM_SONIC',
     commandState?.campaignControl?.managerOpsVersion===1?{}:{burstCount:1,durationSeconds:30}
   )));
+  q('#apDrawdownAdd').addEventListener('click',()=>{
+    const prism=commandState?.campaignControl?.prismRecovery||commandState?.prismRecovery;
+    if(!(commandState?.executionHealth?.commandLinkReady&&commandState?.campaignControl?.live&&prism?.receiverReady===true&&prism?.reported===true&&capability('PRISM_CONTINUOUS_ADD')?.available===true)){
+      setIntent('PRISM is not executable: install a compatible EA/Reporter receiver and advertise PRISM_CONTINUOUS_ADD separately from the original campaign. No order submitted.','error');
+      q('#lmReceiverDiagnosticPanel').open=true;
+      q('#lmReceiverDiagnosticPanel').scrollIntoView({behavior:'smooth',block:'center'});
+      return;
+    }
+    arm('PRISM_CONTINUOUS_ADD',{campaignId:selectedCampaignId});
+  });
   overlay.querySelectorAll('[data-manager-action]').forEach((button)=>button.addEventListener('click',()=>{
     const action=button.dataset.managerAction;
     const options={};
