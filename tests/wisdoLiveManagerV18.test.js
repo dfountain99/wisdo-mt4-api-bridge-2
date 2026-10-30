@@ -41,7 +41,8 @@ test('V18 UI uses code-verified Guardian and a confirmed broker-clock schedule e
     fs.readFile(new URL('../mql4/include/WISDO_H620Receiver.mqh',import.meta.url),'utf8'),
     fs.readFile(new URL('../mql4/include/WISDO_ReporterCampaign.mqh',import.meta.url),'utf8')
   ]);
-  assert.match(runtime,/characterSvg\(rankVisual/);
+  assert.match(runtime,/aether-prism-character-v1\.png/);
+  assert.match(runtime,/data-mode="sentinel"/);
   assert.match(runtime,/createWisdoWeeklyScheduleEditor/);
   assert.match(runtime,/capability\('SET_EA_SCHEDULE'\)/);
   assert.match(runtime,/button\.disabled=!cap\?\.available/);

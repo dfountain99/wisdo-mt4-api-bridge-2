@@ -37,7 +37,8 @@ test('V15 active runtime removes guardian gestures and keeps verified proposals'
 
 test('V15 shows only live trading telemetry in the active Command Center', async () => {
   const runtime=await fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8');
-  assert.match(runtime,/lmAvatarStage/); // restored visual Guardian, not gesture-control authority
+  assert.match(runtime,/id="apExperience"/); // AETHER PRISM is visual; no gesture-control authority
+  assert.match(runtime,/aether-prism-character-v1\.png/);
   assert.doesNotMatch(runtime,/Camera gestures|beginGuardianGesture/i);
   assert.match(runtime,/CAMPAIGN BASE/);
   assert.match(runtime,/NEXT TARGET/);

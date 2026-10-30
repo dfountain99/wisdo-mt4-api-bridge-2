@@ -186,7 +186,7 @@ test('V12 HIGHTOWER hard-gates new entries with broker windows and WISDO pause f
   assert.match(reporter, /continuationProbability/);
 });
 
-test('V15 Live Manager uses bot-driven time telemetry and verified command proposals without character UI', async () => {
+test('V15 Live Manager uses bot-driven time telemetry, character presentation and verified command proposals', async () => {
   const [time, runtime] = await Promise.all([
     fs.readFile(new URL('../public/app/world/command/wisdo-time-engine.js', import.meta.url), 'utf8'),
     fs.readFile(new URL('../public/app/world/command/command-center-runtime.js', import.meta.url), 'utf8'),
@@ -198,6 +198,6 @@ test('V15 Live Manager uses bot-driven time telemetry and verified command propo
   assert.match(runtime, /runtime\.propose\(/);
   assert.match(runtime, /runtime\.execute\(/);
   assert.match(runtime, /OPEN POSITIONS|Open Positions/);
-  assert.match(runtime,/lmAvatarStage/); // visual character is restored without bypassing proposals
+  assert.match(runtime,/id="apExperience"/); // living character is restored without bypassing proposals
   assert.doesNotMatch(runtime,/beginGuardianGesture|Camera gestures/i);
 });
