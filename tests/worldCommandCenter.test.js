@@ -145,3 +145,61 @@ test('Reporter disconnect disables live controls instead of queuing blind comman
   assert.equal(state.executionHealth.commandLinkReady, false);
   assert.equal(state.capabilities.EMERGENCY_STOP.available, false);
 });
+
+test('missing Reporter margin values remain unknown instead of becoming fabricated zeroes', async () => {
+  const account = accountFixture();
+  delete account.latestSnapshot.snapshot.margin;
+  delete account.latestSnapshot.snapshot.freeMargin;
+  delete account.latestSnapshot.snapshot.marginLevel;
+  const snapshot = await new WorldCampaignStateService({ mt4SyncService: { repository: repositoryFixture([account]) } }).snapshot('owner-1');
+  assert.equal(snapshot.financial.margin, null);
+  assert.equal(snapshot.financial.freeMargin, null);
+  assert.equal(snapshot.financial.marginLevel, null);
+});
+
+test('unsupported ADD_IF_VALID never silently becomes ARM_SONIC', async () => {
+  const commandService = commandServiceFixture();
+  const service = new WorldCommandCenterService({ mt4SyncService: { repository: repositoryFixture() }, mt4CommandService: commandService });
+  const actual = await service.state('owner-1');
+  service.state = async () => ({
+    ...actual,
+    campaignControl: { live: true, managerOpsVersion: 12 },
+    capabilities: {
+      ...actual.capabilities,
+      ADD_IF_VALID: { available: false, reason: 'Dedicated add receiver is unavailable.' },
+      ARM_SONIC: { available: true },
+    },
+  });
+  await assert.rejects(
+    () => service.propose('owner-1', { action: 'ADD_IF_VALID', accountId: 'acct-5301063' }),
+    /Dedicated add receiver is unavailable/,
+  );
+  assert.equal(commandService.rows.length, 0);
+});
+
+test('account-scoped pause does not silently bind to an arbitrary campaign magic number', async () => {
+  const commandService = commandServiceFixture();
+  const service = new WorldCommandCenterService({ mt4SyncService: { repository: repositoryFixture() }, mt4CommandService: commandService });
+  const proposal = await service.propose('owner-1', { action: 'PAUSE_BOT', accountId: 'acct-5301063' });
+  await service.execute('owner-1', { proposalId: proposal.proposalId, confirmationToken: proposal.confirmationToken, heldForMs: 750 });
+  assert.equal(commandService.rows.length, 1);
+  assert.equal(commandService.rows[0].payload.magicNumber, undefined);
+  assert.equal(commandService.rows[0].payload.botName, undefined);
+});
+
+test('account-wide close requires a new confirmation if open positions change', async () => {
+  const account = accountFixture();
+  const commandService = commandServiceFixture();
+  const service = new WorldCommandCenterService({ mt4SyncService: { repository: repositoryFixture([account]) }, mt4CommandService: commandService });
+  const proposal = await service.propose('owner-1', { action: 'CLOSE_ALL', accountId: 'acct-5301063' });
+  account.latestSnapshot.snapshot.openTrades.push({
+    ticket: 104, symbol: 'XAUUSD', type: 'BUY', lots: 0.1,
+    openPrice: 2373, currentPrice: 2374, profit: 10,
+    magicNumber: 26080204, comment: 'HIGHTOWER',
+  });
+  await assert.rejects(
+    () => service.execute('owner-1', { proposalId: proposal.proposalId, confirmationToken: proposal.confirmationToken, heldForMs: 1900 }),
+    /Open positions changed after the command preview/,
+  );
+  assert.equal(commandService.rows.length, 0);
+});

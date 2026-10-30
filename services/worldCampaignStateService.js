@@ -234,9 +234,9 @@ export class WorldCampaignStateService {
         balance: finite(snapshot.balance, null),
         equity: finite(snapshot.equity, null),
         floatingPL: finite(snapshot.floatingPL, null),
-        margin: finite(snapshot.margin, 0),
-        freeMargin: finite(snapshot.freeMargin, 0),
-        marginLevel: finite(snapshot.marginLevel, 0),
+        margin: finite(snapshot.margin, null),
+        freeMargin: finite(snapshot.freeMargin, null),
+        marginLevel: finite(snapshot.marginLevel, null),
         currency,
       },
       victoryEvents: (Array.isArray(snapshot.closedTradesToday) ? snapshot.closedTradesToday : [])

@@ -2,6 +2,7 @@ import { CAMPAIGN_ACTIONS, campaignPacket } from './campaignControlContract.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { WorldCampaignStateService } from './worldCampaignStateService.js';
 import { normalizeWeeklyMasks,buildWeeklyScheduleGlobals } from './wisdoWeeklySchedule.js';
+import { buildAetherObservation } from './aetherObservationService.js';
 
 const clean = (value, max = 160) => String(value ?? '').replace(/\u0000/g, '').trim().slice(0, max);
 const nowIso = () => new Date().toISOString();
@@ -121,6 +122,7 @@ export class WorldCommandCenterService {
     const snapshot = await this.campaignState.snapshot(String(userId), { accountId });
     return {
       ...snapshot,
+      aetherObservation: buildAetherObservation(snapshot),
       capabilities: this.capabilitiesFor(snapshot, userId),
       executionFromWorldEnabled: true,
       safetyModel: {
@@ -160,13 +162,9 @@ export class WorldCommandCenterService {
       const error = new Error(reason); error.statusCode = NOT_CONNECTED[requestedAction] ? 409 : 400; error.code = NOT_CONNECTED[requestedAction] ? 'not_connected' : 'unknown_action'; throw error;
     }
     const snapshot = await this.state(userId, { accountId: clean(body.accountId, 160) });
-    // Rewire does not implement operation 18. Normalizing on the authenticated
-    // server means web and voice Add requests use the same supported operation.
-    // Full Unity receiver version 1 keeps its existing evaluate-add semantics.
-    const action = requestedAction==='ADD_IF_VALID' &&
-      snapshot.campaignControl?.live &&
-      Number(snapshot.campaignControl?.managerOpsVersion||0)!==1
-        ? 'ARM_SONIC' : requestedAction;
+    // Commands retain their exact requested semantics. An unsupported add
+    // must never be silently replaced with a SONIC burst or another order.
+    const action = requestedAction;
     const definition = COMMAND_DEFINITIONS[action];
     const capability = snapshot.capabilities[action];
     if (!capability?.available) {
@@ -215,6 +213,10 @@ export class WorldCommandCenterService {
       snapshotGeneratedAt: snapshot.generatedAt,
       accountState: {
         openPositions: snapshot.campaigns.reduce((sum, row) => sum + Number(row.positionCount || 0), 0),
+        // Capture the exact positions approved by the user. A subsequent fill
+        // must not silently broaden an account-wide or campaign-wide close.
+        tickets: snapshot.campaigns.flatMap((row) => row.positions || [])
+          .map((row) => String(row.ticket)).filter(Boolean).sort(),
         floatingPL: snapshot.financial?.floatingPL ?? null,
         currency: snapshot.financial?.currency || 'USD',
       },
@@ -270,7 +272,9 @@ export class WorldCommandCenterService {
     if (proposal.action === 'CLOSE_POSITION') base.ticket = proposal.positionId;
     if (proposal.action === 'CLOSE_CAMPAIGN') base.magicNumber = proposal.magicNumber;
     if (['PAUSE_BOT', 'RESUME_BOT', 'STOP_NEW_ENTRIES', 'RESUME_NEW_ENTRIES'].includes(proposal.action)) {
-      const campaign = currentSnapshot.campaigns.find((item) => item.campaignId === proposal.campaignId) || currentSnapshot.campaigns.find((item) => item.symbol === proposal.symbol) || currentSnapshot.campaigns[0];
+      const campaign = proposal.campaignId
+        ? currentSnapshot.campaigns.find((item) => item.campaignId === proposal.campaignId)
+        : null;
       if (campaign?.magicNumber != null) base.magicNumber = campaign.magicNumber;
       if (campaign?.strategyName) base.botName = campaign.strategyName;
     }
@@ -291,6 +295,16 @@ export class WorldCommandCenterService {
     const capability = current.capabilities[proposal.action];
     if (!capability?.available) { const error = new Error(capability?.reason || 'Command link is no longer ready.'); error.statusCode = 409; error.code = 'revalidation_failed'; throw error; }
     const currentAffected = this.affectedFor(current, proposal.action, { campaignId: proposal.campaignId, positionId: proposal.positionId, symbol: proposal.symbol });
+    if (['CLOSE_ALL','CLOSE_PROFIT','CLOSE_CAMPAIGN'].includes(proposal.action)) {
+      const currentTickets = current.campaigns.flatMap((row) => row.positions || [])
+        .map((row) => String(row.ticket)).filter(Boolean).sort();
+      if (JSON.stringify(currentTickets) !== JSON.stringify(proposal.accountState.tickets)) {
+        const error = new Error('Open positions changed after the command preview. Review and confirm the updated account state.');
+        error.statusCode = 409;
+        error.code = 'position_set_changed';
+        throw error;
+      }
+    }
     if (proposal.action === 'CLOSE_POSITION' && !currentAffected.position) { const error = new Error('Position already closed or changed before confirmation. Refresh Command Core.'); error.statusCode = 409; throw error; }
     if (proposal.action === 'CLOSE_CAMPAIGN' && (!currentAffected.campaign || currentAffected.campaign.magicNumber == null || String(currentAffected.campaign.magicNumber) !== String(proposal.magicNumber))) { const error = new Error('Campaign targeting changed before confirmation. Review the live campaign again.'); error.statusCode = 409; throw error; }
 
