@@ -48,6 +48,8 @@ test('V20 parses security-sensitive home commands at elevated risk',()=>{
 test('V20 server risk floor cannot be lowered by a client',()=>{
   assert.equal(smartHomeRiskFloor({component_type:'lock',name:'Front Door'},'unlock'),5);
   assert.equal(smartHomeRiskFloor({component_type:'cover',name:'Garage Door',metadata:{device_class:'garage'}},'open'),4);
+  assert.equal(smartHomeRiskFloor({component_type:'camera',name:'Back garden'},'turn_off'),4);
+  assert.equal(smartHomeRiskFloor({component_type:'camera',name:'Back garden'},'turn_on'),4);
   assert.equal(smartHomeRiskFloor({component_type:'light',name:'Office Light'},'turn_on'),1);
 });
 
@@ -65,4 +67,23 @@ test('V20 high-risk physical actions require explicit confirmation',async()=>{
     service.execute({owner_user_id:'u1',device_id:'voice-1'},{action:'unlock',target:{alias:'front door'},riskLevel:1}),
     (error)=>error.code==='home_confirmation_required'
   );
+});
+
+test('shared O-KAM camera is read-only even if a future adapter advertises a power action',async()=>{
+  const service=new WisdoUniversalControlService({pool:{}});
+  service.resolveComponents=async()=>[{
+    component_id:'ha:pi-test:camera.back_garden',
+    component_type:'camera',
+    name:'Back garden',
+    capabilities:{readOnly:true,actions:['turn_off']},
+    state:{state:'idle'},
+    metadata:{camera_vendor:'o-kam-pro'},
+  }];
+  const preview=await service.preview({owner_user_id:'u1',device_id:'voice-1'},
+    {action:'turn_off',target:{alias:'back garden'},riskLevel:1});
+  assert.equal(preview.targets[0].allowed,false);
+  assert.equal(preview.targets[0].risk_level,4);
+  const result=await service.execute({owner_user_id:'u1',device_id:'voice-1'},
+    {action:'turn_off',target:{alias:'back garden'},confirmationVerified:true});
+  assert.equal(result[0].status,'unsupported');
 });

@@ -110,6 +110,10 @@ class HomeAssistantBridge:
         self.ha = _clean(os.getenv('WISDO_HOME_ASSISTANT_URL')).rstrip('/')
         self.ha_token = _clean(os.getenv('WISDO_HOME_ASSISTANT_TOKEN'))
         self.home_id = _clean(os.getenv('WISDO_HOME_ID'))
+        # An explicit entity mapping is required: a shared O-KAM QR invitation
+        # is not an RTSP URL and must never be uploaded as a cloud credential.
+        self.okam_camera_entity_id = _clean(os.getenv('WISDO_HA_OKAM_CAMERA_ENTITY_ID')).lower()
+        self.okam_motion_entity_id = _clean(os.getenv('WISDO_HA_OKAM_MOTION_ENTITY_ID')).lower()
         self.source_instance_id = hashlib.sha256(self.ha.encode('utf-8')).hexdigest()[:24] if self.ha else ''
         self.sync_seconds = max(15.0, float(os.getenv('WISDO_HA_SYNC_SECONDS', '60')))
         self.poll_seconds = max(0.5, float(os.getenv('WISDO_HA_CONTROL_POLL_SECONDS', '1.5')))
@@ -182,14 +186,21 @@ class HomeAssistantBridge:
         friendly = _clean(attrs.get('friendly_name')) or _slug_label(entity_id.split('.', 1)[-1]).title()
         device_class = _clean(attrs.get('device_class')).lower()
         entity_state = _clean(entity.get('state')).lower()
+        is_okam_camera = domain == 'camera' and entity_id.lower() == self.okam_camera_entity_id
+        is_okam_motion = domain == 'binary_sensor' and entity_id.lower() == self.okam_motion_entity_id
+        is_okam = is_okam_camera or is_okam_motion
+        # Shared-camera access in WISDO is observation-only. A voice command
+        # must never be able to shut off a security camera via this adapter.
+        actions = [] if is_okam else DOMAIN_ACTIONS[domain]
+        source_status = 'unavailable' if entity_state in {'unavailable', 'unknown'} else 'online'
         return {
             'componentId': f'ha:{self.device_id}:{entity_id}',
             'componentType': domain,
             'name': friendly,
             'aliases': _aliases(entity_id, domain, attrs),
             'capabilities': {
-                'actions': DOMAIN_ACTIONS[domain],
-                'readOnly': domain in READ_ONLY_DOMAINS,
+                'actions': actions,
+                'readOnly': bool(is_okam or domain in READ_ONLY_DOMAINS),
                 'provider': 'home_assistant',
             },
             'approvalStatus': 'pending',
@@ -199,7 +210,7 @@ class HomeAssistantBridge:
             'protocols': ['home-assistant'],
             'ownershipVerified': False,
             'state': _safe_state(entity),
-            'status': 'unavailable' if entity_state == 'unavailable' else 'online',
+            'status': source_status,
             'metadata': {
                 'provider': 'home_assistant',
                 'entity_id': entity_id,
@@ -208,6 +219,12 @@ class HomeAssistantBridge:
                 'device_class': device_class,
                 'local_only': True,
                 'matter_thread_via_home_assistant': True,
+                **({'camera_vendor': 'o-kam-pro',
+                    'camera_access': 'shared-account',
+                    'camera_media_access': 'local-only',
+                    'cloud_stream_enabled': False} if is_okam_camera else {}),
+                **({'camera_vendor': 'o-kam-pro',
+                    'camera_event_source': 'home-assistant-entity'} if is_okam_motion else {}),
             },
         }
 

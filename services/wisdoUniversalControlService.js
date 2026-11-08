@@ -12,6 +12,9 @@ export function smartHomeRiskFloor(component={},action=''){
   const verb=String(action||'').toLowerCase();
   if(verb==='unlock')return 5;
   if(type==='alarm_control_panel'||verb==='disarm'||verb==='arm_away'||verb==='arm_home')return 5;
+  // Camera power and privacy changes are security-sensitive even when the
+  // client marks an action as low-risk. The server decides the risk floor.
+  if(type==='camera')return 4;
   if(type==='siren')return 4;
   if(type==='cover'&&(deviceClass==='garage'||/garage/.test(name))&&['open','close','stop','set_position'].includes(verb))return 4;
   if(type==='lock'&&verb==='lock')return 2;
@@ -261,7 +264,7 @@ export class WisdoUniversalControlService {
     const requestedRisk=Math.max(0,Math.min(5,Number(input.risk_level??input.riskLevel??1)));
     const details=targets.map((target)=>{
       const caps=obj(target.capabilities,{actions:[]});
-      const allowed=Array.isArray(caps.actions)?caps.actions.includes(action):Boolean(caps[action]);
+      const allowed=caps.readOnly===true?false:(Array.isArray(caps.actions)?caps.actions.includes(action):Boolean(caps[action]));
       const riskLevel=Math.max(requestedRisk,smartHomeRiskFloor(target,action));
       return {component_id:target.component_id,name:target.name,component_type:target.component_type,allowed,risk_level:riskLevel,state:obj(target.state),metadata:obj(target.metadata)};
     });
