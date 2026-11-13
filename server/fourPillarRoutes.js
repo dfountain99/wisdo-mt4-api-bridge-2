@@ -35,6 +35,19 @@ export function registerFourPillarRoutes(app,{commandBusService,pool}={}) {
     next();
   };
 
+
+  const memberAction=(req,res,next)=>{
+    const origin=req.headers.origin;
+    let sameOrigin=true;
+    try { if(origin) sameOrigin=new URL(origin).host===req.get('host'); }
+    catch { sameOrigin=false; }
+    if (!sameOrigin || req.headers['sec-fetch-site']==='cross-site' ||
+        req.headers['x-wisdo-intent']!=='operator-action') {
+      return res.status(403).json({ok:false,error:'A same-origin operator action is required.'});
+    }
+    memberAuth(req,res,next);
+  };
+
   // A signed member session grants read-only access, never a device credential or recovery right.
   app.get('/app/os',memberAuth,run(async(_req,res)=>{
     res.sendFile(fileURLToPath(new URL('../public/app/os/index.html',import.meta.url)));
@@ -50,6 +63,17 @@ export function registerFourPillarRoutes(app,{commandBusService,pool}={}) {
       limit:req.query.limit,componentId:req.query.componentId||''
     })});
   }));
+
+  app.post('/api/member/os/v1/vps/:deviceId/prepare',memberAction,run(async(req,res)=>{
+    if (req.body?.confirm !== 'PREPARE VPS ' + req.params.deviceId) {
+      return res.status(403).json({ok:false,error:'Exact VPS confirmation phrase required.'});
+    }
+    res.status(202).json({ok:true,...await operations.prepareVps(req.wisdoOwnerId,req.params.deviceId)});
+  }));
+  app.get('/api/member/os/v1/commands/:commandId',memberAuth,run(async(req,res)=>{
+    res.json({ok:true,command:await operations.commandStatus(req.wisdoOwnerId,req.params.commandId)});
+  }));
+
 
   // Agent-sourced records remain attributed to the actual authenticated edge device.
   app.post('/api/os/v1/nodes/heartbeat',deviceAuth,run(async(req,res)=>{
