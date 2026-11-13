@@ -10,7 +10,7 @@ on:
       - 'migrations/2026-11-13-four-pillar-operations.sql'
       - 'tests/fourPillarOperations.test.js'
       - 'desktop-agent/**'
-      - 'pi-edge/sentinel_bridge.py'
+      - 'pi-edge/home_assistant_bridge.py'
       - 'pi-edge/wisdo_edge.py'
       - 'pi-edge/enroll.py'
       - '.github/workflows/four-pillar-ci.yml'
@@ -23,7 +23,7 @@ on:
       - 'migrations/2026-11-13-four-pillar-operations.sql'
       - 'tests/fourPillarOperations.test.js'
       - 'desktop-agent/**'
-      - 'pi-edge/sentinel_bridge.py'
+      - 'pi-edge/home_assistant_bridge.py'
       - 'pi-edge/wisdo_edge.py'
       - 'pi-edge/enroll.py'
       - '.github/workflows/four-pillar-ci.yml'
@@ -56,4 +56,4 @@ jobs:
         run: node --test tests/fourPillarOperations.test.js
       - name: Validate edge and agent source syntax
         run: |
-          python -m compileall -q desktop-agent/agent.py desktop-agent/enroll.py pi-edge/sentinel_bridge.py pi-edge/wisdo_edge.py pi-edge/enroll.py
+          python -m compileall -q desktop-agent/agent.py desktop-agent/enroll.py pi-edge/home_assistant_bridge.py pi-edge/wisdo_edge.py pi-edge/enroll.py
