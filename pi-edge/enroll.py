@@ -17,6 +17,7 @@ if not token_file.exists():
     token_file.write_text(secrets.token_urlsafe(48), encoding="utf-8")
     token_file.chmod(0o600)
 
+presence_command=os.getenv('WISDO_PRESENCE_COMMAND','').strip()
 home_url = os.getenv("WISDO_HOME_ASSISTANT_URL", "").strip()
 home_token = os.getenv("WISDO_HOME_ASSISTANT_TOKEN", "").strip()
 home_enabled = bool(home_url and home_token)
