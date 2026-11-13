@@ -4,6 +4,14 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+import types
+
+# The core Python package has no HTTP dependency; this bridge test injects a fake
+# requests client and tests the real protocol through its in-process session.
+try:
+    import requests  # noqa: F401
+except ModuleNotFoundError:
+    sys.modules['requests'] = types.SimpleNamespace(Session=lambda: object())
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'pi-edge'))
