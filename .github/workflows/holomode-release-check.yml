@@ -1,0 +1,32 @@
+name: HoloMode Live-Site Regression
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security-and-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install repository dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Validate server and client JavaScript
+        run: |
+          node --check server/apiServer.js
+          node --check server/majorUpgradeRoutes.js
+          node --check server/holoModeRoutes.js
+          node --check public/js/holomode.js
+          node --check public/js/prism3d.js
+      - name: Test Home Assistant access restrictions
+        run: node --test tests/holoModeRoutes.test.js
+      - name: Run the full WISDO regression gate
+        run: npm run check
