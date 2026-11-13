@@ -104,6 +104,8 @@ export function createWisdoPhase1State() {
     tradingAccounts: {},
     copierRules: {},
     accountControlSettingsById: {},
+    // Private WISDO Genesis game economy, buildings, PRISM DNA and Echoforms.
+    genesisProfilesByUserId: {},
     deletedTradingAccounts: {},
     compoundCloseTrackersById: {},
     compoundTrackerGoalsByScope: {},
