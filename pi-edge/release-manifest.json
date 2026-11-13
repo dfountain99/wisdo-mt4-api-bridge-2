@@ -40,7 +40,10 @@
     "legacy-device-adapter-planning",
     "observed-edge-operations-telemetry",
     "explicit-ha-camera-sensor-event-forwarding",
-    "camera-event-deduplication-and-approved-source-scope"
+    "camera-event-deduplication-and-approved-source-scope",
+    "wisdo-os-telemetry",
+    "sentinel-camera-event-relay",
+    "supervised-ops-recovery"
   ],
   "serverEnvironmentVariables": [
     "WISDO_VOICE_EXECUTION_MODE",
