@@ -7,6 +7,7 @@ import express from 'express';
 import compression from 'compression';
 import { registerDeadshotCommandCenterRoutes } from './deadshotSite.js';
 import { registerMajorUpgradeRoutes } from './majorUpgradeRoutes.js';
+import { registerHoloModeRoutes } from './holoModeRoutes.js';
 import { registerExtendedProductRoutes } from './extendedProductRoutes.js';
 import { registerPresenceIdentityRoutes } from './presenceIdentityRoutes.js';
 import { registerPresenceStudioRoutes } from './presenceStudioRoutes.js';
@@ -4733,6 +4734,9 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
     res.sendFile(path.join(__dirname, '..', 'public', 'service-worker.js'));
   });
   app.use('/uploads', express.static(path.join(config.dataDir, 'uploads')));
+
+  // HoloMode is an exact authenticated page + API; register before broad workspace routes.
+  registerHoloModeRoutes(app);
 
   registerMajorUpgradeRoutes(app, {
     config,
