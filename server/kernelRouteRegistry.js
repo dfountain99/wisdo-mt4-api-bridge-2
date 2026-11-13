@@ -14,6 +14,7 @@ import { registerWisdoWorldRoutes } from './worldRoutes.js';
 import { registerWorldLivingIdentityRoutes } from './worldLivingIdentityRoutes.js';
 import { registerWorldMarketRoutes } from './worldMarketRoutes.js';
 import { registerWorldCommandRoutes } from './worldCommandRoutes.js';
+import { registerSiriControlRoutes } from './siriControlRoutes.js';
 import { registerWorldRealtimeRoutes } from './worldRealtimeRoutes.js';
 import { registerWorldBuildRoutes } from './worldBuildRoutes.js';
 import { registerArcadeRoutes } from './arcadeRoutes.js';
@@ -163,6 +164,12 @@ export function registerWisdoKernelRoutes(app, {
     conversationalVoice,
   });
 
+  const siriControl = registerSiriControlRoutes(app, {
+    pool: commandBusService.pool,
+    worldCommandService: worldCommand.service,
+    logger,
+  });
+
   app.get('/health/kernel', async (_req, res, next) => {
     try {
       const commandBus = await commandBusService.health();
@@ -202,6 +209,7 @@ export function registerWisdoKernelRoutes(app, {
           market_api: worldMarkets.marketApi,
           command_api: worldCommand.api,
           command_authority: worldCommand.executionAuthority,
+          siri_control: { api: siriControl.api, mode: siriControl.mode, pairing_page: siriControl.pairingPage },
           execution_from_world_events_enabled: worldLivingSystems.executionFromWorldEventsEnabled,
           execution_from_world_markets_enabled: worldMarkets.executionFromWorldEnabled,
         },
@@ -238,6 +246,7 @@ export function registerWisdoKernelRoutes(app, {
     worldLivingSystems,
     worldMarkets,
     worldCommand,
+    siriControl,
     universalControlService,
     ambientLifeService,
   };
