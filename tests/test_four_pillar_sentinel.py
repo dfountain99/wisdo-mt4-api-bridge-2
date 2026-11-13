@@ -103,6 +103,25 @@ class FourPillarSentinelTests(unittest.TestCase):
         self.assertEqual(bridge.poll_sentinel_events(), 1)
         self.assertEqual(bridge.sentinel_pending, {})
 
+    def test_undelivered_event_survives_edge_restart(self):
+        first = self.bridge()
+        self.session.entities = [self.state('off', '2026-11-13T14:00:00+00:00')]
+        first.poll_sentinel_events()
+        self.session.entities = [self.state('on', '2026-11-13T14:01:00+00:00')]
+        self.session.fail_next = True
+        with self.assertRaisesRegex(RuntimeError, 'HTTP rejected'):
+            first.poll_sentinel_events()
+        self.assertEqual(len(first.sentinel_pending), 1)
+
+        # New bridge instance represents a real process restart using the same
+        # persisted edge state, not an in-memory queue carried over by the test.
+        restarted = self.bridge()
+        self.assertEqual(len(restarted.sentinel_pending), 1)
+        self.assertEqual(restarted.poll_sentinel_events(), 1)
+        self.assertEqual(restarted.sentinel_pending, {})
+        self.assertEqual(restarted.poll_sentinel_events(), 0)
+        self.assertEqual(len(self.session.posts), 2)  # failed + confirmed retry
+
     def test_implicit_camera_or_category_guesses_are_rejected(self):
         with mock.patch.dict(os.environ, {
             'WISDO_SENTINEL_ENTITY_MAP': '{"binary_sensor.door":"camera.backyard"}'
