@@ -19,6 +19,7 @@ import { registerWorldBuildRoutes } from './worldBuildRoutes.js';
 import { registerArcadeRoutes } from './arcadeRoutes.js';
 import { registerOgMasterWisdoRoutes } from './ogMasterWisdoRoutes.js';
 import { registerAmbientLifeRoutes } from './ambientLifeRoutes.js';
+import { registerFourPillarRoutes } from './fourPillarRoutes.js';
 
 /**
  * Registers the modern Wisdo Kernel services as one cohesive boundary.
@@ -93,6 +94,8 @@ export function registerWisdoKernelRoutes(app, {
     tradingExecutionService: conversationalVoice?.executionService || null,
     logger,
   });
+
+  const fourPillarOperations = registerFourPillarRoutes(app, { commandBusService, pool: commandBusService.pool });
 
   const roomStateService = registerRoomStateRoutes(app, { commandBusService, pool: commandBusService.pool, logger });
 
@@ -240,5 +243,6 @@ export function registerWisdoKernelRoutes(app, {
     worldCommand,
     universalControlService,
     ambientLifeService,
+    fourPillarOperations,
   };
 }
