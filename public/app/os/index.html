@@ -103,7 +103,17 @@ function render(data){
   byId('accounts-count').textContent=accounts.filter(a=>a.reporterFreshness==='online').length+' / '+accounts.length;
   byId('events-count').textContent=String(events.length);
   byId('advisories-count').textContent=String(advisories.length);
-  draw('nodes',nodes,(p,n)=>line(p,n.name||n.nodeId,n.role+' · '+age(n.ageMs),n.status),'No enrolled nodes have sent telemetry yet.');
+  draw('nodes',nodes,(p,n)=>{
+    line(p,n.name||n.nodeId,n.role+' · '+age(n.ageMs),n.status);
+    if(n.role==='vps' && n.status==='online' && n.deviceId){
+      const row=p.lastElementChild;
+      const button=document.createElement('button');
+      button.type='button';button.textContent='Prepare VPS';button.style.flexShrink='0';
+      button.title='Send an approved workspace launch request to this enrolled VPS agent';
+      button.addEventListener('click',()=>prepareVps(n,button));
+      row.append(button);
+    }
+  },'No enrolled nodes have sent telemetry yet.');
   draw('accounts',accounts,(p,a)=>line(p,a.accountNumber||a.accountId,(a.brokerServer||'Broker not specified')+' · '+age(a.ageMs),a.reporterFreshness),
     'No MT4 accounts have synchronized to this member.');
   draw('events',events,(p,e)=>line(p,(e.camera_name||e.component_id)+' · '+e.event_type,new Date(e.occurred_at).toLocaleString(),e.severity),
@@ -115,6 +125,39 @@ function render(data){
     'No supervised recovery requests have been recorded.');
   byId('updated').textContent='Last checked '+new Date(data.generatedAt).toLocaleTimeString();
 }
+
+async function prepareVps(node,button){
+  const target=String(node.deviceId||'');
+  if(!target || !window.confirm('Prepare WISDO trading workspace on VPS '+target+'? This launches a configured MetaTrader workstation but places no orders.'))return;
+  button.disabled=true;button.textContent='Queueing…';
+  try{
+    const response=await fetch('/api/member/os/v1/vps/'+encodeURIComponent(target)+'/prepare',{
+      method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json','X-Wisdo-Intent':'operator-action'},
+      body:JSON.stringify({confirm:'PREPARE VPS '+target}),
+    });
+    const data=await response.json();
+    if(!response.ok || !data.ok || !data.commandId)throw new Error(data.error||'VPS command could not be queued.');
+    button.textContent='Awaiting VPS receipt';
+    const expires=Date.now()+35000;
+    while(Date.now()<expires){
+      await new Promise(resolve=>setTimeout(resolve,2000));
+      const check=await fetch('/api/member/os/v1/commands/'+encodeURIComponent(data.commandId),{credentials:'same-origin',cache:'no-store'});
+      if(!check.ok)throw new Error('Command status unavailable ('+check.status+').');
+      const latest=await check.json();
+      const state=latest.command?.status;
+      if(state==='completed'){button.textContent='Launched on VPS';return;}
+      if(state==='failed' || state==='rejected' || state==='expired'){
+        throw new Error(latest.command?.result_message||'The VPS agent returned '+state+'.');
+      }
+    }
+    button.textContent='Still pending — check again';
+  }catch(error){
+    button.textContent='Retry VPS launch';
+    byId('error').hidden=false;byId('error').textContent=String(error.message||error);
+  }finally{button.disabled=false;}
+}
+
 let running=false;
 async function refresh(){
   if(running)return;running=true;byId('refresh').disabled=true;
