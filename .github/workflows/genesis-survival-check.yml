@@ -1,0 +1,30 @@
+name: Genesis Survival Validation
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  genesis-and-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Validate Genesis server and browser scripts
+        run: |
+          node --check services/genesisGameService.js
+          node --check server/genesisRoutes.js
+          node --check public/js/genesisWorld.js
+          node --check server/apiServer.js
+          node --check server/majorUpgradeRoutes.js
+      - name: Run server-authoritative Genesis gameplay tests
+        run: node --test tests/genesisGame.test.js
+      - name: Run existing WISDO regression suite
+        run: npm run check
