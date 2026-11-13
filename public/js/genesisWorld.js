@@ -67,6 +67,9 @@
     $('prism-name').value=game.character.name;
     $('prism-color').value=game.character.color;
     $('prism-movement').value=game.character.movement;
+    $('prism-frame').value=game.character.frame||'core';
+    $('prism-size').value=String(game.character.size||1);
+    $('prism-eyes').value=game.character.eyeStyle||'round';
   }
   function material(name,hex,emissive=false){
     const m=new BABYLON.StandardMaterial(name,scene);
@@ -174,6 +177,7 @@
     ball(prism,'bot-core',[.43,.44,.19],mats.eye,0,1.18,.43);
     trunk(prism,body,0,0,.28).position.set(0,2.94,0);
     ball(prism,'bot-antenna',[.22,.22,.22],mats.eye,0,3.18,0);
+    prismPieces.eyes=[];for(const mesh of prism.getChildMeshes())if(mesh.name==='bot-eye')prismPieces.eyes.push(mesh);
     prismPieces.ears=[];
     for(const x of [-.36,.36])prismPieces.ears.push(block(prism,'morph-ear',[.18,.45,.18],body,x,2.96,.12));
     prismPieces.wings=[];
@@ -188,9 +192,16 @@
     const echo=game.echoes.find(x=>x.id===form);
     prismPieces.body.diffuseColor=BABYLON.Color3.FromHexString(echo?.color||game.character.color);
     prismPieces.body.emissiveColor=prismPieces.body.diffuseColor.scale(.25);
+    const frame=game.character.frame||'core';
     prismPieces.ears.forEach(x=>x.setEnabled(form==='voltfang'));
-    prismPieces.wings.forEach(x=>x.setEnabled(form==='shadeveil'));
-    prismPieces.armor.forEach(x=>x.setEnabled(form==='terrakron'));
+    prismPieces.wings.forEach(x=>x.setEnabled(form==='shadeveil'||frame==='nova'));
+    prismPieces.armor.forEach(x=>x.setEnabled(form==='terrakron'||frame==='guardian'));
+    prismPieces.eyes.forEach(x=>{
+      const style=game.character.eyeStyle||'round';
+      x.scaling.y=style==='narrow'?.12:style==='wide'?.30:.23;
+      x.scaling.x=style==='wide'?.24:.19;
+    });
+    prism.scaling.setAll(Number(game.character.size)||1);
     stayAnchor=null;
   }
   function drawTerrain(){
@@ -286,7 +297,7 @@
     const target=mode==='stay'?stayAnchor:{x:player.position.x-1.8,z:player.position.z-1.7};
     prism.position.x+=(target.x-prism.position.x)*Math.min(1,dt*3.5);
     prism.position.z+=(target.z-prism.position.z)*Math.min(1,dt*3.5);
-    prism.position.y=(mode==='hover'?.85:0)+Math.sin(now/440)*.09;
+    prism.position.y=(mode==='hover'||game.character.frame==='nova' ? .85 : 0)+Math.sin(now/440)*.09;
     prism.rotation.y=Math.atan2(player.position.x-prism.position.x,player.position.z-prism.position.z);
     for(const [id,mesh] of echoMeshes){
       mesh.position.y=Math.sin(now/540+id.length)*.12;
@@ -387,7 +398,7 @@
       const btn=event.target.closest('[data-train]');if(btn)action({action:'train',stat:btn.dataset.train});
     });
     $('save-prism').addEventListener('click',async()=>{
-      await action({action:'customize',name:$('prism-name').value,color:$('prism-color').value,movement:$('prism-movement').value});
+      await action({action:'customize',name:$('prism-name').value,color:$('prism-color').value,movement:$('prism-movement').value,frame:$('prism-frame').value,size:Number($('prism-size').value),eyeStyle:$('prism-eyes').value});
     });
     $('interact').addEventListener('click',interact);
     $('build-shortcut').addEventListener('click',()=>place('hut'));
