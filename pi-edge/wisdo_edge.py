@@ -19,6 +19,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 from home_assistant_bridge import HomeAssistantBridge
+from sentinel_bridge import SentinelBridge
 
 BASE = Path(__file__).resolve().parent
 load_dotenv(BASE / '.env')
@@ -536,6 +537,9 @@ def main():
     home_bridge = HomeAssistantBridge(CLOUD, DEVICE_ID, TOKEN_FILE)
     if home_bridge.start():
         print('WISDO Home Assistant bridge enabled: local smart-home discovery/control is active.')
+    sentinel_bridge = SentinelBridge(CLOUD, DEVICE_ID, TOKEN_FILE)
+    if sentinel_bridge.start():
+        print('WISDO Sentinel enabled: mapped Home Assistant camera sensors are being monitored.')
     elif os.getenv('WISDO_HOME_ASSISTANT_URL','').strip() or os.getenv('WISDO_HOME_ASSISTANT_TOKEN','').strip():
         print('WISDO Home Assistant bridge is not fully configured; smart-home execution remains disabled.')
     print(f'Wisdo Edge ready on {platform.system()} ({DEVICE_ID}).')
@@ -602,6 +606,10 @@ def main():
             try: heartbeat(False)
             except Exception: pass
             if LED_STATE not in ('speaking', 'muted'): set_led('idle')
+    try:
+        sentinel_bridge.stop()
+    except Exception:
+        pass
     try:
         home_bridge.stop()
     except Exception:
