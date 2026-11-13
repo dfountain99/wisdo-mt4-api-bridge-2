@@ -54,6 +54,10 @@ jobs:
           node --check server/kernelRouteRegistry.js
       - name: Test four-pillar runtime behavior
         run: node --test tests/fourPillarOperations.test.js
+      - name: Install edge bridge test dependency
+        run: python -m pip install requests
+      - name: Test real Home Assistant Sentinel event relay
+        run: python -m unittest discover -s tests -p 'test_four_pillar_sentinel.py' -v
       - name: Validate edge and agent source syntax
         run: |
           python -m compileall -q desktop-agent/agent.py desktop-agent/enroll.py pi-edge/home_assistant_bridge.py pi-edge/wisdo_edge.py pi-edge/enroll.py
