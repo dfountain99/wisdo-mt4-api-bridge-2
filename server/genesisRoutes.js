@@ -34,7 +34,7 @@ function csrf(req,res,next){
 }
 function boundPosition(entry,userId){
   if(!entry){
-    entry={...freshPosition(),speed:5.3};
+    entry={...freshPosition(),speed:moveSpeed(createGenesisProfile(userId))};
     if(presence.size>2000)presence.clear();
     presence.set(userId,entry);
   }
