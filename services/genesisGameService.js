@@ -48,7 +48,7 @@ function award(profile,xp){const prev=Math.floor(profile.xp/15);profile.xp+=xp;c
 export function createGenesisProfile(userId,now=Date.now()){
  return {
   schemaVersion:1,userId:String(userId),createdAt:nowString(now),updatedAt:nowString(now),
-  character:{name:'PRISM',color:'#59def4',movement:'follow',equipped:'core',statTraining:Object.fromEntries(STAT_KEYS.map(k=>[k,0]))},
+  character:{name:'PRISM',color:'#59def4',movement:'follow',frame:'core',size:1,eyeStyle:'round',equipped:'core',statTraining:Object.fromEntries(STAT_KEYS.map(k=>[k,0]))},
   inventory:{...DEFAULT_INVENTORY},xp:0,statPoints:8,structures:[],
   depleted:{},discovered:[],echoforms:[],lastMessage:'Welcome to Genesis Forest. Collect wood and stone to craft your first tools.',
  };
@@ -162,10 +162,19 @@ export function applyGenesisAction(profile,body,position,now=Date.now()){
   if(!COLORS.includes(color))throw fail('Select an available PRISM color.');
   const movement=String(body.movement||'');
   if(!['follow','hover','stay'].includes(movement))throw fail('Choose Follow, Hover or Stay.');
+  const frame=String(body.frame||'core');
+  if(!['core','guardian','nova','android'].includes(frame))throw fail('Unknown PRISM body frame.');
+  const size=Number(body.size??1);
+  if(!Number.isFinite(size)||size<.8||size>1.3)throw fail('PRISM size must be between 0.8 and 1.3.');
+  const eyeStyle=String(body.eyeStyle||'round');
+  if(!['round','narrow','wide'].includes(eyeStyle))throw fail('Unknown eye style.');
   profile.character.name=name;
   profile.character.color=color;
   profile.character.movement=movement;
-  message='Your PRISM appearance and behavior were saved.';
+  profile.character.frame=frame;
+  profile.character.size=Math.round(size*10)/10;
+  profile.character.eyeStyle=eyeStyle;
+  message='Your PRISM frame, anatomy and behavior were saved.';
  }else throw fail('Unsupported Genesis action.');
  profile.lastMessage=message;
  profile.updatedAt=nowString(now);
