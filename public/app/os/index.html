@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>WISDO • Four-Pillar Operations</title>
+<style>
+:root{--bg:#07111d;--panel:#101e2b;--line:#263d4d;--text:#f0f7fc;--muted:#a2b5c6;--accent:#66e0e5;--warn:#ffd09c;--danger:#ff9ca1;--good:#9af5bd}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at top right,#133b53 0%,var(--bg) 48%);color:var(--text);min-height:100vh}
+main{width:min(1200px,calc(100% - 28px));margin:auto;padding:28px 0 60px}
+header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;padding:12px 0 26px}
+.brand{display:flex;align-items:center;gap:14px}.brand img{width:70px;height:70px;object-fit:contain;filter:drop-shadow(0 0 12px #12a9cd55)}
+h1,h2,h3,p{margin:0}h1{font-size:clamp(1.45rem,4vw,2.15rem);letter-spacing:-.02em}h2{font-size:1.15rem;margin-bottom:16px}h3{font-size:.92rem;font-weight:620}
+.kicker{font-size:.77rem;text-transform:uppercase;letter-spacing:.12em;color:var(--accent);font-weight:750;margin-bottom:5px}
+.sub{color:var(--muted);font-size:.86rem;margin-top:7px;line-height:1.5}
+button{background:#2f95a7;border:1px solid #68dce7;border-radius:10px;color:#041018;font-size:.9rem;font-weight:700;padding:11px 19px;cursor:pointer}
+button:disabled{opacity:.5;cursor:wait}
+.status{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:.84rem}.dot{width:8px;height:8px;border-radius:50%;background:var(--warn);display:inline-block}
+.layout{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.panel{background:linear-gradient(145deg,#122535ee,#101a28ee);border:1px solid var(--line);border-radius:16px;padding:20px;min-width:0}
+.panel.wide{grid-column:span 2}.panel header{padding:0 0 14px;align-items:start}
+.metric{font-size:2rem;font-weight:760;letter-spacing:-.035em;line-height:1.25}
+.caption{font-size:.78rem;color:var(--muted);margin-top:5px;line-height:1.5}
+.list{display:grid;gap:10px;margin-top:16px}
+.item{background:#0b1926;border:1px solid #253744;border-radius:12px;padding:11px 13px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.item div:first-child{min-width:0}.item p{margin-top:4px;font-size:.78rem;color:var(--muted);overflow-wrap:anywhere}
+.pill{font-size:.69rem;letter-spacing:.02em;text-transform:uppercase;padding:4px 9px;border-radius:999px;background:#243846;color:#c5e3ef;white-space:nowrap}
+.pill.online,.pill.queued,.pill.completed{background:#15372b;color:var(--good)}
+.pill.stale,.pill.pending,.pill.attention{background:#3c2d20;color:var(--warn)}
+.pill.offline,.pill.critical,.pill.failed,.pill.revoked{background:#45242d;color:var(--danger)}
+.empty{color:var(--muted);font-size:.89rem;line-height:1.55;padding:10px 0}
+.notice{border:1px solid #4b4240;background:#302823;border-radius:12px;padding:12px 15px;margin:0 0 20px;color:#ffe1ba;font-size:.83rem;line-height:1.5}
+footer{color:var(--muted);font-size:.8rem;margin-top:22px;line-height:1.6}
+@media(max-width:760px){.layout{grid-template-columns:1fr}.panel.wide{grid-column:span 1}main{width:min(100% - 24px,680px)}.panel{padding:15px}.brand img{width:58px;height:58px}}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="brand">
+    <img src="/app/world/command/aether-prism-character-v1.png" alt="WISDO AETHER PRISM">
+    <div><div class="kicker">WISDO Cloud OS · Connected Operations</div><h1>Four-Pillar Command Center</h1>
+      <p class="sub">Real Reporter observations, enrolled agents, verified device events, and supervised recovery</p></div>
+  </div>
+  <div><button id="refresh" type="button">Refresh actual data</button><p id="updated" class="sub" aria-live="polite">Loading…</p></div>
+</header>
+<div class="notice">Status is based on authenticated WISDO device and Reporter observations. A queued command is not a completed trade or repair. Camera events never automatically activate a siren. Live broker execution and camera video are not inferred.</div>
+<div id="error" role="alert" hidden class="notice"></div>
+<div class="layout">
+  <section class="panel" aria-labelledby="cloud-heading">
+    <div class="kicker">01 · Autonomous Cloud</div><h2 id="cloud-heading">Enrolled VPS &amp; worker fleet</h2>
+    <div class="metric" id="nodes-count">—</div><div class="caption">Reporting nodes / total observed</div>
+    <div id="nodes" class="list"></div>
+  </section>
+  <section class="panel" aria-labelledby="trading-heading">
+    <div class="kicker">02 · Trading Supercomputer</div><h2 id="trading-heading">MT4 account connectivity</h2>
+    <div class="metric" id="accounts-count">—</div><div class="caption">Fresh Reporter connections / registered accounts</div>
+    <div id="accounts" class="list"></div>
+  </section>
+  <section class="panel" aria-labelledby="sentinel-heading">
+    <div class="kicker">03 · Supervised Guardian</div><h2 id="sentinel-heading">Sentinel verified event feed</h2>
+    <div class="metric" id="events-count">—</div><div class="caption">Recently persisted edge camera events</div>
+    <div id="events" class="list"></div>
+  </section>
+  <section class="panel" aria-labelledby="integration-heading">
+    <div class="kicker">04 · Full WISDO Integration</div><h2 id="integration-heading">Cross-system advisories</h2>
+    <div class="metric" id="advisories-count">—</div><div class="caption">Observations requiring your review</div>
+    <div id="advisories" class="list"></div>
+  </section>
+  <section class="panel wide" aria-labelledby="recovery-heading">
+    <div class="kicker">Human-controlled automation</div><h2 id="recovery-heading">Recovery command truth</h2>
+    <p class="sub">A recovery is only completed when its enrolled agent returns a successful command receipt. Recovery requests must be initiated and confirmed with an authorized device.</p>
+    <div id="recoveries" class="list"></div>
+  </section>
+</div>
+<footer>Read-only member dashboard · WISDO source of truth: PostgreSQL · Enrolled device authentication is required for event ingestion and recovery actions. No customer camera images, credentials, or live trade commands are exposed here.</footer>
+</main>
+<script type="module">
+const byId=(id)=>document.getElementById(id);
+const plural=(n,one,many=one+'s')=>n===1?one:many;
+const age=(ms)=>Number.isFinite(ms)?ms<60000?Math.floor(ms/1000)+'s ago':Math.floor(ms/60000)+'m ago':'no report';
+function line(parent,title,subtitle,status){
+  const row=document.createElement('div');row.className='item';
+  const block=document.createElement('div');
+  const heading=document.createElement('h3');heading.textContent=String(title ?? 'Unknown');
+  const desc=document.createElement('p');desc.textContent=String(subtitle ?? '');
+  const label=document.createElement('span');label.className='pill '+String(status || '').toLowerCase().replace(/[^a-z-]/g,'');label.textContent=String(status || 'unknown');
+  block.append(heading,desc);row.append(block,label);parent.append(row);
+}
+function draw(id,rows,fn,empty){
+  const el=byId(id);el.replaceChildren();
+  if(!rows.length){const p=document.createElement('p');p.className='empty';p.textContent=empty;el.append(p);return}
+  rows.forEach(row=>fn(el,row));
+}
+function render(data){
+  const nodes=data.nodes||[];
+  const accounts=data.trading?.accounts||[];
+  const events=data.sentinel?.recentEvents||[];
+  const advisories=data.automation?.advisories||[];
+  const recoveries=data.recoveries||[];
+  byId('nodes-count').textContent=nodes.filter(n=>n.status==='online').length+' / '+nodes.length;
+  byId('accounts-count').textContent=accounts.filter(a=>a.reporterFreshness==='online').length+' / '+accounts.length;
+  byId('events-count').textContent=String(events.length);
+  byId('advisories-count').textContent=String(advisories.length);
+  draw('nodes',nodes,(p,n)=>line(p,n.name||n.nodeId,n.role+' · '+age(n.ageMs),n.status),'No enrolled nodes have sent telemetry yet.');
+  draw('accounts',accounts,(p,a)=>line(p,a.accountNumber||a.accountId,(a.brokerServer||'Broker not specified')+' · '+age(a.ageMs),a.reporterFreshness),
+    'No MT4 accounts have synchronized to this member.');
+  draw('events',events,(p,e)=>line(p,(e.camera_name||e.component_id)+' · '+e.event_type,new Date(e.occurred_at).toLocaleString(),e.severity),
+    'No camera detection events have been received.');
+  draw('advisories',advisories,(p,a)=>line(p,a.kind.replaceAll('_',' '),a.targetId+' · '+a.action,a.status||'review'),
+    'No anomalies detected in the observations currently available.');
+  draw('recoveries',recoveries,(p,r)=>line(p,r.action.replaceAll('_',' '),r.target_device_id+
+    ' · '+(r.command_status?'Agent command: '+r.command_status:'No agent command receipt yet'),r.command_status||r.status),
+    'No supervised recovery requests have been recorded.');
+  byId('updated').textContent='Last checked '+new Date(data.generatedAt).toLocaleTimeString();
+}
+let running=false;
+async function refresh(){
+  if(running)return;running=true;byId('refresh').disabled=true;
+  try{
+    const response=await fetch('/api/member/os/v1/overview',{headers:{accept:'application/json'},credentials:'same-origin',cache:'no-store'});
+    if(!response.ok)throw new Error(response.status===401?'Member session expired. Please sign in again.':'WISDO API returned '+response.status);
+    const data=await response.json();
+    if(!data.ok)throw new Error('Backend did not confirm data integrity.');
+    render(data);byId('error').hidden=true;
+  }catch(error){byId('error').hidden=false;byId('error').textContent=error.message;byId('updated').textContent='Unable to verify live status'}
+  finally{running=false;byId('refresh').disabled=false}
+}
+byId('refresh').addEventListener('click',refresh);
+refresh();
+setInterval(()=>{if(!document.hidden)refresh()},30000);
+</script>
+</body>
+</html>
