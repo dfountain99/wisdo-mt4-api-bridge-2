@@ -43,7 +43,11 @@
     "camera-event-deduplication-and-approved-source-scope",
     "wisdo-os-telemetry",
     "sentinel-camera-event-relay",
-    "supervised-ops-recovery"
+    "supervised-ops-recovery",
+    "os-edge-heartbeat",
+    "explicit-camera-event-mapping",
+    "camera-event-receipt-idempotency",
+    "source-owned-sentinel-event-ingestion"
   ],
   "serverEnvironmentVariables": [
     "WISDO_VOICE_EXECUTION_MODE",
