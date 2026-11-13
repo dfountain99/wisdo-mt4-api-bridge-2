@@ -28,6 +28,12 @@ export function registerFourPillarRoutes(app,{commandBusService,pool}={}) {
       next();
     } catch(error) { fail(res,error); }
   };
+  const requireDeviceCapability=(capability)=>(req,res,next)=>{
+    if(req.wisdoDevice?.capabilities?.[capability]!==true){
+      return res.status(403).json({ok:false,error:'The enrolled device lacks '+capability+' permission.'});
+    }
+    next();
+  };
   const memberAuth=(req,res,next)=>{
     const session=getSessionUser(req);
     if (!session?.id) return res.status(401).json({ok:false,error:'Signed member session required.'});
@@ -79,20 +85,20 @@ export function registerFourPillarRoutes(app,{commandBusService,pool}={}) {
   app.post('/api/os/v1/nodes/heartbeat',deviceAuth,run(async(req,res)=>{
     res.status(201).json({ok:true,node:await operations.heartbeat(req.wisdoDevice,req.body||{})});
   }));
-  app.get('/api/os/v1/nodes',deviceAuth,run(async(req,res)=>{
+  app.get('/api/os/v1/nodes',deviceAuth,requireDeviceCapability('ops_operator'),run(async(req,res)=>{
     res.json({ok:true,nodes:await operations.nodes(req.wisdoDevice.owner_user_id)});
   }));
-  app.get('/api/os/v1/overview',deviceAuth,run(async(req,res)=>{
+  app.get('/api/os/v1/overview',deviceAuth,requireDeviceCapability('ops_operator'),run(async(req,res)=>{
     res.json(await operations.overview(req.wisdoDevice.owner_user_id));
   }));
-  app.get('/api/os/v1/trading/accounts',deviceAuth,run(async(req,res)=>{
+  app.get('/api/os/v1/trading/accounts',deviceAuth,requireDeviceCapability('ops_operator'),run(async(req,res)=>{
     res.json({ok:true,...await operations.tradingAccounts(req.wisdoDevice.owner_user_id)});
   }));
   app.post('/api/os/v1/sentinel/events',deviceAuth,run(async(req,res)=>{
     const result=await operations.recordSentinelEvent(req.wisdoDevice,req.body||{});
     res.status(result.duplicate?200:201).json({ok:true,...result});
   }));
-  app.get('/api/os/v1/sentinel/events',deviceAuth,run(async(req,res)=>{
+  app.get('/api/os/v1/sentinel/events',deviceAuth,requireDeviceCapability('camera_events'),run(async(req,res)=>{
     res.json({ok:true,events:await operations.sentinelEvents(req.wisdoDevice.owner_user_id,{
       limit:req.query.limit,componentId:req.query.componentId||''
     })});
@@ -105,7 +111,7 @@ export function registerFourPillarRoutes(app,{commandBusService,pool}={}) {
       req.wisdoDevice,req.params.id,req.body?.confirmation
     )});
   }));
-  app.get('/api/os/v1/recoveries',deviceAuth,run(async(req,res)=>{
+  app.get('/api/os/v1/recoveries',deviceAuth,requireDeviceCapability('ops_operator'),run(async(req,res)=>{
     res.json({ok:true,recoveries:await operations.recoveries(req.wisdoDevice.owner_user_id)});
   }));
   app.get('/health/four-pillars',run(async(_req,res)=>{
