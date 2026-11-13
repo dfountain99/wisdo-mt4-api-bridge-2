@@ -20,6 +20,7 @@ if not token_file.exists():
 home_url = os.getenv("WISDO_HOME_ASSISTANT_URL", "").strip()
 home_token = os.getenv("WISDO_HOME_ASSISTANT_TOKEN", "").strip()
 home_enabled = bool(home_url and home_token)
+presence_command=os.getenv('WISDO_PRESENCE_COMMAND', '').strip()
 map_raw = os.getenv("WISDO_SENTINEL_ENTITY_MAP", "{}").strip() or "{}"
 mapping = json.loads(map_raw)
 if not isinstance(mapping, dict):
@@ -28,7 +29,7 @@ if not isinstance(mapping, dict):
 capabilities = {
     "wakeWords": ["hey wisdo", "hey coach"],
     "voice": True,
-    "presence": bool(os.getenv("WISDO_PRESENCE_COMMAND", "").strip()),
+    'presence':bool(presence_command),
     "wake_trading_workstation": bool(os.getenv("WISDO_TRADING_WORKSTATION_MAC", "").strip()),
     "smart_home": home_enabled,
     "home_assistant": home_enabled,
