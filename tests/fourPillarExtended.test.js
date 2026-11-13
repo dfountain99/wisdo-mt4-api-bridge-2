@@ -92,7 +92,8 @@ test('Sentinel bridge uses an explicit HA sensor-to-camera mapping and real last
   assert.match(home,/camera\./);
   assert.match(home,/sensor\.get\('last_changed'\)/);
   assert.match(home,/api\/os\/v1\/sentinel\/events/);
-  assert.match(home,/self\.sentinel_seen\.add/);
+  assert.match(home,/self\.sentinel_pending\[event_id\]/);
+  assert.match(home,/del self\.sentinel_pending\[event_id\]/);
   assert.match(edge,/api\/os\/v1\/nodes\/heartbeat/);
   assert.match(enroll,/camera_events/);
 });
