@@ -141,8 +141,36 @@ class HomeAssistantBridge:
             self.sentinel_map[sensor_id] = {'camera': camera_id, 'eventType': event_type}
         self.sentinel_poll_seconds = max(5.0, float(os.getenv('WISDO_SENTINEL_POLL_SECONDS', '15')))
         self.last_sentinel_poll_at = 0.0
-        self.sentinel_last_seen = {}
-        self.sentinel_pending = {}
+        self.sentinel_state_path = Path(os.getenv('WISDO_SENTINEL_STATE_FILE') or
+                                        (self.token_file.parent / 'sentinel-state.json'))
+        self.sentinel_last_seen, self.sentinel_pending = self._load_sentinel_state()
+
+    def _load_sentinel_state(self):
+        try:
+            data = json.loads(self.sentinel_state_path.read_text(encoding='utf-8'))
+            last_seen = data.get('last_seen', {})
+            pending = data.get('pending', {})
+            if not isinstance(last_seen, dict) or not isinstance(pending, dict):
+                raise ValueError('Invalid Sentinel edge state record.')
+            states = {k: tuple(v) for k, v in last_seen.items()
+                      if k in self.sentinel_map and isinstance(v, list) and len(v) == 2}
+            queue = {k: v for k, v in pending.items()
+                     if isinstance(k, str) and len(k) == 64 and isinstance(v, dict)}
+            return states, dict(list(queue.items())[:200])
+        except (OSError, ValueError, TypeError):
+            return {}, {}
+
+    def _persist_sentinel_state(self):
+        self.sentinel_state_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.sentinel_state_path.with_suffix('.tmp')
+        state = {'last_seen': {k: list(v) for k, v in self.sentinel_last_seen.items()},
+                 'pending': self.sentinel_pending}
+        fd = os.open(str(temporary), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w', encoding='utf-8') as handle:
+            json.dump(state, handle, separators=(',', ':'))
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(self.sentinel_state_path)
 
     @property
     def enabled(self):
@@ -242,9 +270,10 @@ class HomeAssistantBridge:
         """Persist actual, explicitly mapped HA transitions without guessing identities.
 
         Initial HA sensor states establish a baseline; only later ON transitions
-        count as new detections. Failed posts stay in memory for retry.
+        count as new detections. Failed posts remain durably queued across restarts.
         """
         entities = {e.get('entity_id'): e for e in self.discover() if isinstance(e, dict)}
+        changed_state = False
         for sensor_id, binding in self.sentinel_map.items():
             sensor = entities.get(sensor_id)
             if not isinstance(sensor, dict):
@@ -256,6 +285,8 @@ class HomeAssistantBridge:
             observed = (state, changed)
             previous = self.sentinel_last_seen.get(sensor_id)
             self.sentinel_last_seen[sensor_id] = observed
+            if previous != observed:
+                changed_state = True
             if previous is None or previous == observed or state != 'on':
                 continue
             event_id = hashlib.sha256((self.device_id+'|'+sensor_id+'|'+changed).encode('utf-8')).hexdigest()
@@ -267,6 +298,10 @@ class HomeAssistantBridge:
                 'occurredAt': changed,
                 'details': {'zone': binding['camera'], 'source': 'home_assistant_binary_sensor'}
             }
+        # Write event queue before sending; a crash can then replay with the same
+        # event id and the server's unique key prevents duplicate alerts.
+        if changed_state:
+            self._persist_sentinel_state()
         posted = 0
         for event_id, payload in list(self.sentinel_pending.items()):
             response = self.session.post(
@@ -278,6 +313,7 @@ class HomeAssistantBridge:
             if not receipt.get('ok') or not (receipt.get('recorded') or receipt.get('duplicate')):
                 raise RuntimeError('WISDO did not confirm durable Sentinel event receipt.')
             del self.sentinel_pending[event_id]
+            self._persist_sentinel_state()
             posted += 1
         return posted
 
