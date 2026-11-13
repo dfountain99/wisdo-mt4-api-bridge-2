@@ -100,10 +100,14 @@ export function applyGenesisAction(profile,body,position,now=Date.now()){
   near(position,node,5);
   if((profile.depleted[node.id]||0)>now)throw fail('This deposit is regenerating.');
   if((node.type==='iron'||node.type==='crystal')&&!profile.inventory.pickaxe)throw fail('Craft a stone pickaxe to mine iron and crystal.');
-  profile.inventory[node.type]+=REWARDS[node.type];
-  profile.depleted[node.id]=now+node.respawnMs;
+  const weather=worldWeather(now).weather;
+  // Live ecology: rainy forests replenish more quickly and crystal surges increase yield.
+  const bonus=(weather==='Light Rain'&&node.type==='wood')||(weather==='Crystal Storm'&&node.type==='crystal')?1:0;
+  const yieldCount=REWARDS[node.type]+bonus;
+  profile.inventory[node.type]+=yieldCount;
+  profile.depleted[node.id]=now+Math.floor(node.respawnMs*(weather==='Light Rain'&&node.type==='wood' ? .70 : 1));
   award(profile,node.type==='crystal'?5:node.type==='iron'?3:2);
-  message='Collected '+REWARDS[node.type]+' '+node.type+'.';
+  message='Collected '+yieldCount+' '+node.type+(bonus?' (ecosystem bonus)':'')+'.';
  }else if(action==='craft'){
   const key=String(body.recipe||'');
   const recipe=lookup(RECIPES,key);
