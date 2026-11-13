@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#071521">
+<title>WISDO Genesis — Living Worlds Alpha</title>
+<style>
+:root{color-scheme:dark;--bg:#081625;--surface:#0d2034e9;--line:#3e6f83a0;--cyan:#65e5ef;--text:#f0fcff;--muted:#a3bbcb;--gold:#f0cd83}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+#renderCanvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+button,select,input{font:inherit}
+button{cursor:pointer;background:#19374d;color:var(--text);border:1px solid #4b8195;border-radius:11px;padding:9px 12px;font-weight:650;min-height:38px}
+button:hover:not(:disabled){background:#26536a}
+button:disabled{opacity:.48;cursor:not-allowed}
+button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--cyan);outline-offset:2px}
+a{color:var(--cyan);text-decoration:none}
+button.primary{background:linear-gradient(120deg,#087e9e,#2661aa);border-color:#54cddf}
+button.warn{border-color:#a58557}
+header{position:fixed;top:0;left:0;right:0;padding:14px 20px;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:12px;background:linear-gradient(180deg,#06121ff9 15%,#071521b8 80%,transparent)}
+.brand{font-size:20px;font-weight:900;letter-spacing:.17em}.brand span{color:var(--cyan)}
+.small{font-size:12px;color:var(--muted)}
+.sub{font-size:10px;letter-spacing:.13em;font-weight:750;color:#98c8d7}
+.links{display:flex;gap:16px;align-items:center;font-size:12px;flex-wrap:wrap}
+.pill{border-radius:99px;background:#134a5488;border:1px solid #358e9b;padding:5px 9px;color:var(--cyan);font-size:11px;white-space:nowrap}
+.hud{position:fixed;left:18px;top:85px;z-index:8;display:grid;gap:8px;max-width:320px;pointer-events:none}
+.hud>*{pointer-events:auto}
+.card{background:var(--surface);border:1px solid var(--line);box-shadow:0 16px 42px #0006;border-radius:16px;backdrop-filter:blur(15px)}
+.hud .card{padding:12px 14px}
+.hud strong{font-size:14px}
+.reslist{display:flex;flex-wrap:wrap;gap:8px;margin-top:7px;font-size:12px}
+.reslist span{background:#17384c;border:1px solid #2b556c;border-radius:8px;padding:5px 7px}
+#message{max-width:360px;font-size:12px;color:#e5f4fa;min-height:28px}
+.side{position:fixed;right:18px;top:85px;bottom:90px;width:340px;z-index:9;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.sidehead{padding:13px 14px 7px;border-bottom:1px solid #315669}
+.sidehead h2{font-size:18px;margin:0}
+.tabs{display:flex;gap:5px;overflow:auto;padding:11px 12px;scrollbar-width:none}
+.tabs button{white-space:nowrap;flex:none;padding:8px 9px;min-height:30px;font-size:11px}
+.tabs button.active{background:#187b94;border-color:#73dcf6}
+.panel{display:none;overflow:auto;padding:0 13px 14px;min-height:0;font-size:13px;flex:1}
+.panel.active{display:block}
+.panel p{color:var(--muted);font-size:12px;line-height:1.5}
+.panel h3{font-size:14px;margin:14px 0 8px}
+.option{border:1px solid #294a5c;background:#112f44;border-radius:12px;padding:10px;margin-bottom:9px}
+.option strong{display:block;font-size:13px}
+.option .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.option small{display:block;color:var(--muted);font-size:11px}
+.cost{margin:6px 0;font-size:11px;color:#d3ccab}
+.selectrow{display:grid;gap:6px;margin-top:9px}
+input,select{background:#071a2c;border:1px solid #417188;color:var(--text);padding:9px 10px;border-radius:10px;width:100%}
+.stats{display:grid;gap:8px}
+.stat{display:grid;grid-template-columns:83px 1fr 36px 32px;gap:6px;align-items:center;font-size:11px}
+.bar{height:6px;background:#233e53;border-radius:9px;overflow:hidden}
+.bar>div{height:100%;background:#57d8ed;border-radius:9px}
+.stat button{min-height:26px;padding:4px;font-size:12px}
+#actionDock{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:9px;align-items:center;z-index:11;background:#0a2334de;border:1px solid #3c7a91;padding:10px;border-radius:18px;backdrop-filter:blur(10px)}
+#actionDock button{min-width:105px}
+#nearest{font-size:11px;color:#b7d7e3;max-width:160px}
+#joystick{display:none;position:fixed;left:24px;bottom:35px;width:120px;height:120px;border-radius:50%;border:2px solid #87daf088;background:#183f56aa;touch-action:none;z-index:10}
+#joystick-knob{position:absolute;left:38px;top:38px;width:42px;height:42px;border-radius:50%;background:#5fcdedcc;border:2px solid #d2fbff}
+#toast{position:fixed;left:50%;top:82px;transform:translateX(-50%);max-width:min(90vw,540px);background:#132f41f2;border:1px solid #69cada;border-radius:13px;padding:12px 17px;z-index:20;pointer-events:none;opacity:0;transition:opacity .2s;text-align:center;font-size:13px}
+#toast.show{opacity:1}
+#loading{position:fixed;inset:0;display:grid;place-items:center;background:#06111de8;z-index:30}
+#loading .card{padding:26px;text-align:center;max-width:440px;width:90vw}
+#loading h1{font-size:28px;letter-spacing:.1em;color:#77dfed}
+#loading p{font-size:13px;color:var(--muted)}
+#loading button{margin-top:12px}
+#help{position:fixed;bottom:94px;left:20px;z-index:8;background:#092339e0;padding:9px 11px;border-radius:12px;border:1px solid #31596c;font-size:11px;color:#a8d0de}
+@media(max-width:950px){
+ .side{top:auto;right:10px;bottom:11px;left:10px;width:auto;height:36vh;min-height:190px;max-height:420px}
+ .hud{top:76px;left:10px;max-width:260px}
+ .hud .card{padding:9px 11px}
+ .links{gap:9px}
+ #actionDock{left:auto;right:10px;transform:none;bottom:calc(36vh + 24px);gap:5px;padding:6px}
+ #actionDock button{min-width:72px;padding:8px 6px;font-size:11px}
+ #nearest{display:none}
+ #joystick{display:block;bottom:calc(36vh + 26px);left:18px;width:103px;height:103px}
+ #joystick-knob{left:31px;top:31px;width:38px;height:38px}
+ #help{display:none}
+ .panel{font-size:12px}
+}
+@media(max-width:520px){
+ header{padding:10px 12px}
+ .brand{font-size:16px}
+ .sub{font-size:8px}
+ .links{gap:8px;font-size:11px}
+ .links a:nth-child(2){display:none}
+ .hud{top:67px;max-width:215px}
+ #message{font-size:11px}
+ .reslist{gap:4px}
+ .reslist span{padding:4px 5px;font-size:10px}
+ .side{height:34vh;min-height:180px}
+ #actionDock{bottom:calc(34vh + 23px)}
+ #joystick{bottom:calc(34vh + 24px)}
+ .stat{grid-template-columns:80px 1fr 28px 30px}
+}
+</style>
+</head>
+<body>
+<canvas id="renderCanvas" aria-label="Interactive three-dimensional Genesis Forest world"></canvas>
+<header>
+  <div><div class="brand">WISDO <span>GENESIS</span></div><div class="sub">LIVING WORLDS · SURVIVAL ALPHA</div></div>
+  <div class="links"><span class="pill">PRIVATE GROVE</span><a href="/app/world">World</a><a href="/app/holomode">PRISM</a><a href="/app/dashboard">Dashboard</a></div>
+</header>
+<div class="hud" aria-label="World status">
+  <div class="card"><strong id="region">GENESIS FOREST</strong><div id="weather" class="small">Loading environmental conditions…</div><div class="reslist" id="resources"></div></div>
+  <div class="card" id="message" role="status" aria-live="polite">Connecting to your saved world…</div>
+</div>
+<aside class="side card" aria-label="Genesis survival controls">
+  <div class="sidehead"><h2>Genesis Field Kit</h2><div class="small">Mine · Craft · Build · Morph · Evolve</div></div>
+  <div class="tabs" role="tablist" aria-label="Field kit sections">
+    <button type="button" data-tab="journey" class="active">Journey</button>
+    <button type="button" data-tab="craft">Craft</button>
+    <button type="button" data-tab="build">Build</button>
+    <button type="button" data-tab="echoes">EchoDex</button>
+    <button type="button" data-tab="prism">PRISM DNA</button>
+  </div>
+  <div class="panel active" id="panel-journey">
+    <h3>Welcome to your private grove</h3>
+    <p>Walk to a glowing tree or mineral node and gather it. Craft a pickaxe to mine iron and energy crystals. Gather material for a hut, then discover the three wild Echoforms.</p>
+    <p>Resources respawn. Weather and a Crystal Surge event cycle throughout Genesis. Buildings and inventory are saved to your WISDO account.</p>
+    <div class="option"><strong>Keys / mobile</strong><small>WASD or arrow keys to move · drag to rotate camera · E to gather or scan · joystick and action buttons on touch devices.</small></div>
+    <div class="option"><strong>Current goal</strong><small id="goal">Collect wood and stone.</small></div>
+    <div class="option"><strong>World policy</strong><small>This is a PvE private survival prototype. No raids, paid items, public building, or trading-account actions.</small></div>
+  </div>
+  <div class="panel" id="panel-craft"><h3>Crafting recipes</h3><div id="craft-items"></div></div>
+  <div class="panel" id="panel-build"><h3>Construction blueprints</h3><p>Choose a blueprint and place it a short distance in front of your character. Each placement consumes actual resources and is saved.</p><div id="build-items"></div></div>
+  <div class="panel" id="panel-echoes"><h3>Wild Echoforms</h3><p>Explore and scan each original Genesis creature, complete its resonance offering, then equip its morph to change PRISM's color and stats.</p><div id="echo-items"></div></div>
+  <div class="panel" id="panel-prism">
+    <h3>Customize your PRISM</h3>
+    <div class="selectrow"><label for="prism-name">Character name</label><input id="prism-name" maxlength="24" value="PRISM"></div>
+    <div class="selectrow"><label for="prism-color">Body color</label><select id="prism-color"><option value="#59def4">Cyan Core</option><option value="#ab8dff">Amethyst</option><option value="#75e2a6">Emerald</option><option value="#ffc078">Amber</option><option value="#f38fad">Rose</option><option value="#ffffff">Pearl</option><option value="#ff7272">Crimson</option></select></div>
+    <div class="selectrow"><label for="prism-frame">Body architecture</label><select id="prism-frame"><option value="core">PRISM Core</option><option value="guardian">Armored Guardian</option><option value="nova">Floating Nova</option><option value="android">Android Form</option></select></div>
+    <div class="selectrow"><label for="prism-size">Body size</label><select id="prism-size"><option value="0.8">Compact</option><option value="0.9">Small</option><option value="1" selected>Standard</option><option value="1.1">Tall</option><option value="1.2">Large</option><option value="1.3">Titanic</option></select></div>
+    <div class="selectrow"><label for="prism-eyes">Eye style</label><select id="prism-eyes"><option value="round">Round</option><option value="narrow">Focused</option><option value="wide">Wide</option></select></div>
+    <div class="selectrow"><label for="prism-movement">Companion behavior</label><select id="prism-movement"><option value="follow">Follow me</option><option value="hover">Hover beside me</option><option value="stay">Stay nearby</option></select></div>
+    <button type="button" class="primary" id="save-prism" style="width:100%;margin-top:9px">Save PRISM DNA</button>
+    <h3>Attribute training <span class="pill" id="points">8 points</span></h3>
+    <div id="stat-items" class="stats"></div>
+    <p>Training uses earned points. Morph abilities adjust your world stats; they do not unlock real trading or home permissions.</p>
+  </div>
+</aside>
+<div id="actionDock" aria-label="World interaction">
+  <span id="nearest">Explore the region</span>
+  <button type="button" class="primary" id="interact">Gather / Scan</button>
+  <button type="button" id="build-shortcut">Build Hut</button>
+</div>
+<div id="joystick" aria-label="Touch movement joystick"><div id="joystick-knob"></div></div>
+<div id="help">WASD / arrows · Drag to look · E interact · B build</div>
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="loading"><div class="card"><h1>WISDO GENESIS</h1><p id="load-status">Connecting to your saved world and preparing Genesis Forest…</p><button type="button" id="retry" hidden>Try again</button></div></div>
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script defer src="/js/genesisWorld.js"></script>
+</body>
+</html>
