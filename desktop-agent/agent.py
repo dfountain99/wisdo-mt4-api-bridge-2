@@ -15,6 +15,8 @@ def worker_service_name():
 def restart_wisdo_worker():
   name=worker_service_name()
   if not name: raise RuntimeError('Restart is disabled or WISDO worker service is not allowlisted.')
+  if name.casefold()==os.getenv('WISDO_AGENT_SERVICE_NAME','WISDOAgent').casefold():
+    raise RuntimeError('Restarting the WISDO desktop agent service itself is prohibited.')
   service=psutil.win_service_get(name)
   service_info=service.as_dict()
   if service_info.get('status')=='running':
@@ -124,7 +126,10 @@ def loop():
   while True:
     try:
       if time.time()-last_register>30: register_bots(); last_register=time.time()
-      if time.time()-last_heartbeat>20: report_os_heartbeat(); last_heartbeat=time.time()
+      if time.time()-last_heartbeat>20:
+        try: report_os_heartbeat()
+        except Exception as exc: print('OS heartbeat error:',str(exc)[:200])
+        last_heartbeat=time.time()
       r=requests.post(f'{CLOUD}/api/agent/v1/commands/lease',headers=headers(),json={'limit':10},timeout=15); r.raise_for_status()
       for cmd in r.json().get('commands',[]):
         status,result,message=execute(cmd)
