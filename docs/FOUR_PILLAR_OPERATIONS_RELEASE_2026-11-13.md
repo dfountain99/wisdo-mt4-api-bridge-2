@@ -38,6 +38,10 @@ This release integrates **Full WISDO**, **Trading/VPS**, **Autonomous Cloud Oper
 - Keep signed sessions and authentication cookies enabled; member action routes require a same-origin custom intent header and exact confirmation phrase.
 - Execute the PostgreSQL migration in a staging database before production. Confirm the migration is idempotent. Never call a pending command a broker order execution.
 
+## Secrets and edge reliability
+
+The Sentinel HA detector relay persists unacknowledged events to a private edge file and retries on reconnect, using stable event IDs and PostgreSQL deduplication. Per-device reads require explicit capabilities (`ops_operator` for fleet/trading/recovery, `camera_events` for Sentinel history). Two tracked device-token files were removed from this feature branch and ignored, but both apparent bearer tokens must be rotated on the actual enrolled devices; Git history and any earlier clones remain exposed until a separate history-remediation procedure is performed.
+
 ## Validation & release gate
 
 Run `npm ci`, `npm run check`, `npm run test:security`, and targeted `node --test tests/fourPillarOperations.test.js tests/fourPillarExtended.test.js` on the branch. Validate the Python files with `python -m compileall desktop-agent pi-edge`, then test one real Windows VPS agent and one HA camera detector on staging with private data. Inspect health, simulate disconnect/reconnect, and confirm the operator command remains queued until an agent completion receipt. Release via reviewed pull request and a monitored canary with rollback.
