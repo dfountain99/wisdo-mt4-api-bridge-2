@@ -19,6 +19,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 from home_assistant_bridge import HomeAssistantBridge
+from sentinel_bridge import SentinelBridge
 
 BASE = Path(__file__).resolve().parent
 load_dotenv(BASE / '.env')
@@ -60,6 +61,7 @@ PLAYBACK_LOCK = threading.Lock()
 PLAYBACK_INTERRUPTED = False
 PRESENCE_LAST = False
 PRESENCE_CHECKED_AT = 0.0
+LAST_OS_HEARTBEAT = 0.0
 def load_seen_deliveries():
     try: return deque((line.strip() for line in PLAYED_FILE.read_text(encoding='utf-8').splitlines() if line.strip()), maxlen=256)
     except OSError: return deque(maxlen=256)
@@ -110,6 +112,32 @@ def set_led(state):
                        check=False, timeout=3)
 
 
+def os_heartbeat():
+    """Publish observed edge health without claiming that camera or broker execution succeeded."""
+    global LAST_OS_HEARTBEAT
+    now = time.monotonic()
+    if now - LAST_OS_HEARTBEAT < 30:
+        return
+    LAST_OS_HEARTBEAT = now
+    disk = shutil.disk_usage(str(BASE.anchor or '/'))
+    metrics = {'diskPercent': round(100 * disk.used / disk.total, 2)} if disk.total else {}
+    if platform.system().lower() == 'linux':
+        try:
+            fields = {}
+            for line in Path('/proc/meminfo').read_text().splitlines():
+                parts = line.split(':', 1)
+                if len(parts) == 2 and parts[0] in ('MemTotal', 'MemAvailable'):
+                    fields[parts[0]] = int(parts[1].strip().split()[0])
+            if fields.get('MemTotal') and 'MemAvailable' in fields:
+                metrics['memoryPercent'] = round(100 * (1 - fields['MemAvailable'] / fields['MemTotal']), 2)
+        except OSError:
+            pass
+    response = requests.post(f'{CLOUD}/api/os/v1/nodes/heartbeat', headers=headers(),
+                             json={'nodeId': DEVICE_ID, 'name': os.getenv('WISDO_DEVICE_NAME', DEVICE_ID),
+                                   'role': 'edge', 'metrics': metrics}, timeout=10)
+    response.raise_for_status()
+
+
 def heartbeat(listening=False):
     payload = {'muted': muted(), 'listening': listening, 'ledState': LED_STATE}
     response = requests.post(f'{CLOUD}/api/voice/v1/devices/heartbeat', headers=headers(),
@@ -121,6 +149,9 @@ def heartbeat(listening=False):
                                                        'smartHome': bool(os.getenv('WISDO_HOME_ASSISTANT_URL','').strip() and os.getenv('WISDO_HOME_ASSISTANT_TOKEN','').strip())},
                                        **payload}, timeout=10)
     response.raise_for_status()
+    try: os_heartbeat()
+    except (requests.RequestException, OSError, ValueError) as exc:
+        print('WISDO edge operations telemetry unavailable:', str(exc)[:150])
 
 
 def microphone_audio(cancel_event=None, max_seconds_override=None, timeout_override=None):
@@ -506,6 +537,9 @@ def main():
     home_bridge = HomeAssistantBridge(CLOUD, DEVICE_ID, TOKEN_FILE)
     if home_bridge.start():
         print('WISDO Home Assistant bridge enabled: local smart-home discovery/control is active.')
+    sentinel_bridge = SentinelBridge(CLOUD, DEVICE_ID, TOKEN_FILE)
+    if sentinel_bridge.start():
+        print('WISDO Sentinel enabled: mapped Home Assistant camera sensors are being monitored.')
     elif os.getenv('WISDO_HOME_ASSISTANT_URL','').strip() or os.getenv('WISDO_HOME_ASSISTANT_TOKEN','').strip():
         print('WISDO Home Assistant bridge is not fully configured; smart-home execution remains disabled.')
     print(f'Wisdo Edge ready on {platform.system()} ({DEVICE_ID}).')
@@ -572,6 +606,10 @@ def main():
             try: heartbeat(False)
             except Exception: pass
             if LED_STATE not in ('speaking', 'muted'): set_led('idle')
+    try:
+        sentinel_bridge.stop()
+    except Exception:
+        pass
     try:
         home_bridge.stop()
     except Exception:

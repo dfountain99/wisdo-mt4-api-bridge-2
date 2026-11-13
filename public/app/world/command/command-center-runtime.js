@@ -53,7 +53,7 @@ function markup(){
           <div class="ap-figure" role="img" aria-label="WISDO, a bronze and obsidian holographic intelligence transforming into rainbow crystalline energy">
             <div class="ap-orbit" aria-hidden="true"></div>
             <img class="ap-character" src="/app/world/command/aether-prism-character-v1.png" alt="" loading="eager" decoding="async">
-            <div class="ap-modes" aria-label="Current character form"><span id="apModeSentinel" aria-current="true">SENTINEL</span><span id="apModePrism" aria-current="false">PRISM</span><span id="apModeGuardian" aria-current="false">GUARDIAN</span></div>
+            <div class="ap-modes" aria-label="Current character form"><span id="apModeSentinel" aria-current="true">SENTINEL</span><span id="apModePrism" aria-current="false">PRISM</span><span id="apModeGuardian" aria-current="false">GUARDIAN</span><a href="/app/os" title="Open the authenticated VPS and Cloud OS console">VPS MODE</a></div>
           </div>
           <section class="ap-panel ap-recovery" aria-label="PRISM recovery telemetry">
             <span class="ap-panel-eyebrow">INDEPENDENT RECOVERY</span><h2>PRISM RECOVERY</h2>

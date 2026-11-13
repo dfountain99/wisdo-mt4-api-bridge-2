@@ -17,3 +17,7 @@ node_modules/
 *.pem
 *.key
 *.p12
+
+# Enrollment secrets are generated on devices and must never be committed.
+desktop-agent/data/device-token
+pi-edge/data/device-token

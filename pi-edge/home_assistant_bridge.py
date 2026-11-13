@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import threading
 import time
@@ -120,6 +121,56 @@ class HomeAssistantBridge:
         self.last_sync_at = 0.0
         self.last_error = ''
         self.registered = 0
+        # Mapping is explicit: a real HA binary sensor -> an approved HA camera.
+        # No video, face recognition, or identity inference is transmitted.
+        mapping = json.loads(os.getenv('WISDO_SENTINEL_ENTITY_MAP', '{}') or '{}')
+        if not isinstance(mapping, dict) or len(mapping) > 128:
+            raise ValueError('WISDO_SENTINEL_ENTITY_MAP must contain at most 128 mapped sensors.')
+        self.sentinel_map = {}
+        for sensor_id, config in mapping.items():
+            if not isinstance(sensor_id, str) or not sensor_id.startswith('binary_sensor.'):
+                raise ValueError('Sentinel sources must be exact binary_sensor.* entity IDs.')
+            if not isinstance(config, dict):
+                raise ValueError('Each Sentinel source must declare camera and eventType.')
+            camera_id = str(config.get('camera', ''))
+            event_type = str(config.get('eventType', ''))
+            if not (camera_id.startswith('camera.') and
+                    all(c.isalnum() or c in '._-' for c in camera_id) and
+                    event_type in ('motion','person','vehicle','animal','package','sound','tamper','unknown')):
+                raise ValueError('Invalid explicitly mapped camera or eventType.')
+            self.sentinel_map[sensor_id] = {'camera': camera_id, 'eventType': event_type}
+        self.sentinel_poll_seconds = max(5.0, float(os.getenv('WISDO_SENTINEL_POLL_SECONDS', '15')))
+        self.last_sentinel_poll_at = 0.0
+        self.sentinel_state_path = Path(os.getenv('WISDO_SENTINEL_STATE_FILE') or
+                                        (self.token_file.parent / 'sentinel-state.json'))
+        self.sentinel_last_seen, self.sentinel_pending = self._load_sentinel_state()
+
+    def _load_sentinel_state(self):
+        try:
+            data = json.loads(self.sentinel_state_path.read_text(encoding='utf-8'))
+            last_seen = data.get('last_seen', {})
+            pending = data.get('pending', {})
+            if not isinstance(last_seen, dict) or not isinstance(pending, dict):
+                raise ValueError('Invalid Sentinel edge state record.')
+            states = {k: tuple(v) for k, v in last_seen.items()
+                      if k in self.sentinel_map and isinstance(v, list) and len(v) == 2}
+            queue = {k: v for k, v in pending.items()
+                     if isinstance(k, str) and len(k) == 64 and isinstance(v, dict)}
+            return states, dict(list(queue.items())[:200])
+        except (OSError, ValueError, TypeError):
+            return {}, {}
+
+    def _persist_sentinel_state(self):
+        self.sentinel_state_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.sentinel_state_path.with_suffix('.tmp')
+        state = {'last_seen': {k: list(v) for k, v in self.sentinel_last_seen.items()},
+                 'pending': self.sentinel_pending}
+        fd = os.open(str(temporary), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w', encoding='utf-8') as handle:
+            json.dump(state, handle, separators=(',', ':'))
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(self.sentinel_state_path)
 
     @property
     def enabled(self):
@@ -161,6 +212,9 @@ class HomeAssistantBridge:
                     self.sync_components()
                     self.last_sync_at = now
                 self.poll_executions()
+                if self.sentinel_map and now-self.last_sentinel_poll_at >= self.sentinel_poll_seconds:
+                    self.last_sentinel_poll_at = now
+                    self.poll_sentinel_events()
                 self.last_error = ''
             except Exception as exc:
                 self.last_error = str(exc)[:300]
@@ -210,6 +264,58 @@ class HomeAssistantBridge:
                 'matter_thread_via_home_assistant': True,
             },
         }
+
+
+    def poll_sentinel_events(self):
+        """Persist actual, explicitly mapped HA transitions without guessing identities.
+
+        Initial HA sensor states establish a baseline; only later ON transitions
+        count as new detections. Failed posts remain durably queued across restarts.
+        """
+        entities = {e.get('entity_id'): e for e in self.discover() if isinstance(e, dict)}
+        changed_state = False
+        for sensor_id, binding in self.sentinel_map.items():
+            sensor = entities.get(sensor_id)
+            if not isinstance(sensor, dict):
+                continue
+            state = str(sensor.get('state', '')).lower()
+            changed = _clean(sensor.get('last_changed'))
+            if not changed:
+                continue
+            observed = (state, changed)
+            previous = self.sentinel_last_seen.get(sensor_id)
+            self.sentinel_last_seen[sensor_id] = observed
+            if previous != observed:
+                changed_state = True
+            if previous is None or previous == observed or state != 'on':
+                continue
+            event_id = hashlib.sha256((self.device_id+'|'+sensor_id+'|'+changed).encode('utf-8')).hexdigest()
+            if len(self.sentinel_pending) >= 200 and event_id not in self.sentinel_pending:
+                raise RuntimeError('Sentinel relay backlog full; cannot safely accept more events.')
+            self.sentinel_pending[event_id] = {
+                'componentId': f"ha:{self.device_id}:{binding['camera']}",
+                'sourceEventId': event_id, 'eventType': binding['eventType'],
+                'occurredAt': changed,
+                'details': {'zone': binding['camera'], 'source': 'home_assistant_binary_sensor'}
+            }
+        # Write event queue before sending; a crash can then replay with the same
+        # event id and the server's unique key prevents duplicate alerts.
+        if changed_state:
+            self._persist_sentinel_state()
+        posted = 0
+        for event_id, payload in list(self.sentinel_pending.items()):
+            response = self.session.post(
+                f'{self.cloud}/api/os/v1/sentinel/events',
+                headers=self.wisdo_headers(), json=payload, timeout=self.timeout
+            )
+            response.raise_for_status()
+            receipt = response.json()
+            if not receipt.get('ok') or not (receipt.get('recorded') or receipt.get('duplicate')):
+                raise RuntimeError('WISDO did not confirm durable Sentinel event receipt.')
+            del self.sentinel_pending[event_id]
+            self._persist_sentinel_state()
+            posted += 1
+        return posted
 
     def sync_components(self):
         count = 0
