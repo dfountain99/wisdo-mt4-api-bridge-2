@@ -19,7 +19,7 @@ const RESPAWNS = Object.freeze({wood:25000,stone:35000,iron:55000,crystal:75000}
 const REWARDS = Object.freeze({wood:2,stone:2,iron:1,crystal:1});
 export const RESOURCE_NODES = Object.freeze(Object.entries(RESOURCE_LOCATIONS).flatMap(([type,points]) =>
   points.map(([x,z],i)=>Object.freeze({id:type+'-'+(i+1),type,x,z,respawnMs:RESPAWNS[type]})
-));
+)));
 export const RECIPES = Object.freeze({
   planks:{label:'Saw 4 Planks',requires:{wood:2},grants:{planks:4}},
   pickaxe:{label:'Stone Pickaxe',requires:{wood:3,stone:3},grants:{pickaxe:1}},
