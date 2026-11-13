@@ -248,7 +248,7 @@
   function applyWeather(){
     if(!scene||!game)return;
     const dark=game.world.timeOfDay==='Night'||game.world.timeOfDay==='Dusk';
-    lighting.intensity=dark?.43:.93;
+    lighting.intensity=dark ? .43 : .93;
     scene.clearColor=dark?new BABYLON.Color4(.025,.038,.11,1):new BABYLON.Color4(.075,.20,.27,1);
   }
   function syncScene(){
@@ -278,7 +278,7 @@
       player.position.x=Math.max(-37,Math.min(37,player.position.x+dx));
       player.position.z=Math.max(-37,Math.min(37,player.position.z+dz));
       player.rotation.y=Math.atan2(dx,dz);
-      if(now-lastMoveAt>880)sendPosition();
+      if(now-lastMoveAt>880)sendPosition().catch(()=>{});
     }
     camera.target.set(player.position.x,1.45,player.position.z);
     const mode=game.character.movement;
