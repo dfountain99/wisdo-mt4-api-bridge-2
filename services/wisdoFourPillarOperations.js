@@ -263,6 +263,50 @@ export class WisdoFourPillarOperations {
     )).rows;
   }
 
+
+  async prepareVps(ownerUserId, deviceId) {
+    const owner = String(ownerUserId || '').trim();
+    if (!owner) throw failure('Signed-in member is required.', 401);
+    const id = identifier(deviceId, 'deviceId');
+    const result = await this.pool.query(
+      "SELECT d.device_id,d.capabilities,d.last_seen_at FROM wisdo_devices d " +
+      "JOIN wisdo_os_nodes n ON n.owner_user_id=d.owner_user_id AND n.device_id=d.device_id " +
+      "WHERE d.owner_user_id=$1 AND d.device_id=$2 AND d.device_type='desktop-agent' AND d.status='active' " +
+      "AND n.node_role='vps' AND d.last_seen_at>NOW()-INTERVAL '90 seconds' LIMIT 1",
+      [owner,id]
+    );
+    const device = result.rows[0];
+    if (!device || device.capabilities?.prepare_trading_workspace !== true) {
+      throw failure('No live, authorized VPS desktop with a configured MT4 terminal.', 409, 'vps_not_available');
+    }
+    const queued = await this.commandBusService.issueSystemCommand(owner,{
+      intent:'prepare_trading_workspace',
+      source:'confirmed_member_vps_control',
+      target:{type:'desktop',id},
+      requiredCapability:'prepare_trading_workspace',
+      expiresInSeconds:90,
+      priority:75,
+      parameters:{},
+    });
+    return {status:'queued',commandId:queued.command_id,executionConfirmed:false,
+      executionTruth:'wait_for_enrolled_desktop_agent_receipt'};
+  }
+
+  async commandStatus(ownerUserId, commandId) {
+    const owner = String(ownerUserId || '').trim();
+    if (!owner) throw failure('Signed-in member is required.', 401);
+    const id = String(commandId || '').trim();
+    if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)) throw failure('Invalid command identifier.');
+    const result = await this.pool.query(
+      "SELECT command_id,intent,target_id,status,result_message,created_at,completed_at " +
+      "FROM wisdo_commands WHERE command_id=$1::uuid AND owner_user_id=$2 LIMIT 1",
+      [id,owner]
+    );
+    if (!result.rows[0]) throw failure('Command not found for this account.', 404, 'command_not_found');
+    return {...result.rows[0],executionConfirmed:result.rows[0].status==='completed',
+      authority:'enrolled_agent_command_receipt'};
+  }
+
   async overview(ownerUserId) {
     const [nodes,trading,sentinel,recoveries] = await Promise.all([
       this.nodes(ownerUserId),this.tradingAccounts(ownerUserId),
