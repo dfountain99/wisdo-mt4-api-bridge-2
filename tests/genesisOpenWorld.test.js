@@ -11,6 +11,22 @@ import {
   ECHOES,BUILDINGS,moveSpeed
 } from '../services/genesisGameService.js';
 
+import { resolveGenesisLandmark } from '../public/js/genesisTerrain.js';
+
+test('Waystone and landmark lookup resolves every fixed location without a browser',()=>{
+  for(const entry of WAYSTONES){
+    const found=resolveGenesisLandmark(entry.x,entry.z);
+    assert.equal(found?.entry.id,entry.id);
+    assert.equal(found?.waystone,true);
+  }
+  for(const entry of LANDMARKS){
+    const found=resolveGenesisLandmark(entry.x,entry.z);
+    assert.equal(found?.entry.id,entry.id);
+    assert.equal(found?.waystone,false);
+  }
+  assert.equal(resolveGenesisLandmark(1599,1599),null);
+});
+
 const NOW=Date.UTC(2026,10,13,19,0,0);
 const act=(p,body,x=0,z=0,t=NOW)=>applyGenesisAction(p,body,{x,z},t);
 
