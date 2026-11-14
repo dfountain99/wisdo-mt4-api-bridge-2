@@ -661,6 +661,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     buildGhost?.dispose(false,false);buildGhost=null;
     buildGhostMaterial?.dispose();buildGhostMaterial=null;
     buildSelection=null;buildRotation=0;
+    $('build-shortcut').disabled=false;
     $('build-rotate').hidden=true;$('build-cancel').hidden=true;
     $('build-shortcut').textContent='Build Hut';
     $('build-mode-status').textContent='Choose a blueprint to start construction.';
