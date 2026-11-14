@@ -8,6 +8,7 @@ import {
  CHUNK_SIZE,WORLD_LIMIT,BIOMES,WAYSTONES,LANDMARKS,
  terrainHeight,biomeColor,biomeAt,worldChunk,chunkKey,valueNoise,
 } from './genesisWorldMap.js';
+import {genesisGraphicsPreset} from './genesisGraphicsQuality.js';
 
 function tone(hex){return BABYLON.Color3.FromHexString(hex);}
 function rng(cx,cz,i,seed=0){
@@ -49,7 +50,8 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
  if(!scene||!globalThis.BABYLON)throw Error('Babylon scene required for Genesis terrain.');
  const active=new Map(), special=new Map(),materialCache=new Map();
  let artLibrary=null;
- const radius=2, subdivisions=mobile?12:20;
+ const radius=2;
+ let graphics=genesisGraphicsPreset('balanced',mobile);
  const terrainMat=new BABYLON.StandardMaterial('genesis-terrain-vertex-colors',scene);
  terrainMat.diffuseColor=new BABYLON.Color3(1,1,1);
  terrainMat.specularColor=new BABYLON.Color3(.035,.06,.06);
@@ -129,6 +131,7 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
    mesh.parent=root;
    const p=[],indices=[],normals=[],colors=[],uvs=[];
    const centerX=(cx+.5)*CHUNK_SIZE,centerZ=(cz+.5)*CHUNK_SIZE;
+   const subdivisions=graphics.subdivisions;
    for(let zi=0;zi<=subdivisions;zi++)for(let xi=0;xi<=subdivisions;xi++){
      const worldX=cx*CHUNK_SIZE+xi/subdivisions*CHUNK_SIZE;
      const worldZ=cz*CHUNK_SIZE+zi/subdivisions*CHUNK_SIZE;
@@ -147,7 +150,7 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
    const biome=biomeAt(centerX,centerZ);
    // GPU thin-instances: small meshes + a single matrix buffer for every tree.
    const trunks=[],canopies=[],leafTips=[],groundRocks=[],sparkles=[],grasses=[],blossoms=[];
-   const count=artLibrary?(mobile?5:10):(mobile?11:20);
+   const count=artLibrary?graphics.trees:Math.ceil(graphics.trees*1.4);
    for(let i=0;i<count;i++){
      const x=cx*CHUNK_SIZE+5+rng(cx,cz,i,33)*(CHUNK_SIZE-10);
      const z=cz*CHUNK_SIZE+5+rng(cx,cz,i,91)*(CHUNK_SIZE-10);
@@ -205,7 +208,7 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
    }
    // Small-scale understory adds visual depth without extra independent draw calls.
    // Decorative objects are deterministic and never participate in resource rewards.
-   const groundDetails=mobile?38:75;
+   const groundDetails=graphics.decorations;
    for(let i=0;i<groundDetails;i++){
      const x=cx*CHUNK_SIZE+3+rng(cx,cz,i,180)*(CHUNK_SIZE-6);
      const z=cz*CHUNK_SIZE+3+rng(cx,cz,i,202)*(CHUNK_SIZE-6);
@@ -336,6 +339,14 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
  for(const entry of WAYSTONES)landmark(entry.x,entry.z);
  for(const entry of LANDMARKS)landmark(entry.x,entry.z);
  let previousCell=null;
+ function setQuality(mode){
+   const next=genesisGraphicsPreset(mode,mobile);
+   if(graphics.mode===next.mode)return graphics;
+   graphics=next;
+   for(const root of active.values())root.dispose(false,false);
+   active.clear();previousCell=null;
+   return graphics;
+ }
  function setArtLibrary(library){
    if(!library||!library.available?.some(name=>name.startsWith('tree')))return false;
    if(artLibrary===library)return true;
@@ -378,5 +389,5 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
    for(const m of materialCache.values())m.dispose();
    artLibrary?.dispose();
  }
- return {update,setArtLibrary,dispose,activeChunkCount:()=>active.size,terrainHeight,biomeAt};
+ return {update,setArtLibrary,setQuality,dispose,activeChunkCount:()=>active.size,terrainHeight,biomeAt};
 }
