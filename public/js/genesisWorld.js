@@ -9,7 +9,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   const esc=(s)=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
   const clean=(s)=>String(s||'').replace(/_/g,' ');
   let game=null,scene=null,engine=null,camera=null,player=null,prism=null,lighting=null,sunLight=null,terrainSystem=null;
-  let mats={},prismPieces={},nodeMeshes=new Map(),structureMeshes=new Map(),echoMeshes=new Map();
+  let mats={},prismPieces={},nodeMeshes=new Map(),structureMeshes=new Map(),echoMeshes=new Map(),playerAnimation=null;
   let ready=false,pending=false,movePromise=null,refreshPromise=null,lastMoveAt=0,lastRefreshAt=0,lastHintAt=0,lastFrame=0,toastTimeout=0;
   const held=new Set(),joystick={x:0,y:0,active:false};
   let lookAt=null,stayAnchor=null;
@@ -178,6 +178,30 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     for(const x of [-.59,.59])block(player,'arm',[.24,1.05,.32],mats.armor,x,1.34,0);
     for(const x of [-.23,.23])block(player,'leg',[.32,.78,.4],mats.dark,x,.40,0);
   }
+  function upgradePlayerAvatar(assets){
+    if(!player||!assets.has('explorer')||playerAnimation)return false;
+    const oldMeshes=player.getChildMeshes(false);
+    const instance=assets.spawn('explorer',player,0,0,0,{scale:1.55,rotation:Math.PI});
+    if(!instance)return false;
+    oldMeshes.forEach(mesh=>mesh.setEnabled(false));
+    const clips=instance.animationGroups||[];
+    const pick=name=>clips.find(g=>g.name===name)||null;
+    playerAnimation={idle:pick('Idle'),walk:pick('Walking_A'),run:pick('Running_A'),current:null};
+    if(playerAnimation.idle){
+      playerAnimation.current=playerAnimation.idle;
+      playerAnimation.idle.start(true,1,playerAnimation.idle.from,playerAnimation.idle.to);
+    }
+    return true;
+  }
+  function updatePlayerAnimation(movement){
+    if(!playerAnimation)return;
+    const target=movement>.8?(playerAnimation.run||playerAnimation.walk):
+      movement>.04?playerAnimation.walk:playerAnimation.idle;
+    if(!target||target===playerAnimation.current)return;
+    playerAnimation.current?.stop();
+    playerAnimation.current=target;
+    target.start(true,movement>.8?1.0:1.0,target.from,target.to);
+  }
   function makePrism(){
     prism=rootAt('prism',game.position.x-2,game.position.z-2);
     const body=material('prism-body',game.character.color,true);
@@ -226,7 +250,8 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       if(terrainSystem?.setArtLibrary(library)){
         terrainSystem.update(player?.position.x??game.position.x,
           player?.position.z??game.position.z,{force:true});
-        announce('New textured forests loaded. Explore the upgraded Genesis world!');
+        upgradePlayerAvatar(library);
+        announce('New 3D scenery and character graphics loaded!');
       }else library.dispose();
     }).catch(error=>{
       console.warn('Genesis 3D art load failed; using safe built-in scenery:',error);
@@ -329,6 +354,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     let lateral=(held.has('d')||held.has('arrowright')?1:0)-(held.has('a')||held.has('arrowleft')?1:0)+joystick.x;
     let forward=(held.has('w')||held.has('arrowup')?1:0)-(held.has('s')||held.has('arrowdown')?1:0)-joystick.y;
     const mag=Math.hypot(lateral,forward);
+    updatePlayerAnimation(mag);
     if(mag>.04){
       lateral/=Math.max(1,mag);forward/=Math.max(1,mag);
       const f=cameraForward();
