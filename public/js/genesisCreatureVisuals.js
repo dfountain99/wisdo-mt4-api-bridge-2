@@ -26,10 +26,14 @@ export function buildGenesisHybrid(scene,parent,echo,{companion=false,mobile=fal
  dark.albedoColor=new B.Color3(.045,.085,.125);
  dark.roughness=.76;
  const all=[coat,shell,accent,dark];
+ const moving={wings:[],tails:[],cores:[]};
  function ball(name,at,scale,mat=coat,segments=mobile?10:14){
   const m=B.MeshBuilder.CreateSphere(name,{diameter:1,segments},scene);
   m.parent=creatureRoot;m.position.set(...at);m.scaling.set(...scale);
-  m.material=mat;m.isPickable=false;return m;
+  m.material=mat;m.isPickable=false;
+  if(name==='tail-segment')moving.tails.push(m);
+  if(name==='resonance-heart')moving.cores.push(m);
+  return m;
  }
  function joint(name,from,to,width,mat=coat){
   const a=new B.Vector3(...from),b=new B.Vector3(...to);
@@ -63,7 +67,8 @@ export function buildGenesisHybrid(scene,parent,echo,{companion=false,mobile=fal
   const pathB=[[s*.38,1.65,.17],[s*.91,1.85,.12],[s*1.76,1.85,.16],[s*2.24,1.9,.28]];
   const pathArray=[pathA,pathB].map(path=>path.map(p=>new B.Vector3(...p)));
   const wing=B.MeshBuilder.CreateRibbon(name,{pathArray,sideOrientation:B.Mesh.DOUBLESIDE},scene);
-  wing.parent=creatureRoot;wing.material=mat;wing.isPickable=false;return wing;
+  wing.parent=creatureRoot;wing.material=mat;wing.isPickable=false;
+  moving.wings.push(wing);return wing;
  }
  const style=echo.silhouette;
  const serpent=style==='serpent';
@@ -141,6 +146,21 @@ export function buildGenesisHybrid(scene,parent,echo,{companion=false,mobile=fal
  }
  return {
   root:creatureRoot,
+  animate(pose){
+   if(!pose)return;
+   creatureRoot.rotation.z=(pose.tailSway||0)*.025;
+   moving.wings.forEach((wing,i)=>{
+     wing.rotation.z=(i%2===0?-1:1)*(.11+(pose.wingFlap||0)*.20);
+   });
+   moving.tails.forEach((tail,i)=>{
+     tail.rotation.y=(pose.tailSway||0)*(.07+.025*i);
+   });
+   moving.cores.forEach(core=>{
+     core.scaling.x=.44+(.5+(pose.pulse||0)*.5)*.08;
+     core.scaling.y=.50+(pose.breath||0)*.04;
+   });
+   accent.emissiveColor=color.scale(.25+(pose.pulse||0)*.28);
+  },
   dispose:()=>{creatureRoot.dispose(false,false);all.forEach(m=>m.dispose());}
  };
 }
