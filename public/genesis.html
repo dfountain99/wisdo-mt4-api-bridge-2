@@ -177,6 +177,18 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
     <p>Explore six connected biomes—Genesis Forest, Neon Metropolis, Titan Wastes, Aether Skies, Crystal Grotto and Sunken Marsh. Follow distant landmarks, find new Echoforms, harvest rare minerals and build wherever the private world allows.</p>
     <p>Terrain and scenery stream as you travel, so the world extends far beyond the current view. Gather starter resources, build a hut, or follow a Waystone portal to another region. Your inventory, structures, and PRISM morphs remain saved.</p>
     <div class="option"><strong>Keys / mobile</strong><small>WASD or arrow keys to move · drag to rotate camera · E to gather or scan · joystick and action buttons on touch devices.</small></div>
+    <div class="option"><strong>Graphics quality</strong>
+      <div class="row" style="display:flex;align-items:center;gap:10px;justify-content:space-between">
+        <label for="graphics-quality">Render detail</label>
+        <select id="graphics-quality" aria-label="Select graphics quality">
+          <option value="performance">Performance</option>
+          <option value="balanced" selected>Balanced</option>
+          <option value="cinematic">Cinematic</option>
+        </select>
+        <span class="pill" id="graphics-fps">— FPS</span>
+      </div>
+      <small>Cinematic increases scenery density and terrain resolution. Switch back if the phone slows down.</small>
+    </div>
     <div class="option"><strong>Current goal</strong><small id="goal">Collect wood and stone.</small></div>
     <div class="option"><strong>World policy</strong><small>This is a PvE private survival prototype. This is your private world. No raids, cross-user building edits, real trading-account actions, or unattended security controls.</small></div>
   </div>
