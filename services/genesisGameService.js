@@ -2,6 +2,10 @@ import {
  WORLD_LIMIT as MAP_LIMIT, CHUNK_SIZE, WAYSTONES, LANDMARKS,
  biomeAt, nearbyGeneratedNodes, generatedNodeFromId, RESOURCE_REWARDS,
 } from '../public/js/genesisWorldMap.js';
+import {
+ GENESIS_HYBRIDS,hybridById,activeResonance,resonanceHarvestBonus,
+ resonanceScanDistance,resonanceStatBonus,
+} from '../public/js/genesisHybrids.js';
 // WISDO Genesis v2: server-authoritative open world with six explorable biomes.
 // The renderer never awards resources, owns inventory, or approves structures.
 export const GENESIS_VERSION = 'genesis-open-world-v2';
@@ -17,6 +21,7 @@ export const ECHOES = Object.freeze([
   {id:'aetherwing',name:'Aetherwing',x:-855,z:-715,description:'Aerial agility and high-altitude resonance.',cost:{aether_shard:5,crystal:2},bonus:{agility:28,energy:22},color:'#b3b5ff'},
   {id:'mirestalker',name:'Mirestalker',x:-490,z:1140,description:'Adaptable marsh exploration and natural stealth.',cost:{moonleaf:6,wood:3},bonus:{defense:12,agility:18,intelligence:10},color:'#83deb3'},
   {id:'lumen-stag',name:'Lumen Stag',x:-590,z:510,description:'Grotto resonance, light and exploration awareness.',cost:{crystal:4,aether_shard:2},bonus:{intelligence:22,energy:18,agility:8},color:'#65ffe7'},
+  ...GENESIS_HYBRIDS,
 ]);
 const RESOURCE_LOCATIONS = Object.freeze({
   wood:[[5,4],[2,12],[-8,8],[-12,-4],[13,11],[-18,19],[20,-12],[-28,-4],[28,7],[0,-20],[16,22],[-5,27]],
@@ -65,7 +70,8 @@ export function createGenesisProfile(userId,now=Date.now()){
   schemaVersion:1,userId:String(userId),createdAt:nowString(now),updatedAt:nowString(now),
   character:{name:'PRISM',color:'#59def4',movement:'follow',frame:'core',size:1,eyeStyle:'round',equipped:'core',statTraining:Object.fromEntries(STAT_KEYS.map(k=>[k,0]))},
   inventory:{...DEFAULT_INVENTORY},xp:0,statPoints:8,structures:[],
-  depleted:{},discovered:[],echoforms:[],lastMessage:'Welcome to Genesis Forest. Collect wood and stone to craft your first tools.',
+  depleted:{},discovered:[],echoforms:[],resonanceCooldowns:{},activeResonance:null,
+  lastMessage:'Welcome to Genesis Forest. Collect wood and stone to craft your first tools.',
  };
 }
 export function ensureGenesisProfile(state,userId,now=Date.now()){
@@ -79,15 +85,18 @@ export function ensureGenesisProfile(state,userId,now=Date.now()){
  profile.structures ||= [];
  profile.echoforms ||= [];
  profile.discovered ||= [];
+ profile.resonanceCooldowns ||= {};
+ profile.activeResonance ||= null;
  return profile;
 }
-export function getStats(profile){
+export function getStats(profile,now=Date.now()){
  const equip=ECHOES.find(x=>x.id===profile.character.equipped);
  return Object.fromEntries(STAT_KEYS.map(key=>[key,
-  Math.max(10,Math.min(100,50+3*(profile.character.statTraining?.[key]||0)+(equip?.bonus?.[key]||0)))
+  Math.max(10,Math.min(100,50+3*(profile.character.statTraining?.[key]||0)+
+   (equip?.bonus?.[key]||0)+resonanceStatBonus(profile,key,now)))
  ]));
 }
-export function moveSpeed(profile){return 2.7+getStats(profile).speed/22;}
+export function moveSpeed(profile,now=Date.now()){return 2.7+getStats(profile,now).speed/22;}
 export function worldWeather(now=Date.now()){
  const quarter=Math.floor(now/900000);
  const stages=['Dawn','Day','Dusk','Night'];
@@ -101,7 +110,13 @@ export function profileSnapshot(profile,position={x:0,z:0},now=Date.now()){
     biome:biomeAt(position.x,position.z).id,biomeName:biomeAt(position.x,position.z).name,
     waystones:WAYSTONES,landmarks:LANDMARKS},
   area:biomeAt(position.x,position.z).name,
-  world:worldWeather(now),stats:getStats(profile),speed:moveSpeed(profile),
+  world:worldWeather(now),stats:getStats(profile,now),speed:moveSpeed(profile,now),
+  resonance:{
+    active:(()=>{const value=activeResonance(profile,now);return value?{
+      form:value.form,name:value.power.name,kind:value.kind,expiresAt:value.expiresAt
+    }:null;})(),
+    cooldowns:Object.fromEntries(GENESIS_HYBRIDS.map(c=>[c.id,Math.max(0,(profile.resonanceCooldowns?.[c.id]||0)-now)])),
+  },
   character:profile.character,inventory:{...DEFAULT_INVENTORY,...profile.inventory},statPoints:profile.statPoints,xp:profile.xp,
   structures:profile.structures,
   resources:[
@@ -137,12 +152,14 @@ export function applyGenesisAction(profile,body,position,now=Date.now()){
   // Live ecology: rainy forests replenish more quickly and crystal surges increase yield.
   const bonus=(weather==='Light Rain'&&(node.type==='wood'||node.type==='moonleaf'))||
     (weather==='Crystal Storm'&&['crystal','aether_shard'].includes(node.type))?1:0;
-  const yieldCount=(RESOURCE_REWARDS[node.type]||REWARDS[node.type]||1)+bonus;
+  const resonanceYield=resonanceHarvestBonus(profile,node.type,now);
+  const yieldCount=(RESOURCE_REWARDS[node.type]||REWARDS[node.type]||1)+bonus+resonanceYield;
   profile.inventory[node.type]+=yieldCount;
   profile.depleted[node.id]=now+Math.floor(node.respawnMs*(weather==='Light Rain'&&(node.type==='wood'||node.type==='moonleaf') ? .70 : 1));
   if(Object.keys(profile.depleted).length>600)for(const [key,expires] of Object.entries(profile.depleted))if(expires<=now)delete profile.depleted[key];
   award(profile,node.type==='crystal'?5:node.type==='iron'?3:2);
-  message='Collected '+yieldCount+' '+node.type+(bonus?' (ecosystem bonus)':'')+'.';
+  message='Collected '+yieldCount+' '+node.type+(bonus?' (ecosystem bonus)':'')+
+   (resonanceYield?' (PRISM resonance +1)':'')+'.';
  }else if(action==='craft'){
   const key=String(body.recipe||'');
   const recipe=lookup(RECIPES,key);
@@ -167,7 +184,7 @@ export function applyGenesisAction(profile,body,position,now=Date.now()){
  }else if(action==='scan'){
   const echo=ECHOES.find(x=>x.id===body.echoId);
   if(!echo)throw fail('Unknown Echoform.');
-  near(position,echo,6);
+  near(position,echo,resonanceScanDistance(profile,now));
   if(!profile.discovered.includes(echo.id)){profile.discovered.push(echo.id);award(profile,8);}
   message='Scanned '+echo.name+'. '+echo.description+' Complete its resonance offering to bond.';
  }else if(action==='bond'){
@@ -183,6 +200,18 @@ export function applyGenesisAction(profile,body,position,now=Date.now()){
   if(form!=='core'&&!profile.echoforms.includes(form))throw fail('Discover and bond this form first.');
   profile.character.equipped=form;
   message=form==='core'?'PRISM returned to Core form.':'PRISM morphed into '+ECHOES.find(e=>e.id===form).name+'.';
+ }else if(action==='activate'){
+  const form=String(body.form||'');
+  const creature=hybridById(form);
+  if(!creature||!profile.echoforms.includes(form)||profile.character.equipped!==form)
+   throw fail('Bond and equip this hybrid before activating its power.');
+  profile.resonanceCooldowns ||= {};
+  if((profile.resonanceCooldowns[form]||0)>now)
+   throw fail('Resonance recharging: '+Math.ceil((profile.resonanceCooldowns[form]-now)/1000)+'s.');
+  profile.activeResonance={form,kind:creature.power.kind,expiresAt:now+creature.power.durationMs};
+  profile.resonanceCooldowns[form]=now+creature.power.cooldownMs;
+  message=creature.name+' activated '+creature.power.name+' for '+
+   Math.ceil(creature.power.durationMs/1000)+'s.';
  }else if(action==='train'){
   const stat=String(body.stat||'');
   if(!STAT_KEYS.includes(stat))throw fail('Unknown attribute.');
