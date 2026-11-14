@@ -255,7 +255,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       }else library.dispose();
     }).catch(error=>{
       console.warn('Genesis 3D art load failed; using safe built-in scenery:',error);
-      // Do not silently present primitive placeholders as the upgraded game.
+      // Do not silently present primitive primitive fallbacks as the upgraded game.
       // Surface the reason inside the HUD so phone users can report it.
       announce('3D graphics fallback: '+String(error?.message||error).slice(0,130),true);
     });
