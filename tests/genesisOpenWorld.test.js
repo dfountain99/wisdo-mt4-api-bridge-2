@@ -11,7 +11,7 @@ import {
   ECHOES,BUILDINGS,moveSpeed
 } from '../services/genesisGameService.js';
 
-import { resolveGenesisLandmark, genesisTerrainTriangleIndices } from '../public/js/genesisTerrain.js';
+import { resolveGenesisLandmark, genesisTerrainTriangleIndices, genesisTerrainSurfaceColor } from '../public/js/genesisTerrain.js';
 
 test('Waystone and landmark lookup resolves every fixed location without a browser',()=>{
   for(const entry of WAYSTONES){
@@ -42,6 +42,17 @@ test('terrain triangle winding faces upward so the ground receives daylight',()=
   const large=genesisTerrainTriangleIndices(10);
   assert.equal(large.length,600);
   assert.ok(large.every(i=>Number.isInteger(i)&&i>=0&&i<121));
+});
+
+test('graphics terrain palette stays deterministic and seamless between streamed chunks',()=>{
+  for(const [x,z] of [[0,0],[80,0],[800,-280],[-840,-710],[-480,1100]]){
+    const a=genesisTerrainSurfaceColor(x,z);
+    assert.deepEqual(a,genesisTerrainSurfaceColor(x,z));
+    assert.equal(a.length,4);
+    assert.ok(a.every(v=>Number.isFinite(v)&&v>=0&&v<=1));
+    const b=genesisTerrainSurfaceColor(x+1e-4,z);
+    assert.ok(a.every((v,i)=>Math.abs(v-b[i])<.01));
+  }
 });
 
 const NOW=Date.UTC(2026,10,13,19,0,0);
