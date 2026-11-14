@@ -7,7 +7,7 @@ export function drawGenesisStructure(scene,root,s,mats,{mobile=false}={}){
  if(!scene||!root||!s)return false;
  const B=globalThis.BABYLON;
  if(!B)return false;
- const mat=(name)=>mats[name]||mats.wood;
+ const mat=(name)=>mats[name]||(name==='metal'?mats.iron:null)||mats.wood;
  const box=(name,x,y,z,w,h,d,m='wood',rotation={})=>{
   const obj=B.MeshBuilder.CreateBox(name,{width:w,height:h,depth:d},scene);
   obj.parent=root;obj.position.set(x,y,z);
