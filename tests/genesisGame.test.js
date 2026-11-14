@@ -16,7 +16,8 @@ test('players begin private and have no fabricated inventory',()=>{
  assert.equal(view.structures.length,0);
  assert.equal(view.echoes.filter(x=>x.bonded).length,0);
  assert.equal(view.statPoints,8);
- assert.equal(view.resources.length,RESOURCE_NODES.length);
+ assert.ok(view.resources.length>=RESOURCE_NODES.length);
+ assert.ok(view.resources.some(x=>x.id.startsWith('gen_')), 'New streamed resources should accompany original starting nodes');
 });
 
 test('separate WISDO accounts receive separate inventories and buildings',()=>{
