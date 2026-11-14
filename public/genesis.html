@@ -182,7 +182,7 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
   </div>
   <div class="panel" id="panel-craft"><h3>Crafting recipes</h3><div id="craft-items"></div></div>
   <div class="panel" id="panel-build"><h3>Construction blueprints</h3><p>Choose a blueprint and place it a short distance in front of your character. Each placement consumes actual resources and is saved.</p><div id="build-items"></div></div>
-  <div class="panel" id="panel-echoes"><h3>Wild Echoforms</h3><p>Explore and scan each original Genesis creature, complete its resonance offering, then equip its morph to change PRISM's color and stats.</p><div id="echo-items"></div></div>
+  <div class="panel" id="panel-echoes"><h3>Wild Echoforms & Hybrid DNA</h3><p>Discover 18 new biome hybrids and the original Echoforms. Scan them, complete their resource bond, and morph PRISM into their shapes. Activated powers affect movement, gathering, mining, protection or scanning.</p><div class="option"><strong>PRISM Resonance</strong><small id="resonance-status">Bond a hybrid to unlock its power.</small></div><div id="echo-items"></div></div>
   <div class="panel" id="panel-prism">
     <h3>Customize your PRISM</h3>
     <div class="selectrow"><label for="prism-name">Character name</label><input id="prism-name" maxlength="24" value="PRISM"></div>
@@ -200,6 +200,7 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
 <div id="actionDock" aria-label="World interaction">
   <span id="nearest">Explore the region</span>
   <button type="button" class="primary" id="interact">Gather / Scan</button>
+  <button type="button" id="power-quick" hidden>⚡ PRISM Power</button>
   <button type="button" id="build-shortcut">Build Hut</button>
 </div>
 <div id="joystick" aria-label="Touch movement joystick"><div id="joystick-knob"></div></div>
@@ -225,6 +226,6 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
 <div id="loading"><div class="card"><h1>WISDO GENESIS</h1><p id="load-status">Connecting to your saved world and preparing Genesis Forest…</p><button type="button" id="retry" hidden>Try again</button></div></div>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
-<script type="module" src="/js/genesisWorld.js?v=4"></script>
+<script type="module" src="/js/genesisWorld.js?v=5"></script>
 </body>
 </html>
