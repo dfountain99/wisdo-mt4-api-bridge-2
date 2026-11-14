@@ -14,6 +14,13 @@ function rng(cx,cz,i,seed=0){
  const n=Math.sin(cx*127.1+cz*311.7+i*79.7+seed*17.3)*43758.5453123;
  return n-Math.floor(n);
 }
+/** Resolve fixed world locations without shadowing the coordinate arguments. */
+export function resolveGenesisLandmark(x,z){
+ const waystone=WAYSTONES.find(point=>Math.abs(point.x-x)<1&&Math.abs(point.z-z)<1);
+ const entry=waystone||LANDMARKS.find(point=>Math.abs(point.x-x)<1&&Math.abs(point.z-z)<1);
+ return entry?{entry,waystone:Boolean(waystone)}:null;
+}
+
 export function createGenesisTerrain(scene,{mobile=false}={}){
  if(!scene||!globalThis.BABYLON)throw Error('Babylon scene required for Genesis terrain.');
  const active=new Map(), special=new Map(),materialCache=new Map();
@@ -153,9 +160,11 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
    active.set(key,root);
  }
  function landmark(x,z){
-   const w=WAYSTONES.find(x=>Math.abs(x.x-x)<1&&Math.abs(x.z-z)<1);
-   const entry=w||LANDMARKS.find(x=>Math.abs(x.x-x)<1&&Math.abs(x.z-z)<1);
-   const root=makeRoot((w?'waystone:':'landmark:')+(entry?.id||'location'),x,z);
+   const resolved=resolveGenesisLandmark(x,z);
+   if(!resolved)return;
+   const {entry,waystone}=resolved;
+   const w=waystone?entry:null;
+   const root=makeRoot((waystone?'waystone:':'landmark:')+entry.id,x,z);
    if(w){
      const label=w.biome,accent=mat('portal-'+label,BIOMES[label].accent,{glow:.6});
      addCylinder(root,'platform',0,.2,0,.32,9,stone,{segments:12});
@@ -206,7 +215,7 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
      addOrb(root,'relic',0,3.1,0,3,3,3,flowers);
    }
    root.setEnabled(false);
-   special.set(w?'waystone:'+w.id:'landmark:'+entry.id,root);
+   special.set((waystone?'waystone:':'landmark:')+entry.id,root);
  }
  for(const entry of WAYSTONES)landmark(entry.x,entry.z);
  for(const entry of LANDMARKS)landmark(entry.x,entry.z);
