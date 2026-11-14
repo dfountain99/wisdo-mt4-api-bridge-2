@@ -7,7 +7,7 @@
  *
  * Source: Quaternius Stylized Nature MegaKit (CC0), see docs/GENESIS_ART_ASSETS.md.
  */
-export const GENESIS_MODEL_KEYS=Object.freeze(['tree1','tree2','tree3','bush']);
+export const GENESIS_MODEL_KEYS=Object.freeze(['tree1','tree2','tree3','bush','explorer']);
 export function genesisArtPlacement(cx,cz,i,chunkSize=80){
  const frac=(n)=>n-Math.floor(n);
  const seed=(s)=>frac(Math.sin(cx*127.1+cz*311.7+i*79.7+s*17.3)*43758.5453123);
@@ -57,9 +57,9 @@ export async function loadGenesisArtLibrary(scene){
   throw Error('No tree models loaded: '+failures.join('; '));
  }
  let nextId=0;
- function place(kind,parent,x,y,z,{scale=1,rotation=0}={}){
+ function spawn(kind,parent,x,y,z,{scale=1,rotation=0}={}){
   const container=containers.get(kind);
-  if(!container||!parent)return false;
+  if(!container||!parent)return null;
   const sequence=++nextId;
   const instance=container.instantiateModelsToScene(
    name=>'genesis-model-'+kind+'-'+sequence+'-'+name,
@@ -75,11 +75,12 @@ export async function loadGenesisArtLibrary(scene){
    mesh.isPickable=false;
    mesh.receiveShadows=true;
   }
-  return true;
+  return {root,animationGroups:instance.animationGroups};
  }
+ function place(...args){return Boolean(spawn(...args));}
  return {
   has:key=>containers.has(key),
-  place,
+  spawn,place,
   available:[...containers.keys()],
   failures,
   dispose:()=>{for(const container of containers.values())container.dispose();containers.clear();}
