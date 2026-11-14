@@ -11,7 +11,7 @@ import {
   ECHOES,BUILDINGS,moveSpeed
 } from '../services/genesisGameService.js';
 
-import { resolveGenesisLandmark } from '../public/js/genesisTerrain.js';
+import { resolveGenesisLandmark, genesisTerrainTriangleIndices } from '../public/js/genesisTerrain.js';
 
 test('Waystone and landmark lookup resolves every fixed location without a browser',()=>{
   for(const entry of WAYSTONES){
@@ -25,6 +25,23 @@ test('Waystone and landmark lookup resolves every fixed location without a brows
     assert.equal(found?.waystone,false);
   }
   assert.equal(resolveGenesisLandmark(1599,1599),null);
+});
+
+test('terrain triangle winding faces upward so the ground receives daylight',()=>{
+  const indices=genesisTerrainTriangleIndices(1);
+  assert.deepEqual(indices,[0,1,2,2,1,3]);
+  const positions=[[0,0,0],[1,0,0],[0,0,1],[1,0,1]];
+  const babylonNormalY=(i,j,k)=>{
+    const p=positions[i],q=positions[j],r=positions[k];
+    const u=p.map((n,index)=>n-q[index]);
+    const v=r.map((n,index)=>n-q[index]);
+    return u[2]*v[0]-u[0]*v[2];
+  };
+  assert.ok(babylonNormalY(...indices.slice(0,3))>0);
+  assert.ok(babylonNormalY(...indices.slice(3,6))>0);
+  const large=genesisTerrainTriangleIndices(10);
+  assert.equal(large.length,600);
+  assert.ok(large.every(i=>Number.isInteger(i)&&i>=0&&i<121));
 });
 
 const NOW=Date.UTC(2026,10,13,19,0,0);
