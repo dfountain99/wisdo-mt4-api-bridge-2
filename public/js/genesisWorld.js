@@ -1,4 +1,5 @@
-import { createGenesisTerrain } from './genesisTerrain.js';
+import { createGenesisTerrain } from './genesisTerrain.js?v=4';
+import { loadGenesisArtLibrary } from './genesisArtLibrary.js?v=4';
 import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,nearestWaystone } from './genesisWorldMap.js';
 /* WISDO Genesis v2 streaming open-world browser renderer: third-person Babylon world, no fake resources.
    All harvesting, crafting, construction and morph changes are validated by the server. */
@@ -219,6 +220,17 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   function drawTerrain(){
     terrainSystem=createGenesisTerrain(scene,{mobile:matchMedia('(max-width:950px)').matches});
     terrainSystem.update(game.position.x,game.position.z,{force:true});
+    // Async GLB loading keeps the existing terrain playable if a model fails.
+    loadGenesisArtLibrary(scene).then(library=>{
+      if(scene.isDisposed()){library.dispose();return;}
+      if(terrainSystem?.setArtLibrary(library)){
+        terrainSystem.update(player?.position.x??game.position.x,
+          player?.position.z??game.position.z,{force:true});
+        announce('New textured forests loaded. Explore the upgraded Genesis world!');
+      }else library.dispose();
+    }).catch(error=>{
+      console.warn('Genesis 3D art load failed; using safe built-in scenery:',error);
+    });
   }
   function setupScene(){
     if(!window.BABYLON){throw new Error('3D engine failed to load. Check internet or content restrictions.');}
