@@ -21,7 +21,7 @@ export function genesisArtPlacement(cx,cz,i,chunkSize=80){
 }
 
 export function decodeGenesisGlb64(encoded){
- const chars=String(encoded||'').replace(/\\s/g,'');
+ const chars=String(encoded||'').replace(/\s/g,'');
  if(!chars.startsWith('Z2xURg'))throw Error('Invalid Genesis glTF asset header.');
  const binary=atob(chars),bytes=new Uint8Array(binary.length);
  for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
