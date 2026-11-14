@@ -1,13 +1,22 @@
-// WISDO Genesis v1: server-authoritative PvE survival slice.
+import {
+ WORLD_LIMIT as MAP_LIMIT, CHUNK_SIZE, WAYSTONES, LANDMARKS,
+ biomeAt, nearbyGeneratedNodes, generatedNodeFromId, RESOURCE_REWARDS,
+} from '../public/js/genesisWorldMap.js';
+// WISDO Genesis v2: server-authoritative open world with six explorable biomes.
 // The renderer never awards resources, owns inventory, or approves structures.
-export const GENESIS_VERSION = 'genesis-forest-survival-v1';
-export const WORLD_LIMIT = 38;
+export const GENESIS_VERSION = 'genesis-open-world-v2';
+export const WORLD_LIMIT = MAP_LIMIT;
 export const STAT_KEYS = Object.freeze(['strength','speed','defense','agility','energy','intelligence']);
 const COLORS = Object.freeze(['#59def4','#ab8dff','#75e2a6','#ffc078','#f38fad','#ffffff','#ff7272']);
 export const ECHOES = Object.freeze([
   {id:'voltfang',name:'Voltfang',x:-19,z:20,description:'Electric sprint and agility.',cost:{iron:1,crystal:1},bonus:{speed:22,agility:12,energy:5},color:'#72d9ff'},
   {id:'terrakron',name:'Terrakron',x:25,z:-17,description:'Heavy armor and tremendous strength.',cost:{stone:4,iron:1},bonus:{strength:24,defense:20,speed:-6},color:'#eeac72'},
   {id:'shadeveil',name:'Shadeveil',x:-27,z:-21,description:'Stealth, climbing, and curiosity.',cost:{wood:4,crystal:1},bonus:{agility:20,intelligence:12},color:'#bd92fe'},
+  {id:'circuit-lynx',name:'Circuit Lynx',x:875,z:-240,description:'Neon speed, scanning and power surges.',cost:{circuit:4,iron:3},bonus:{speed:17,energy:14,intelligence:6},color:'#5cecf5'},
+  {id:'embermaw',name:'Embermaw',x:830,z:815,description:'Magma armor and titan strength.',cost:{obsidian:4,iron:3},bonus:{strength:22,defense:26,speed:-7},color:'#ff995c'},
+  {id:'aetherwing',name:'Aetherwing',x:-855,z:-715,description:'Aerial agility and high-altitude resonance.',cost:{aether_shard:5,crystal:2},bonus:{agility:28,energy:22},color:'#b3b5ff'},
+  {id:'mirestalker',name:'Mirestalker',x:-490,z:1140,description:'Adaptable marsh exploration and natural stealth.',cost:{moonleaf:6,wood:3},bonus:{defense:12,agility:18,intelligence:10},color:'#83deb3'},
+  {id:'lumen-stag',name:'Lumen Stag',x:-590,z:510,description:'Grotto resonance, light and exploration awareness.',cost:{crystal:4,aether_shard:2},bonus:{intelligence:22,energy:18,agility:8},color:'#65ffe7'},
 ]);
 const RESOURCE_LOCATIONS = Object.freeze({
   wood:[[5,4],[2,12],[-8,8],[-12,-4],[13,11],[-18,19],[20,-12],[-28,-4],[28,7],[0,-20],[16,22],[-5,27]],
@@ -24,6 +33,8 @@ export const RECIPES = Object.freeze({
   planks:{label:'Saw 4 Planks',requires:{wood:2},grants:{planks:4}},
   pickaxe:{label:'Stone Pickaxe',requires:{wood:3,stone:3},grants:{pickaxe:1}},
   energy_core:{label:'Energy Core',requires:{iron:2,crystal:2},grants:{energy_core:1},needs:'workbench'},
+  storm_cell:{label:'Storm Cell',requires:{circuit:3,crystal:2},grants:{energy_core:2},needs:'workbench'},
+  sky_alloy:{label:'Sky Alloy',requires:{iron:3,aether_shard:2},grants:{energy_core:2},needs:'workbench'},
 });
 export const BUILDINGS = Object.freeze({
   hut:{label:'Starter Hut',cost:{wood:8,stone:4},width:4,height:3},
@@ -32,8 +43,12 @@ export const BUILDINGS = Object.freeze({
   wall:{label:'Wood Wall',cost:{planks:2},width:3,height:2.7},
   campfire:{label:'Campfire',cost:{wood:2,stone:3},width:1,height:.5},
   morph_station:{label:'Morph Station',cost:{iron:4,crystal:3,planks:4},width:3,height:2,needs:'workbench'},
+  watchtower:{label:'Forest Watchtower',cost:{wood:12,stone:6,planks:8},width:4,height:10},
+  neon_lab:{label:'Neon Research Lab',cost:{iron:8,circuit:5,crystal:3},width:6,height:7,needs:'workbench'},
+  titan_forge:{label:'Titan Forge',cost:{obsidian:8,iron:6,stone:10},width:5,height:6,needs:'workbench'},
+  sky_dock:{label:'Aether Sky Dock',cost:{aether_shard:6,planks:10,iron:4},width:8,height:3,needs:'workbench'},
 });
-const DEFAULT_INVENTORY = Object.freeze({wood:0,stone:0,iron:0,crystal:0,planks:0,pickaxe:0,energy_core:0});
+const DEFAULT_INVENTORY = Object.freeze({wood:0,stone:0,iron:0,crystal:0,circuit:0,obsidian:0,aether_shard:0,moonleaf:0,planks:0,pickaxe:0,energy_core:0});
 const nowString=(now)=>new Date(now).toISOString();
 const compact=(value)=>String(value||'').trim().slice(0,28);
 export function fail(message,status=400){const error=new Error(message);error.status=status;return error;}
@@ -57,7 +72,14 @@ export function ensureGenesisProfile(state,userId,now=Date.now()){
  state.genesisProfilesByUserId ||= {};
  const key=String(userId);
  state.genesisProfilesByUserId[key] ||= createGenesisProfile(key,now);
- return state.genesisProfilesByUserId[key];
+ const profile=state.genesisProfilesByUserId[key];
+ // Preserve all existing v1 progress, adding only new biome resource keys.
+ profile.inventory={...DEFAULT_INVENTORY,...profile.inventory};
+ profile.depleted ||= {};
+ profile.structures ||= [];
+ profile.echoforms ||= [];
+ profile.discovered ||= [];
+ return profile;
 }
 export function getStats(profile){
  const equip=ECHOES.find(x=>x.id===profile.character.equipped);
@@ -75,18 +97,28 @@ export function worldWeather(now=Date.now()){
 export function profileSnapshot(profile,position={x:0,z:0},now=Date.now()){
  return {
   ok:true,version:GENESIS_VERSION,realm:'private',position,
+  map:{widthMeters:WORLD_LIMIT*2,lengthMeters:WORLD_LIMIT*2,chunkSize:CHUNK_SIZE,
+    biome:biomeAt(position.x,position.z).id,biomeName:biomeAt(position.x,position.z).name,
+    waystones:WAYSTONES,landmarks:LANDMARKS},
+  area:biomeAt(position.x,position.z).name,
   world:worldWeather(now),stats:getStats(profile),speed:moveSpeed(profile),
-  character:profile.character,inventory:profile.inventory,statPoints:profile.statPoints,xp:profile.xp,
+  character:profile.character,inventory:{...DEFAULT_INVENTORY,...profile.inventory},statPoints:profile.statPoints,xp:profile.xp,
   structures:profile.structures,
-  resources:RESOURCE_NODES.map(node=>({...node,ready:!(profile.depleted[node.id]>now),readyAt:Math.max(0,profile.depleted[node.id]||0)})),
+  resources:[
+    ...RESOURCE_NODES.filter(node=>Math.hypot(node.x-position.x,node.z-position.z)<CHUNK_SIZE*1.75),
+    ...nearbyGeneratedNodes(position.x,position.z,1),
+  ].map(node=>({...node,ready:!(profile.depleted?.[node.id]>now),readyAt:Math.max(0,profile.depleted?.[node.id]||0)})),
   echoes:ECHOES.map(e=>({...e,discovered:profile.discovered.includes(e.id),bonded:profile.echoforms.includes(e.id)})),
   recipes:RECIPES,buildings:BUILDINGS,lastMessage:profile.lastMessage,
  };
 }
 function near(position,target,meters=5){if(!position||!finite(position.x)||!finite(position.z)||dist(position,target)>meters)throw fail('Move closer to interact.');}
 function buildablePosition(position,x,z){
- if(!finite(x)||!finite(z)||Math.abs(x)>WORLD_LIMIT-3||Math.abs(z)>WORLD_LIMIT-3)throw fail('Select a build location inside Genesis Forest.');
+ if(!finite(x)||!finite(z)||Math.abs(x)>WORLD_LIMIT-4||Math.abs(z)>WORLD_LIMIT-4)throw fail('Select a location within the connected Genesis world.');
  if(Math.abs(x)<2.5&&Math.abs(z)<2.5)throw fail('The arrival circle must stay clear.');
+ // Old Genesis v1 construction near arrival remains valid; new portals are protected.
+ if(WAYSTONES.some(w=>w.id!=='arrival'&&Math.hypot(w.x-x,w.z-z)<9))
+   throw fail('Waystone plazas must remain open for travelers.');
  near(position,{x,z},7);
  const gx=Math.round(x/2)*2,gz=Math.round(z/2)*2;
  return {x:gx,z:gz};
@@ -95,17 +127,20 @@ export function applyGenesisAction(profile,body,position,now=Date.now()){
  const action=String(body?.action||'').slice(0,32);
  let message='';
  if(action==='gather'){
-  const node=RESOURCE_NODES.find(x=>x.id===body.nodeId);
+  const node=RESOURCE_NODES.find(x=>x.id===body.nodeId)||generatedNodeFromId(body.nodeId);
   if(!node)throw fail('Unknown resource node.');
   near(position,node,5);
   if((profile.depleted[node.id]||0)>now)throw fail('This deposit is regenerating.');
-  if((node.type==='iron'||node.type==='crystal')&&!profile.inventory.pickaxe)throw fail('Craft a stone pickaxe to mine iron and crystal.');
+  if(!['wood','stone','moonleaf'].includes(node.type)&&!profile.inventory.pickaxe)
+    throw fail('Craft a stone pickaxe before mining advanced resources.');
   const weather=worldWeather(now).weather;
   // Live ecology: rainy forests replenish more quickly and crystal surges increase yield.
-  const bonus=(weather==='Light Rain'&&node.type==='wood')||(weather==='Crystal Storm'&&node.type==='crystal')?1:0;
-  const yieldCount=REWARDS[node.type]+bonus;
+  const bonus=(weather==='Light Rain'&&(node.type==='wood'||node.type==='moonleaf'))||
+    (weather==='Crystal Storm'&&['crystal','aether_shard'].includes(node.type))?1:0;
+  const yieldCount=(RESOURCE_REWARDS[node.type]||REWARDS[node.type]||1)+bonus;
   profile.inventory[node.type]+=yieldCount;
-  profile.depleted[node.id]=now+Math.floor(node.respawnMs*(weather==='Light Rain'&&node.type==='wood' ? .70 : 1));
+  profile.depleted[node.id]=now+Math.floor(node.respawnMs*(weather==='Light Rain'&&(node.type==='wood'||node.type==='moonleaf') ? .70 : 1));
+  if(Object.keys(profile.depleted).length>600)for(const [key,expires] of Object.entries(profile.depleted))if(expires<=now)delete profile.depleted[key];
   award(profile,node.type==='crystal'?5:node.type==='iron'?3:2);
   message='Collected '+yieldCount+' '+node.type+(bonus?' (ecosystem bonus)':'')+'.';
  }else if(action==='craft'){

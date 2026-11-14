@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#071521">
-<title>WISDO Genesis — Living Worlds Alpha</title>
+<title>WISDO Genesis — Living Open World</title>
 <style>
 :root{color-scheme:dark;--bg:#081625;--surface:#0d2034e9;--line:#3e6f83a0;--cyan:#65e5ef;--text:#f0fcff;--muted:#a3bbcb;--gold:#f0cd83}
 *{box-sizing:border-box}
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,sans-serif}
-#renderCanvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#renderCanvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;background:linear-gradient(180deg,#122844 0%,#5d998b 72%,#133d3d 100%)}
 button,select,input{font:inherit}
 button{cursor:pointer;background:#19374d;color:var(--text);border:1px solid #4b8195;border-radius:11px;padding:9px 12px;font-weight:650;min-height:38px}
 button:hover:not(:disabled){background:#26536a}
@@ -95,21 +95,77 @@ input,select{background:#071a2c;border:1px solid #417188;color:var(--text);paddi
  #joystick{bottom:calc(34vh + 24px)}
  .stat{grid-template-columns:80px 1fr 28px 30px}
 }
+
+/* Wider environments deserve a larger gameplay viewport than an always-open phone sheet. */
+#field-toggle{font-size:11px;min-height:30px;padding:6px 10px}
+#world-map-dialog{width:min(900px,96vw);max-width:none;max-height:86vh;overflow:auto;border:1px solid #56bfc4;border-radius:22px;padding:18px;background:#08192a;color:#edfaff;box-shadow:0 25px 90px #000b}
+#world-map-dialog::backdrop{background:#020914df}
+#world-map-dialog h2{font-size:26px;margin:3px 0 7px}
+#world-map-dialog h3{margin:2px 0 12px;font-size:17px}
+.map-header,.map-footer{display:flex;gap:16px;align-items:center;justify-content:space-between}
+.map-header{padding:6px 5px 15px}
+.map-header p{margin:3px 0;max-width:580px}
+.map-wrap{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(250px,.8fr);gap:14px}
+.map-visual{width:100%;aspect-ratio:1;position:relative;overflow:hidden;border:1px solid #437786;border-radius:14px;background:
+radial-gradient(ellipse at 26% 72%,#8087bb 0%,#34466b 21%,transparent 34%),
+radial-gradient(ellipse at 75% 38%,#557e94 0%,#214a69 22%,transparent 37%),
+radial-gradient(ellipse at 75% 78%,#a96d55 0%,#69473f 22%,transparent 37%),
+radial-gradient(ellipse at 35% 40%,#337e91 0%,#245268 20%,transparent 37%),
+radial-gradient(ellipse at 36% 19%,#407c72 0%,#1c4e4d 17%,transparent 30%),
+radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
+#071f34}
+.map-visual:after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent 0 39px,#ffffff16 40px),repeating-linear-gradient(90deg,transparent 0 39px,#ffffff16 40px);pointer-events:none}
+.map-label{position:absolute;transform:translate(-50%,-50%);z-index:1;font:800 clamp(7px,1vw,10px) system-ui;letter-spacing:.04em;color:#f4fffd;text-shadow:0 2px 6px #001d2d;white-space:nowrap}
+.map-you{position:absolute;left:50%;top:50%;z-index:4;font-size:26px;color:#fff3aa;transform:translate(-50%,-50%);text-shadow:0 0 18px #f8e587,0 2px 4px #000}
+.map-waystone{position:absolute;z-index:3;transform:translate(-50%,-50%);color:#aaf9ff;border:1px solid #ffffffb8;background:#06354c;border-radius:50%;font-size:9px;padding:2px 5px;pointer-events:none}
+.map-list{overflow:auto;max-height:min(55vh,470px)}
+.map-list button{width:100%;text-align:left;margin-bottom:7px;display:flex;align-items:center;justify-content:space-between;gap:6px}
+.map-list button span{font-size:10px;color:#bee8f2}
+.map-list button:disabled{background:#112233}
+.map-footer{padding:12px 3px 1px}
+@media(max-width:950px){
+ .side.collapsed{height:auto;min-height:0;bottom:10px;overflow:visible}
+ .side.collapsed .tabs,.side.collapsed .panel{display:none!important}
+ .side.collapsed .sidehead{padding:8px 12px;border-bottom:0}
+ .side.collapsed .sidehead h2{font-size:15px}
+ .side.collapsed .sidehead .small{display:none}
+ body:not(.field-open) #joystick{bottom:88px}
+ body:not(.field-open) #actionDock{bottom:88px}
+ body.field-open #joystick{bottom:calc(36vh + 25px)}
+ body.field-open #actionDock{bottom:calc(36vh + 25px)}
+ .map-wrap{grid-template-columns:1fr}
+ .map-visual{max-height:44vh;aspect-ratio:1.1}
+ .map-list{max-height:25vh}
+}
+@media(max-width:520px){
+ #world-map-dialog{padding:11px;max-height:90vh}
+ .map-visual{max-height:36vh}
+ .map-list{max-height:30vh}
+ .map-header h2{font-size:21px}
+ .map-label{font-size:7px}
+ #map-open{font-size:10px;padding:6px 8px;min-height:30px}
+ .links .pill,.links a{display:none}
+ .links{flex-wrap:nowrap}
+ .hud .card{max-width:215px}
+ .hud .reslist{max-height:58px;overflow:auto}
+ body.field-open #joystick{bottom:calc(34vh + 25px)}
+ body.field-open #actionDock{bottom:calc(34vh + 25px)}
+}
 </style>
 </head>
 <body>
 <canvas id="renderCanvas" aria-label="Interactive three-dimensional Genesis Forest world"></canvas>
 <header>
-  <div><div class="brand">WISDO <span>GENESIS</span></div><div class="sub">LIVING WORLDS · SURVIVAL ALPHA</div></div>
-  <div class="links"><span class="pill">PRIVATE GROVE</span><a href="/app/world">World</a><a href="/app/holomode">PRISM</a><a href="/app/dashboard">Dashboard</a></div>
+  <div><div class="brand">WISDO <span>GENESIS</span></div><div class="sub">LIVING WORLDS · OPEN WORLD EXPEDITION</div></div>
+  <div class="links"><span class="pill">PRIVATE ADVENTURE</span><button type="button" id="map-open" class="primary" aria-label="Open the world map">🗺️ WORLD MAP</button><a href="/app/world">World</a><a href="/app/holomode">PRISM</a><a href="/app/dashboard">Dashboard</a></div>
 </header>
 <div class="hud" aria-label="World status">
   <div class="card"><strong id="region">GENESIS FOREST</strong><div id="weather" class="small">Loading environmental conditions…</div><div class="reslist" id="resources"></div></div>
   <div class="card" id="message" role="status" aria-live="polite">Connecting to your saved world…</div>
 </div>
-<aside class="side card" aria-label="Genesis survival controls">
-  <div class="sidehead"><h2>Genesis Field Kit</h2><div class="small">Mine · Craft · Build · Morph · Evolve</div></div>
-  <div class="tabs" role="tablist" aria-label="Field kit sections">
+<aside class="side card" id="field-kit" aria-label="Genesis survival controls">
+  <div class="sidehead"><div class="row" style="display:flex;align-items:center;justify-content:space-between;gap:8px"><h2>Genesis Field Kit</h2><button type="button" id="field-toggle" aria-expanded="true" aria-controls="field-tabs">Hide ▲</button></div><div class="small">Explore · Mine · Build · Discover · Morph</div></div>
+  <div class="tabs" id="field-tabs" role="tablist" aria-label="Field kit sections">
     <button type="button" data-tab="journey" class="active">Journey</button>
     <button type="button" data-tab="craft">Craft</button>
     <button type="button" data-tab="build">Build</button>
@@ -117,12 +173,12 @@ input,select{background:#071a2c;border:1px solid #417188;color:var(--text);paddi
     <button type="button" data-tab="prism">PRISM DNA</button>
   </div>
   <div class="panel active" id="panel-journey">
-    <h3>Welcome to your private grove</h3>
-    <p>Walk to a glowing tree or mineral node and gather it. Craft a pickaxe to mine iron and energy crystals. Gather material for a hut, then discover the three wild Echoforms.</p>
-    <p>Resources respawn. Weather and a Crystal Surge event cycle throughout Genesis. Buildings and inventory are saved to your WISDO account.</p>
+    <h3>3.2km Living World Expedition</h3>
+    <p>Explore six connected biomes—Genesis Forest, Neon Metropolis, Titan Wastes, Aether Skies, Crystal Grotto and Sunken Marsh. Follow distant landmarks, find new Echoforms, harvest rare minerals and build wherever the private world allows.</p>
+    <p>Terrain and scenery stream as you travel, so the world extends far beyond the current view. Gather starter resources, build a hut, or follow a Waystone portal to another region. Your inventory, structures, and PRISM morphs remain saved.</p>
     <div class="option"><strong>Keys / mobile</strong><small>WASD or arrow keys to move · drag to rotate camera · E to gather or scan · joystick and action buttons on touch devices.</small></div>
     <div class="option"><strong>Current goal</strong><small id="goal">Collect wood and stone.</small></div>
-    <div class="option"><strong>World policy</strong><small>This is a PvE private survival prototype. No raids, paid items, public building, or trading-account actions.</small></div>
+    <div class="option"><strong>World policy</strong><small>This is a PvE private survival prototype. This is your private world. No raids, cross-user building edits, real trading-account actions, or unattended security controls.</small></div>
   </div>
   <div class="panel" id="panel-craft"><h3>Crafting recipes</h3><div id="craft-items"></div></div>
   <div class="panel" id="panel-build"><h3>Construction blueprints</h3><p>Choose a blueprint and place it a short distance in front of your character. Each placement consumes actual resources and is saved.</p><div id="build-items"></div></div>
@@ -147,10 +203,27 @@ input,select{background:#071a2c;border:1px solid #417188;color:var(--text);paddi
   <button type="button" id="build-shortcut">Build Hut</button>
 </div>
 <div id="joystick" aria-label="Touch movement joystick"><div id="joystick-knob"></div></div>
-<div id="help">WASD / arrows · Drag to look · E interact · B build</div>
+<div id="help">WASD / arrows · Drag to look · E interact · M world map · B build</div>
 <div id="toast" role="status" aria-live="polite"></div>
+
+<dialog id="world-map-dialog" aria-labelledby="world-map-title">
+  <div class="map-header"><div><div class="sub">LIVING WORLDS · GENESIS EXPEDITION</div><h2 id="world-map-title">World Atlas</h2><p class="small">A connected 3.2 × 3.2 km world. Walk to explore or use the Waystones when standing near a portal.</p></div><button type="button" id="map-close" aria-label="Close world map">✕</button></div>
+  <div class="map-wrap">
+    <div id="map-visual" class="map-visual" aria-label="Six-region illustrated world map">
+      <div class="map-label" style="left:24%;top:72%">AETHER SKIES</div>
+      <div class="map-label" style="left:75%;top:59%">NEON CITY</div>
+      <div class="map-label" style="left:73%;top:27%">TITAN WASTES</div>
+      <div class="map-label" style="left:35%;top:38%">CRYSTAL GROTTO</div>
+      <div class="map-label" style="left:38%;top:20%">SUNKEN MARSH</div>
+      <div class="map-label" style="left:50%;top:51%">GENESIS FOREST</div>
+      <span id="map-you" class="map-you" title="Your position">◆</span>
+    </div>
+    <div class="map-list"><h3>Waystone Network</h3><p id="waystone-status" class="small">Approach any glowing stone arch to travel.</p><div id="waystone-list"></div></div>
+  </div>
+  <div class="map-footer"><span id="coords" class="small">Coordinates: 0, 0</span><button type="button" id="map-done">Return to world</button></div>
+</dialog>
 <div id="loading"><div class="card"><h1>WISDO GENESIS</h1><p id="load-status">Connecting to your saved world and preparing Genesis Forest…</p><button type="button" id="retry" hidden>Try again</button></div></div>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
-<script defer src="/js/genesisWorld.js"></script>
+<script type="module" src="/js/genesisWorld.js?v=2"></script>
 </body>
 </html>

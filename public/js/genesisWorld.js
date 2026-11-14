@@ -1,17 +1,19 @@
-/* WISDO Genesis v1 browser renderer: third-person Babylon world, no fake resources.
+import { createGenesisTerrain } from './genesisTerrain.js';
+import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,nearestWaystone } from './genesisWorldMap.js';
+/* WISDO Genesis v2 streaming open-world browser renderer: third-person Babylon world, no fake resources.
    All harvesting, crafting, construction and morph changes are validated by the server. */
 (() => {
   'use strict';
   const $=(id)=>document.getElementById(id);
   const esc=(s)=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
   const clean=(s)=>String(s||'').replace(/_/g,' ');
-  let game=null,scene=null,engine=null,camera=null,player=null,prism=null,lighting=null;
+  let game=null,scene=null,engine=null,camera=null,player=null,prism=null,lighting=null,terrainSystem=null;
   let mats={},prismPieces={},nodeMeshes=new Map(),structureMeshes=new Map(),echoMeshes=new Map();
-  let ready=false,pending=false,movePromise=null,lastMoveAt=0,lastRefreshAt=0,lastHintAt=0,lastFrame=0,toastTimeout=0;
+  let ready=false,pending=false,movePromise=null,refreshPromise=null,lastMoveAt=0,lastRefreshAt=0,lastHintAt=0,lastFrame=0,toastTimeout=0;
   const held=new Set(),joystick={x:0,y:0,active:false};
   let lookAt=null,stayAnchor=null;
   const panelNames=['journey','craft','build','echoes','prism'];
-  const iconFor=(k)=>({wood:'🌲',stone:'🪨',iron:'⛏',crystal:'💎',planks:'🪵',pickaxe:'⚒',energy_core:'⚡'})[k]||'•';
+  const iconFor=(k)=>({wood:'🌲',stone:'🪨',iron:'⛏',crystal:'💎',circuit:'🔋',obsidian:'🖤',aether_shard:'✨',moonleaf:'🌿',planks:'🪵',pickaxe:'⚒',energy_core:'⚡'})[k]||'•';
   function announce(message,alert=false){
     $('message').textContent=message;
     $('toast').textContent=message;
@@ -33,7 +35,7 @@
     } finally{clearTimeout(timer);}
   }
   function renderInventory(){
-    const items=['wood','stone','iron','crystal','planks','pickaxe'];
+    const items=['wood','stone','iron','crystal','obsidian','circuit','aether_shard','moonleaf','planks','pickaxe'];
     $('resources').innerHTML=items.map(k=>'<span>'+iconFor(k)+' '+esc(k)+' <b>'+Number(game.inventory[k]||0)+'</b></span>').join('');
   }
   function hasCost(cost){return Object.entries(cost||{}).every(([k,v])=>(game.inventory[k]||0)>=v);}
@@ -60,7 +62,7 @@
       !game.echoes.some(e=>e.bonded)?'Find and bond your first Echoform.':
       'Build a Morph Station and keep evolving.';
     $('weather').textContent=game.world.timeOfDay+' · '+game.world.weather+(game.world.event!=='No regional event'?' · '+game.world.event:'');
-    $('region').textContent='GENESIS FOREST · XP '+game.xp+' · '+game.structures.length+' BUILT';
+    $('region').textContent=(game.map?.biomeName||'GENESIS FOREST').toUpperCase()+' · XP '+game.xp+' · '+game.structures.length+' BUILT';
     renderInventory();
   }
   function syncInputs(){
@@ -91,25 +93,25 @@
     const mesh=BABYLON.MeshBuilder.CreateCylinder('tree-trunk',{height,diameterTop:.37,diameterBottom:.5,tessellation:6},scene);
     mesh.parent=parent;mesh.material=mat;mesh.position.set(x,height/2,z);mesh.isPickable=false;return mesh;
   }
-  function rootAt(name,x,z){const root=new BABYLON.TransformNode(name,scene);root.position.set(x,0,z);return root;}
+  function rootAt(name,x,z){const root=new BABYLON.TransformNode(name,scene);root.position.set(x,terrainHeight(x,z),z);return root;}
   function drawResource(node){
     const p=rootAt('resource:'+node.id,node.x,node.z);
-    if(node.type==='wood'){
-      trunk(p,mats.wood,0,0,2.9);
-      ball(p,'canopy',[3.0,2.3,2.9],mats.leaves,0,3.3,0);
+    if(node.type==='wood'||node.type==='moonleaf'){
+      trunk(p,mats.wood,0,0,node.type==='moonleaf'?3.6:2.9);
+      ball(p,'canopy',[3.0,2.3,2.9],node.type==='moonleaf'?mats.moonleaf:mats.leaves,0,3.3,0);
       ball(p,'canopy2',[1.8,1.4,2.1],mats.leavesLight,.7,4.05,.2);
-    }else if(node.type==='stone'){
-      ball(p,'stone',[2.35,1.55,1.9],mats.rock,0,.78,0);
+    }else if(node.type==='stone'||node.type==='obsidian'){
+      ball(p,'stone',[2.35,1.55,1.9],node.type==='obsidian'?mats.obsidian:mats.rock,0,.78,0);
       ball(p,'stone-detail',[.65,.4,.65],mats.rockLight,.5,1.43,.3);
-    }else if(node.type==='iron'){
+    }else if(node.type==='iron'||node.type==='circuit'){
       ball(p,'ore-rock',[2.05,1.3,2.1],mats.rock,0,.65,0);
       for(const [x,z] of [[-.55,.3],[.4,.4],[.1,-.5]]){
-        ball(p,'iron-ore',[.6,.65,.5],mats.iron,x,.95,z);
+        ball(p,'iron-ore',[.6,.65,.5],node.type==='circuit'?mats.circuit:mats.iron,x,.95,z);
       }
     }else{
       for(const [x,z,h] of [[0,0,2.3],[.6,.4,1.4],[-.5,-.3,1.2]]){
         const c=BABYLON.MeshBuilder.CreateCylinder('energy-crystal',{height:h,diameterTop:0,diameterBottom:.8,tessellation:6},scene);
-        c.material=mats.crystal;c.parent=p;c.position.set(x,h/2,z);c.isPickable=false;
+        c.material=node.type==='aether_shard'?mats.aether_shard:mats.crystal;c.parent=p;c.position.set(x,h/2,z);c.isPickable=false;
       }
     }
     nodeMeshes.set(node.id,p);p.setEnabled(Boolean(node.ready));
@@ -121,10 +123,10 @@
     ball(p,'head',[1.15,1.1,1.0],body,0,1.9,1.0);
     ball(p,'muzzle',[.84,.63,.38],mats.dark,0,1.85,1.52);
     for(const x of [-.25,.25])ball(p,'eye',[.16,.18,.13],mats.eye,x,2.02,1.73);
-    if(e.id==='voltfang'){
+    if(e.id==='voltfang'||e.id==='circuit-lynx'){
       for(const x of [-.35,.35])block(p,'ear',[.24,.75,.24],body,x,2.65,1.05);
       ball(p,'tail',[.45,.4,1.5],body,0,1.5,-1.4);
-    }else if(e.id==='terrakron'){
+    }else if(e.id==='terrakron'||e.id==='embermaw'){
       for(const x of [-.7,.7])ball(p,'rock-arm',[.8,1.05,.9],mats.rock,x,1.25,.15);
       for(const x of [-.44,.44])block(p,'horn',[.27,.7,.3],mats.iron,x,2.57,1.1);
     }else{
@@ -148,6 +150,16 @@
     }else if(k==='campfire'){
       ball(p,'stone-firepit',[2,.35,2],mats.rock,0,.18,0);
       ball(p,'ember',[.9,1,.9],mats.flame,0,.63,0);
+    }else if(k==='watchtower'){
+      for(const x of [-1.2,1.2])for(const z of [-1.2,1.2])
+        block(p,'tower-leg',[.35,9,.35],mats.wood,x,4.6,z);
+      block(p,'tower-top',[5,.5,5],mats.wood,0,9.2,0);
+      block(p,'tower-roof',[5,.8,5],mats.roof,0,11.1,0);
+    }else if(k==='neon_lab'||k==='titan_forge'||k==='sky_dock'){
+      const metal=k==='titan_forge'?mats.obsidian:k==='sky_dock'?mats.aether_shard:mats.armor;
+      block(p,'facility',[6,4,6],metal,0,2.2,0);
+      block(p,'facility-cap',[7,.4,7],mats.iron,0,4.3,0);
+      ball(p,'reactor',[1.4,2.4,1.4],k==='titan_forge'?mats.flame:mats.crystal,0,5.4,0);
     }else if(k==='floor')block(p,'floor',[3,.27,3],mats.wood,0,.22,0);
     else if(k==='wall')block(p,'wall',[3,2.8,.25],mats.wood,0,1.5,0);
     else if(k==='morph_station'){
@@ -205,31 +217,18 @@
     stayAnchor=null;
   }
   function drawTerrain(){
-    const ground=BABYLON.MeshBuilder.CreateGround('genesis-ground',{width:82,height:82,subdivisions:1},scene);
-    ground.material=mats.soil;ground.isPickable=false;
-    const patch=(name,x,z,size,mat)=>{
-      const p=BABYLON.MeshBuilder.CreateGround(name,{width:size,height:size},scene);
-      p.position.set(x,.022,z);p.material=mat;p.isPickable=false;
-    };
-    patch('moss',-15,11,22,mats.moss);
-    patch('mineral-ridge',22,-19,23,mats.gravel);
-    patch('moonwood',-22,-22,19,mats.moon);
-    patch('crystal-grove',19,24,19,mats.crystalGround);
-    const beacon=rootAt('arrival-beacon',0,0);
-    const pedestal=BABYLON.MeshBuilder.CreateCylinder('arrival',{height:.25,diameter:5.3,tessellation:24},scene);
-    pedestal.parent=beacon;pedestal.material=mats.dark;pedestal.position.y=.10;
-    const ring=BABYLON.MeshBuilder.CreateTorus('arrival-ring',{diameter:4.1,thickness:.16,tessellation:32},scene);
-    ring.parent=beacon;ring.material=mats.crystal;ring.position.y=.26;
+    terrainSystem=createGenesisTerrain(scene,{mobile:matchMedia('(max-width:950px)').matches});
+    terrainSystem.update(game.position.x,game.position.z,{force:true});
   }
   function setupScene(){
     if(!window.BABYLON){throw new Error('3D engine failed to load. Check internet or content restrictions.');}
     const canvas=$('renderCanvas');
-    engine=new BABYLON.Engine(canvas,true,{antialias:true,preserveDrawingBuffer:false,stencil:false});
+    engine=new BABYLON.Engine(canvas,true,{antialias:true,preserveDrawingBuffer:false,stencil:false,alpha:true});
     if((window.devicePixelRatio||1)>1.7)engine.setHardwareScalingLevel(1.35);
     scene=new BABYLON.Scene(engine);
     scene.clearColor=new BABYLON.Color4(.05,.11,.18,1);
-    scene.fogMode=BABYLON.Scene.FOGMODE_EXP2;scene.fogDensity=.007;
-    scene.fogColor=new BABYLON.Color3(.09,.19,.24);
+    scene.fogMode=BABYLON.Scene.FOGMODE_LINEAR;scene.fogStart=68;scene.fogEnd=window.innerWidth<950?340:490;
+    scene.fogColor=new BABYLON.Color3(.12,.22,.27);
     lighting=new BABYLON.HemisphericLight('skylight',new BABYLON.Vector3(0,1,0),scene);
     lighting.intensity=.98;
     const sun=new BABYLON.DirectionalLight('sun',new BABYLON.Vector3(-.5,-1,.55),scene);
@@ -241,6 +240,8 @@
     material('crystal','#68dcf4',true);material('dark','#142737');material('eye','#b5faff',true);
     material('armor','#2a7796');material('skin','#dfb993');material('roof','#3d6b79');
     material('flame','#ffa94b',true);material('echoWing','#805fc8',true);
+    material('obsidian','#252338',true);material('circuit','#61efff',true);
+    material('aether_shard','#b6b5ff',true);material('moonleaf','#b1f5a3',true);
     drawTerrain();
     game.resources.forEach(drawResource);
     game.echoes.forEach(drawEcho);
@@ -260,12 +261,38 @@
     if(!scene||!game)return;
     const dark=game.world.timeOfDay==='Night'||game.world.timeOfDay==='Dusk';
     lighting.intensity=dark ? .43 : .93;
-    scene.clearColor=dark?new BABYLON.Color4(.025,.038,.11,1):new BABYLON.Color4(.075,.20,.27,1);
+    const biome=biomeAt(player?.position.x||game.position.x,player?.position.z||game.position.z).id;
+    const sky={
+      forest:[.11,.30,.32],neon:[.055,.095,.20],titan:[.29,.16,.12],
+      aether:[.19,.24,.38],crystal:[.10,.25,.32],marsh:[.09,.24,.23],
+    }[biome]||[.09,.21,.26];
+    // Transparent canvas makes the CSS sky gradient visible beyond the distant fog.
+    const sceneCanvas=$('renderCanvas');
+    const bright={
+      forest:['#153b58','#70b8aa'],neon:['#131d42','#477b99'],
+      titan:['#552e31','#c17957'],aether:['#3a3f79','#aabbea'],
+      crystal:['#155063','#76c0bc'],marsh:['#264e4f','#7aa996'],
+    }[biome]||['#1b4250','#79a9a1'];
+    const stars='radial-gradient(circle at 13% 21%,#e9ffff 0 1px,transparent 2px),'+
+      'radial-gradient(circle at 31% 12%,#e9ffff 0 1px,transparent 2px),'+
+      'radial-gradient(circle at 58% 18%,#e9ffff 0 1px,transparent 2px),'+
+      'radial-gradient(circle at 78% 27%,#e9ffff 0 1px,transparent 2px),';
+    sceneCanvas.style.background=(dark?stars:'')+'linear-gradient(180deg,'+
+      (dark?'#070c24':bright[0])+' 0%,'+(dark?'#28405b':bright[1])+' 70%,'+
+      (dark?'#263e4e':'#325d55')+' 100%)';
+    scene.clearColor=new BABYLON.Color4(0,0,0,0);
+    scene.fogColor=new BABYLON.Color3(...sky.map(x=>x*(dark?.50:1)));
   }
   function syncScene(){
+    const desired=new Set(game.resources.map(node=>node.id));
+    for(const [id,mesh] of nodeMeshes)if(!desired.has(id)){
+      mesh.dispose(false,false);
+      nodeMeshes.delete(id);
+    }
     for(const node of game.resources){
-      const mesh=nodeMeshes.get(node.id);
-      if(mesh)mesh.setEnabled(node.ready);
+      let mesh=nodeMeshes.get(node.id);
+      if(!mesh){drawResource(node);mesh=nodeMeshes.get(node.id);}
+      mesh.setEnabled(node.ready);
     }
     for(const s of game.structures)if(!structureMeshes.has(s.id))drawBuilding(s);
     if(prism)applyMorph();
@@ -286,24 +313,33 @@
       const f=cameraForward();
       const dx=(f.x*forward+f.z*lateral)*game.speed*dt;
       const dz=(f.z*forward-f.x*lateral)*game.speed*dt;
-      player.position.x=Math.max(-37,Math.min(37,player.position.x+dx));
-      player.position.z=Math.max(-37,Math.min(37,player.position.z+dz));
+      player.position.x=Math.max(-WORLD_LIMIT+5,Math.min(WORLD_LIMIT-5,player.position.x+dx));
+      player.position.z=Math.max(-WORLD_LIMIT+5,Math.min(WORLD_LIMIT-5,player.position.z+dz));
       player.rotation.y=Math.atan2(dx,dz);
       if(now-lastMoveAt>880)sendPosition().catch(()=>{});
     }
-    camera.target.set(player.position.x,1.45,player.position.z);
+    player.position.y=terrainHeight(player.position.x,player.position.z);
+    camera.target.set(player.position.x,player.position.y+1.9,player.position.z);
+    // Only regenerate when crossing an 80m terrain-chunk boundary.
+    if(terrainSystem?.update(player.position.x,player.position.z)){
+      lastRefreshAt=now;
+      refreshWorld().catch(()=>{});
+    }
     const mode=game.character.movement;
     if(mode==='stay'&&!stayAnchor)stayAnchor={x:prism.position.x,z:prism.position.z};
     const target=mode==='stay'?stayAnchor:{x:player.position.x-1.8,z:player.position.z-1.7};
     prism.position.x+=(target.x-prism.position.x)*Math.min(1,dt*3.5);
     prism.position.z+=(target.z-prism.position.z)*Math.min(1,dt*3.5);
-    prism.position.y=(mode==='hover'||game.character.frame==='nova' ? .85 : 0)+Math.sin(now/440)*.09;
+    prism.position.y=terrainHeight(prism.position.x,prism.position.z)+(mode==='hover'||game.character.frame==='nova' ? .85 : 0)+Math.sin(now/440)*.09;
     prism.rotation.y=Math.atan2(player.position.x-prism.position.x,player.position.z-prism.position.z);
     for(const [id,mesh] of echoMeshes){
-      mesh.position.y=Math.sin(now/540+id.length)*.12;
+      const nearby=Math.hypot(mesh.position.x-player.position.x,mesh.position.z-player.position.z)<145;
+      mesh.setEnabled(nearby);
+      if(!nearby)continue;
+      mesh.position.y=terrainHeight(mesh.position.x,mesh.position.z)+Math.sin(now/540+id.length)*.12;
       mesh.rotation.y=Math.sin(now/2200+id.length)*.20;
     }
-    if(now-lastHintAt>300){showNearest();lastHintAt=now;}
+    if(now-lastHintAt>350){showNearest();if($('world-map-dialog')?.open)updateMap();lastHintAt=now;}
     if(now-lastRefreshAt>17000){lastRefreshAt=now;refreshWorld().catch(()=>{});}
     scene.render();
   }
@@ -339,8 +375,8 @@
     if(!near){$('nearest').textContent='Move near resources';$('interact').textContent='Explore';$('interact').disabled=true;return;}
     $('interact').disabled=false;
     if(near.kind==='resource'){
-      $('nearest').textContent=near.item.type+' deposit';
-      $('interact').textContent=(near.item.type==='wood'?'Harvest ':'Mine ')+near.item.type;
+      $('nearest').textContent=clean(near.item.type)+' deposit';
+      $('interact').textContent=(['wood','moonleaf'].includes(near.item.type)?'Harvest ':'Mine ')+clean(near.item.type);
     } else {
       $('nearest').textContent='Wild '+near.item.name;
       $('interact').textContent=near.item.bonded?'Bonded':near.item.discovered?'Bond Echoform':'Scan Echoform';
@@ -372,15 +408,79 @@
     return action({action:'build',kind,x,z,rotation:0});
   }
   async function refreshWorld(){
-    if(pending||!ready)return;
+    if(pending||!ready||refreshPromise)return refreshPromise;
+    refreshPromise=(async()=>{
+      try{
+        const response=await api('/api/genesis/state');
+        // The server alone decides current resources, inventory and building state.
+        game=response;rebuildPanels();syncScene();updateMap();
+      }catch(error){announce('Could not refresh world state: '+error.message,true);}
+      finally{refreshPromise=null;}
+    })();
+    return refreshPromise;
+  }
+
+  function mapPercent(x,z){
+    return {
+      left:((x+WORLD_LIMIT)/(WORLD_LIMIT*2)*100).toFixed(2)+'%',
+      top:((WORLD_LIMIT-z)/(WORLD_LIMIT*2)*100).toFixed(2)+'%',
+    };
+  }
+  function updateMap(){
+    if(!game||!player)return;
+    const stones=game.map?.waystones||WAYSTONES;
+    const pos={x:player.position.x,z:player.position.z};
+    const css=mapPercent(pos.x,pos.z);
+    $('map-you').style.left=css.left;$('map-you').style.top=css.top;
+    $('coords').textContent='Your position: '+Math.round(pos.x)+', '+Math.round(pos.z)+
+      ' · '+(biomeAt(pos.x,pos.z).name);
+    const nearest=nearestWaystone(pos,13);
+    $('waystone-status').textContent=nearest?
+      'Connected to '+nearest.name+'. Choose a destination to fast-travel.':
+      'Walk toward a glowing Waystone arch to unlock fast travel.';
+    $('waystone-list').innerHTML=stones.map(w=>{
+      const canTravel=Boolean(nearest&&w.id!==nearest.id);
+      const distance=Math.round(Math.hypot(pos.x-w.x,pos.z-w.z));
+      return '<button type="button" data-travel="'+esc(w.id)+'" '+(canTravel?'':'disabled')+'>'+
+        '<strong>'+esc(w.name)+'</strong><span>'+distance+'m '+(w.id===nearest?.id?'· CURRENT':canTravel?'· TRAVEL':'· VISIT WAYSTONE')+'</span></button>';
+    }).join('');
+  }
+  async function travel(destination){
+    if(pending)return;
+    pending=true;
     try{
-      const response=await api('/api/genesis/state');
-      // Server persistence is authoritative for inventory and construction.
-      game=response;
-      rebuildPanels();syncScene();
-    }catch(error){announce('Could not refresh world state: '+error.message,true);}
+      await sendPosition();
+      const result=await api('/api/genesis/travel',{destination});
+      game=result.snapshot;
+      player.position.x=game.position.x;player.position.z=game.position.z;
+      player.position.y=terrainHeight(player.position.x,player.position.z);
+      prism.position.x=player.position.x-2;prism.position.z=player.position.z-2;
+      terrainSystem.update(player.position.x,player.position.z,{force:true});
+      rebuildPanels();syncScene();updateMap();
+      $('world-map-dialog').close();
+      announce(result.message);
+    }catch(error){announce(error.message,true);}
+    finally{pending=false;}
   }
   function setupUI(){
+    const fieldKit=$('field-kit'),toggle=$('field-toggle');
+    if(matchMedia('(max-width:950px)').matches){
+      fieldKit.classList.add('collapsed');document.body.classList.remove('field-open');
+      toggle.textContent='Open Field Kit ▲';toggle.setAttribute('aria-expanded','false');
+    }
+    toggle.addEventListener('click',()=>{
+      const collapsed=fieldKit.classList.toggle('collapsed');
+      document.body.classList.toggle('field-open',!collapsed);
+      toggle.textContent=collapsed?'Open Field Kit ▲':'Hide Field Kit ▼';
+      toggle.setAttribute('aria-expanded',String(!collapsed));
+    });
+    $('map-open').addEventListener('click',()=>{updateMap();$('world-map-dialog').showModal();});
+    $('map-close').addEventListener('click',()=>$('world-map-dialog').close());
+    $('map-done').addEventListener('click',()=>$('world-map-dialog').close());
+    $('waystone-list').addEventListener('click',event=>{
+      const button=event.target.closest('[data-travel]');
+      if(button&&!button.disabled)travel(button.dataset.travel);
+    });
     document.querySelectorAll('[data-tab]').forEach(button=>button.addEventListener('click',()=>{
       document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===button));
       for(const name of panelNames)$('panel-'+name).classList.toggle('active',name===button.dataset.tab);
@@ -411,6 +511,7 @@
       }
       if(key==='e'&&!e.repeat){e.preventDefault();interact();}
       if(key==='b'&&!e.repeat){e.preventDefault();document.querySelector('[data-tab="build"]').click();}
+      if(key==='m'&&!e.repeat){e.preventDefault();$('map-open').click();}
     });
     window.addEventListener('keyup',e=>held.delete(e.key.toLowerCase()));
     window.addEventListener('blur',()=>held.clear());
@@ -436,7 +537,7 @@
       setupUI();
       ready=true;lastFrame=performance.now();lastMoveAt=performance.now();lastRefreshAt=performance.now();
       $('loading').style.display='none';
-      announce(game.lastMessage||'Genesis Forest loaded. Begin exploring.');
+      announce('Genesis World expanded! Open World Map to discover six enormous regions.');
     }catch(error){
       $('load-status').textContent=error.message;
       $('retry').hidden=false;
