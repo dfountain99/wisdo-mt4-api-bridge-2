@@ -48,11 +48,31 @@ export function genesisTerrainSurfaceColor(x,z){
 export function createGenesisTerrain(scene,{mobile=false}={}){
  if(!scene||!globalThis.BABYLON)throw Error('Babylon scene required for Genesis terrain.');
  const active=new Map(), special=new Map(),materialCache=new Map();
+ let artLibrary=null;
  const radius=2, subdivisions=mobile?12:20;
  const terrainMat=new BABYLON.StandardMaterial('genesis-terrain-vertex-colors',scene);
  terrainMat.diffuseColor=new BABYLON.Color3(1,1,1);
  terrainMat.specularColor=new BABYLON.Color3(.035,.06,.06);
  terrainMat.backFaceCulling=false;
+ // An actual surface texture provides fine detail between biome-colored vertices.
+ // UVs are world-space, so moving across an 80m chunk boundary never shifts the pattern.
+ const groundTex=new BABYLON.DynamicTexture('genesis-ground-grain',{width:128,height:128},scene,false);
+ const ctx=groundTex.getContext(),tile=ctx.createImageData(128,128);
+ let noise=1799;
+ for(let i=0;i<128*128;i++){
+   noise=(Math.imul(noise,1664525)+1013904223)|0;
+   const grain=((noise>>>17)&31)-15;
+   const spot=((noise>>>25)&7)===0?-17:0;
+   const shade=Math.max(178,Math.min(255,230+grain+spot));
+   tile.data[i*4]=shade+2;
+   tile.data[i*4+1]=shade;
+   tile.data[i*4+2]=shade-6;
+   tile.data[i*4+3]=255;
+ }
+ ctx.putImageData(tile,0,0);groundTex.update();
+ groundTex.wrapU=BABYLON.Texture.WRAP_ADDRESSMODE;
+ groundTex.wrapV=BABYLON.Texture.WRAP_ADDRESSMODE;
+ terrainMat.diffuseTexture=groundTex;
  function mat(name,hex,{glow=0,alpha=1}={}){
    const key=name+hex+glow+alpha;
    if(materialCache.has(key))return materialCache.get(key);
@@ -107,26 +127,27 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
    const key=chunkKey(cx,cz),root=new BABYLON.TransformNode('chunk-'+key,scene);
    const mesh=new BABYLON.Mesh('land-'+key,scene);
    mesh.parent=root;
-   const p=[],indices=[],normals=[],colors=[];
+   const p=[],indices=[],normals=[],colors=[],uvs=[];
    const centerX=(cx+.5)*CHUNK_SIZE,centerZ=(cz+.5)*CHUNK_SIZE;
    for(let zi=0;zi<=subdivisions;zi++)for(let xi=0;xi<=subdivisions;xi++){
      const worldX=cx*CHUNK_SIZE+xi/subdivisions*CHUNK_SIZE;
      const worldZ=cz*CHUNK_SIZE+zi/subdivisions*CHUNK_SIZE;
      p.push(worldX-centerX,terrainHeight(worldX,worldZ),worldZ-centerZ);
      colors.push(...genesisTerrainSurfaceColor(worldX,worldZ));
+     uvs.push(worldX/9,worldZ/9);
    }
    // The original index order pointed normals downward, turning the terrain black.
    indices.push(...genesisTerrainTriangleIndices(subdivisions));
    BABYLON.VertexData.ComputeNormals(p,indices,normals);
    const vd=new BABYLON.VertexData();
-   vd.positions=p;vd.indices=indices;vd.normals=normals;vd.colors=colors;vd.applyToMesh(mesh);
+   vd.positions=p;vd.indices=indices;vd.normals=normals;vd.colors=colors;vd.uvs=uvs;vd.applyToMesh(mesh);
    mesh.position.set(centerX,0,centerZ);
    mesh.material=terrainMat;mesh.isPickable=false;
    mesh.freezeWorldMatrix();
    const biome=biomeAt(centerX,centerZ);
    // GPU thin-instances: small meshes + a single matrix buffer for every tree.
    const trunks=[],canopies=[],leafTips=[],groundRocks=[],sparkles=[],grasses=[],blossoms=[];
-   const count=mobile?11:20;
+   const count=artLibrary?(mobile?5:10):(mobile?11:20);
    for(let i=0;i<count;i++){
      const x=cx*CHUNK_SIZE+5+rng(cx,cz,i,33)*(CHUNK_SIZE-10);
      const z=cz*CHUNK_SIZE+5+rng(cx,cz,i,91)*(CHUNK_SIZE-10);
@@ -135,6 +156,26 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
      if(LANDMARKS.some(w=>Math.hypot(w.x-x,w.z-z)<18))continue;
      const y=terrainHeight(x,z),variation=.75+rng(cx,cz,i,12)*.85;
      const style=biomeAt(x,z).id;
+     // Place genuine textured glTF mesh instances when the CC0 art pack is loaded.
+     // Original procedural shapes remain available in case assets fail to load.
+     if(artLibrary&&['forest','marsh','aether'].includes(style)){
+       const trees=artLibrary.available.filter(name=>name.startsWith('tree'));
+       const chosen=trees[Math.floor(rng(cx,cz,i,99)*trees.length)];
+       const rotation=rng(cx,cz,i,55)*Math.PI*2;
+       const scale=.90+rng(cx,cz,i,12)*.35;
+       if(chosen){
+         artLibrary.place(chosen,root,x,y,z,{scale,rotation});
+         if(artLibrary.has('bush')&&i%2===0){
+           const bx=x+3+rng(cx,cz,i,143)*3,bz=z-3+rng(cx,cz,i,177)*3;
+           if(Math.abs(bx)<WORLD_LIMIT-4&&Math.abs(bz)<WORLD_LIMIT-4&&
+              !WAYSTONES.some(w=>Math.hypot(w.x-bx,w.z-bz)<16)){
+             artLibrary.place('bush',root,bx,terrainHeight(bx,bz),bz,
+               {scale:.8+rng(cx,cz,i,14)*.6,rotation:rotation*.4});
+           }
+         }
+         continue;
+       }
+     }
      if(style==='forest'||style==='marsh'||style==='aether'){
        const h=(style==='aether'?6.0:style==='marsh'?3.7:5.2)*variation;
        trunks.push(matrix(x,y+h*.5,z,.55*variation,h,.55*variation,rng(cx,cz,i,4)*6.28));
@@ -295,6 +336,16 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
  for(const entry of WAYSTONES)landmark(entry.x,entry.z);
  for(const entry of LANDMARKS)landmark(entry.x,entry.z);
  let previousCell=null;
+ function setArtLibrary(library){
+   if(!library||!library.available?.some(name=>name.startsWith('tree')))return false;
+   if(artLibrary===library)return true;
+   artLibrary=library;
+   // Recreate only the local scenery chunks; gameplay objects/save data live elsewhere.
+   for(const root of active.values())root.dispose(false,false);
+   active.clear();
+   previousCell=null;
+   return true;
+ }
  function update(x,z,{force=false}={}){
    const cell=worldChunk(x,z),key=chunkKey(cell.cx,cell.cz);
    if(!force&&previousCell===key)return false;
@@ -323,8 +374,9 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
    for(const root of active.values())root.dispose(false,false);
    for(const root of special.values())root.dispose(false,false);
    active.clear();special.clear();
-   terrainMat.dispose();
+   terrainMat.dispose();groundTex.dispose();
    for(const m of materialCache.values())m.dispose();
+   artLibrary?.dispose();
  }
- return {update,dispose,activeChunkCount:()=>active.size,terrainHeight,biomeAt};
+ return {update,setArtLibrary,dispose,activeChunkCount:()=>active.size,terrainHeight,biomeAt};
 }
