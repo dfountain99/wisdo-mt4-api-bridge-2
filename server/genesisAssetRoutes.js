@@ -3,7 +3,7 @@
  *
  * The client deliberately loads these through /assets/genesis/models/*.glb.b64.
  * Without this mount, all art requests returned 404 and the game silently fell
- * back to placeholder spheres and the cuboid character.
+ * back to primitive fallback spheres and the cuboid character.
  */
 import express from 'express';
 import { fileURLToPath } from 'node:url';
