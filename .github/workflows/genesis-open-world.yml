@@ -1,0 +1,30 @@
+name: Genesis Open World Expansion
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  biome-gameplay-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Verify shared server-client world modules
+        run: |
+          node --check public/js/genesisWorldMap.js
+          node --check public/js/genesisTerrain.js
+          node --check public/js/genesisWorld.js
+          node --check services/genesisGameService.js
+          node --check server/genesisRoutes.js
+      - name: Gameplay and save-compatibility tests
+        run: node --test tests/genesisGame.test.js tests/genesisOpenWorld.test.js
+      - name: Existing WISDO regression tests
+        run: npm run check
