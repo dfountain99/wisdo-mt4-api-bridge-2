@@ -13,7 +13,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   const held=new Set(),joystick={x:0,y:0,active:false};
   let lookAt=null,stayAnchor=null;
   const panelNames=['journey','craft','build','echoes','prism'];
-  const iconFor=(k)=>({wood:'🌲',stone:'🪨',iron:'⛏',crystal:'💎',planks:'🪵',pickaxe:'⚒',energy_core:'⚡'})[k]||'•';
+  const iconFor=(k)=>({wood:'🌲',stone:'🪨',iron:'⛏',crystal:'💎',circuit:'🔋',obsidian:'🖤',aether_shard:'✨',moonleaf:'🌿',planks:'🪵',pickaxe:'⚒',energy_core:'⚡'})[k]||'•';
   function announce(message,alert=false){
     $('message').textContent=message;
     $('toast').textContent=message;
@@ -96,22 +96,22 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   function rootAt(name,x,z){const root=new BABYLON.TransformNode(name,scene);root.position.set(x,terrainHeight(x,z),z);return root;}
   function drawResource(node){
     const p=rootAt('resource:'+node.id,node.x,node.z);
-    if(node.type==='wood'){
-      trunk(p,mats.wood,0,0,2.9);
-      ball(p,'canopy',[3.0,2.3,2.9],mats.leaves,0,3.3,0);
+    if(node.type==='wood'||node.type==='moonleaf'){
+      trunk(p,mats.wood,0,0,node.type==='moonleaf'?3.6:2.9);
+      ball(p,'canopy',[3.0,2.3,2.9],node.type==='moonleaf'?mats.moonleaf:mats.leaves,0,3.3,0);
       ball(p,'canopy2',[1.8,1.4,2.1],mats.leavesLight,.7,4.05,.2);
-    }else if(node.type==='stone'){
-      ball(p,'stone',[2.35,1.55,1.9],mats.rock,0,.78,0);
+    }else if(node.type==='stone'||node.type==='obsidian'){
+      ball(p,'stone',[2.35,1.55,1.9],node.type==='obsidian'?mats.obsidian:mats.rock,0,.78,0);
       ball(p,'stone-detail',[.65,.4,.65],mats.rockLight,.5,1.43,.3);
-    }else if(node.type==='iron'){
+    }else if(node.type==='iron'||node.type==='circuit'){
       ball(p,'ore-rock',[2.05,1.3,2.1],mats.rock,0,.65,0);
       for(const [x,z] of [[-.55,.3],[.4,.4],[.1,-.5]]){
-        ball(p,'iron-ore',[.6,.65,.5],mats.iron,x,.95,z);
+        ball(p,'iron-ore',[.6,.65,.5],node.type==='circuit'?mats.circuit:mats.iron,x,.95,z);
       }
     }else{
       for(const [x,z,h] of [[0,0,2.3],[.6,.4,1.4],[-.5,-.3,1.2]]){
         const c=BABYLON.MeshBuilder.CreateCylinder('energy-crystal',{height:h,diameterTop:0,diameterBottom:.8,tessellation:6},scene);
-        c.material=mats.crystal;c.parent=p;c.position.set(x,h/2,z);c.isPickable=false;
+        c.material=node.type==='aether_shard'?mats.aether_shard:mats.crystal;c.parent=p;c.position.set(x,h/2,z);c.isPickable=false;
       }
     }
     nodeMeshes.set(node.id,p);p.setEnabled(Boolean(node.ready));
@@ -123,10 +123,10 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     ball(p,'head',[1.15,1.1,1.0],body,0,1.9,1.0);
     ball(p,'muzzle',[.84,.63,.38],mats.dark,0,1.85,1.52);
     for(const x of [-.25,.25])ball(p,'eye',[.16,.18,.13],mats.eye,x,2.02,1.73);
-    if(e.id==='voltfang'){
+    if(e.id==='voltfang'||e.id==='circuit-lynx'){
       for(const x of [-.35,.35])block(p,'ear',[.24,.75,.24],body,x,2.65,1.05);
       ball(p,'tail',[.45,.4,1.5],body,0,1.5,-1.4);
-    }else if(e.id==='terrakron'){
+    }else if(e.id==='terrakron'||e.id==='embermaw'){
       for(const x of [-.7,.7])ball(p,'rock-arm',[.8,1.05,.9],mats.rock,x,1.25,.15);
       for(const x of [-.44,.44])block(p,'horn',[.27,.7,.3],mats.iron,x,2.57,1.1);
     }else{
@@ -150,6 +150,16 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     }else if(k==='campfire'){
       ball(p,'stone-firepit',[2,.35,2],mats.rock,0,.18,0);
       ball(p,'ember',[.9,1,.9],mats.flame,0,.63,0);
+    }else if(k==='watchtower'){
+      for(const x of [-1.2,1.2])for(const z of [-1.2,1.2])
+        block(p,'tower-leg',[.35,9,.35],mats.wood,x,4.6,z);
+      block(p,'tower-top',[5,.5,5],mats.wood,0,9.2,0);
+      block(p,'tower-roof',[5,.8,5],mats.roof,0,11.1,0);
+    }else if(k==='neon_lab'||k==='titan_forge'||k==='sky_dock'){
+      const metal=k==='titan_forge'?mats.obsidian:k==='sky_dock'?mats.aether_shard:mats.armor;
+      block(p,'facility',[6,4,6],metal,0,2.2,0);
+      block(p,'facility-cap',[7,.4,7],mats.iron,0,4.3,0);
+      ball(p,'reactor',[1.4,2.4,1.4],k==='titan_forge'?mats.flame:mats.crystal,0,5.4,0);
     }else if(k==='floor')block(p,'floor',[3,.27,3],mats.wood,0,.22,0);
     else if(k==='wall')block(p,'wall',[3,2.8,.25],mats.wood,0,1.5,0);
     else if(k==='morph_station'){
@@ -251,7 +261,13 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     if(!scene||!game)return;
     const dark=game.world.timeOfDay==='Night'||game.world.timeOfDay==='Dusk';
     lighting.intensity=dark ? .43 : .93;
-    scene.clearColor=dark?new BABYLON.Color4(.025,.038,.11,1):new BABYLON.Color4(.075,.20,.27,1);
+    const biome=biomeAt(player?.position.x||game.position.x,player?.position.z||game.position.z).id;
+    const sky={
+      forest:[.11,.30,.32],neon:[.055,.095,.20],titan:[.29,.16,.12],
+      aether:[.19,.24,.38],crystal:[.10,.25,.32],marsh:[.09,.24,.23],
+    }[biome]||[.09,.21,.26];
+    scene.clearColor=new BABYLON.Color4(...sky.map(x=>x*(dark?.43:1)),1);
+    scene.fogColor=new BABYLON.Color3(...sky.map(x=>x*(dark?.50:1)));
   }
   function syncScene(){
     const desired=new Set(game.resources.map(node=>node.id));
@@ -303,10 +319,13 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     prism.position.y=terrainHeight(prism.position.x,prism.position.z)+(mode==='hover'||game.character.frame==='nova' ? .85 : 0)+Math.sin(now/440)*.09;
     prism.rotation.y=Math.atan2(player.position.x-prism.position.x,player.position.z-prism.position.z);
     for(const [id,mesh] of echoMeshes){
+      const nearby=Math.hypot(mesh.position.x-player.position.x,mesh.position.z-player.position.z)<145;
+      mesh.setEnabled(nearby);
+      if(!nearby)continue;
       mesh.position.y=terrainHeight(mesh.position.x,mesh.position.z)+Math.sin(now/540+id.length)*.12;
       mesh.rotation.y=Math.sin(now/2200+id.length)*.20;
     }
-    if(now-lastHintAt>300){showNearest();lastHintAt=now;}
+    if(now-lastHintAt>350){showNearest();if($('world-map-dialog')?.open)updateMap();lastHintAt=now;}
     if(now-lastRefreshAt>17000){lastRefreshAt=now;refreshWorld().catch(()=>{});}
     scene.render();
   }
@@ -342,8 +361,8 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     if(!near){$('nearest').textContent='Move near resources';$('interact').textContent='Explore';$('interact').disabled=true;return;}
     $('interact').disabled=false;
     if(near.kind==='resource'){
-      $('nearest').textContent=near.item.type+' deposit';
-      $('interact').textContent=(near.item.type==='wood'?'Harvest ':'Mine ')+near.item.type;
+      $('nearest').textContent=clean(near.item.type)+' deposit';
+      $('interact').textContent=(['wood','moonleaf'].includes(near.item.type)?'Harvest ':'Mine ')+clean(near.item.type);
     } else {
       $('nearest').textContent='Wild '+near.item.name;
       $('interact').textContent=near.item.bonded?'Bonded':near.item.discovered?'Bond Echoform':'Scan Echoform';
