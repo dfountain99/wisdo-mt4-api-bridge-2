@@ -1,5 +1,5 @@
 import { createGenesisTerrain } from './genesisTerrain.js?v=6';
-import { loadGenesisArtLibrary } from './genesisArtLibrary.js?v=4';
+import { loadGenesisArtLibrary } from './genesisArtLibrary.js?v=6';
 import { loadGenesisPhotoSurfaces,genesisSceneDisposed }
   from './genesisPhotoSurfaces.js?v=6';
 import { buildGenesisHybrid } from './genesisCreatureVisuals.js?v=5';
