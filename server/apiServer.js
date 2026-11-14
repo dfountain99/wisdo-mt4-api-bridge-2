@@ -9,6 +9,7 @@ import { registerDeadshotCommandCenterRoutes } from './deadshotSite.js';
 import { registerMajorUpgradeRoutes } from './majorUpgradeRoutes.js';
 import { registerHoloModeRoutes } from './holoModeRoutes.js';
 import { registerGenesisRoutes } from './genesisRoutes.js';
+import { registerGenesisAssetRoutes } from './genesisAssetRoutes.js';
 import { registerExtendedProductRoutes } from './extendedProductRoutes.js';
 import { registerPresenceIdentityRoutes } from './presenceIdentityRoutes.js';
 import { registerPresenceStudioRoutes } from './presenceStudioRoutes.js';
@@ -4728,6 +4729,7 @@ export async function startApiServer({ config, mt4SyncService, mt4CommandService
   app.use('/media', express.static(path.join(__dirname, '..', 'public', 'media')));
   app.use('/platforms', express.static(path.join(__dirname, '..', 'public', 'platforms')));
   app.use('/js', express.static(path.join(__dirname, '..', 'public', 'js')));
+  registerGenesisAssetRoutes(app);
   app.use('/downloads', express.static(path.join(__dirname, '..', 'public', 'downloads')));
   app.get('/service-worker.js', (_req, res) => {
     res.setHeader('Service-Worker-Allowed', '/');
