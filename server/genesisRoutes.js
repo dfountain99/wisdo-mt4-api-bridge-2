@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { nearestWaystone,findWaystone } from '../public/js/genesisWorldMap.js';
 import { getSessionUser } from './security.js';
 import { createWisdoPhase1Repository } from '../services/repositories/wisdoPhase1Repository.js';
 import {
@@ -75,6 +76,27 @@ export function registerGenesisRoutes(app,{config={}}={}){
     current.x=x;current.z=z;current.at=now;
     res.json({ok:true,position:{x,z}});
   });
+  // Fast travel is allowed only while standing at an established waystone.
+  // Never accept arbitrary destination coordinates from the browser.
+  app.post('/api/genesis/travel',auth,csrf,async(req,res)=>{
+    try{
+      const key=String(req.genesisUser.id);
+      const current=boundPosition(presence.get(key),key);
+      const origin=nearestWaystone(current,13);
+      if(!origin)return res.status(403).json({ok:false,error:'Find a glowing Waystone to travel between regions.'});
+      const destination=findWaystone(String(req.body?.destination||''));
+      if(!destination)return res.status(400).json({ok:false,error:'Unknown Waystone destination.'});
+      const state=await repository.loadState();
+      const profile=state.genesisProfilesByUserId?.[key]||createGenesisProfile(key);
+      current.x=destination.x;current.z=destination.z;current.at=Date.now();
+      current.speed=moveSpeed(profile);
+      return res.json({
+        ok:true,message:'Arrived at '+destination.name+'.',
+        snapshot:profileSnapshot(profile,{x:current.x,z:current.z}),
+      });
+    }catch(error){cleanError(res,error);}
+  });
+
   app.post('/api/genesis/action',auth,csrf,async(req,res)=>{
     const key=String(req.genesisUser.id);
     const now=Date.now();
