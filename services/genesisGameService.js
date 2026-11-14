@@ -115,8 +115,10 @@ export function profileSnapshot(profile,position={x:0,z:0},now=Date.now()){
 function near(position,target,meters=5){if(!position||!finite(position.x)||!finite(position.z)||dist(position,target)>meters)throw fail('Move closer to interact.');}
 function buildablePosition(position,x,z){
  if(!finite(x)||!finite(z)||Math.abs(x)>WORLD_LIMIT-4||Math.abs(z)>WORLD_LIMIT-4)throw fail('Select a location within the connected Genesis world.');
- if(WAYSTONES.some(w=>Math.hypot(w.x-x,w.z-z)<9))throw fail('Waystone plazas must remain open for travelers.');
  if(Math.abs(x)<2.5&&Math.abs(z)<2.5)throw fail('The arrival circle must stay clear.');
+ // Old Genesis v1 construction near arrival remains valid; new portals are protected.
+ if(WAYSTONES.some(w=>w.id!=='arrival'&&Math.hypot(w.x-x,w.z-z)<9))
+   throw fail('Waystone plazas must remain open for travelers.');
  near(position,{x,z},7);
  const gx=Math.round(x/2)*2,gz=Math.round(z/2)*2;
  return {x:gx,z:gz};
