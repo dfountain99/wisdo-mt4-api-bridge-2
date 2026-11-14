@@ -49,7 +49,8 @@ export function genesisTerrainSurfaceColor(x,z){
 export function createGenesisTerrain(scene,{mobile=false}={}){
  if(!scene||!globalThis.BABYLON)throw Error('Babylon scene required for Genesis terrain.');
  const active=new Map(), special=new Map(),materialCache=new Map();
- let artLibrary=null;
+ let artLibrary=null,photoSurfaces=null;
+ const photoMaterials=new Map();
  const radius=2;
  let graphics=genesisGraphicsPreset('balanced',mobile);
  const terrainMat=new BABYLON.StandardMaterial('genesis-terrain-vertex-colors',scene);
@@ -83,6 +84,19 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
    if(glow)out.emissiveColor=tone(hex).scale(glow);
    if(alpha<1){out.alpha=alpha;out.backFaceCulling=false;}
    materialCache.set(key,out);return out;
+ }
+ function groundPhotoMaterial(biomeId){
+   const texture=photoSurfaces?.getForBiome(biomeId);
+   if(!texture)return terrainMat;
+   if(photoMaterials.has(biomeId))return photoMaterials.get(biomeId);
+   const m=new BABYLON.StandardMaterial('photo-ground-'+biomeId,scene);
+   m.diffuseColor=new BABYLON.Color3(1,1,1);
+   m.diffuseTexture=texture;
+   m.specularColor=new BABYLON.Color3(.035,.04,.05);
+   m.specularPower=18;
+   m.backFaceCulling=false;
+   photoMaterials.set(biomeId,m);
+   return m;
  }
  const wood=mat('forest-bark','#665343');
  const stone=mat('architect-stone','#71828b');
@@ -136,7 +150,12 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
      const worldX=cx*CHUNK_SIZE+xi/subdivisions*CHUNK_SIZE;
      const worldZ=cz*CHUNK_SIZE+zi/subdivisions*CHUNK_SIZE;
      p.push(worldX-centerX,terrainHeight(worldX,worldZ),worldZ-centerZ);
-     colors.push(...genesisTerrainSurfaceColor(worldX,worldZ));
+     const color=genesisTerrainSurfaceColor(worldX,worldZ);
+     // Photo albedo already contains its own colors: apply a gentle biome tint
+     // rather than multiplying it by the old dark flat-ground palette.
+     if(photoSurfaces)colors.push(.7+color[0]*.3,.7+color[1]*.3,
+       .7+color[2]*.3,1);
+     else colors.push(...color);
      uvs.push(worldX/9,worldZ/9);
    }
    // The original index order pointed normals downward, turning the terrain black.
@@ -145,9 +164,10 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
    const vd=new BABYLON.VertexData();
    vd.positions=p;vd.indices=indices;vd.normals=normals;vd.colors=colors;vd.uvs=uvs;vd.applyToMesh(mesh);
    mesh.position.set(centerX,0,centerZ);
-   mesh.material=terrainMat;mesh.isPickable=false;mesh.receiveShadows=true;
-   mesh.freezeWorldMatrix();
    const biome=biomeAt(centerX,centerZ);
+   mesh.material=groundPhotoMaterial(biome.id);
+   mesh.isPickable=false;mesh.receiveShadows=true;
+   mesh.freezeWorldMatrix();
    // GPU thin-instances: small meshes + a single matrix buffer for every tree.
    const trunks=[],canopies=[],leafTips=[],groundRocks=[],sparkles=[],grasses=[],blossoms=[];
    const count=artLibrary?graphics.trees:Math.ceil(graphics.trees*1.4);
@@ -166,8 +186,7 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
        const chosen=trees[Math.floor(rng(cx,cz,i,99)*trees.length)];
        const rotation=rng(cx,cz,i,55)*Math.PI*2;
        const scale=.90+rng(cx,cz,i,12)*.35;
-       if(chosen){
-         artLibrary.place(chosen,root,x,y,z,{scale,rotation});
+       if(chosen&&artLibrary.place(chosen,root,x,y,z,{scale,rotation})){
          if(artLibrary.has('bush')&&i%2===0){
            const bx=x+3+rng(cx,cz,i,143)*3,bz=z-3+rng(cx,cz,i,177)*3;
            if(Math.abs(bx)<WORLD_LIMIT-4&&Math.abs(bz)<WORLD_LIMIT-4&&
@@ -339,6 +358,22 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
  for(const entry of WAYSTONES)landmark(entry.x,entry.z);
  for(const entry of LANDMARKS)landmark(entry.x,entry.z);
  let previousCell=null;
+ function setPhotoSurfaces(library){
+   if(!library?.available?.length)return false;
+   if(photoSurfaces===library)return true;
+   for(const m of photoMaterials.values())m.dispose(false,false);
+   photoMaterials.clear();
+   photoSurfaces=library;
+   const rock=library.get('rock')||library.get('dry');
+   if(rock){
+     stone.diffuseTexture=rock;
+     stone.diffuseColor=new BABYLON.Color3(.86,.88,.90);
+   }
+   // The photo tint is vertex-dependent: regenerate only nearby visual chunks.
+   for(const root of active.values())root.dispose(false,false);
+   active.clear();previousCell=null;
+   return true;
+ }
  function setQuality(mode){
    const next=genesisGraphicsPreset(mode,mobile);
    if(graphics.mode===next.mode)return graphics;
@@ -385,9 +420,12 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
    for(const root of active.values())root.dispose(false,false);
    for(const root of special.values())root.dispose(false,false);
    active.clear();special.clear();
+   for(const m of photoMaterials.values())m.dispose(false,false);
+   photoMaterials.clear();
    terrainMat.dispose();groundTex.dispose();
-   for(const m of materialCache.values())m.dispose();
-   artLibrary?.dispose();
+   for(const m of materialCache.values())m.dispose(false,false);
+   artLibrary?.dispose();photoSurfaces?.dispose();
  }
- return {update,setArtLibrary,setQuality,dispose,activeChunkCount:()=>active.size,terrainHeight,biomeAt};
+ return {update,setArtLibrary,setPhotoSurfaces,setQuality,dispose,
+   activeChunkCount:()=>active.size,terrainHeight,biomeAt};
 }

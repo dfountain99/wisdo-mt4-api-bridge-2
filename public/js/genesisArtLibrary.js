@@ -77,7 +77,13 @@ export async function loadGenesisArtLibrary(scene){
   }
   return {root,animationGroups:instance.animationGroups};
  }
- function place(...args){return Boolean(spawn(...args));}
+ function place(...args){
+  try{return Boolean(spawn(...args));}
+  catch(error){
+   console.warn('Genesis authored scenery instance could not be created:',error);
+   return false;
+  }
+ }
  return {
   has:key=>containers.has(key),
   spawn,place,

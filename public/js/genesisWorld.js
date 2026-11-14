@@ -1,5 +1,7 @@
-import { createGenesisTerrain } from './genesisTerrain.js?v=4';
-import { loadGenesisArtLibrary } from './genesisArtLibrary.js?v=4';
+import { createGenesisTerrain } from './genesisTerrain.js?v=6';
+import { loadGenesisArtLibrary } from './genesisArtLibrary.js?v=6';
+import { loadGenesisPhotoSurfaces,genesisSceneDisposed }
+  from './genesisPhotoSurfaces.js?v=6';
 import { buildGenesisHybrid } from './genesisCreatureVisuals.js?v=5';
 import {genesisGraphicsPreset} from './genesisGraphicsQuality.js?v=5';
 import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,nearestWaystone } from './genesisWorldMap.js';
@@ -11,6 +13,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   const esc=(s)=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
   const clean=(s)=>String(s||'').replace(/_/g,' ');
   let game=null,scene=null,engine=null,camera=null,player=null,prism=null,lighting=null,sunLight=null,terrainSystem=null,shadowGenerator=null;
+  let loadedArt=null;
   let graphicsMode='balanced',lastFpsDisplay=0;
   let mats={},prismPieces={},nodeMeshes=new Map(),structureMeshes=new Map(),echoMeshes=new Map(),playerAnimation=null;
   const hybridEchoVisuals=new Map();
@@ -117,9 +120,20 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   function drawResource(node){
     const p=rootAt('resource:'+node.id,node.x,node.z);
     if(node.type==='wood'||node.type==='moonleaf'){
-      trunk(p,mats.wood,0,0,node.type==='moonleaf'?3.6:2.9);
-      ball(p,'canopy',[3.0,2.3,2.9],node.type==='moonleaf'?mats.moonleaf:mats.leaves,0,3.3,0);
-      ball(p,'canopy2',[1.8,1.4,2.1],mats.leavesLight,.7,4.05,.2);
+      let rendered=false;
+      if(loadedArt?.available?.some(n=>n.startsWith('tree'))){
+        const trees=loadedArt.available.filter(n=>n.startsWith('tree'));
+        let hash=0;for(const ch of node.id)hash=(Math.imul(hash,31)+ch.charCodeAt(0))|0;
+        const selected=trees[(hash>>>0)%trees.length];
+        rendered=loadedArt.place(selected,p,0,0,0,{scale:node.type==='moonleaf'?.75:1});
+        if(rendered&&node.type==='moonleaf')
+          ball(p,'moonleaf-glow',[.45,.45,.4],mats.moonleaf,.7,4.0,0);
+      }
+      if(!rendered){
+        trunk(p,mats.wood,0,0,node.type==='moonleaf'?3.6:2.9);
+        ball(p,'canopy',[3.0,2.3,2.9],node.type==='moonleaf'?mats.moonleaf:mats.leaves,0,3.3,0);
+        ball(p,'canopy2',[1.8,1.4,2.1],mats.leavesLight,.7,4.05,.2);
+      }
     }else if(node.type==='stone'||node.type==='obsidian'){
       ball(p,'stone',[2.35,1.55,1.9],node.type==='obsidian'?mats.obsidian:mats.rock,0,.78,0);
       ball(p,'stone-detail',[.65,.4,.65],mats.rockLight,.5,1.43,.3);
@@ -280,22 +294,51 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   function drawTerrain(){
     terrainSystem=createGenesisTerrain(scene,{mobile:matchMedia('(max-width:950px)').matches});
     terrainSystem.update(game.position.x,game.position.z,{force:true});
-    // Async GLB loading keeps the existing terrain playable if a model fails.
+    // Independent async imports: photo terrain and model art can each load
+    // successfully even when the other source is unavailable on Safari.
+    loadGenesisPhotoSurfaces(scene).then(photo=>{
+      if(genesisSceneDisposed(scene)){photo.dispose();return;}
+      if(!terrainSystem?.setPhotoSurfaces(photo)){photo.dispose();return;}
+      terrainSystem.update(player?.position.x??game.position.x,
+        player?.position.z??game.position.z,{force:true});
+      const rock=photo.get('rock')||photo.get('dry');
+      if(rock){
+        for(const name of ['rock','rockLight','gravel']){
+          mats[name].diffuseTexture=rock;
+          mats[name].diffuseColor=new BABYLON.Color3(.85,.86,.87);
+        }
+      }
+      announce('Photographic terrain textures loaded: '+photo.available.join(', ')+'.');
+      if(photo.errors.length)console.warn('Genesis photo surface warnings:',photo.errors);
+    }).catch(error=>{
+      console.warn('Genesis photo maps unavailable:',error);
+      announce('Terrain texture fallback: '+String(error?.message||error).slice(0,100),true);
+    });
     loadGenesisArtLibrary(scene).then(library=>{
-      if(scene.isDisposed()){library.dispose();return;}
+      // Babylon Scene.isDisposed is a boolean getter, not a method.
+      if(genesisSceneDisposed(scene)){library.dispose();return;}
       if(terrainSystem?.setArtLibrary(library)){
+        loadedArt=library;
         terrainSystem.update(player?.position.x??game.position.x,
           player?.position.z??game.position.z,{force:true});
-        upgradePlayerAvatar(library);
+        // Collectible wood deposits used the legacy sphere trees even after
+        // environment art loaded. Replace their render meshes, not save data.
+        for(const node of game.resources){
+          if(node.type!=='wood'&&node.type!=='moonleaf')continue;
+          nodeMeshes.get(node.id)?.dispose(false,false);
+          nodeMeshes.delete(node.id);
+          drawResource(node);
+        }
+        try{upgradePlayerAvatar(library);}
+        catch(error){console.warn('Genesis explorer animation unavailable:',error);}
         if(shadowGenerator)for(const mesh of player.getChildMeshes(false))
           if(mesh.getTotalVertices?.()>0&&!mesh.isDisposed())shadowGenerator.addShadowCaster(mesh);
-        announce('New 3D scenery and character graphics loaded!');
+        announce('Textured trees and the 3D explorer are ready.');
+        if(library.failures.length)console.warn('Some Genesis GLB assets failed:',library.failures);
       }else library.dispose();
     }).catch(error=>{
       console.warn('Genesis 3D art load failed; using safe built-in scenery:',error);
-      // Do not silently present primitive primitive fallbacks as the upgraded game.
-      // Surface the reason inside the HUD so phone users can report it.
-      announce('3D graphics fallback: '+String(error?.message||error).slice(0,130),true);
+      announce('3D model loading error: '+String(error?.message||error).slice(0,130),true);
     });
   }
   function applyGraphicsMode(mode,{save=true}={}){
