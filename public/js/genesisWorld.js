@@ -2,8 +2,11 @@ import { createGenesisTerrain } from './genesisTerrain.js?v=6';
 import { loadGenesisArtLibrary } from './genesisArtLibrary.js?v=6';
 import { loadGenesisPhotoSurfaces,genesisSceneDisposed }
   from './genesisPhotoSurfaces.js?v=6';
-import { buildGenesisHybrid } from './genesisCreatureVisuals.js?v=5';
+import { buildGenesisHybrid } from './genesisCreatureVisuals.js?v=7';
 import {genesisGraphicsPreset} from './genesisGraphicsQuality.js?v=5';
+import {drawGenesisStructure} from './genesisStructureVisuals.js?v=7';
+import {genesisWildlifePose} from './genesisWildlifeBehavior.js?v=7';
+import {applyGenesisWoodDetail} from './genesisMaterialDetail.js?v=7';
 import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,nearestWaystone } from './genesisWorldMap.js';
 /* WISDO Genesis v2 streaming open-world browser renderer: third-person Babylon world, no fake resources.
    All harvesting, crafting, construction and morph changes are validated by the server. */
@@ -14,6 +17,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   const clean=(s)=>String(s||'').replace(/_/g,' ');
   let game=null,scene=null,engine=null,camera=null,player=null,prism=null,lighting=null,sunLight=null,terrainSystem=null,shadowGenerator=null;
   let loadedArt=null;
+  let buildSelection=null,buildRotation=0,buildGhost=null,buildGhostMaterial=null;
   let graphicsMode='balanced',lastFpsDisplay=0;
   let mats={},prismPieces={},nodeMeshes=new Map(),structureMeshes=new Map(),echoMeshes=new Map(),playerAnimation=null;
   const hybridEchoVisuals=new Map();
@@ -22,7 +26,12 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   const held=new Set(),joystick={x:0,y:0,active:false};
   let lookAt=null,stayAnchor=null;
   const panelNames=['journey','craft','build','echoes','prism'];
-  const iconFor=(k)=>({wood:'🌲',stone:'🪨',iron:'⛏',crystal:'💎',circuit:'🔋',obsidian:'🖤',aether_shard:'✨',moonleaf:'🌿',planks:'🪵',pickaxe:'⚒',energy_core:'⚡'})[k]||'•';
+  const iconFor=(k)=>({
+    wood:'🌲',stone:'🪨',iron:'⛏',crystal:'💎',circuit:'🔋',obsidian:'🖤',
+    aether_shard:'✨',moonleaf:'🌿',planks:'🪵',pickaxe:'⚒',energy_core:'⚡',
+    rope:'🪢',stone_bricks:'🧱',nails:'🔩',iron_ingot:'⚙️',
+    crystal_glass:'🔷',resonance_bait:'🦴',stone_axe:'🪓',reinforced_pickaxe:'⛏️'
+  })[k]||'•';
   function announce(message,alert=false){
     $('message').textContent=message;
     $('toast').textContent=message;
@@ -44,18 +53,44 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     } finally{clearTimeout(timer);}
   }
   function renderInventory(){
-    const items=['wood','stone','iron','crystal','obsidian','circuit','aether_shard','moonleaf','planks','pickaxe'];
+    const items=['wood','stone','iron','crystal','obsidian','circuit','aether_shard','moonleaf',
+      'planks','pickaxe','rope','stone_bricks','resonance_bait'];
     $('resources').innerHTML=items.map(k=>'<span>'+iconFor(k)+' '+esc(k)+' <b>'+Number(game.inventory[k]||0)+'</b></span>').join('');
   }
   function hasCost(cost){return Object.entries(cost||{}).every(([k,v])=>(game.inventory[k]||0)>=v);}
   function costText(cost){return Object.entries(cost||{}).map(([k,v])=>iconFor(k)+' '+esc(k)+' ×'+v).join(' · ');}
   function rebuildPanels(){
-    $('craft-items').innerHTML=Object.entries(game.recipes).map(([id,r])=>`
-      <div class="option"><div class="row"><strong>${esc(r.label)}</strong><button type="button" data-craft="${esc(id)}" ${hasCost(r.requires)?'':'disabled'}>Craft</button></div>
-      <div class="cost">${costText(r.requires)}</div>${r.needs?'<small>Requires '+esc(r.needs)+'</small>':''}</div>`).join('');
-    $('build-items').innerHTML=Object.entries(game.buildings).map(([id,b])=>`
-      <div class="option"><div class="row"><strong>${esc(b.label)}</strong><button type="button" data-build="${esc(id)}" ${hasCost(b.cost)?'':'disabled'}>Place</button></div>
-      <div class="cost">${costText(b.cost)}</div>${b.needs?'<small>Requires '+esc(b.needs)+'</small>':''}</div>`).join('');
+    $('craft-items').innerHTML=Object.entries(game.recipes).map(([id,r])=>{
+      const stationReady=!r.needs||game.structures.some(s=>s.kind===r.needs);
+      const owned=['pickaxe','stone_axe','reinforced_pickaxe'].includes(id)&&game.inventory[id]>0;
+      return `<div class="option"><div class="row"><strong>${esc(r.label)}</strong>
+        <button type="button" data-craft="${esc(id)}" ${hasCost(r.requires)&&stationReady&&!owned?'':'disabled'}>Craft</button></div>
+        <div class="cost">Materials: ${costText(r.requires)}</div>
+        <small>Creates: ${costText(r.grants)}${r.needs?' · Station: '+esc(r.needs):''}</small></div>`;
+    }).join('');
+    $('build-items').innerHTML=Object.entries(game.buildings).map(([id,b])=>{
+      const ready=!b.needs||game.structures.some(s=>s.kind===b.needs);
+      return `<div class="option"><div class="row"><strong>${esc(b.label)}</strong>
+        <button type="button" data-build="${esc(id)}" ${hasCost(b.cost)&&ready?'':'disabled'}>
+        ${buildSelection===id?'Selected':'Preview'}</button></div>
+        <div class="cost">Cost: ${costText(b.cost)}</div>
+        <small>Footprint: ${Number(b.width)}m · ${Number(b.height)}m tall
+          ${b.needs?' · Needs '+esc(b.needs):''}</small></div>`;
+    }).join('');
+    const chests=game.structures.filter(s=>s.kind==='storage_chest');
+    const chestSelect=$('chest-select'),lastChest=chestSelect.value;
+    chestSelect.innerHTML=chests.map(s=>
+      '<option value="'+esc(s.id)+'">Supply Chest · '+Math.round(s.x)+', '+Math.round(s.z)+'</option>').join('');
+    if(chests.some(s=>s.id===lastChest))chestSelect.value=lastChest;
+    $('chest-controls').hidden=!chests.length;
+    const box=game.storage?.[chestSelect.value]||{};
+    const stored=Object.entries(box).filter(([,v])=>v>0);
+    $('chest-inventory').textContent=chests.length?
+      'Stored ('+stored.reduce((n,[,v])=>n+v,0)+'/60): '+
+      (stored.map(([k,v])=>clean(k)+' ×'+v).join(' · ')||'Empty'):
+      'Build a Supply Chest to store materials. Approach within 5 meters to use it.';
+    $('craft-inventory').textContent=Object.entries(game.inventory)
+      .filter(([,n])=>n>0).map(([k,n])=>clean(k)+' ×'+n).join(' · ')||'No materials yet.';
     $('echo-items').innerHTML=game.echoes.map(e=>{
       const power=e.power;
       const cooldown=Number(game.resonance?.cooldowns?.[e.id]||0);
@@ -63,10 +98,15 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       ${e.hybrid?'<small>'+esc(e.biome?.toUpperCase())+' · '+esc(e.hybrid)+'</small>':''}
       <small>${esc(e.description)}</small><div class="cost">Bond: ${costText(e.cost)}</div>
       ${power?'<div class="cost">⚡ '+esc(power.name)+' · '+Math.ceil(power.durationMs/1000)+'s active · '+Math.ceil(power.cooldownMs/1000)+'s recharge</div>':''}
+      ${e.hybrid?'<small>Temperament: '+(e.trust>=2?'Friendly':e.trust===1?'Curious':'Wild')+
+        ' · Trust '+Number(e.trust||0)+'/3 · Each trust level extends PRISM power by 3s</small>':''}
       ${e.bonded?'<button type="button" data-equip="'+esc(e.id)+'">'+(game.character.equipped===e.id?'Equipped':'Morph into '+esc(e.name))+'</button>':
        '<small>Find, scan, and bond this Echoform in its biome.</small>'}
       ${e.bonded&&power&&game.character.equipped===e.id?'<button type="button" data-power="'+esc(e.id)+'" '+(cooldown>0?'disabled':'')+'>'+
-       (cooldown>0?'Charging '+Math.ceil(cooldown/1000)+'s':'Activate '+esc(power.name))+'</button>':''}</div>`;
+       (cooldown>0?'Charging '+Math.ceil(cooldown/1000)+'s':'Activate '+esc(power.name))+'</button>':''}
+      ${e.hybrid&&e.discovered&&e.trust<3?'<button type="button" data-feed="'+esc(e.id)+'" '+
+        (game.inventory.resonance_bait>0&&Number(e.canFeedAt||0)<=Date.now()?'':'disabled')+
+        '>Feed Resonance Bait</button>':''}</div>`;
     }).join('')+'<button type="button" data-equip="core">Return to PRISM Core</button>';
     const equipped=game.echoes.find(e=>e.id===game.character.equipped);
     const ability=equipped?.power;
@@ -177,6 +217,9 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   function drawBuilding(s){
     const p=rootAt('building:'+s.id,s.x,s.z);
     p.rotation.y=(s.rotation||0)*Math.PI/180;
+    if(drawGenesisStructure(scene,p,s,mats,{mobile:matchMedia('(max-width:950px)').matches})){
+      structureMeshes.set(s.id,p);return;
+    }
     const k=s.kind;
     if(k==='hut'){
       block(p,'hut', [4,2.9,4],mats.wood,0,1.45,0);
@@ -400,6 +443,9 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     material('crystal','#68dcf4',true);material('dark','#142737');material('eye','#b5faff',true);
     material('armor','#2a7796');material('skin','#dfb993');material('roof','#3d6b79');
     material('flame','#ffa94b',true);material('echoWing','#805fc8',true);
+    const glass=material('glass','#bceaff',true);
+    glass.alpha=.42;glass.backFaceCulling=false;
+    applyGenesisWoodDetail(scene,mats);
     material('obsidian','#252338',true);material('circuit','#61efff',true);
     material('aether_shard','#b6b5ff',true);material('moonleaf','#b1f5a3',true);
     drawTerrain();
@@ -501,9 +547,19 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     prism.position.y=terrainHeight(prism.position.x,prism.position.z)+(mode==='hover'||game.character.frame==='nova' ? .85 : 0)+Math.sin(now/440)*.09;
     prism.rotation.y=Math.atan2(player.position.x-prism.position.x,player.position.z-prism.position.z);
     for(const [id,mesh] of echoMeshes){
-      mesh.position.y=terrainHeight(mesh.position.x,mesh.position.z)+Math.sin(now/540+id.length)*.12;
-      mesh.rotation.y=Math.sin(now/2200+id.length)*.20;
+      const wild=game.echoes.find(e=>e.id===id);
+      const visual=hybridEchoVisuals.get(id);
+      if(wild?.silhouette&&visual){
+        const pose=genesisWildlifePose(wild,Date.now(),player.position,game.world?.weather);
+        mesh.position.set(pose.x,terrainHeight(pose.x,pose.z)+pose.y,pose.z);
+        mesh.rotation.y=pose.facing;
+        visual.animate?.(pose);
+      }else{
+        mesh.position.y=terrainHeight(mesh.position.x,mesh.position.z)+Math.sin(now/540+id.length)*.12;
+        mesh.rotation.y=Math.sin(now/2200+id.length)*.20;
+      }
     }
+    if(buildSelection)updateBuildPreview();
     if(now-lastHintAt>350){
       // Spawn/despawn expensive hybrid anatomy only around the player.
       for(const echo of game.echoes){
@@ -560,13 +616,19 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       $('nearest').textContent=clean(near.item.type)+' deposit';
       $('interact').textContent=(['wood','moonleaf'].includes(near.item.type)?'Harvest ':'Mine ')+clean(near.item.type);
     } else {
-      $('nearest').textContent='Wild '+near.item.name;
-      $('interact').textContent=near.item.bonded?'Bonded':near.item.discovered?'Bond Echoform':'Scan Echoform';
-      $('interact').disabled=near.item.bonded;
+      const animal=near.item;
+      const canFeed=animal.bonded&&animal.hybrid&&animal.trust<3&&
+        game.inventory.resonance_bait>0&&Number(animal.canFeedAt||0)<=Date.now();
+      const pose=animal.hybrid?
+        genesisWildlifePose(animal,Date.now(),player.position,game.world?.weather):null;
+      $('nearest').textContent=animal.name+(pose?' · '+pose.mood:'');
+      $('interact').textContent=canFeed?'Feed Creature':animal.bonded?'Bonded':
+        animal.discovered?'Bond Echoform':'Scan Echoform';
+      $('interact').disabled=animal.bonded&&!canFeed;
     }
   }
   async function action(body){
-    if(pending)return;
+    if(pending)return false;
     pending=true;
     try{
       if(player)await sendPosition().catch(()=>{});
@@ -574,20 +636,87 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       game=outcome.snapshot;
       rebuildPanels();syncScene();
       announce(outcome.message);
-    }catch(error){announce(error.message,true);}
+      return true;
+    }catch(error){announce(error.message,true);return false;}
     finally{pending=false;}
   }
   async function interact(){
     const near=getNearest();if(!near)return announce('Walk closer to a resource or Echoform.');
     if(near.kind==='resource')return action({action:'gather',nodeId:near.item.id});
     if(!near.item.bonded)return action({action:near.item.discovered?'bond':'scan',echoId:near.item.id});
-    announce('Already bonded. Open EchoDex to equip this form.');
+    const e=near.item;
+    if(e.hybrid&&e.trust<3&&game.inventory.resonance_bait>0&&
+       Number(e.canFeedAt||0)<=Date.now())
+      return action({action:'feed',echoId:e.id});
+    announce('Already bonded. Feed resonance bait to improve trust, or open EchoDex.');
+  }
+  function buildCoordinates(){
+    const f=cameraForward();
+    return {
+      x:Math.round((player.position.x+f.x*4)/2)*2,
+      z:Math.round((player.position.z+f.z*4)/2)*2
+    };
+  }
+  function clearBuildPreview(){
+    buildGhost?.dispose(false,false);buildGhost=null;
+    buildGhostMaterial?.dispose();buildGhostMaterial=null;
+    buildSelection=null;buildRotation=0;
+    $('build-shortcut').disabled=false;
+    $('build-rotate').hidden=true;$('build-cancel').hidden=true;
+    $('build-shortcut').textContent='Build Hut';
+    $('build-mode-status').textContent='Choose a blueprint to start construction.';
+  }
+  function updateBuildPreview(){
+    if(!buildSelection||!buildGhost||!camera||!player)return;
+    const blueprint=game.buildings[buildSelection];
+    if(!blueprint)return;
+    const point=buildCoordinates();
+    buildGhost.position.set(point.x,terrainHeight(point.x,point.z)+
+      Math.min(blueprint.height,3.3)/2,point.z);
+    buildGhost.rotation.y=buildRotation*Math.PI/180;
+    const clearSpace=!game.structures.some(s=>Math.hypot(s.x-point.x,s.z-point.z)<3);
+    const waypointClear=!WAYSTONES.some(w=>w.id!=='arrival'&&
+      Math.hypot(w.x-point.x,w.z-point.z)<9);
+    const inBounds=Math.abs(point.x)<WORLD_LIMIT-4&&Math.abs(point.z)<WORLD_LIMIT-4;
+    const canPlace=clearSpace&&waypointClear&&inBounds&&Math.hypot(point.x,point.z)>=2.5&&
+      hasCost(blueprint.cost)&&(!blueprint.needs||
+      game.structures.some(s=>s.kind===blueprint.needs));
+    const color=BABYLON.Color3.FromHexString(canPlace?'#63f2b3':'#fa827e');
+    buildGhostMaterial.diffuseColor=color;
+    buildGhostMaterial.emissiveColor=color.scale(.25);
+    $('build-mode-status').textContent=blueprint.label+' · '+
+      Math.round(point.x)+', '+Math.round(point.z)+' · '+buildRotation+'° · '+
+      (canPlace?'Green preview: ready to place':'Red preview: blocked or missing materials');
+    $('build-shortcut').disabled=!canPlace;
+  }
+  function selectBlueprint(kind){
+    const blueprint=game.buildings[kind];
+    if(!blueprint)return announce('Choose a valid blueprint.',true);
+    clearBuildPreview();
+    buildSelection=kind;
+    buildGhostMaterial=new BABYLON.StandardMaterial('genesis-build-preview',scene);
+    buildGhostMaterial.alpha=.29;
+    buildGhostMaterial.backFaceCulling=false;
+    buildGhost=BABYLON.MeshBuilder.CreateBox('genesis-build-ghost',{
+      width:blueprint.width,height:Math.min(blueprint.height,3.3),
+      depth:blueprint.depth||blueprint.width,
+    },scene);
+    buildGhost.material=buildGhostMaterial;buildGhost.isPickable=false;
+    $('build-rotate').hidden=false;$('build-cancel').hidden=false;
+    $('build-shortcut').textContent='Confirm Build';
+    updateBuildPreview();
+    rebuildPanels();
+    if(matchMedia('(max-width:950px)').matches&&!$('field-kit').classList.contains('collapsed'))
+      $('field-toggle').click();
+    announce('Blueprint selected: '+blueprint.label+'. Rotate or confirm when green.');
   }
   async function place(kind){
-    const f=cameraForward();
-    const x=Math.round((player.position.x+f.x*4)/2)*2;
-    const z=Math.round((player.position.z+f.z*4)/2)*2;
-    return action({action:'build',kind,x,z,rotation:0});
+    if(!game.buildings[kind])return announce('Unknown building type.',true);
+    const point=buildCoordinates();
+    const ok=await action({action:'build',kind,
+      x:point.x,z:point.z,rotation:buildRotation});
+    if(ok){clearBuildPreview();rebuildPanels();}
+    return ok;
   }
   async function refreshWorld(){
     if(pending||!ready||refreshPromise)return refreshPromise;
@@ -675,9 +804,23 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       const btn=event.target.closest('[data-craft]');if(btn)action({action:'craft',recipe:btn.dataset.craft});
     });
     $('build-items').addEventListener('click',event=>{
-      const btn=event.target.closest('[data-build]');if(btn)place(btn.dataset.build);
+      const btn=event.target.closest('[data-build]');if(btn)selectBlueprint(btn.dataset.build);
     });
+    $('build-rotate').addEventListener('click',()=>{
+      if(!buildSelection)return;
+      buildRotation=(buildRotation+90)%360;updateBuildPreview();
+    });
+    $('build-cancel').addEventListener('click',()=>{clearBuildPreview();rebuildPanels();});
+    $('chest-select').addEventListener('change',rebuildPanels);
+    for(const type of ['store','retrieve'])
+      $('storage-'+type).addEventListener('click',()=>{
+        const count=Number($('storage-count').value);
+        action({action:type,chestId:$('chest-select').value,
+          item:$('storage-item').value,count});
+      });
     $('echo-items').addEventListener('click',event=>{
+      const feed=event.target.closest('[data-feed]');
+      if(feed){action({action:'feed',echoId:feed.dataset.feed});return;}
       const power=event.target.closest('[data-power]');
       if(power){action({action:'activate',form:power.dataset.power});return;}
       const btn=event.target.closest('[data-equip]');if(btn)action({action:'equip',form:btn.dataset.equip});
@@ -693,7 +836,10 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       await action({action:'customize',name:$('prism-name').value,color:$('prism-color').value,movement:$('prism-movement').value,frame:$('prism-frame').value,size:Number($('prism-size').value),eyeStyle:$('prism-eyes').value});
     });
     $('interact').addEventListener('click',interact);
-    $('build-shortcut').addEventListener('click',()=>place('hut'));
+    $('build-shortcut').addEventListener('click',()=>{
+      if(buildSelection)place(buildSelection);
+      else selectBlueprint('hut');
+    });
     const fieldFocused=()=>['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName);
     window.addEventListener('keydown',e=>{
       if(fieldFocused())return;

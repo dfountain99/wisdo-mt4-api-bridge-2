@@ -40,6 +40,14 @@ export const RECIPES = Object.freeze({
   energy_core:{label:'Energy Core',requires:{iron:2,crystal:2},grants:{energy_core:1},needs:'workbench'},
   storm_cell:{label:'Storm Cell',requires:{circuit:3,crystal:2},grants:{energy_core:2},needs:'workbench'},
   sky_alloy:{label:'Sky Alloy',requires:{iron:3,aether_shard:2},grants:{energy_core:2},needs:'workbench'},
+  rope:{label:'Twist Fiber Rope',requires:{wood:3},grants:{rope:2}},
+  stone_bricks:{label:'Cut Stone Bricks',requires:{stone:4},grants:{stone_bricks:2}},
+  nails:{label:'Forge 6 Iron Nails',requires:{iron:2},grants:{nails:6},needs:'workbench'},
+  iron_ingot:{label:'Smelt Iron Ingot',requires:{iron:2,stone:1},grants:{iron_ingot:1},needs:'kiln'},
+  crystal_glass:{label:'Fuse Crystal Glass',requires:{crystal:2,stone:2},grants:{crystal_glass:2},needs:'kiln'},
+  resonance_bait:{label:'Blend Creature Resonance Bait',requires:{moonleaf:2,crystal:1},grants:{resonance_bait:2},needs:'workbench'},
+  stone_axe:{label:'Stone Felling Axe',requires:{wood:2,stone:3,rope:1},grants:{stone_axe:1},needs:'workbench'},
+  reinforced_pickaxe:{label:'Reinforced Mining Pickaxe',requires:{iron_ingot:2,planks:2,nails:2},grants:{reinforced_pickaxe:1},needs:'workbench'},
 });
 export const BUILDINGS = Object.freeze({
   hut:{label:'Starter Hut',cost:{wood:8,stone:4},width:4,height:3},
@@ -52,8 +60,24 @@ export const BUILDINGS = Object.freeze({
   neon_lab:{label:'Neon Research Lab',cost:{iron:8,circuit:5,crystal:3},width:6,height:7,needs:'workbench'},
   titan_forge:{label:'Titan Forge',cost:{obsidian:8,iron:6,stone:10},width:5,height:6,needs:'workbench'},
   sky_dock:{label:'Aether Sky Dock',cost:{aether_shard:6,planks:10,iron:4},width:8,height:3,needs:'workbench'},
+  storage_chest:{label:'Supply Chest',cost:{planks:4,rope:1},width:2,height:1},
+  kiln:{label:'Stone Smelting Kiln',cost:{stone_bricks:4,stone:4,iron:2},width:3,height:3,needs:'workbench'},
+  fence:{label:'Palisade Fence',cost:{planks:3},width:3,height:2},
+  gate:{label:'Wooden Gate',cost:{planks:4,rope:2},width:3,height:3},
+  ramp:{label:'Timber Ramp',cost:{planks:4,nails:2},width:3,height:1.6},
+  bridge:{label:'Raised Timber Bridge',cost:{planks:8,rope:3},width:6,height:1.3},
+  lantern:{label:'Crystal Lantern',cost:{circuit:1,iron:1,crystal:1},width:1,height:3},
+  creature_habitat:{label:'Wildlife Sanctuary',cost:{planks:8,stone_bricks:4,moonleaf:3},width:6,height:4},
+  stone_foundation:{label:'Stone Foundation',cost:{stone_bricks:4},width:3,height:.4},
+  greenhouse:{label:'Crystal Greenhouse',cost:{planks:6,crystal_glass:4,rope:2},width:5,height:4,needs:'workbench'},
 });
-const DEFAULT_INVENTORY = Object.freeze({wood:0,stone:0,iron:0,crystal:0,circuit:0,obsidian:0,aether_shard:0,moonleaf:0,planks:0,pickaxe:0,energy_core:0});
+const DEFAULT_INVENTORY = Object.freeze({
+ wood:0,stone:0,iron:0,crystal:0,circuit:0,obsidian:0,aether_shard:0,moonleaf:0,
+ planks:0,pickaxe:0,energy_core:0,rope:0,stone_bricks:0,nails:0,
+ iron_ingot:0,crystal_glass:0,resonance_bait:0,stone_axe:0,reinforced_pickaxe:0,
+});
+export const CHEST_CAPACITY=60;
+export const MAX_CREATURE_TRUST=3;
 const nowString=(now)=>new Date(now).toISOString();
 const compact=(value)=>String(value||'').trim().slice(0,28);
 export function fail(message,status=400){const error=new Error(message);error.status=status;return error;}
@@ -71,6 +95,7 @@ export function createGenesisProfile(userId,now=Date.now()){
   character:{name:'PRISM',color:'#59def4',movement:'follow',frame:'core',size:1,eyeStyle:'round',equipped:'core',statTraining:Object.fromEntries(STAT_KEYS.map(k=>[k,0]))},
   inventory:{...DEFAULT_INVENTORY},xp:0,statPoints:8,structures:[],
   depleted:{},discovered:[],echoforms:[],resonanceCooldowns:{},activeResonance:null,
+  storage:{},creatureTrust:{},feedCooldowns:{},
   lastMessage:'Welcome to Genesis Forest. Collect wood and stone to craft your first tools.',
  };
 }
@@ -87,6 +112,9 @@ export function ensureGenesisProfile(state,userId,now=Date.now()){
  profile.discovered ||= [];
  profile.resonanceCooldowns ||= {};
  profile.activeResonance ||= null;
+ profile.storage ||= {};
+ profile.creatureTrust ||= {};
+ profile.feedCooldowns ||= {};
  return profile;
 }
 export function getStats(profile,now=Date.now()){
@@ -118,12 +146,14 @@ export function profileSnapshot(profile,position={x:0,z:0},now=Date.now()){
     cooldowns:Object.fromEntries(GENESIS_HYBRIDS.map(c=>[c.id,Math.max(0,(profile.resonanceCooldowns?.[c.id]||0)-now)])),
   },
   character:profile.character,inventory:{...DEFAULT_INVENTORY,...profile.inventory},statPoints:profile.statPoints,xp:profile.xp,
-  structures:profile.structures,
+  structures:profile.structures,storage:profile.storage||{},
   resources:[
     ...RESOURCE_NODES.filter(node=>Math.hypot(node.x-position.x,node.z-position.z)<CHUNK_SIZE*1.75),
     ...nearbyGeneratedNodes(position.x,position.z,1),
   ].map(node=>({...node,ready:!(profile.depleted?.[node.id]>now),readyAt:Math.max(0,profile.depleted?.[node.id]||0)})),
-  echoes:ECHOES.map(e=>({...e,discovered:profile.discovered.includes(e.id),bonded:profile.echoforms.includes(e.id)})),
+  echoes:ECHOES.map(e=>({...e,discovered:profile.discovered.includes(e.id),
+    bonded:profile.echoforms.includes(e.id),trust:Math.min(MAX_CREATURE_TRUST,profile.creatureTrust?.[e.id]||0),
+    canFeedAt:profile.feedCooldowns?.[e.id]||0})),
   recipes:RECIPES,buildings:BUILDINGS,lastMessage:profile.lastMessage,
  };
 }
@@ -146,26 +176,30 @@ export function applyGenesisAction(profile,body,position,now=Date.now()){
   if(!node)throw fail('Unknown resource node.');
   near(position,node,5);
   if((profile.depleted[node.id]||0)>now)throw fail('This deposit is regenerating.');
-  if(!['wood','stone','moonleaf'].includes(node.type)&&!profile.inventory.pickaxe)
+  if(!['wood','stone','moonleaf'].includes(node.type)&&!profile.inventory.pickaxe&&!profile.inventory.reinforced_pickaxe)
     throw fail('Craft a stone pickaxe before mining advanced resources.');
   const weather=worldWeather(now).weather;
   // Live ecology: rainy forests replenish more quickly and crystal surges increase yield.
   const bonus=(weather==='Light Rain'&&(node.type==='wood'||node.type==='moonleaf'))||
     (weather==='Crystal Storm'&&['crystal','aether_shard'].includes(node.type))?1:0;
   const resonanceYield=resonanceHarvestBonus(profile,node.type,now);
-  const yieldCount=(RESOURCE_REWARDS[node.type]||REWARDS[node.type]||1)+bonus+resonanceYield;
+  const toolYield=((node.type==='wood'||node.type==='moonleaf')&&profile.inventory.stone_axe?1:0)+
+    (!['wood','moonleaf'].includes(node.type)&&profile.inventory.reinforced_pickaxe?1:0);
+  const yieldCount=(RESOURCE_REWARDS[node.type]||REWARDS[node.type]||1)+bonus+resonanceYield+toolYield;
   profile.inventory[node.type]+=yieldCount;
   profile.depleted[node.id]=now+Math.floor(node.respawnMs*(weather==='Light Rain'&&(node.type==='wood'||node.type==='moonleaf') ? .70 : 1));
   if(Object.keys(profile.depleted).length>600)for(const [key,expires] of Object.entries(profile.depleted))if(expires<=now)delete profile.depleted[key];
   award(profile,node.type==='crystal'?5:node.type==='iron'?3:2);
   message='Collected '+yieldCount+' '+node.type+(bonus?' (ecosystem bonus)':'')+
-   (resonanceYield?' (PRISM resonance +1)':'')+'.';
+   (resonanceYield?' (PRISM resonance +1)':'')+
+   (toolYield?' (tool bonus +1)':'')+'.';
  }else if(action==='craft'){
   const key=String(body.recipe||'');
   const recipe=lookup(RECIPES,key);
   if(!recipe)throw fail('Unknown crafting recipe.');
   if(recipe.needs&&!profile.structures.some(s=>s.kind===recipe.needs))throw fail('Build a '+recipe.needs+' first.');
-  if(key==='pickaxe'&&profile.inventory.pickaxe)throw fail('You already have a pickaxe.');
+  if(['pickaxe','stone_axe','reinforced_pickaxe'].includes(key)&&profile.inventory[key])
+   throw fail('You already own that tool.');
   take(profile,recipe.requires);
   for(const [item,count] of Object.entries(recipe.grants))profile.inventory[item]+=count;
   award(profile,4);message='Crafted '+recipe.label+'.';
@@ -180,7 +214,46 @@ export function applyGenesisAction(profile,body,position,now=Date.now()){
   take(profile,blueprint.cost);
   const id='structure-'+String(profile.structures.length+1)+'-'+Math.trunc(now);
   profile.structures.push({id,kind,...pos,rotation:[0,90,180,270].includes(body.rotation)?body.rotation:0});
+  if(kind==='storage_chest'){profile.storage ||= {};profile.storage[id]={};}
   award(profile,6);message='Built '+blueprint.label+'. Your settlement is saved.';
+ }else if(action==='store'||action==='retrieve'){
+  const chest=profile.structures.find(s=>s.id===body.chestId&&s.kind==='storage_chest');
+  if(!chest)throw fail('Find a built supply chest.');
+  near(position,chest,5);
+  const item=String(body.item||''),count=body.count;
+  if(!Object.prototype.hasOwnProperty.call(DEFAULT_INVENTORY,item)||
+     !Number.isSafeInteger(count)||count<1||count>20)throw fail('Select a valid item and quantity (1–20).');
+  profile.storage ||= {};
+  const box=profile.storage[chest.id] ||= {};
+  if(action==='store'){
+    const occupied=Object.values(box).reduce((total,amount)=>total+Number(amount||0),0);
+    if(occupied+count>CHEST_CAPACITY)throw fail('Chest is full (60 item capacity).');
+    take(profile,{[item]:count});
+    box[item]=(box[item]||0)+count;
+    message='Stored '+count+' '+item+' in your chest.';
+  }else{
+    if((box[item]||0)<count)throw fail('Not enough '+item+' stored in that chest.');
+    box[item]-=count;profile.inventory[item]+=count;
+    if(box[item]===0)delete box[item];
+    message='Retrieved '+count+' '+item+' from your chest.';
+  }
+ }else if(action==='feed'){
+  const echo=ECHOES.find(e=>e.id===body.echoId&&e.hybrid);
+  if(!echo)throw fail('Find a hybrid creature to feed.');
+  near(position,echo,6);
+  if(!profile.discovered.includes(echo.id))throw fail('Scan the hybrid before feeding it.');
+  profile.creatureTrust ||= {};profile.feedCooldowns ||= {};
+  if((profile.creatureTrust[echo.id]||0)>=MAX_CREATURE_TRUST)
+   throw fail('This hybrid already trusts PRISM completely.');
+  if((profile.feedCooldowns[echo.id]||0)>now)
+   throw fail('Creature needs time before another feeding.');
+  take(profile,{resonance_bait:1});
+  profile.creatureTrust[echo.id]=(profile.creatureTrust[echo.id]||0)+1;
+  const sanctuary=profile.structures.some(s=>s.kind==='creature_habitat'&&dist(s,echo)<=24);
+  profile.feedCooldowns[echo.id]=now+(sanctuary?30000:45000);
+  award(profile,6);
+  message=echo.name+' accepted resonance bait. Trust '+profile.creatureTrust[echo.id]+'/3.'+
+    (sanctuary?' Sanctuary comfort shortens feeding recovery.':'');
  }else if(action==='scan'){
   const echo=ECHOES.find(x=>x.id===body.echoId);
   if(!echo)throw fail('Unknown Echoform.');
@@ -208,10 +281,13 @@ export function applyGenesisAction(profile,body,position,now=Date.now()){
   profile.resonanceCooldowns ||= {};
   if((profile.resonanceCooldowns[form]||0)>now)
    throw fail('Resonance recharging: '+Math.ceil((profile.resonanceCooldowns[form]-now)/1000)+'s.');
-  profile.activeResonance={form,kind:creature.power.kind,expiresAt:now+creature.power.durationMs};
+  const trusted=Math.min(MAX_CREATURE_TRUST,Math.max(0,profile.creatureTrust?.[form]||0));
+  profile.activeResonance={form,kind:creature.power.kind,
+    expiresAt:now+creature.power.durationMs+trusted*3000};
   profile.resonanceCooldowns[form]=now+creature.power.cooldownMs;
   message=creature.name+' activated '+creature.power.name+' for '+
-   Math.ceil(creature.power.durationMs/1000)+'s.';
+   Math.ceil((creature.power.durationMs+trusted*3000)/1000)+'s'+
+   (trusted?' (bonded trust bonus).':'.');
  }else if(action==='train'){
   const stat=String(body.stat||'');
   if(!STAT_KEYS.includes(stat))throw fail('Unknown attribute.');

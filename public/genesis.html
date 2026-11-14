@@ -56,6 +56,14 @@ input,select{background:#071a2c;border:1px solid #417188;color:var(--text);paddi
 .stat button{min-height:26px;padding:4px;font-size:12px}
 #actionDock{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:9px;align-items:center;z-index:11;background:#0a2334de;border:1px solid #3c7a91;padding:10px;border-radius:18px;backdrop-filter:blur(10px)}
 #actionDock button{min-width:105px}
+#build-rotate,#build-cancel{min-width:65px}
+#build-mode-status{font-size:12px;border:1px dashed #3b8299;border-radius:10px;padding:8px;color:#bbf1fd;margin:8px 0}
+#chest-controls{margin:9px 0}
+#chest-controls .row{display:flex;gap:6px}
+#chest-controls .row button{flex:1}
+#craft-inventory,#chest-inventory{font-size:11px;color:#bad0da;line-height:1.6}
+#build-select-hint{color:#b0ddec}
+
 #nearest{font-size:11px;color:#b7d7e3;max-width:160px}
 #joystick{display:none;position:fixed;left:24px;bottom:35px;width:120px;height:120px;border-radius:50%;border:2px solid #87daf088;background:#183f56aa;touch-action:none;z-index:10}
 #joystick-knob{position:absolute;left:38px;top:38px;width:42px;height:42px;border-radius:50%;background:#5fcdedcc;border:2px solid #d2fbff}
@@ -73,7 +81,8 @@ input,select{background:#071a2c;border:1px solid #417188;color:var(--text);paddi
  .hud .card{padding:9px 11px}
  .links{gap:9px}
  #actionDock{left:auto;right:10px;transform:none;bottom:calc(36vh + 24px);gap:5px;padding:6px}
- #actionDock button{min-width:72px;padding:8px 6px;font-size:11px}
+ #actionDock{flex-wrap:wrap;justify-content:flex-end;max-width:calc(100vw - 136px)}
+ #actionDock button{min-width:68px;padding:8px 6px;font-size:11px}
  #nearest{display:none}
  #joystick{display:block;bottom:calc(36vh + 26px);left:18px;width:103px;height:103px}
  #joystick-knob{left:31px;top:31px;width:38px;height:38px}
@@ -192,8 +201,42 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
     <div class="option"><strong>Current goal</strong><small id="goal">Collect wood and stone.</small></div>
     <div class="option"><strong>World policy</strong><small>This is a PvE private survival prototype. This is your private world. No raids, cross-user building edits, real trading-account actions, or unattended security controls.</small></div>
   </div>
-  <div class="panel" id="panel-craft"><h3>Crafting recipes</h3><div id="craft-items"></div></div>
-  <div class="panel" id="panel-build"><h3>Construction blueprints</h3><p>Choose a blueprint and place it a short distance in front of your character. Each placement consumes actual resources and is saved.</p><div id="build-items"></div></div>
+  <div class="panel" id="panel-craft"><h3>Crafting Workshop</h3>
+    <p>Refine gathered materials into rope, bricks, tools, glass, creature bait and more. Build a Workbench or Kiln to unlock advanced recipes.</p>
+    <div class="option"><strong>Available materials</strong><small id="craft-inventory">Loading inventory…</small></div>
+    <div id="craft-items"></div>
+  </div>
+  <div class="panel" id="panel-build"><h3>Settlement Builder</h3>
+    <p>Choose a blueprint for a green placement preview, rotate it, and confirm. The server validates costs, distance, collision, and saves your structure.</p>
+    <div id="build-mode-status">Choose a blueprint to start construction.</div>
+    <div class="option"><strong>Supply Chest Storage</strong>
+      <p>Craft a chest, stand near it, then store or retrieve materials. Each chest holds up to 60 items.</p>
+      <small id="chest-inventory">Build a Supply Chest to store materials.</small>
+      <div id="chest-controls" hidden>
+        <div class="selectrow"><label for="chest-select">Storage chest</label><select id="chest-select"></select></div>
+        <div class="selectrow"><label for="storage-item">Item</label>
+          <select id="storage-item">
+            <option value="wood">Wood</option><option value="stone">Stone</option>
+            <option value="iron">Iron</option><option value="crystal">Crystal</option>
+            <option value="planks">Planks</option><option value="rope">Rope</option>
+            <option value="stone_bricks">Stone bricks</option><option value="iron_ingot">Iron ingot</option>
+            <option value="crystal_glass">Crystal glass</option><option value="nails">Nails</option>
+            <option value="moonleaf">Moonleaf</option><option value="resonance_bait">Resonance bait</option>
+            <option value="circuit">Circuit</option><option value="obsidian">Obsidian</option>
+            <option value="aether_shard">Aether shard</option><option value="energy_core">Energy core</option>
+            <option value="pickaxe">Pickaxe</option><option value="stone_axe">Stone axe</option>
+            <option value="reinforced_pickaxe">Reinforced pickaxe</option>
+          </select></div>
+        <div class="selectrow"><label for="storage-count">Quantity (1–20)</label>
+          <input id="storage-count" type="number" min="1" max="20" step="1" value="1"></div>
+        <div class="row" style="display:flex;gap:8px;margin-top:8px">
+          <button type="button" id="storage-store">Store</button>
+          <button type="button" id="storage-retrieve">Retrieve</button>
+        </div>
+      </div>
+    </div>
+    <div id="build-items"></div>
+  </div>
   <div class="panel" id="panel-echoes"><h3>Wild Echoforms & Hybrid DNA</h3><p>Discover 18 new biome hybrids and the original Echoforms. Scan them, complete their resource bond, and morph PRISM into their shapes. Activated powers affect movement, gathering, mining, protection or scanning.</p><div class="option"><strong>PRISM Resonance</strong><small id="resonance-status">Bond a hybrid to unlock its power.</small></div><div id="echo-items"></div></div>
   <div class="panel" id="panel-prism">
     <h3>Customize your PRISM</h3>
@@ -213,6 +256,8 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
   <span id="nearest">Explore the region</span>
   <button type="button" class="primary" id="interact">Gather / Scan</button>
   <button type="button" id="power-quick" hidden>⚡ PRISM Power</button>
+  <button type="button" id="build-rotate" hidden>↻ Rotate</button>
+  <button type="button" id="build-cancel" hidden>Cancel</button>
   <button type="button" id="build-shortcut">Build Hut</button>
 </div>
 <div id="joystick" aria-label="Touch movement joystick"><div id="joystick-knob"></div></div>
@@ -238,6 +283,6 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
 <div id="loading"><div class="card"><h1>WISDO GENESIS</h1><p id="load-status">Connecting to your saved world and preparing Genesis Forest…</p><button type="button" id="retry" hidden>Try again</button></div></div>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
-<script type="module" src="/js/genesisWorld.js?v=6"></script>
+<script type="module" src="/js/genesisWorld.js?v=7"></script>
 </body>
 </html>
