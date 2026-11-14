@@ -7,7 +7,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   const $=(id)=>document.getElementById(id);
   const esc=(s)=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
   const clean=(s)=>String(s||'').replace(/_/g,' ');
-  let game=null,scene=null,engine=null,camera=null,player=null,prism=null,lighting=null,terrainSystem=null;
+  let game=null,scene=null,engine=null,camera=null,player=null,prism=null,lighting=null,sunLight=null,terrainSystem=null;
   let mats={},prismPieces={},nodeMeshes=new Map(),structureMeshes=new Map(),echoMeshes=new Map();
   let ready=false,pending=false,movePromise=null,refreshPromise=null,lastMoveAt=0,lastRefreshAt=0,lastHintAt=0,lastFrame=0,toastTimeout=0;
   const held=new Set(),joystick={x:0,y:0,active:false};
@@ -230,9 +230,14 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     scene.fogMode=BABYLON.Scene.FOGMODE_LINEAR;scene.fogStart=68;scene.fogEnd=window.innerWidth<950?340:490;
     scene.fogColor=new BABYLON.Color3(.12,.22,.27);
     lighting=new BABYLON.HemisphericLight('skylight',new BABYLON.Vector3(0,1,0),scene);
-    lighting.intensity=.98;
-    const sun=new BABYLON.DirectionalLight('sun',new BABYLON.Vector3(-.5,-1,.55),scene);
-    sun.intensity=.5;
+    lighting.intensity=1.05;
+    lighting.groundColor=new BABYLON.Color3(.20,.28,.24);
+    sunLight=new BABYLON.DirectionalLight('sun',new BABYLON.Vector3(-.5,-1,.55),scene);
+    sunLight.intensity=.72;
+    sunLight.diffuse=new BABYLON.Color3(1,.92,.79);
+    // Subtle cinematic grading that does not require heavy post-processing on phones.
+    scene.imageProcessingConfiguration.exposure=1.07;
+    scene.imageProcessingConfiguration.contrast=1.12;
     material('soil','#315d4b');material('moss','#256c54');material('gravel','#5b5654');
     material('moon','#48416d');material('crystalGround','#294c61');
     material('wood','#7c543a');material('leaves','#1c8e70');material('leavesLight','#27aa80');
@@ -260,7 +265,11 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   function applyWeather(){
     if(!scene||!game)return;
     const dark=game.world.timeOfDay==='Night'||game.world.timeOfDay==='Dusk';
-    lighting.intensity=dark ? .43 : .93;
+    const rainy=String(game.world.weather||'').toLowerCase().includes('rain');
+    lighting.intensity=dark?.57:rainy?.92:1.07;
+    lighting.groundColor=dark
+      ?new BABYLON.Color3(.15,.19,.29):new BABYLON.Color3(.22,.29,.24);
+    if(sunLight)sunLight.intensity=dark?.22:rainy?.48:.76;
     const biome=biomeAt(player?.position.x||game.position.x,player?.position.z||game.position.z).id;
     const sky={
       forest:[.11,.30,.32],neon:[.055,.095,.20],titan:[.29,.16,.12],
