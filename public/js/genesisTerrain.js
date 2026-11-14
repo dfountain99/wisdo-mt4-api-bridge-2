@@ -35,10 +35,20 @@ export function genesisTerrainTriangleIndices(subdivisions){
  return indices;
 }
 
+/** Per-vertex layered color; stays deterministic at shared chunk edges. */
+export function genesisTerrainSurfaceColor(x,z){
+ const base=biomeColor(x,z);
+ const detail=valueNoise(x/14,z/14,137);
+ const broad=valueNoise(x/52,z/52,41);
+ const shade=.84+detail*.24+broad*.12;
+ return base.map((channel,i)=>i===3?channel:
+   Math.max(.025,Math.min(1,channel*shade+(i===1?.014:0))));
+}
+
 export function createGenesisTerrain(scene,{mobile=false}={}){
  if(!scene||!globalThis.BABYLON)throw Error('Babylon scene required for Genesis terrain.');
  const active=new Map(), special=new Map(),materialCache=new Map();
- const radius=mobile?2:2, subdivisions=mobile?10:16;
+ const radius=2, subdivisions=mobile?12:20;
  const terrainMat=new BABYLON.StandardMaterial('genesis-terrain-vertex-colors',scene);
  terrainMat.diffuseColor=new BABYLON.Color3(1,1,1);
  terrainMat.specularColor=new BABYLON.Color3(.035,.06,.06);
@@ -103,7 +113,7 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
      const worldX=cx*CHUNK_SIZE+xi/subdivisions*CHUNK_SIZE;
      const worldZ=cz*CHUNK_SIZE+zi/subdivisions*CHUNK_SIZE;
      p.push(worldX-centerX,terrainHeight(worldX,worldZ),worldZ-centerZ);
-     colors.push(...biomeColor(worldX,worldZ));
+     colors.push(...genesisTerrainSurfaceColor(worldX,worldZ));
    }
    // The original index order pointed normals downward, turning the terrain black.
    indices.push(...genesisTerrainTriangleIndices(subdivisions));
@@ -115,7 +125,7 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
    mesh.freezeWorldMatrix();
    const biome=biomeAt(centerX,centerZ);
    // GPU thin-instances: small meshes + a single matrix buffer for every tree.
-   const trunks=[],canopies=[],groundRocks=[],sparkles=[];
+   const trunks=[],canopies=[],leafTips=[],groundRocks=[],sparkles=[],grasses=[],blossoms=[];
    const count=mobile?11:20;
    for(let i=0;i<count;i++){
      const x=cx*CHUNK_SIZE+5+rng(cx,cz,i,33)*(CHUNK_SIZE-10);
@@ -128,7 +138,16 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
      if(style==='forest'||style==='marsh'||style==='aether'){
        const h=(style==='aether'?6.0:style==='marsh'?3.7:5.2)*variation;
        trunks.push(matrix(x,y+h*.5,z,.55*variation,h,.55*variation,rng(cx,cz,i,4)*6.28));
-       canopies.push(matrix(x,y+h+.55,z,style==='aether'?2.4:2.8,h*.66,2.45,0));
+       // Four overlapping offset crowns create a layered silhouette instead of a sphere-on-stick.
+       const spread=(style==='marsh'?2.15:style==='aether'?2.4:2.85)*variation;
+       canopies.push(matrix(x,y+h+.6,z,spread*1.65,h*.69,spread*1.55));
+       for(let l=0;l<3;l++){
+         const angle=l*Math.PI*2/3+rng(cx,cz,i,52)*.9;
+         const bx=x+Math.cos(angle)*spread*.46,bz=z+Math.sin(angle)*spread*.46;
+         canopies.push(matrix(bx,y+h+.2+rng(cx,cz,i,l+100)*.65,bz,
+           spread*1.25,h*.55,spread*1.25));
+       }
+       leafTips.push(matrix(x,y+h+1.3,z,spread*1.05,h*.40,spread*1.05));
        if(i%3===0)sparkles.push(matrix(x+.8,y+.3,z+.3,.32,.65,.32));
      }else if(style==='neon'){
        const h=3+variation*8;
@@ -143,6 +162,30 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
        sparkles.push(matrix(x,y+h*.5,z,.8,h,.8));
      }
    }
+   // Small-scale understory adds visual depth without extra independent draw calls.
+   // Decorative objects are deterministic and never participate in resource rewards.
+   const groundDetails=mobile?38:75;
+   for(let i=0;i<groundDetails;i++){
+     const x=cx*CHUNK_SIZE+3+rng(cx,cz,i,180)*(CHUNK_SIZE-6);
+     const z=cz*CHUNK_SIZE+3+rng(cx,cz,i,202)*(CHUNK_SIZE-6);
+     if(Math.abs(x)>WORLD_LIMIT-4||Math.abs(z)>WORLD_LIMIT-4)continue;
+     if(WAYSTONES.some(w=>Math.hypot(w.x-x,w.z-z)<16))continue;
+     if(LANDMARKS.some(w=>Math.hypot(w.x-x,w.z-z)<14))continue;
+     const y=terrainHeight(x,z),style=biomeAt(x,z).id;
+     const height=.5+rng(cx,cz,i,214)*.75;
+     if(['forest','marsh','aether'].includes(style)){
+       for(let blade=0;blade<2;blade++){
+         grasses.push(matrix(x+(blade?-.18:.18),y+height*.48,z+(blade?.1:-.1),
+           .22,height,.22,rng(cx,cz,i,231+blade)*Math.PI*2));
+       }
+       if(i%9===0)blossoms.push(matrix(x,y+height+.1,z,.30,.30,.30));
+       if(i%11===0)groundRocks.push(matrix(x,y+.18,z,.55,.36,.7,rng(cx,cz,i,240)*6.28));
+     }else if(style==='crystal'||style==='neon'){
+       if(i%3===0)sparkles.push(matrix(x,y+.5,z,.24,1,.24));
+     }else if(style==='titan'&&i%4===0){
+       groundRocks.push(matrix(x,y+.32,z,1,.65,1.1));
+     }
+   }
    if(trunks.length){
      const m=BABYLON.MeshBuilder.CreateCylinder('trunks-'+key,
        {height:1,diameterTop:.67,diameterBottom:1,tessellation:7},scene);
@@ -152,6 +195,26 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
    if(canopies.length){
      const m=BABYLON.MeshBuilder.CreateSphere('leaf-clusters-'+key,{diameter:1,segments:8},scene);
      m.parent=root;m.material=leafMaterial(biome);addThin(m,canopies);
+   }
+   if(leafTips.length){
+     const m=BABYLON.MeshBuilder.CreateSphere('upper-foliage-'+key,{diameter:1,segments:7},scene);
+     m.parent=root;
+     m.material=mat('leaf-highlights-'+biome.id,biome.accent);
+     addThin(m,leafTips);
+   }
+   if(grasses.length){
+     const m=BABYLON.MeshBuilder.CreateCylinder('ground-cover-'+key,
+       {height:1,diameterTop:0,diameterBottom:1,tessellation:3},scene);
+     m.parent=root;
+     m.material=mat('ground-cover-'+biome.id,({
+       forest:'#54a36a',marsh:'#65aa83',aether:'#91a6da',
+       neon:'#59aabd',titan:'#b98a65',crystal:'#5db9ab'
+     })[biome.id]||'#55a675');
+     addThin(m,grasses);
+   }
+   if(blossoms.length){
+     const m=BABYLON.MeshBuilder.CreateSphere('wildflowers-'+key,{diameter:1,segments:6},scene);
+     m.parent=root;m.material=flowers;addThin(m,blossoms);
    }
    if(groundRocks.length){
      const m=BABYLON.MeshBuilder.CreateCylinder('rocks-'+key,
