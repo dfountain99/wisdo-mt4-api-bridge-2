@@ -1,6 +1,7 @@
 import { createGenesisTerrain } from './genesisTerrain.js?v=4';
 import { loadGenesisArtLibrary } from './genesisArtLibrary.js?v=4';
 import { buildGenesisHybrid } from './genesisCreatureVisuals.js?v=5';
+import {genesisGraphicsPreset} from './genesisGraphicsQuality.js?v=5';
 import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,nearestWaystone } from './genesisWorldMap.js';
 /* WISDO Genesis v2 streaming open-world browser renderer: third-person Babylon world, no fake resources.
    All harvesting, crafting, construction and morph changes are validated by the server. */
@@ -9,7 +10,8 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   const $=(id)=>document.getElementById(id);
   const esc=(s)=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
   const clean=(s)=>String(s||'').replace(/_/g,' ');
-  let game=null,scene=null,engine=null,camera=null,player=null,prism=null,lighting=null,sunLight=null,terrainSystem=null;
+  let game=null,scene=null,engine=null,camera=null,player=null,prism=null,lighting=null,sunLight=null,terrainSystem=null,shadowGenerator=null;
+  let graphicsMode='balanced',lastFpsDisplay=0;
   let mats={},prismPieces={},nodeMeshes=new Map(),structureMeshes=new Map(),echoMeshes=new Map(),playerAnimation=null;
   const hybridEchoVisuals=new Map();
   let prismHybridVisual=null,prismHybridId='';
@@ -285,6 +287,8 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
         terrainSystem.update(player?.position.x??game.position.x,
           player?.position.z??game.position.z,{force:true});
         upgradePlayerAvatar(library);
+        if(shadowGenerator)for(const mesh of player.getChildMeshes(false))
+          if(mesh.getTotalVertices?.()>0&&!mesh.isDisposed())shadowGenerator.addShadowCaster(mesh);
         announce('New 3D scenery and character graphics loaded!');
       }else library.dispose();
     }).catch(error=>{
@@ -293,6 +297,40 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       // Surface the reason inside the HUD so phone users can report it.
       announce('3D graphics fallback: '+String(error?.message||error).slice(0,130),true);
     });
+  }
+  function applyGraphicsMode(mode,{save=true}={}){
+    if(!engine||!scene)return;
+    const mobile=matchMedia('(max-width:950px)').matches;
+    const preset=genesisGraphicsPreset(mode,mobile);
+    graphicsMode=preset.mode;
+    engine.setHardwareScalingLevel(preset.scale);
+    terrainSystem?.setQuality(preset.mode);
+    terrainSystem?.update(player?.position.x??game.position.x,
+      player?.position.z??game.position.z,{force:true});
+    if(preset.shadows&&!shadowGenerator&&sunLight){
+      shadowGenerator=new BABYLON.ShadowGenerator(mobile?512:1024,sunLight);
+      shadowGenerator.useExponentialShadowMap=true;
+      shadowGenerator.setDarkness(.33);
+    }else if(!preset.shadows&&shadowGenerator){
+      shadowGenerator.dispose();shadowGenerator=null;
+    }
+    if(shadowGenerator){
+      for(const node of [player,prism]){
+        if(!node)continue;
+        for(const mesh of node.getChildMeshes(false)){
+          if(mesh.getTotalVertices?.()>0&&!mesh.isDisposed())
+            shadowGenerator.addShadowCaster(mesh);
+        }
+      }
+    }
+    scene.imageProcessingConfiguration.toneMappingEnabled=preset.mode==='cinematic';
+    if(preset.mode==='cinematic')
+      scene.imageProcessingConfiguration.toneMappingType=
+        BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
+    const select=$('graphics-quality');
+    if(select)select.value=preset.mode;
+    if(save)try{localStorage.setItem('wisdo:genesis:graphics',preset.mode);}catch{}
+    return preset;
   }
   function setupScene(){
     if(!window.BABYLON){throw new Error('3D engine failed to load. Check internet or content restrictions.');}
@@ -326,6 +364,9 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     game.echoes.filter(e=>Math.hypot(e.x-game.position.x,e.z-game.position.z)<140).forEach(drawEcho);
     game.structures.forEach(drawBuilding);
     makePlayer();makePrism();
+    let preferred='balanced';
+    try{preferred=localStorage.getItem('wisdo:genesis:graphics')||preferred;}catch{}
+    applyGraphicsMode(preferred,{save:false});
     camera=new BABYLON.ArcRotateCamera('thirdperson',-Math.PI/2,1.14,16,
       new BABYLON.Vector3(player.position.x,1.5,player.position.z),scene);
     camera.lowerRadiusLimit=8;camera.upperRadiusLimit=28;camera.lowerBetaLimit=.38;camera.upperBetaLimit=1.48;
@@ -435,6 +476,10 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       showNearest();if($('world-map-dialog')?.open)updateMap();lastHintAt=now;
     }
     if(now-lastRefreshAt>17000){lastRefreshAt=now;refreshWorld().catch(()=>{});}
+    if(now-lastFpsDisplay>1200){
+      $('graphics-fps').textContent=Math.max(0,Math.round(engine.getFps()))+' FPS';
+      lastFpsDisplay=now;
+    }
     scene.render();
   }
   async function sendPosition(){
@@ -558,6 +603,10 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   }
   function setupUI(){
     const fieldKit=$('field-kit'),toggle=$('field-toggle');
+    $('graphics-quality').addEventListener('change',event=>{
+      const preset=applyGraphicsMode(event.target.value);
+      announce('Graphics mode: '+preset.mode+'. Terrain quality refreshed.');
+    });
     if(matchMedia('(max-width:950px)').matches){
       fieldKit.classList.add('collapsed');document.body.classList.remove('field-open');
       toggle.textContent='Open Field Kit ▲';toggle.setAttribute('aria-expanded','false');
