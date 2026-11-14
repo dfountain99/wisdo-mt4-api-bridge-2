@@ -12,12 +12,25 @@ export const genesisModelDirectory=fileURLToPath(
   new URL('../public/assets/genesis/models/',import.meta.url)
 );
 
-export function registerGenesisAssetRoutes(app,{directory=genesisModelDirectory}={}){
+export const genesisTextureDirectory=fileURLToPath(
+  new URL('../public/assets/genesis/textures/',import.meta.url)
+);
+
+export function registerGenesisAssetRoutes(app,{
+ directory=genesisModelDirectory,textureDirectory=genesisTextureDirectory
+}={}){
  app.use('/assets/genesis/models',express.static(directory,{
   index:false,
   dotfiles:'deny',
   fallthrough:false,
   maxAge:'10m',
+  setHeaders(res){
+   res.setHeader('Content-Type','text/plain; charset=utf-8');
+   res.setHeader('X-Content-Type-Options','nosniff');
+  },
+ }));
+ app.use('/assets/genesis/textures',express.static(textureDirectory,{
+  index:false,dotfiles:'deny',fallthrough:false,maxAge:'1d',
   setHeaders(res){
    res.setHeader('Content-Type','text/plain; charset=utf-8');
    res.setHeader('X-Content-Type-Options','nosniff');
