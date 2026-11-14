@@ -30,8 +30,8 @@ export function genesisWildlifePose(echo,nowMs,playerPosition=null,weather='Clea
    Math.sin(cycle*.53)>0?'foraging':'roaming';
  return {
    x:(echo?.x||0)+dx,z:(echo?.z||0)+dz,
-   y:isFlying?.65+Math.sin(nowMs/700+phase)*.2:
-     isSerpent?.11+Math.sin(nowMs/820+phase)*.10:Math.sin(nowMs/800+phase)*.055,
+   y:isFlying?(0.65+Math.sin(nowMs/700+phase)*.2):
+     isSerpent?(0.11+Math.sin(nowMs/820+phase)*.10):Math.sin(nowMs/800+phase)*.055,
    facing:Math.atan2(Math.cos(cycle)*.85,Math.sin(cycle*.74+phase)*-.65),
    wingFlap:flap,tailSway:Math.sin(nowMs/380+phase),
    breath:.5+.5*wake,pulse:.5+.5*Math.sin(nowMs/440+phase),
