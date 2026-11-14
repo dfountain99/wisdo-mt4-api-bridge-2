@@ -249,9 +249,11 @@ export function applyGenesisAction(profile,body,position,now=Date.now()){
    throw fail('Creature needs time before another feeding.');
   take(profile,{resonance_bait:1});
   profile.creatureTrust[echo.id]=(profile.creatureTrust[echo.id]||0)+1;
-  profile.feedCooldowns[echo.id]=now+45000;
+  const sanctuary=profile.structures.some(s=>s.kind==='creature_habitat'&&dist(s,echo)<=24);
+  profile.feedCooldowns[echo.id]=now+(sanctuary?30000:45000);
   award(profile,6);
-  message=echo.name+' accepted resonance bait. Trust '+profile.creatureTrust[echo.id]+'/3.';
+  message=echo.name+' accepted resonance bait. Trust '+profile.creatureTrust[echo.id]+'/3.'+
+    (sanctuary?' Sanctuary comfort shortens feeding recovery.':'');
  }else if(action==='scan'){
   const echo=ECHOES.find(x=>x.id===body.echoId);
   if(!echo)throw fail('Unknown Echoform.');
