@@ -21,6 +21,20 @@ export function resolveGenesisLandmark(x,z){
  return entry?{entry,waystone:Boolean(waystone)}:null;
 }
 
+/**
+ * Babylon.js computes facet normals from (p1 - p2) × (p3 - p2).
+ * Triangles must wind so their normals face the sky (+Y), otherwise
+ * HemisphericLight shades the entire ground with its dark underside color.
+ */
+export function genesisTerrainTriangleIndices(subdivisions){
+ const indices=[];
+ for(let z=0;z<subdivisions;z++)for(let x=0;x<subdivisions;x++){
+   const a=z*(subdivisions+1)+x,c=a+subdivisions+1;
+   indices.push(a,a+1,c,c,a+1,c+1);
+ }
+ return indices;
+}
+
 export function createGenesisTerrain(scene,{mobile=false}={}){
  if(!scene||!globalThis.BABYLON)throw Error('Babylon scene required for Genesis terrain.');
  const active=new Map(), special=new Map(),materialCache=new Map();
@@ -91,10 +105,8 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
      p.push(worldX-centerX,terrainHeight(worldX,worldZ),worldZ-centerZ);
      colors.push(...biomeColor(worldX,worldZ));
    }
-   for(let z=0;z<subdivisions;z++)for(let x=0;x<subdivisions;x++){
-     const a=z*(subdivisions+1)+x,c=a+subdivisions+1;
-     indices.push(a,c,a+1,c,c+1,a+1);
-   }
+   // The original index order pointed normals downward, turning the terrain black.
+   indices.push(...genesisTerrainTriangleIndices(subdivisions));
    BABYLON.VertexData.ComputeNormals(p,indices,normals);
    const vd=new BABYLON.VertexData();
    vd.positions=p;vd.indices=indices;vd.normals=normals;vd.colors=colors;vd.applyToMesh(mesh);
