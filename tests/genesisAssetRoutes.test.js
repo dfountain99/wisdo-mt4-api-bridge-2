@@ -80,7 +80,7 @@ test('all self-hosted CC0 photographic surfaces load through the exact game URLs
 test('the iPhone entrypoint reloads the corrected 3D loader and terrain module',()=>{
  const html=readFileSync(new URL('../public/genesis.html',import.meta.url),'utf8');
  const renderer=readFileSync(new URL('../public/js/genesisWorld.js',import.meta.url),'utf8');
- const htmlVersion=Number(/genesisWorld\\.js\\?v=(\\d+)/.exec(html)?.[1]||0);
+ const htmlVersion=Number(/genesisWorld\.js\?v=(\d+)/.exec(html)?.[1]||0);
  assert.ok(htmlVersion>=6,'Safari entrypoint must use a cache-busted graphics bundle');
  assert.match(renderer,/genesisTerrain\.js\?v=6/);
  assert.match(renderer,/genesisSceneDisposed\(scene\)/);
