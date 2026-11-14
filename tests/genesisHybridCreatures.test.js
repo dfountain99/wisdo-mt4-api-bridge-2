@@ -12,6 +12,8 @@ import {
  ECHOES,createGenesisProfile,ensureGenesisProfile,profileSnapshot,
  applyGenesisAction,moveSpeed,getStats
 } from '../services/genesisGameService.js';
+import {GENESIS_GRAPHICS_MODES,genesisGraphicsPreset}
+ from '../public/js/genesisGraphicsQuality.js';
 
 const NOW=Date.UTC(2026,10,14,5,0,0);
 const act=(profile,body,position={x:0,z:0},now=NOW)=>
@@ -109,4 +111,21 @@ test('hybrid art uses streamed creature meshes and keeps gameplay actions server
  assert.match(world,/prismHybridVisual/);
  assert.match(visuals,/PBRMaterial/);
  assert.match(visuals,/CreateRibbon/);
+});
+
+test('graphics modes scale scenery detail without unbounded mobile resource use',()=>{
+ assert.deepEqual(GENESIS_GRAPHICS_MODES,['performance','balanced','cinematic']);
+ for(const mobile of [true,false]){
+   const low=genesisGraphicsPreset('performance',mobile);
+   const normal=genesisGraphicsPreset('balanced',mobile);
+   const high=genesisGraphicsPreset('cinematic',mobile);
+   assert.ok(low.subdivisions<normal.subdivisions&&normal.subdivisions<high.subdivisions);
+   assert.ok(low.trees<normal.trees&&normal.trees<high.trees);
+   assert.ok(low.decorations<normal.decorations&&normal.decorations<high.decorations);
+   assert.ok(high.subdivisions<=32);
+   assert.ok(high.trees<=24);
+   assert.ok(low.scale>normal.scale&&normal.scale>high.scale);
+   assert.equal(high.shadows,true);
+   assert.equal(genesisGraphicsPreset('bad-profile',mobile).mode,'balanced');
+ }
 });
