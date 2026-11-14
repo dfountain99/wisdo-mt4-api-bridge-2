@@ -186,8 +186,7 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
        const chosen=trees[Math.floor(rng(cx,cz,i,99)*trees.length)];
        const rotation=rng(cx,cz,i,55)*Math.PI*2;
        const scale=.90+rng(cx,cz,i,12)*.35;
-       if(chosen){
-         artLibrary.place(chosen,root,x,y,z,{scale,rotation});
+       if(chosen&&artLibrary.place(chosen,root,x,y,z,{scale,rotation})){
          if(artLibrary.has('bush')&&i%2===0){
            const bx=x+3+rng(cx,cz,i,143)*3,bz=z-3+rng(cx,cz,i,177)*3;
            if(Math.abs(bx)<WORLD_LIMIT-4&&Math.abs(bz)<WORLD_LIMIT-4&&
