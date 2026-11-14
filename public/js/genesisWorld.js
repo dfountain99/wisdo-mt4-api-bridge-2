@@ -223,7 +223,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   function setupScene(){
     if(!window.BABYLON){throw new Error('3D engine failed to load. Check internet or content restrictions.');}
     const canvas=$('renderCanvas');
-    engine=new BABYLON.Engine(canvas,true,{antialias:true,preserveDrawingBuffer:false,stencil:false});
+    engine=new BABYLON.Engine(canvas,true,{antialias:true,preserveDrawingBuffer:false,stencil:false,alpha:true});
     if((window.devicePixelRatio||1)>1.7)engine.setHardwareScalingLevel(1.35);
     scene=new BABYLON.Scene(engine);
     scene.clearColor=new BABYLON.Color4(.05,.11,.18,1);
@@ -266,7 +266,21 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       forest:[.11,.30,.32],neon:[.055,.095,.20],titan:[.29,.16,.12],
       aether:[.19,.24,.38],crystal:[.10,.25,.32],marsh:[.09,.24,.23],
     }[biome]||[.09,.21,.26];
-    scene.clearColor=new BABYLON.Color4(...sky.map(x=>x*(dark?.43:1)),1);
+    // Transparent canvas makes the CSS sky gradient visible beyond the distant fog.
+    const sceneCanvas=$('renderCanvas');
+    const bright={
+      forest:['#153b58','#70b8aa'],neon:['#131d42','#477b99'],
+      titan:['#552e31','#c17957'],aether:['#3a3f79','#aabbea'],
+      crystal:['#155063','#76c0bc'],marsh:['#264e4f','#7aa996'],
+    }[biome]||['#1b4250','#79a9a1'];
+    const stars='radial-gradient(circle at 13% 21%,#e9ffff 0 1px,transparent 2px),'+
+      'radial-gradient(circle at 31% 12%,#e9ffff 0 1px,transparent 2px),'+
+      'radial-gradient(circle at 58% 18%,#e9ffff 0 1px,transparent 2px),'+
+      'radial-gradient(circle at 78% 27%,#e9ffff 0 1px,transparent 2px),';
+    sceneCanvas.style.background=(dark?stars:'')+'linear-gradient(180deg,'+
+      (dark?'#070c24':bright[0])+' 0%,'+(dark?'#28405b':bright[1])+' 70%,'+
+      (dark?'#263e4e':'#325d55')+' 100%)';
+    scene.clearColor=new BABYLON.Color4(0,0,0,0);
     scene.fogColor=new BABYLON.Color3(...sky.map(x=>x*(dark?.50:1)));
   }
   function syncScene(){
