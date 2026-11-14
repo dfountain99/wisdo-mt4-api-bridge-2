@@ -120,14 +120,16 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   function drawResource(node){
     const p=rootAt('resource:'+node.id,node.x,node.z);
     if(node.type==='wood'||node.type==='moonleaf'){
+      let rendered=false;
       if(loadedArt?.available?.some(n=>n.startsWith('tree'))){
         const trees=loadedArt.available.filter(n=>n.startsWith('tree'));
         let hash=0;for(const ch of node.id)hash=(Math.imul(hash,31)+ch.charCodeAt(0))|0;
         const selected=trees[(hash>>>0)%trees.length];
-        loadedArt.place(selected,p,0,0,0,{scale:node.type==='moonleaf'?.75:1});
-        if(node.type==='moonleaf')
+        rendered=loadedArt.place(selected,p,0,0,0,{scale:node.type==='moonleaf'?.75:1});
+        if(rendered&&node.type==='moonleaf')
           ball(p,'moonleaf-glow',[.45,.45,.4],mats.moonleaf,.7,4.0,0);
-      }else{
+      }
+      if(!rendered){
         trunk(p,mats.wood,0,0,node.type==='moonleaf'?3.6:2.9);
         ball(p,'canopy',[3.0,2.3,2.9],node.type==='moonleaf'?mats.moonleaf:mats.leaves,0,3.3,0);
         ball(p,'canopy2',[1.8,1.4,2.1],mats.leavesLight,.7,4.05,.2);
@@ -327,7 +329,8 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
           nodeMeshes.delete(node.id);
           drawResource(node);
         }
-        upgradePlayerAvatar(library);
+        try{upgradePlayerAvatar(library);}
+        catch(error){console.warn('Genesis explorer animation unavailable:',error);}
         if(shadowGenerator)for(const mesh of player.getChildMeshes(false))
           if(mesh.getTotalVertices?.()>0&&!mesh.isDisposed())shadowGenerator.addShadowCaster(mesh);
         announce('Textured trees and the 3D explorer are ready.');
