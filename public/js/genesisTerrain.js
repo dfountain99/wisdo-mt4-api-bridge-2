@@ -145,7 +145,7 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
    const vd=new BABYLON.VertexData();
    vd.positions=p;vd.indices=indices;vd.normals=normals;vd.colors=colors;vd.uvs=uvs;vd.applyToMesh(mesh);
    mesh.position.set(centerX,0,centerZ);
-   mesh.material=terrainMat;mesh.isPickable=false;
+   mesh.material=terrainMat;mesh.isPickable=false;mesh.receiveShadows=true;
    mesh.freezeWorldMatrix();
    const biome=biomeAt(centerX,centerZ);
    // GPU thin-instances: small meshes + a single matrix buffer for every tree.
