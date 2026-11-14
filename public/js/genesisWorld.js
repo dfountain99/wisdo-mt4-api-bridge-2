@@ -405,7 +405,68 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     })();
     return refreshPromise;
   }
+
+  function mapPercent(x,z){
+    return {
+      left:((x+WORLD_LIMIT)/(WORLD_LIMIT*2)*100).toFixed(2)+'%',
+      top:((WORLD_LIMIT-z)/(WORLD_LIMIT*2)*100).toFixed(2)+'%',
+    };
+  }
+  function updateMap(){
+    if(!game||!player)return;
+    const stones=game.map?.waystones||WAYSTONES;
+    const pos={x:player.position.x,z:player.position.z};
+    const css=mapPercent(pos.x,pos.z);
+    $('map-you').style.left=css.left;$('map-you').style.top=css.top;
+    $('coords').textContent='Your position: '+Math.round(pos.x)+', '+Math.round(pos.z)+
+      ' · '+(biomeAt(pos.x,pos.z).name);
+    const nearest=nearestWaystone(pos,13);
+    $('waystone-status').textContent=nearest?
+      'Connected to '+nearest.name+'. Choose a destination to fast-travel.':
+      'Walk toward a glowing Waystone arch to unlock fast travel.';
+    $('waystone-list').innerHTML=stones.map(w=>{
+      const canTravel=Boolean(nearest&&w.id!==nearest.id);
+      const distance=Math.round(Math.hypot(pos.x-w.x,pos.z-w.z));
+      return '<button type="button" data-travel="'+esc(w.id)+'" '+(canTravel?'':'disabled')+'>'+
+        '<strong>'+esc(w.name)+'</strong><span>'+distance+'m '+(w.id===nearest?.id?'· CURRENT':canTravel?'· TRAVEL':'· VISIT WAYSTONE')+'</span></button>';
+    }).join('');
+  }
+  async function travel(destination){
+    if(pending)return;
+    pending=true;
+    try{
+      await sendPosition();
+      const result=await api('/api/genesis/travel',{destination});
+      game=result.snapshot;
+      player.position.x=game.position.x;player.position.z=game.position.z;
+      player.position.y=terrainHeight(player.position.x,player.position.z);
+      prism.position.x=player.position.x-2;prism.position.z=player.position.z-2;
+      terrainSystem.update(player.position.x,player.position.z,{force:true});
+      rebuildPanels();syncScene();updateMap();
+      $('world-map-dialog').close();
+      announce(result.message);
+    }catch(error){announce(error.message,true);}
+    finally{pending=false;}
+  }
   function setupUI(){
+    const fieldKit=$('field-kit'),toggle=$('field-toggle');
+    if(matchMedia('(max-width:950px)').matches){
+      fieldKit.classList.add('collapsed');document.body.classList.remove('field-open');
+      toggle.textContent='Open Field Kit ▲';toggle.setAttribute('aria-expanded','false');
+    }
+    toggle.addEventListener('click',()=>{
+      const collapsed=fieldKit.classList.toggle('collapsed');
+      document.body.classList.toggle('field-open',!collapsed);
+      toggle.textContent=collapsed?'Open Field Kit ▲':'Hide Field Kit ▼';
+      toggle.setAttribute('aria-expanded',String(!collapsed));
+    });
+    $('map-open').addEventListener('click',()=>{updateMap();$('world-map-dialog').showModal();});
+    $('map-close').addEventListener('click',()=>$('world-map-dialog').close());
+    $('map-done').addEventListener('click',()=>$('world-map-dialog').close());
+    $('waystone-list').addEventListener('click',event=>{
+      const button=event.target.closest('[data-travel]');
+      if(button&&!button.disabled)travel(button.dataset.travel);
+    });
     document.querySelectorAll('[data-tab]').forEach(button=>button.addEventListener('click',()=>{
       document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===button));
       for(const name of panelNames)$('panel-'+name).classList.toggle('active',name===button.dataset.tab);
@@ -436,6 +497,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       }
       if(key==='e'&&!e.repeat){e.preventDefault();interact();}
       if(key==='b'&&!e.repeat){e.preventDefault();document.querySelector('[data-tab="build"]').click();}
+      if(key==='m'&&!e.repeat){e.preventDefault();$('map-open').click();}
     });
     window.addEventListener('keyup',e=>held.delete(e.key.toLowerCase()));
     window.addEventListener('blur',()=>held.clear());
@@ -461,7 +523,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       setupUI();
       ready=true;lastFrame=performance.now();lastMoveAt=performance.now();lastRefreshAt=performance.now();
       $('loading').style.display='none';
-      announce(game.lastMessage||'Genesis Forest loaded. Begin exploring.');
+      announce('Genesis World expanded! Open World Map to discover six enormous regions.');
     }catch(error){
       $('load-status').textContent=error.message;
       $('retry').hidden=false;
