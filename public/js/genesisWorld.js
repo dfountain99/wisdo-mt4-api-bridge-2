@@ -1,5 +1,7 @@
 import { createGenesisTerrain } from './genesisTerrain.js?v=4';
 import { loadGenesisArtLibrary } from './genesisArtLibrary.js?v=4';
+import { buildGenesisHybrid } from './genesisCreatureVisuals.js?v=5';
+import {genesisGraphicsPreset} from './genesisGraphicsQuality.js?v=5';
 import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,nearestWaystone } from './genesisWorldMap.js';
 /* WISDO Genesis v2 streaming open-world browser renderer: third-person Babylon world, no fake resources.
    All harvesting, crafting, construction and morph changes are validated by the server. */
@@ -8,8 +10,11 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   const $=(id)=>document.getElementById(id);
   const esc=(s)=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
   const clean=(s)=>String(s||'').replace(/_/g,' ');
-  let game=null,scene=null,engine=null,camera=null,player=null,prism=null,lighting=null,sunLight=null,terrainSystem=null;
+  let game=null,scene=null,engine=null,camera=null,player=null,prism=null,lighting=null,sunLight=null,terrainSystem=null,shadowGenerator=null;
+  let graphicsMode='balanced',lastFpsDisplay=0;
   let mats={},prismPieces={},nodeMeshes=new Map(),structureMeshes=new Map(),echoMeshes=new Map(),playerAnimation=null;
+  const hybridEchoVisuals=new Map();
+  let prismHybridVisual=null,prismHybridId='';
   let ready=false,pending=false,movePromise=null,refreshPromise=null,lastMoveAt=0,lastRefreshAt=0,lastHintAt=0,lastFrame=0,toastTimeout=0;
   const held=new Set(),joystick={x:0,y:0,active:false};
   let lookAt=null,stayAnchor=null;
@@ -48,12 +53,26 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     $('build-items').innerHTML=Object.entries(game.buildings).map(([id,b])=>`
       <div class="option"><div class="row"><strong>${esc(b.label)}</strong><button type="button" data-build="${esc(id)}" ${hasCost(b.cost)?'':'disabled'}>Place</button></div>
       <div class="cost">${costText(b.cost)}</div>${b.needs?'<small>Requires '+esc(b.needs)+'</small>':''}</div>`).join('');
-    $('echo-items').innerHTML=game.echoes.map(e=>`
-      <div class="option"><div class="row"><strong>${esc(e.name)}</strong><span class="pill">${e.bonded?'BONDED':e.discovered?'SCANNED':'WILD'}</span></div>
-      <small>${esc(e.description)}</small><div class="cost">Resonance: ${costText(e.cost)}</div>
+    $('echo-items').innerHTML=game.echoes.map(e=>{
+      const power=e.power;
+      const cooldown=Number(game.resonance?.cooldowns?.[e.id]||0);
+      return `<div class="option"><div class="row"><strong>${esc(e.name)}</strong><span class="pill">${e.bonded?'BONDED':e.discovered?'SCANNED':'WILD'}</span></div>
+      ${e.hybrid?'<small>'+esc(e.biome?.toUpperCase())+' · '+esc(e.hybrid)+'</small>':''}
+      <small>${esc(e.description)}</small><div class="cost">Bond: ${costText(e.cost)}</div>
+      ${power?'<div class="cost">⚡ '+esc(power.name)+' · '+Math.ceil(power.durationMs/1000)+'s active · '+Math.ceil(power.cooldownMs/1000)+'s recharge</div>':''}
       ${e.bonded?'<button type="button" data-equip="'+esc(e.id)+'">'+(game.character.equipped===e.id?'Equipped':'Morph into '+esc(e.name))+'</button>':
-      '<small>Find it in the world, scan it and offer its resonance materials.</small>'}</div>`).join('')+
-      '<button type="button" data-equip="core">Return to PRISM Core</button>';
+       '<small>Find, scan, and bond this Echoform in its biome.</small>'}
+      ${e.bonded&&power&&game.character.equipped===e.id?'<button type="button" data-power="'+esc(e.id)+'" '+(cooldown>0?'disabled':'')+'>'+
+       (cooldown>0?'Charging '+Math.ceil(cooldown/1000)+'s':'Activate '+esc(power.name))+'</button>':''}</div>`;
+    }).join('')+'<button type="button" data-equip="core">Return to PRISM Core</button>';
+    const equipped=game.echoes.find(e=>e.id===game.character.equipped);
+    const ability=equipped?.power;
+    const cooldown=Number(game.resonance?.cooldowns?.[equipped?.id]||0);
+    const quick=$('power-quick');
+    quick.hidden=!ability||!equipped.bonded;
+    if(ability){quick.textContent=cooldown>0?'⚡ Charging '+Math.ceil(cooldown/1000)+'s':'⚡ '+ability.name;quick.disabled=cooldown>0;}
+    $('resonance-status').textContent=game.resonance?.active?
+      'Active: '+game.resonance.active.name:'Bond a hybrid creature to unlock its PRISM power.';
     $('points').textContent=game.statPoints+' point'+(game.statPoints===1?'':'s');
     $('stat-items').innerHTML=Object.entries(game.stats).map(([key,val])=>`
       <div class="stat"><span>${esc(key)}</span><div class="bar"><div style="width:${Math.min(100,Number(val))}%"></div></div>
@@ -118,7 +137,12 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     nodeMeshes.set(node.id,p);p.setEnabled(Boolean(node.ready));
   }
   function drawEcho(e){
+    if(echoMeshes.has(e.id))return;
     const p=rootAt('wild-echo:'+e.id,e.x,e.z);
+    if(e.silhouette){
+      const visual=buildGenesisHybrid(scene,p,e,{mobile:matchMedia('(max-width:950px)').matches});
+      if(visual){hybridEchoVisuals.set(e.id,visual);echoMeshes.set(e.id,p);return;}
+    }
     const body=material('echo-'+e.id,e.color,true);
     ball(p,'body',[1.3,.9,1.9],body,0,1.4,0);
     ball(p,'head',[1.15,1.1,1.0],body,0,1.9,1.0);
@@ -221,6 +245,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     for(const x of [-.66,.66])prismPieces.wings.push(ball(prism,'morph-wing',[.46,1.18,.25],mats.echoWing,x,1.73,-.3));
     prismPieces.armor=[];
     for(const x of [-.64,.64])prismPieces.armor.push(ball(prism,'morph-armor',[.48,.68,.5],mats.rock,x,1.38,0));
+    prismPieces.baseMeshes=prism.getChildMeshes(false).slice();
     applyMorph();
   }
   function applyMorph(){
@@ -230,14 +255,25 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     prismPieces.body.diffuseColor=BABYLON.Color3.FromHexString(echo?.color||game.character.color);
     prismPieces.body.emissiveColor=prismPieces.body.diffuseColor.scale(.25);
     const frame=game.character.frame||'core';
-    prismPieces.ears.forEach(x=>x.setEnabled(form==='voltfang'));
-    prismPieces.wings.forEach(x=>x.setEnabled(form==='shadeveil'||frame==='nova'));
-    prismPieces.armor.forEach(x=>x.setEnabled(form==='terrakron'||frame==='guardian'));
-    prismPieces.eyes.forEach(x=>{
-      const style=game.character.eyeStyle||'round';
-      x.scaling.y=style==='narrow'?.12:style==='wide'?.30:.23;
-      x.scaling.x=style==='wide'?.24:.19;
-    });
+    if(echo?.silhouette){
+      if(prismHybridId!==form){
+        prismHybridVisual?.dispose();
+        prismHybridVisual=buildGenesisHybrid(scene,prism,echo,{companion:true,mobile:true});
+        prismHybridId=form;
+      }
+      prismPieces.baseMeshes?.forEach(x=>x.setEnabled(false));
+    }else{
+      prismHybridVisual?.dispose();prismHybridVisual=null;prismHybridId='';
+      prismPieces.baseMeshes?.forEach(x=>x.setEnabled(true));
+      prismPieces.ears.forEach(x=>x.setEnabled(form==='voltfang'));
+      prismPieces.wings.forEach(x=>x.setEnabled(form==='shadeveil'||frame==='nova'));
+      prismPieces.armor.forEach(x=>x.setEnabled(form==='terrakron'||frame==='guardian'));
+      prismPieces.eyes.forEach(x=>{
+        const style=game.character.eyeStyle||'round';
+        x.scaling.y=style==='narrow'?.12:style==='wide'?.30:.23;
+        x.scaling.x=style==='wide'?.24:.19;
+      });
+    }
     prism.scaling.setAll(Number(game.character.size)||1);
     stayAnchor=null;
   }
@@ -251,6 +287,8 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
         terrainSystem.update(player?.position.x??game.position.x,
           player?.position.z??game.position.z,{force:true});
         upgradePlayerAvatar(library);
+        if(shadowGenerator)for(const mesh of player.getChildMeshes(false))
+          if(mesh.getTotalVertices?.()>0&&!mesh.isDisposed())shadowGenerator.addShadowCaster(mesh);
         announce('New 3D scenery and character graphics loaded!');
       }else library.dispose();
     }).catch(error=>{
@@ -259,6 +297,40 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       // Surface the reason inside the HUD so phone users can report it.
       announce('3D graphics fallback: '+String(error?.message||error).slice(0,130),true);
     });
+  }
+  function applyGraphicsMode(mode,{save=true}={}){
+    if(!engine||!scene)return;
+    const mobile=matchMedia('(max-width:950px)').matches;
+    const preset=genesisGraphicsPreset(mode,mobile);
+    graphicsMode=preset.mode;
+    engine.setHardwareScalingLevel(preset.scale);
+    terrainSystem?.setQuality(preset.mode);
+    terrainSystem?.update(player?.position.x??game.position.x,
+      player?.position.z??game.position.z,{force:true});
+    if(preset.shadows&&!shadowGenerator&&sunLight){
+      shadowGenerator=new BABYLON.ShadowGenerator(mobile?512:1024,sunLight);
+      shadowGenerator.useExponentialShadowMap=true;
+      shadowGenerator.setDarkness(.33);
+    }else if(!preset.shadows&&shadowGenerator){
+      shadowGenerator.dispose();shadowGenerator=null;
+    }
+    if(shadowGenerator){
+      for(const node of [player,prism]){
+        if(!node)continue;
+        for(const mesh of node.getChildMeshes(false)){
+          if(mesh.getTotalVertices?.()>0&&!mesh.isDisposed())
+            shadowGenerator.addShadowCaster(mesh);
+        }
+      }
+    }
+    scene.imageProcessingConfiguration.toneMappingEnabled=preset.mode==='cinematic';
+    if(preset.mode==='cinematic')
+      scene.imageProcessingConfiguration.toneMappingType=
+        BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
+    const select=$('graphics-quality');
+    if(select)select.value=preset.mode;
+    if(save)try{localStorage.setItem('wisdo:genesis:graphics',preset.mode);}catch{}
+    return preset;
   }
   function setupScene(){
     if(!window.BABYLON){throw new Error('3D engine failed to load. Check internet or content restrictions.');}
@@ -289,9 +361,12 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     material('aether_shard','#b6b5ff',true);material('moonleaf','#b1f5a3',true);
     drawTerrain();
     game.resources.forEach(drawResource);
-    game.echoes.forEach(drawEcho);
+    game.echoes.filter(e=>Math.hypot(e.x-game.position.x,e.z-game.position.z)<140).forEach(drawEcho);
     game.structures.forEach(drawBuilding);
     makePlayer();makePrism();
+    let preferred='balanced';
+    try{preferred=localStorage.getItem('wisdo:genesis:graphics')||preferred;}catch{}
+    applyGraphicsMode(preferred,{save:false});
     camera=new BABYLON.ArcRotateCamera('thirdperson',-Math.PI/2,1.14,16,
       new BABYLON.Vector3(player.position.x,1.5,player.position.z),scene);
     camera.lowerRadiusLimit=8;camera.upperRadiusLimit=28;camera.lowerBetaLimit=.38;camera.upperBetaLimit=1.48;
@@ -383,14 +458,28 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     prism.position.y=terrainHeight(prism.position.x,prism.position.z)+(mode==='hover'||game.character.frame==='nova' ? .85 : 0)+Math.sin(now/440)*.09;
     prism.rotation.y=Math.atan2(player.position.x-prism.position.x,player.position.z-prism.position.z);
     for(const [id,mesh] of echoMeshes){
-      const nearby=Math.hypot(mesh.position.x-player.position.x,mesh.position.z-player.position.z)<145;
-      mesh.setEnabled(nearby);
-      if(!nearby)continue;
       mesh.position.y=terrainHeight(mesh.position.x,mesh.position.z)+Math.sin(now/540+id.length)*.12;
       mesh.rotation.y=Math.sin(now/2200+id.length)*.20;
     }
-    if(now-lastHintAt>350){showNearest();if($('world-map-dialog')?.open)updateMap();lastHintAt=now;}
+    if(now-lastHintAt>350){
+      // Spawn/despawn expensive hybrid anatomy only around the player.
+      for(const echo of game.echoes){
+        const dist=Math.hypot(echo.x-player.position.x,echo.z-player.position.z);
+        if(dist<135&&!echoMeshes.has(echo.id))drawEcho(echo);
+        if(dist>170&&echoMeshes.has(echo.id)){
+          hybridEchoVisuals.get(echo.id)?.dispose();
+          hybridEchoVisuals.delete(echo.id);
+          echoMeshes.get(echo.id)?.dispose(false,false);
+          echoMeshes.delete(echo.id);
+        }
+      }
+      showNearest();if($('world-map-dialog')?.open)updateMap();lastHintAt=now;
+    }
     if(now-lastRefreshAt>17000){lastRefreshAt=now;refreshWorld().catch(()=>{});}
+    if(now-lastFpsDisplay>1200){
+      $('graphics-fps').textContent=Math.max(0,Math.round(engine.getFps()))+' FPS';
+      lastFpsDisplay=now;
+    }
     scene.render();
   }
   async function sendPosition(){
@@ -514,6 +603,10 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   }
   function setupUI(){
     const fieldKit=$('field-kit'),toggle=$('field-toggle');
+    $('graphics-quality').addEventListener('change',event=>{
+      const preset=applyGraphicsMode(event.target.value);
+      announce('Graphics mode: '+preset.mode+'. Terrain quality refreshed.');
+    });
     if(matchMedia('(max-width:950px)').matches){
       fieldKit.classList.add('collapsed');document.body.classList.remove('field-open');
       toggle.textContent='Open Field Kit ▲';toggle.setAttribute('aria-expanded','false');
@@ -542,7 +635,13 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       const btn=event.target.closest('[data-build]');if(btn)place(btn.dataset.build);
     });
     $('echo-items').addEventListener('click',event=>{
+      const power=event.target.closest('[data-power]');
+      if(power){action({action:'activate',form:power.dataset.power});return;}
       const btn=event.target.closest('[data-equip]');if(btn)action({action:'equip',form:btn.dataset.equip});
+    });
+    $('power-quick').addEventListener('click',()=>{
+      if(game.character.equipped!=='core')
+        action({action:'activate',form:game.character.equipped});
     });
     $('stat-items').addEventListener('click',event=>{
       const btn=event.target.closest('[data-train]');if(btn)action({action:'train',stat:btn.dataset.train});

@@ -177,12 +177,24 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
     <p>Explore six connected biomes—Genesis Forest, Neon Metropolis, Titan Wastes, Aether Skies, Crystal Grotto and Sunken Marsh. Follow distant landmarks, find new Echoforms, harvest rare minerals and build wherever the private world allows.</p>
     <p>Terrain and scenery stream as you travel, so the world extends far beyond the current view. Gather starter resources, build a hut, or follow a Waystone portal to another region. Your inventory, structures, and PRISM morphs remain saved.</p>
     <div class="option"><strong>Keys / mobile</strong><small>WASD or arrow keys to move · drag to rotate camera · E to gather or scan · joystick and action buttons on touch devices.</small></div>
+    <div class="option"><strong>Graphics quality</strong>
+      <div class="row" style="display:flex;align-items:center;gap:10px;justify-content:space-between">
+        <label for="graphics-quality">Render detail</label>
+        <select id="graphics-quality" aria-label="Select graphics quality">
+          <option value="performance">Performance</option>
+          <option value="balanced" selected>Balanced</option>
+          <option value="cinematic">Cinematic</option>
+        </select>
+        <span class="pill" id="graphics-fps">— FPS</span>
+      </div>
+      <small>Cinematic increases scenery density and terrain resolution. Switch back if the phone slows down.</small>
+    </div>
     <div class="option"><strong>Current goal</strong><small id="goal">Collect wood and stone.</small></div>
     <div class="option"><strong>World policy</strong><small>This is a PvE private survival prototype. This is your private world. No raids, cross-user building edits, real trading-account actions, or unattended security controls.</small></div>
   </div>
   <div class="panel" id="panel-craft"><h3>Crafting recipes</h3><div id="craft-items"></div></div>
   <div class="panel" id="panel-build"><h3>Construction blueprints</h3><p>Choose a blueprint and place it a short distance in front of your character. Each placement consumes actual resources and is saved.</p><div id="build-items"></div></div>
-  <div class="panel" id="panel-echoes"><h3>Wild Echoforms</h3><p>Explore and scan each original Genesis creature, complete its resonance offering, then equip its morph to change PRISM's color and stats.</p><div id="echo-items"></div></div>
+  <div class="panel" id="panel-echoes"><h3>Wild Echoforms & Hybrid DNA</h3><p>Discover 18 new biome hybrids and the original Echoforms. Scan them, complete their resource bond, and morph PRISM into their shapes. Activated powers affect movement, gathering, mining, protection or scanning.</p><div class="option"><strong>PRISM Resonance</strong><small id="resonance-status">Bond a hybrid to unlock its power.</small></div><div id="echo-items"></div></div>
   <div class="panel" id="panel-prism">
     <h3>Customize your PRISM</h3>
     <div class="selectrow"><label for="prism-name">Character name</label><input id="prism-name" maxlength="24" value="PRISM"></div>
@@ -200,6 +212,7 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
 <div id="actionDock" aria-label="World interaction">
   <span id="nearest">Explore the region</span>
   <button type="button" class="primary" id="interact">Gather / Scan</button>
+  <button type="button" id="power-quick" hidden>⚡ PRISM Power</button>
   <button type="button" id="build-shortcut">Build Hut</button>
 </div>
 <div id="joystick" aria-label="Touch movement joystick"><div id="joystick-knob"></div></div>
@@ -225,6 +238,6 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
 <div id="loading"><div class="card"><h1>WISDO GENESIS</h1><p id="load-status">Connecting to your saved world and preparing Genesis Forest…</p><button type="button" id="retry" hidden>Try again</button></div></div>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
-<script type="module" src="/js/genesisWorld.js?v=4"></script>
+<script type="module" src="/js/genesisWorld.js?v=5"></script>
 </body>
 </html>
