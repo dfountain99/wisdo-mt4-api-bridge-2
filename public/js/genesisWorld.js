@@ -2,7 +2,7 @@ import { createGenesisTerrain } from './genesisTerrain.js?v=6';
 import { loadGenesisArtLibrary } from './genesisArtLibrary.js?v=6';
 import { loadGenesisPhotoSurfaces,genesisSceneDisposed }
   from './genesisPhotoSurfaces.js?v=6';
-import { buildGenesisHybrid } from './genesisCreatureVisuals.js?v=5';
+import { buildGenesisHybrid } from './genesisCreatureVisuals.js?v=7';
 import {genesisGraphicsPreset} from './genesisGraphicsQuality.js?v=5';
 import {drawGenesisStructure} from './genesisStructureVisuals.js?v=7';
 import {genesisWildlifePose} from './genesisWildlifeBehavior.js?v=7';
@@ -547,9 +547,19 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     prism.position.y=terrainHeight(prism.position.x,prism.position.z)+(mode==='hover'||game.character.frame==='nova' ? .85 : 0)+Math.sin(now/440)*.09;
     prism.rotation.y=Math.atan2(player.position.x-prism.position.x,player.position.z-prism.position.z);
     for(const [id,mesh] of echoMeshes){
-      mesh.position.y=terrainHeight(mesh.position.x,mesh.position.z)+Math.sin(now/540+id.length)*.12;
-      mesh.rotation.y=Math.sin(now/2200+id.length)*.20;
+      const wild=game.echoes.find(e=>e.id===id);
+      const visual=hybridEchoVisuals.get(id);
+      if(wild?.silhouette&&visual){
+        const pose=genesisWildlifePose(wild,Date.now(),player.position,game.world?.weather);
+        mesh.position.set(pose.x,terrainHeight(pose.x,pose.z)+pose.y,pose.z);
+        mesh.rotation.y=pose.facing;
+        visual.animate?.(pose);
+      }else{
+        mesh.position.y=terrainHeight(mesh.position.x,mesh.position.z)+Math.sin(now/540+id.length)*.12;
+        mesh.rotation.y=Math.sin(now/2200+id.length)*.20;
+      }
     }
+    if(buildSelection)updateBuildPreview();
     if(now-lastHintAt>350){
       // Spawn/despawn expensive hybrid anatomy only around the player.
       for(const echo of game.echoes){
@@ -606,13 +616,19 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       $('nearest').textContent=clean(near.item.type)+' deposit';
       $('interact').textContent=(['wood','moonleaf'].includes(near.item.type)?'Harvest ':'Mine ')+clean(near.item.type);
     } else {
-      $('nearest').textContent='Wild '+near.item.name;
-      $('interact').textContent=near.item.bonded?'Bonded':near.item.discovered?'Bond Echoform':'Scan Echoform';
-      $('interact').disabled=near.item.bonded;
+      const animal=near.item;
+      const canFeed=animal.bonded&&animal.hybrid&&animal.trust<3&&
+        game.inventory.resonance_bait>0&&Number(animal.canFeedAt||0)<=Date.now();
+      const pose=animal.hybrid?
+        genesisWildlifePose(animal,Date.now(),player.position,game.world?.weather):null;
+      $('nearest').textContent=animal.name+(pose?' · '+pose.mood:'');
+      $('interact').textContent=canFeed?'Feed Creature':animal.bonded?'Bonded':
+        animal.discovered?'Bond Echoform':'Scan Echoform';
+      $('interact').disabled=animal.bonded&&!canFeed;
     }
   }
   async function action(body){
-    if(pending)return;
+    if(pending)return false;
     pending=true;
     try{
       if(player)await sendPosition().catch(()=>{});
@@ -620,20 +636,86 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       game=outcome.snapshot;
       rebuildPanels();syncScene();
       announce(outcome.message);
-    }catch(error){announce(error.message,true);}
+      return true;
+    }catch(error){announce(error.message,true);return false;}
     finally{pending=false;}
   }
   async function interact(){
     const near=getNearest();if(!near)return announce('Walk closer to a resource or Echoform.');
     if(near.kind==='resource')return action({action:'gather',nodeId:near.item.id});
     if(!near.item.bonded)return action({action:near.item.discovered?'bond':'scan',echoId:near.item.id});
-    announce('Already bonded. Open EchoDex to equip this form.');
+    const e=near.item;
+    if(e.hybrid&&e.trust<3&&game.inventory.resonance_bait>0&&
+       Number(e.canFeedAt||0)<=Date.now())
+      return action({action:'feed',echoId:e.id});
+    announce('Already bonded. Feed resonance bait to improve trust, or open EchoDex.');
+  }
+  function buildCoordinates(){
+    const f=cameraForward();
+    return {
+      x:Math.round((player.position.x+f.x*4)/2)*2,
+      z:Math.round((player.position.z+f.z*4)/2)*2
+    };
+  }
+  function clearBuildPreview(){
+    buildGhost?.dispose(false,false);buildGhost=null;
+    buildGhostMaterial?.dispose();buildGhostMaterial=null;
+    buildSelection=null;buildRotation=0;
+    $('build-rotate').hidden=true;$('build-cancel').hidden=true;
+    $('build-shortcut').textContent='Build Hut';
+    $('build-mode-status').textContent='Choose a blueprint to start construction.';
+  }
+  function updateBuildPreview(){
+    if(!buildSelection||!buildGhost||!camera||!player)return;
+    const blueprint=game.buildings[buildSelection];
+    if(!blueprint)return;
+    const point=buildCoordinates();
+    buildGhost.position.set(point.x,terrainHeight(point.x,point.z)+
+      Math.min(blueprint.height,3.3)/2,point.z);
+    buildGhost.rotation.y=buildRotation*Math.PI/180;
+    const clearSpace=!game.structures.some(s=>Math.hypot(s.x-point.x,s.z-point.z)<3);
+    const waypointClear=!WAYSTONES.some(w=>w.id!=='arrival'&&
+      Math.hypot(w.x-point.x,w.z-point.z)<9);
+    const inBounds=Math.abs(point.x)<WORLD_LIMIT-4&&Math.abs(point.z)<WORLD_LIMIT-4;
+    const canPlace=clearSpace&&waypointClear&&inBounds&&Math.hypot(point.x,point.z)>=2.5&&
+      hasCost(blueprint.cost)&&(!blueprint.needs||
+      game.structures.some(s=>s.kind===blueprint.needs));
+    const color=BABYLON.Color3.FromHexString(canPlace?'#63f2b3':'#fa827e');
+    buildGhostMaterial.diffuseColor=color;
+    buildGhostMaterial.emissiveColor=color.scale(.25);
+    $('build-mode-status').textContent=blueprint.label+' · '+
+      Math.round(point.x)+', '+Math.round(point.z)+' · '+buildRotation+'° · '+
+      (canPlace?'Green preview: ready to place':'Red preview: blocked or missing materials');
+    $('build-shortcut').disabled=!canPlace;
+  }
+  function selectBlueprint(kind){
+    const blueprint=game.buildings[kind];
+    if(!blueprint)return announce('Choose a valid blueprint.',true);
+    clearBuildPreview();
+    buildSelection=kind;
+    buildGhostMaterial=new BABYLON.StandardMaterial('genesis-build-preview',scene);
+    buildGhostMaterial.alpha=.29;
+    buildGhostMaterial.backFaceCulling=false;
+    buildGhost=BABYLON.MeshBuilder.CreateBox('genesis-build-ghost',{
+      width:blueprint.width,height:Math.min(blueprint.height,3.3),
+      depth:blueprint.depth||blueprint.width,
+    },scene);
+    buildGhost.material=buildGhostMaterial;buildGhost.isPickable=false;
+    $('build-rotate').hidden=false;$('build-cancel').hidden=false;
+    $('build-shortcut').textContent='Confirm Build';
+    updateBuildPreview();
+    rebuildPanels();
+    if(matchMedia('(max-width:950px)').matches&&!$('field-kit').classList.contains('collapsed'))
+      $('field-toggle').click();
+    announce('Blueprint selected: '+blueprint.label+'. Rotate or confirm when green.');
   }
   async function place(kind){
-    const f=cameraForward();
-    const x=Math.round((player.position.x+f.x*4)/2)*2;
-    const z=Math.round((player.position.z+f.z*4)/2)*2;
-    return action({action:'build',kind,x,z,rotation:0});
+    if(!game.buildings[kind])return announce('Unknown building type.',true);
+    const point=buildCoordinates();
+    const ok=await action({action:'build',kind,
+      x:point.x,z:point.z,rotation:buildRotation});
+    if(ok){clearBuildPreview();rebuildPanels();}
+    return ok;
   }
   async function refreshWorld(){
     if(pending||!ready||refreshPromise)return refreshPromise;
@@ -721,9 +803,23 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       const btn=event.target.closest('[data-craft]');if(btn)action({action:'craft',recipe:btn.dataset.craft});
     });
     $('build-items').addEventListener('click',event=>{
-      const btn=event.target.closest('[data-build]');if(btn)place(btn.dataset.build);
+      const btn=event.target.closest('[data-build]');if(btn)selectBlueprint(btn.dataset.build);
     });
+    $('build-rotate').addEventListener('click',()=>{
+      if(!buildSelection)return;
+      buildRotation=(buildRotation+90)%360;updateBuildPreview();
+    });
+    $('build-cancel').addEventListener('click',()=>{clearBuildPreview();rebuildPanels();});
+    $('chest-select').addEventListener('change',rebuildPanels);
+    for(const type of ['store','retrieve'])
+      $('storage-'+type).addEventListener('click',()=>{
+        const count=Number($('storage-count').value);
+        action({action:type,chestId:$('chest-select').value,
+          item:$('storage-item').value,count});
+      });
     $('echo-items').addEventListener('click',event=>{
+      const feed=event.target.closest('[data-feed]');
+      if(feed){action({action:'feed',echoId:feed.dataset.feed});return;}
       const power=event.target.closest('[data-power]');
       if(power){action({action:'activate',form:power.dataset.power});return;}
       const btn=event.target.closest('[data-equip]');if(btn)action({action:'equip',form:btn.dataset.equip});
@@ -739,7 +835,10 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       await action({action:'customize',name:$('prism-name').value,color:$('prism-color').value,movement:$('prism-movement').value,frame:$('prism-frame').value,size:Number($('prism-size').value),eyeStyle:$('prism-eyes').value});
     });
     $('interact').addEventListener('click',interact);
-    $('build-shortcut').addEventListener('click',()=>place('hut'));
+    $('build-shortcut').addEventListener('click',()=>{
+      if(buildSelection)place(buildSelection);
+      else selectBlueprint('hut');
+    });
     const fieldFocused=()=>['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName);
     window.addEventListener('keydown',e=>{
       if(fieldFocused())return;
