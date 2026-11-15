@@ -796,17 +796,25 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   }
   function buildCoordinates(){
     const f=cameraForward();
-    return {
+    const free={
       x:Math.round((player.position.x+f.x*4)/2)*2,
       z:Math.round((player.position.z+f.z*4)/2)*2
     };
+    if(!snapAnchorId||!genesisIsModular(buildSelection))return free;
+    try{
+      return genesisResolvePlacement({
+        kind:buildSelection,snapTo:snapAnchorId,snapSide,...free
+      },game.structures);
+    }catch(error){
+      return {x:NaN,z:NaN,snapped:true,error:error.message};
+    }
   }
   function clearBuildPreview(){
     buildGhost?.dispose(false,false);buildGhost=null;
     buildGhostMaterial?.dispose();buildGhostMaterial=null;
-    buildSelection=null;buildRotation=0;
+    buildSelection=null;buildRotation=0;snapAnchorId='';snapSide='north';
     $('build-shortcut').disabled=false;
-    $('build-rotate').hidden=true;$('build-cancel').hidden=true;
+    $('build-rotate').hidden=true;$('build-cancel').hidden=true;$('snap-next').hidden=true;
     $('build-shortcut').textContent='Build Hut';
     $('build-mode-status').textContent='Choose a blueprint to start construction.';
   }
@@ -815,22 +823,28 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     const blueprint=game.buildings[buildSelection];
     if(!blueprint)return;
     const point=buildCoordinates();
-    buildGhost.position.set(point.x,terrainHeight(point.x,point.z)+
+    const coordinatesValid=Number.isFinite(point.x)&&Number.isFinite(point.z);
+    if(coordinatesValid)buildGhost.position.set(point.x,terrainHeight(point.x,point.z)+
       Math.min(blueprint.height,3.3)/2,point.z);
     buildGhost.rotation.y=buildRotation*Math.PI/180;
-    const clearSpace=!game.structures.some(s=>Math.hypot(s.x-point.x,s.z-point.z)<3);
+    const clearSpace=coordinatesValid&&!genesisBuildOverlap(game.structures,point);
     const waypointClear=!WAYSTONES.some(w=>w.id!=='arrival'&&
       Math.hypot(w.x-point.x,w.z-point.z)<9);
-    const inBounds=Math.abs(point.x)<WORLD_LIMIT-4&&Math.abs(point.z)<WORLD_LIMIT-4;
-    const canPlace=clearSpace&&waypointClear&&inBounds&&Math.hypot(point.x,point.z)>=2.5&&
+    const inBounds=coordinatesValid&&Math.abs(point.x)<WORLD_LIMIT-4&&Math.abs(point.z)<WORLD_LIMIT-4;
+    const closeEnough=coordinatesValid&&Math.hypot(
+      player.position.x-point.x,player.position.z-point.z)<=7;
+    const canPlace=closeEnough&&clearSpace&&waypointClear&&inBounds&&
+      !(Math.abs(point.x)<2.5&&Math.abs(point.z)<2.5)&&
       hasCost(blueprint.cost)&&(!blueprint.needs||
       game.structures.some(s=>s.kind===blueprint.needs));
     const color=BABYLON.Color3.FromHexString(canPlace?'#63f2b3':'#fa827e');
     buildGhostMaterial.diffuseColor=color;
     buildGhostMaterial.emissiveColor=color.scale(.25);
     $('build-mode-status').textContent=blueprint.label+' · '+
-      Math.round(point.x)+', '+Math.round(point.z)+' · '+buildRotation+'° · '+
-      (canPlace?'Green preview: ready to place':'Red preview: blocked or missing materials');
+      (coordinatesValid?Math.round(point.x)+', '+Math.round(point.z):'Invalid anchor')+
+      ' · '+buildRotation+'° · '+(point.snapped?'Snapped '+snapSide+' · ':'')+
+      (canPlace?'Green preview: ready to place':
+       'Red preview: out of range, overlap, invalid anchor, or missing materials');
     $('build-shortcut').disabled=!canPlace;
   }
   function selectBlueprint(kind){
@@ -838,6 +852,18 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     if(!blueprint)return announce('Choose a valid blueprint.',true);
     clearBuildPreview();
     buildSelection=kind;
+    if(genesisIsModular(kind)){
+      const anchors=genesisNearbySnapTargets(game.structures,player.position,6);
+      if(anchors.length){
+        const closest=anchors.slice().sort((a,b)=>
+          Math.hypot(a.x-player.position.x,a.z-player.position.z)-
+          Math.hypot(b.x-player.position.x,b.z-player.position.z))[0];
+        snapAnchorId=closest.id;
+        const direction=cameraForward();
+        snapSide=Math.abs(direction.x)>Math.abs(direction.z)?
+          direction.x>0?'east':'west':direction.z>0?'south':'north';
+      }
+    }
     buildGhostMaterial=new BABYLON.StandardMaterial('genesis-build-preview',scene);
     buildGhostMaterial.alpha=.29;
     buildGhostMaterial.backFaceCulling=false;
@@ -847,6 +873,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     },scene);
     buildGhost.material=buildGhostMaterial;buildGhost.isPickable=false;
     $('build-rotate').hidden=false;$('build-cancel').hidden=false;
+    $('snap-next').hidden=!Boolean(snapAnchorId);
     $('build-shortcut').textContent='Confirm Build';
     updateBuildPreview();
     rebuildPanels();
@@ -857,8 +884,11 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   async function place(kind){
     if(!game.buildings[kind])return announce('Unknown building type.',true);
     const point=buildCoordinates();
+    if(!Number.isFinite(point.x)||!Number.isFinite(point.z))
+      return announce('Snap anchor is no longer available.',true);
     const ok=await action({action:'build',kind,
-      x:point.x,z:point.z,rotation:buildRotation});
+      x:point.x,z:point.z,rotation:buildRotation,
+      ...(point.snapped?{snapTo:snapAnchorId,snapSide}:{})});
     if(ok){clearBuildPreview();rebuildPanels();}
     return ok;
   }
@@ -998,6 +1028,29 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       if(!buildSelection)return;
       buildRotation=(buildRotation+90)%360;updateBuildPreview();
     });
+    $('snap-target').addEventListener('change',event=>{
+      snapAnchorId=event.target.value;
+      $('snap-next').hidden=!Boolean(snapAnchorId);
+      updateBuildPreview();
+    });
+    $('snap-side').addEventListener('change',event=>{
+      snapSide=event.target.value;updateBuildPreview();
+    });
+    $('snap-next').addEventListener('click',()=>{
+      const sides=Object.keys(GENESIS_SNAP_SIDES);
+      snapSide=sides[(sides.indexOf(snapSide)+1)%sides.length];
+      $('snap-side').value=snapSide;
+      updateBuildPreview();
+    });
+    $('settlement-list').addEventListener('click',event=>{
+      const button=event.target.closest('[data-dismantle]');
+      if(!button)return;
+      const piece=game.structures.find(s=>s.id===button.dataset.dismantle);
+      if(!piece)return;
+      const label=game.buildings[piece.kind]?.label||piece.kind;
+      if(!window.confirm('Dismantle '+label+'? You get half the materials back.'))return;
+      action({action:'dismantle',structureId:piece.id});
+    });
     $('build-cancel').addEventListener('click',()=>{clearBuildPreview();rebuildPanels();});
     $('chest-select').addEventListener('change',rebuildPanels);
     for(const type of ['store','retrieve'])
@@ -1007,6 +1060,21 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
           item:$('storage-item').value,count});
       });
     $('echo-items').addEventListener('click',event=>{
+      const tame=event.target.closest('[data-tame]');
+      if(tame){action({action:'tame',echoId:tame.dataset.tame});return;}
+      const petCommand=event.target.closest('[data-pet-command]');
+      if(petCommand){
+        action({action:'commandCreature',echoId:petCommand.dataset.petId,
+          command:petCommand.dataset.petCommand});return;
+      }
+      const petRename=event.target.closest('[data-pet-rename]');
+      if(petRename){
+        const input=$('echo-items').querySelector(
+          '[data-pet-name="'+petRename.dataset.petRename+'"]');
+        if(input)action({action:'nameCreature',echoId:petRename.dataset.petRename,
+          name:input.value});
+        return;
+      }
       const feed=event.target.closest('[data-feed]');
       if(feed){action({action:'feed',echoId:feed.dataset.feed});return;}
       const power=event.target.closest('[data-power]');
