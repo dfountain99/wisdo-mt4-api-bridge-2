@@ -7,6 +7,9 @@ import {genesisGraphicsPreset} from './genesisGraphicsQuality.js?v=5';
 import {drawGenesisStructure} from './genesisStructureVisuals.js?v=7';
 import {genesisWildlifePose} from './genesisWildlifeBehavior.js?v=7';
 import {applyGenesisWoodDetail} from './genesisMaterialDetail.js?v=7';
+import {
+ genesisInputSettings,genesisStickInput,genesisLookDelta,genesisOrbitClamp,genesisGamepadFrame
+} from './genesisInputController.js?v=8';
 import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,nearestWaystone } from './genesisWorldMap.js';
 /* WISDO Genesis v2 streaming open-world browser renderer: third-person Babylon world, no fake resources.
    All harvesting, crafting, construction and morph changes are validated by the server. */
@@ -24,6 +27,8 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   let prismHybridVisual=null,prismHybridId='';
   let ready=false,pending=false,movePromise=null,refreshPromise=null,lastMoveAt=0,lastRefreshAt=0,lastHintAt=0,lastFrame=0,toastTimeout=0;
   const held=new Set(),joystick={x:0,y:0,active:false};
+  let inputSettings=genesisInputSettings(),lastPad={interact:false,build:false,cancel:false,power:false};
+  let lookPointer=null;
   let lookAt=null,stayAnchor=null;
   const panelNames=['journey','craft','build','echoes','prism'];
   const iconFor=(k)=>({
@@ -461,6 +466,10 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     camera.lowerRadiusLimit=8;camera.upperRadiusLimit=28;camera.lowerBetaLimit=.38;camera.upperBetaLimit=1.48;
     camera.wheelDeltaPercentage=.018;camera.panningSensibility=0;
     camera.attachControl(canvas,true);
+    if(matchMedia('(max-width:950px)').matches){
+      // Right thumb owns the look area: do not also rotate from the left stick.
+      camera.inputs.removeByType('ArcRotateCameraPointersInput');
+    }
     canvas.style.touchAction='none';
     window.addEventListener('resize',()=>engine.resize());
     applyWeather();
@@ -514,12 +523,56 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   function cameraForward(){
     return {x:-Math.cos(camera.alpha),z:-Math.sin(camera.alpha)};
   }
+  function aimCamera(dx,dy){
+    if(!camera)return;
+    const delta=genesisLookDelta(dx,dy,inputSettings);
+    const orbit=genesisOrbitClamp(camera.alpha+delta.alpha,camera.beta+delta.beta);
+    camera.alpha=orbit.alpha;camera.beta=orbit.beta;
+  }
+  function centerCamera(){
+    if(!camera)return;
+    camera.alpha=-Math.PI/2;
+    camera.beta=1.14;
+    camera.radius=inputSettings.cameraDistance;
+  }
+  function changeZoom(delta){
+    inputSettings=genesisInputSettings({
+      ...inputSettings,cameraDistance:inputSettings.cameraDistance+delta
+    });
+    if(camera)camera.radius=inputSettings.cameraDistance;
+    saveCameraSettings();
+  }
+  function saveCameraSettings(){
+    try{localStorage.setItem('wisdo:genesis:input-v8',JSON.stringify(inputSettings));}catch{}
+  }
   function tick(){
     if(!ready||!engine||!scene)return;
     const now=performance.now(),dt=Math.min(.06,(now-lastFrame)/1000||0);
     lastFrame=now;
-    let lateral=(held.has('d')||held.has('arrowright')?1:0)-(held.has('a')||held.has('arrowleft')?1:0)+joystick.x;
-    let forward=(held.has('w')||held.has('arrowup')?1:0)-(held.has('s')||held.has('arrowdown')?1:0)-joystick.y;
+    const pad=(typeof navigator.getGamepads==='function'?
+      Array.from(navigator.getGamepads()||[]).find(p=>p?.connected):null);
+    const controller=genesisGamepadFrame(pad,inputSettings);
+    if(pad){
+      const orbit=genesisOrbitClamp(
+        camera.alpha-controller.look.x*dt*2.7*inputSettings.sensitivity,
+        camera.beta+controller.look.y*dt*2.1*inputSettings.sensitivity*
+          (inputSettings.invertY?-1:1));
+      camera.alpha=orbit.alpha;camera.beta=orbit.beta;
+      if(controller.interact&&!lastPad.interact)interact();
+      if(controller.build&&!lastPad.build){
+        if(buildSelection)place(buildSelection);else selectBlueprint('hut');
+      }
+      if(controller.cancel&&!lastPad.cancel&&buildSelection)clearBuildPreview();
+      if(controller.power&&!lastPad.power&&game.character.equipped!=='core')
+        action({action:'activate',form:game.character.equipped});
+    }
+    lastPad={interact:controller.interact,build:controller.build,
+      cancel:controller.cancel,power:controller.power};
+    const stick=genesisStickInput(joystick.x,joystick.y,inputSettings);
+    let lateral=(held.has('d')||held.has('arrowright')?1:0)-
+      (held.has('a')||held.has('arrowleft')?1:0)+stick.x+controller.movement.x;
+    let forward=(held.has('w')||held.has('arrowup')?1:0)-
+      (held.has('s')||held.has('arrowdown')?1:0)-stick.y-controller.movement.y;
     const mag=Math.hypot(lateral,forward);
     updatePlayerAnimation(mag);
     if(mag>.04){
@@ -775,6 +828,50 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   }
   function setupUI(){
     const fieldKit=$('field-kit'),toggle=$('field-toggle');
+    try{
+      inputSettings=genesisInputSettings(
+        JSON.parse(localStorage.getItem('wisdo:genesis:input-v8')||'{}'));
+    }catch{inputSettings=genesisInputSettings();}
+    $('look-sensitivity').value=String(inputSettings.sensitivity);
+    $('look-invert-y').checked=inputSettings.invertY;
+    if(camera)camera.radius=inputSettings.cameraDistance;
+    $('look-sensitivity').addEventListener('change',event=>{
+      inputSettings=genesisInputSettings({...inputSettings,
+        sensitivity:Number(event.target.value)});
+      saveCameraSettings();
+    });
+    $('look-invert-y').addEventListener('change',event=>{
+      inputSettings=genesisInputSettings({...inputSettings,invertY:event.target.checked});
+      saveCameraSettings();
+    });
+    $('camera-center').addEventListener('click',centerCamera);
+    $('camera-zoom-in').addEventListener('click',()=>changeZoom(-2));
+    $('camera-zoom-out').addEventListener('click',()=>changeZoom(2));
+    const look=$('look-pad');
+    let previous={x:0,y:0};
+    look.addEventListener('pointerdown',event=>{
+      if(lookPointer!==null)return;
+      event.preventDefault();
+      lookPointer=event.pointerId;
+      previous={x:event.clientX,y:event.clientY};
+      look.setPointerCapture(event.pointerId);
+      look.classList.add('active');
+    });
+    look.addEventListener('pointermove',event=>{
+      if(event.pointerId!==lookPointer)return;
+      event.preventDefault();
+      const dx=Math.min(75,Math.max(-75,event.clientX-previous.x));
+      const dy=Math.min(75,Math.max(-75,event.clientY-previous.y));
+      previous={x:event.clientX,y:event.clientY};
+      aimCamera(dx,dy);
+    });
+    const endLook=event=>{
+      if(event.pointerId!==lookPointer)return;
+      lookPointer=null;look.classList.remove('active');
+    };
+    look.addEventListener('pointerup',endLook);
+    look.addEventListener('pointercancel',endLook);
+    look.addEventListener('lostpointercapture',endLook);
     $('graphics-quality').addEventListener('change',event=>{
       const preset=applyGraphicsMode(event.target.value);
       announce('Graphics mode: '+preset.mode+'. Terrain quality refreshed.');
@@ -850,9 +947,13 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       if(key==='e'&&!e.repeat){e.preventDefault();interact();}
       if(key==='b'&&!e.repeat){e.preventDefault();document.querySelector('[data-tab="build"]').click();}
       if(key==='m'&&!e.repeat){e.preventDefault();$('map-open').click();}
+      if(key==='r'&&!e.repeat){e.preventDefault();centerCamera();}
     });
     window.addEventListener('keyup',e=>held.delete(e.key.toLowerCase()));
-    window.addEventListener('blur',()=>held.clear());
+    window.addEventListener('blur',()=>{
+      held.clear();joystick.x=0;joystick.y=0;joystick.active=false;
+      $('joystick-knob').style.transform='translate(0,0)';
+    });
     const joy=$('joystick'),knob=$('joystick-knob');
     const center=()=>{joystick.x=0;joystick.y=0;joystick.active=false;knob.style.transform='translate(0,0)';};
     joy.addEventListener('pointerdown',e=>{joystick.active=true;joy.setPointerCapture(e.pointerId);moveJoy(e);});
@@ -864,7 +965,9 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       knob.style.transform='translate('+(x*scale)+'px,'+(y*scale)+'px)';
     }
     joy.addEventListener('pointermove',moveJoy);
-    joy.addEventListener('pointerup',center);joy.addEventListener('pointercancel',center);
+    joy.addEventListener('pointerup',center);
+    joy.addEventListener('pointercancel',center);
+    joy.addEventListener('lostpointercapture',center);
   }
   async function boot(){
     try{
