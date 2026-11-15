@@ -30,7 +30,7 @@ test('crafting expansion defines a complete resource-to-station progression',()=
  assert.equal(RECIPES.iron_ingot.needs,'kiln');
  assert.equal(RECIPES.resonance_bait.needs,'workbench');
  assert.ok(BUILDINGS.kiln&&BUILDINGS.storage_chest&&BUILDINGS.creature_habitat);
- assert.equal(Object.keys(BUILDINGS).length,20);
+ assert.equal(Object.keys(BUILDINGS).length,25);
 });
 
 test('real crafted recipes consume resources and station gates cannot be bypassed',()=>{
