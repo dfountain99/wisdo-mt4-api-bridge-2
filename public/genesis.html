@@ -160,6 +160,30 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
  body.field-open #joystick{bottom:calc(34vh + 25px)}
  body.field-open #actionDock{bottom:calc(34vh + 25px)}
 }
+/* V8 touch controls — independent left movement and right camera input. */
+#look-pad,#camera-actions{display:none}
+#look-pad{touch-action:none;user-select:none;-webkit-user-select:none}
+#look-pad .look-target{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);
+  padding:7px 12px;border:1px solid #9ce0e25c;border-radius:999px;
+  font-size:10px;letter-spacing:.08em;color:#d5f3f1a0;background:#07223657;pointer-events:none}
+#look-pad.active .look-target{color:#fff;border-color:#a3e7eea5}
+#camera-actions{position:fixed;z-index:11;gap:5px}
+#camera-actions button{min-width:38px;min-height:36px;padding:6px 8px;font-size:11px}
+#look-invert-y{width:auto;min-width:18px;height:18px;accent-color:#55d9ec}
+#touch-settings label{font-size:12px;color:#d2e8f1}
+@media(max-width:950px){
+ #look-pad{display:block;position:fixed;right:0;top:155px;bottom:210px;
+  width:54vw;z-index:6;touch-action:none;background:transparent}
+ #camera-actions{display:flex;right:11px;bottom:168px}
+ body.field-open #look-pad{bottom:calc(36vh + 124px)}
+ body.field-open #camera-actions{bottom:calc(36vh + 86px)}
+}
+@media(max-width:520px){
+ #look-pad{top:145px;bottom:180px;width:56vw}
+ #camera-actions{bottom:155px}
+ body.field-open #look-pad{bottom:calc(34vh + 112px)}
+ body.field-open #camera-actions{bottom:calc(34vh + 79px)}
+}
 </style>
 </head>
 <body>
@@ -186,6 +210,24 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
     <p>Explore six connected biomes—Genesis Forest, Neon Metropolis, Titan Wastes, Aether Skies, Crystal Grotto and Sunken Marsh. Follow distant landmarks, find new Echoforms, harvest rare minerals and build wherever the private world allows.</p>
     <p>Terrain and scenery stream as you travel, so the world extends far beyond the current view. Gather starter resources, build a hut, or follow a Waystone portal to another region. Your inventory, structures, and PRISM morphs remain saved.</p>
     <div class="option"><strong>Keys / mobile</strong><small>WASD or arrow keys to move · drag to rotate camera · E to gather or scan · joystick and action buttons on touch devices.</small></div>
+    <div class="option" id="touch-settings"><strong>Camera & Controls</strong>
+      <p>Left thumb moves. Drag the right side of the world to look around.
+         Bluetooth controllers use the two analog sticks.</p>
+      <div class="selectrow"><label for="look-sensitivity">Look sensitivity</label>
+        <select id="look-sensitivity">
+          <option value="0.6">Slow · precise</option>
+          <option value="0.85">Controlled</option>
+          <option value="1" selected>Standard</option>
+          <option value="1.35">Responsive</option>
+          <option value="1.75">Fast</option>
+          <option value="2.25">Very fast</option>
+        </select>
+      </div>
+      <label style="display:flex;align-items:center;gap:9px;margin-top:12px">
+        <input id="look-invert-y" type="checkbox"/> Invert vertical look
+      </label>
+      <small>Center = reset camera · − / + = zoom · Gamepad A = interact, Y = build, B = cancel, RB = PRISM power.</small>
+    </div>
     <div class="option"><strong>Graphics quality</strong>
       <div class="row" style="display:flex;align-items:center;gap:10px;justify-content:space-between">
         <label for="graphics-quality">Render detail</label>
@@ -260,8 +302,14 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
   <button type="button" id="build-cancel" hidden>Cancel</button>
   <button type="button" id="build-shortcut">Build Hut</button>
 </div>
-<div id="joystick" aria-label="Touch movement joystick"><div id="joystick-knob"></div></div>
-<div id="help">WASD / arrows · Drag to look · E interact · M world map · B build</div>
+<div id="joystick" aria-label="Move character with left thumb"><div id="joystick-knob"></div></div>
+<div id="look-pad" aria-label="Drag to rotate camera with right thumb"><span class="look-target">DRAG TO LOOK</span></div>
+<div id="camera-actions" aria-label="Camera adjustments">
+  <button type="button" id="camera-zoom-in" aria-label="Zoom camera closer">−</button>
+  <button type="button" id="camera-center">Center</button>
+  <button type="button" id="camera-zoom-out" aria-label="Zoom camera farther">＋</button>
+</div>
+<div id="help">WASD / arrows · Drag to look · R center · E interact · M map · B build · Gamepad supported</div>
 <div id="toast" role="status" aria-live="polite"></div>
 
 <dialog id="world-map-dialog" aria-labelledby="world-map-title">
@@ -283,6 +331,6 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
 <div id="loading"><div class="card"><h1>WISDO GENESIS</h1><p id="load-status">Connecting to your saved world and preparing Genesis Forest…</p><button type="button" id="retry" hidden>Try again</button></div></div>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
-<script type="module" src="/js/genesisWorld.js?v=7"></script>
+<script type="module" src="/js/genesisWorld.js?v=8"></script>
 </body>
 </html>
