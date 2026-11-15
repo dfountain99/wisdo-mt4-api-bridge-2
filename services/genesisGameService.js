@@ -6,6 +6,9 @@ import {
  GENESIS_HYBRIDS,hybridById,activeResonance,resonanceHarvestBonus,
  resonanceScanDistance,resonanceStatBonus,
 } from '../public/js/genesisHybrids.js';
+import {
+ genesisResolvePlacement,genesisBuildOverlap,GENESIS_MODULAR_PARTS,
+} from '../public/js/genesisConstruction.js';
 // WISDO Genesis v2: server-authoritative open world with six explorable biomes.
 // The renderer never awards resources, owns inventory, or approves structures.
 export const GENESIS_VERSION = 'genesis-open-world-v2';
@@ -70,6 +73,11 @@ export const BUILDINGS = Object.freeze({
   creature_habitat:{label:'Wildlife Sanctuary',cost:{planks:8,stone_bricks:4,moonleaf:3},width:6,height:4},
   stone_foundation:{label:'Stone Foundation',cost:{stone_bricks:4},width:3,height:.4},
   greenhouse:{label:'Crystal Greenhouse',cost:{planks:6,crystal_glass:4,rope:2},width:5,height:4,needs:'workbench'},
+  staircase:{label:'Timber Staircase',cost:{planks:4,nails:2},width:3,height:2},
+  roof_panel:{label:'Sloped Timber Roof',cost:{planks:4},width:3,height:1.5},
+  door_frame:{label:'Wood Door Frame',cost:{planks:3,rope:1},width:3,height:2.8},
+  stone_wall:{label:'Stone Fortification Wall',cost:{stone_bricks:5},width:3,height:2.7},
+  stone_roof:{label:'Reinforced Stone Roof',cost:{stone_bricks:5,iron:1},width:3,height:1.3},
 });
 const DEFAULT_INVENTORY = Object.freeze({
  wood:0,stone:0,iron:0,crystal:0,circuit:0,obsidian:0,aether_shard:0,moonleaf:0,
@@ -96,6 +104,7 @@ export function createGenesisProfile(userId,now=Date.now()){
   inventory:{...DEFAULT_INVENTORY},xp:0,statPoints:8,structures:[],
   depleted:{},discovered:[],echoforms:[],resonanceCooldowns:{},activeResonance:null,
   storage:{},creatureTrust:{},feedCooldowns:{},
+  tamedCreatures:{},creatureCompanion:null,
   lastMessage:'Welcome to Genesis Forest. Collect wood and stone to craft your first tools.',
  };
 }
@@ -115,6 +124,8 @@ export function ensureGenesisProfile(state,userId,now=Date.now()){
  profile.storage ||= {};
  profile.creatureTrust ||= {};
  profile.feedCooldowns ||= {};
+ profile.tamedCreatures ||= {};
+ profile.creatureCompanion ||= null;
  return profile;
 }
 export function getStats(profile,now=Date.now()){
@@ -147,6 +158,13 @@ export function profileSnapshot(profile,position={x:0,z:0},now=Date.now()){
   },
   character:profile.character,inventory:{...DEFAULT_INVENTORY,...profile.inventory},statPoints:profile.statPoints,xp:profile.xp,
   structures:profile.structures,storage:profile.storage||{},
+  tamedCreatures:Object.values(profile.tamedCreatures||{}).map(pet=>{
+    const species=hybridById(pet.id);
+    return species?{...pet,name:pet.name||species.name,baseName:species.name,
+      color:species.color,silhouette:species.silhouette,biome:species.biome}:null;
+  }).filter(Boolean),
+  creatureCompanion:profile.creatureCompanion||null,
+  construction:{modularParts:GENESIS_MODULAR_PARTS,snapSpacing:3},
   resources:[
     ...RESOURCE_NODES.filter(node=>Math.hypot(node.x-position.x,node.z-position.z)<CHUNK_SIZE*1.75),
     ...nearbyGeneratedNodes(position.x,position.z,1),
@@ -158,14 +176,14 @@ export function profileSnapshot(profile,position={x:0,z:0},now=Date.now()){
  };
 }
 function near(position,target,meters=5){if(!position||!finite(position.x)||!finite(position.z)||dist(position,target)>meters)throw fail('Move closer to interact.');}
-function buildablePosition(position,x,z){
+function buildablePosition(position,x,z,{snapped=false}={}){
  if(!finite(x)||!finite(z)||Math.abs(x)>WORLD_LIMIT-4||Math.abs(z)>WORLD_LIMIT-4)throw fail('Select a location within the connected Genesis world.');
  if(Math.abs(x)<2.5&&Math.abs(z)<2.5)throw fail('The arrival circle must stay clear.');
  // Old Genesis v1 construction near arrival remains valid; new portals are protected.
  if(WAYSTONES.some(w=>w.id!=='arrival'&&Math.hypot(w.x-x,w.z-z)<9))
    throw fail('Waystone plazas must remain open for travelers.');
  near(position,{x,z},7);
- const gx=Math.round(x/2)*2,gz=Math.round(z/2)*2;
+ const gx=snapped?x:Math.round(x/2)*2,gz=snapped?z:Math.round(z/2)*2;
  return {x:gx,z:gz};
 }
 export function applyGenesisAction(profile,body,position,now=Date.now()){
@@ -207,15 +225,38 @@ export function applyGenesisAction(profile,body,position,now=Date.now()){
   const kind=String(body.kind||'');
   const blueprint=lookup(BUILDINGS,kind);
   if(!blueprint)throw fail('Unknown building blueprint.');
-  if(profile.structures.length>=80)throw fail('Your private settlement reached the 80-piece prototype limit.');
+  if(profile.structures.length>=160)throw fail('Your private settlement reached the 160-piece limit.');
   if(blueprint.needs&&!profile.structures.some(s=>s.kind===blueprint.needs))throw fail('Build a '+blueprint.needs+' first.');
-  const pos=buildablePosition(position,body.x,body.z);
-  if(profile.structures.some(s=>dist(s,pos)<3))throw fail('Too close to another building.');
+  let requested;
+  try{requested=genesisResolvePlacement(body,profile.structures);}
+  catch(error){throw fail(error.message);}
+  const pos=buildablePosition(position,requested.x,requested.z,{snapped:requested.snapped});
+  if(genesisBuildOverlap(profile.structures,pos))
+   throw fail('Too close to another building. Select another snap side.');
   take(profile,blueprint.cost);
   const id='structure-'+String(profile.structures.length+1)+'-'+Math.trunc(now);
-  profile.structures.push({id,kind,...pos,rotation:[0,90,180,270].includes(body.rotation)?body.rotation:0});
+  profile.structures.push({id,kind,...pos,
+    rotation:[0,90,180,270].includes(body.rotation)?body.rotation:0,
+    ...(requested.snapped?{snappedTo:requested.anchorId,snapSide:body.snapSide}:{})});
   if(kind==='storage_chest'){profile.storage ||= {};profile.storage[id]={};}
-  award(profile,6);message='Built '+blueprint.label+'. Your settlement is saved.';
+  award(profile,6);message='Built '+blueprint.label+
+    (requested.snapped?' snapped to your settlement.':'. Your settlement is saved.');
+ }else if(action==='dismantle'){
+  const piece=profile.structures.find(s=>s.id===body.structureId);
+  if(!piece)throw fail('Select one of your existing buildings.');
+  near(position,piece,6);
+  if(piece.kind==='storage_chest'&&
+     Object.values(profile.storage?.[piece.id]||{}).some(n=>Number(n)>0))
+    throw fail('Empty this chest before dismantling it.');
+  const blueprint=lookup(BUILDINGS,piece.kind);
+  if(!blueprint)throw fail('That legacy structure cannot be dismantled.');
+  // Refund half of each resource count, rounded down. No duplication exploits.
+  const refund=Object.fromEntries(Object.entries(blueprint.cost)
+    .map(([item,count])=>[item,Math.floor(count/2)]).filter(([,count])=>count>0));
+  profile.structures=profile.structures.filter(s=>s.id!==piece.id);
+  if(piece.kind==='storage_chest')delete profile.storage[piece.id];
+  for(const [item,count] of Object.entries(refund))profile.inventory[item]=(profile.inventory[item]||0)+count;
+  message='Dismantled '+blueprint.label+'. Salvaged half the materials (rounded down).';
  }else if(action==='store'||action==='retrieve'){
   const chest=profile.structures.find(s=>s.id===body.chestId&&s.kind==='storage_chest');
   if(!chest)throw fail('Find a built supply chest.');
@@ -254,6 +295,51 @@ export function applyGenesisAction(profile,body,position,now=Date.now()){
   award(profile,6);
   message=echo.name+' accepted resonance bait. Trust '+profile.creatureTrust[echo.id]+'/3.'+
     (sanctuary?' Sanctuary comfort shortens feeding recovery.':'');
+ }else if(action==='tame'){
+  const echo=hybridById(String(body.echoId||''));
+  if(!echo)throw fail('Only hybrid wildlife can be tamed.');
+  near(position,echo,6);
+  if(!profile.discovered.includes(echo.id))throw fail('Scan this hybrid first.');
+  if((profile.creatureTrust?.[echo.id]||0)<2)
+    throw fail('Earn at least 2 trust by feeding this hybrid before taming.');
+  profile.tamedCreatures ||= {};
+  if(profile.tamedCreatures[echo.id])throw fail('You already tamed this species.');
+  if(Object.keys(profile.tamedCreatures).length>=12)throw fail('Your stable is full (12 creature limit).');
+  take(profile,{resonance_bait:2,rope:1});
+  const pet={id:echo.id,name:echo.name,mode:'follow',tamedAt:nowString(now),
+    stayAt:null};
+  profile.tamedCreatures[echo.id]=pet;
+  profile.creatureCompanion=echo.id;
+  award(profile,20);
+  message=echo.name+' tamed! Your companion will follow you.';
+ }else if(action==='commandCreature'){
+  const id=String(body.echoId||''),command=String(body.command||'');
+  const pet=profile.tamedCreatures?.[id];
+  if(!pet)throw fail('You do not own this creature.');
+  if(!['follow','stay','dismiss'].includes(command))
+    throw fail('Use Follow, Stay, or Dismiss.');
+  if(command==='stay'){
+    if(!position||!finite(position.x)||!finite(position.z))
+      throw fail('Your player position must be known.');
+    if(profile.creatureCompanion!==id)throw fail('Summon this creature first.');
+    pet.mode='stay';pet.stayAt={x:position.x,z:position.z};
+    message=pet.name+' is staying here.';
+  }else if(command==='follow'){
+    pet.mode='follow';pet.stayAt=null;profile.creatureCompanion=id;
+    message=pet.name+' is following you.';
+  }else{
+    if(profile.creatureCompanion!==id)throw fail('This creature is not active.');
+    profile.creatureCompanion=null;
+    message=pet.name+' returned to your stable.';
+  }
+ }else if(action==='nameCreature'){
+  const pet=profile.tamedCreatures?.[String(body.echoId||'')];
+  if(!pet)throw fail('You do not own this creature.');
+  const name=compact(body.name);
+  if(!/^[\\p{L}\\p{N} _-]{1,24}$/u.test(name))
+    throw fail('Creature name must be 1–24 letters, numbers, spaces, _ or -.');
+  pet.name=name;
+  message='Your companion is now named '+name+'.';
  }else if(action==='scan'){
   const echo=ECHOES.find(x=>x.id===body.echoId);
   if(!echo)throw fail('Unknown Echoform.');
