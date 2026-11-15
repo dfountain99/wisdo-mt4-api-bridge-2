@@ -157,6 +157,49 @@ export function drawGenesisStructure(scene,root,s,mats,{mobile=false}={}){
      glow('seedling-resonance',x,.55,z,.45);
    return true;
  }
+ if(k==='staircase'){
+   for(let step=0;step<7;step++){
+     const z=-1.34+step*.44;
+     box('stair-tread',0,.22+step*.245,z,3,.18,.48,'wood');
+     for(const edge of [-1,1])box('step-end-trim',edge*1.43,.23+step*.245,z,.12,.26,.47,'wood');
+   }
+   for(const side of [-1,1]){
+     box('stair-stringer',side*1.37,1.06,0,.14,.20,3.58,'wood',{x:-.50});
+     for(const z of [-1.18,1.18])post(side*1.35,z,2);
+   }
+   return true;
+ }
+ if(k==='roof_panel'||k==='stone_roof'){
+   const stone=k==='stone_roof';
+   for(let i=0;i<6;i++){
+     const z=(i-2.5)*.51;
+     box('angled-roof-panel',0,.55,z,3.15,.16,.49,stone?'rock':'roof',{z:.35});
+   }
+   for(const x of [-1.40,1.40])
+     box('roof-edge-trim',x,.57,0,.16,.14,3.35,stone?'rock':'wood',{z:.35});
+   return true;
+ }
+ if(k==='door_frame'){
+   for(const x of [-1.25,1.25])post(x,0,2.8);
+   box('lintel',0,2.72,0,2.84,.28,.29,'wood');
+   box('threshold',0,.16,0,2.6,.18,.58,'rock');
+   box('hinged-door',-.08,1.27,.10,2.1,2.30,.15,'wood');
+   for(const y of [.62,1.66])box('door-cross-brace',0,y,.21,1.93,.13,.12,'metal');
+   glow('door-handle',.82,1.24,.25,.16);
+   return true;
+ }
+ if(k==='stone_wall'){
+   rock(0,.14,0,3.1,.30,.72);
+   for(let course=0;course<6;course++){
+     for(let blockIndex=0;blockIndex<4;blockIndex++){
+       const offset=course%2?-.13:.13;
+       const x=(blockIndex-1.5)*.78+offset;
+       rock(x,.40+course*.39,0,.73,.37,.66);
+     }
+   }
+   for(const x of [-1.35,1.35])rock(x,1.35,0,.29,2.7,.88);
+   return true;
+ }
  if(k==='campfire'){
    for(let i=0;i<9;i++){
      const a=i*Math.PI*2/9;

@@ -67,7 +67,7 @@ test('mobile game HUD includes a real right-hand camera area, zoom and options',
  'camera-zoom-in','camera-zoom-out','joystick','joystick-knob']){
   assert.match(html,new RegExp('id="'+name+'"'));
  }
- assert.match(html,/genesisWorld\.js\?v=8/);
+ assert.ok(Number(/genesisWorld\.js\?v=(\d+)/.exec(html)?.[1]||0)>=8);
  assert.match(world,/genesisInputController\.js\?v=8/);
  assert.match(world,/genesisGamepadFrame/);
  assert.match(world,/look\.setPointerCapture\(event\.pointerId\)/);
