@@ -4,7 +4,9 @@ import {readFileSync} from 'node:fs';
 import {
  GENESIS_INPUT_DEFAULTS,genesisInputSettings,genesisStickInput,
  genesisLookDelta,genesisOrbitClamp,genesisGamepadFrame,
-} from '../public/js/genesisInputController.js';
+ } from '../public/js/genesisInputController.js';
+import {genesisMicroNormal,genesisCreateMicroBump}
+  from '../public/js/genesisMicroSurface.js';
 
 test('mobile controls sanitize stored settings to predictable safe bounds',()=>{
  assert.deepEqual(genesisInputSettings(),GENESIS_INPUT_DEFAULTS);
@@ -73,4 +75,19 @@ test('mobile game HUD includes a real right-hand camera area, zoom and options',
  assert.match(world,/saveCameraSettings\(\)/);
  assert.match(world,/genesisStickInput\(joystick\.x,joystick\.y/);
  assert.match(world,/action\(\{action:'build',kind,/);
+});
+
+test('cinematic micro-normal surfaces tile seamlessly with bounded tangent normals',()=>{
+ for(const biome of ['forest','marsh','titan','neon','crystal','aether']){
+  const a=genesisMicroNormal(0,0,biome);
+  assert.equal(a.length,3);
+  assert.deepEqual(a,genesisMicroNormal(128,128,biome));
+  assert.ok(a.every(channel=>Number.isInteger(channel)&&channel>=0&&channel<=255));
+  assert.ok(a[2]>150);
+ }
+ assert.equal(genesisCreateMicroBump(null,'forest'),null);
+ const terrain=readFileSync(new URL('../public/js/genesisTerrain.js',import.meta.url),'utf8');
+ assert.match(terrain,/graphics\.mode==='cinematic'\?microBump/);
+ assert.match(terrain,/m\.bumpTexture=/);
+ assert.match(terrain,/texture\.dispose\(\)/);
 });
