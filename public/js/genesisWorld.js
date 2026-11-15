@@ -1,4 +1,4 @@
-import { createGenesisTerrain } from './genesisTerrain.js?v=6';
+import { createGenesisTerrain } from './genesisTerrain.js?v=8';
 import { loadGenesisArtLibrary } from './genesisArtLibrary.js?v=6';
 import { loadGenesisPhotoSurfaces,genesisSceneDisposed }
   from './genesisPhotoSurfaces.js?v=6';
