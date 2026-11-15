@@ -4,7 +4,11 @@ import { loadGenesisPhotoSurfaces,genesisSceneDisposed }
   from './genesisPhotoSurfaces.js?v=6';
 import { buildGenesisHybrid } from './genesisCreatureVisuals.js?v=7';
 import {genesisGraphicsPreset} from './genesisGraphicsQuality.js?v=5';
-import {drawGenesisStructure} from './genesisStructureVisuals.js?v=7';
+import {drawGenesisStructure} from './genesisStructureVisuals.js?v=9';
+import {
+ GENESIS_SNAP_SIDES,genesisIsModular,genesisResolvePlacement,
+ genesisBuildOverlap,genesisNearbySnapTargets,
+} from './genesisConstruction.js?v=9';
 import {genesisWildlifePose} from './genesisWildlifeBehavior.js?v=7';
 import {applyGenesisWoodDetail} from './genesisMaterialDetail.js?v=7';
 import {
@@ -21,6 +25,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   let game=null,scene=null,engine=null,camera=null,player=null,prism=null,lighting=null,sunLight=null,terrainSystem=null,shadowGenerator=null;
   let loadedArt=null;
   let buildSelection=null,buildRotation=0,buildGhost=null,buildGhostMaterial=null;
+  let snapAnchorId='',snapSide='north',petInstance=null;
   let graphicsMode='balanced',lastFpsDisplay=0;
   let mats={},prismPieces={},nodeMeshes=new Map(),structureMeshes=new Map(),echoMeshes=new Map(),playerAnimation=null;
   const hybridEchoVisuals=new Map();
@@ -73,6 +78,18 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
         <div class="cost">Materials: ${costText(r.requires)}</div>
         <small>Creates: ${costText(r.grants)}${r.needs?' · Station: '+esc(r.needs):''}</small></div>`;
     }).join('');
+    const nearbyBuilds=genesisNearbySnapTargets(game.structures,
+      player?.position||game.position,12);
+    const snapTarget=$('snap-target');
+    snapTarget.innerHTML='<option value="">Free placement</option>'+
+      nearbyBuilds.map(s=>'<option value="'+esc(s.id)+'">'+
+        esc(game.buildings[s.kind]?.label||s.kind)+' ('+
+        Math.round(s.x)+', '+Math.round(s.z)+')</option>').join('');
+    if(!nearbyBuilds.some(s=>s.id===snapAnchorId))snapAnchorId='';
+    snapTarget.value=snapAnchorId;
+    $('snap-side').value=snapSide;
+    $('snap-tools').hidden=Boolean(buildSelection&&!genesisIsModular(buildSelection));
+    $('snap-next').hidden=!Boolean(buildSelection&&snapAnchorId);
     $('build-items').innerHTML=Object.entries(game.buildings).map(([id,b])=>{
       const ready=!b.needs||game.structures.some(s=>s.kind===b.needs);
       return `<div class="option"><div class="row"><strong>${esc(b.label)}</strong>
@@ -96,7 +113,18 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       'Build a Supply Chest to store materials. Approach within 5 meters to use it.';
     $('craft-inventory').textContent=Object.entries(game.inventory)
       .filter(([,n])=>n>0).map(([k,n])=>clean(k)+' ×'+n).join(' · ')||'No materials yet.';
+    const closeStructures=game.structures.filter(s=>Math.hypot(
+      s.x-(player?.position.x??game.position.x),
+      s.z-(player?.position.z??game.position.z))<=6);
+    $('settlement-list').innerHTML=closeStructures.length?
+      closeStructures.map(piece=>'<div class="option"><span>'+
+        esc(game.buildings[piece.kind]?.label||piece.kind)+' · ('+
+        Math.round(piece.x)+', '+Math.round(piece.z)+')</span> '+
+        '<button type="button" data-dismantle="'+esc(piece.id)+'">Dismantle</button></div>').join(''):
+      '<small>Approach a structure to manage or dismantle it.</small>';
     $('echo-items').innerHTML=game.echoes.map(e=>{
+      const pet=game.tamedCreatures?.find(p=>p.id===e.id);
+      const activePet=game.creatureCompanion===e.id;
       const power=e.power;
       const cooldown=Number(game.resonance?.cooldowns?.[e.id]||0);
       return `<div class="option"><div class="row"><strong>${esc(e.name)}</strong><span class="pill">${e.bonded?'BONDED':e.discovered?'SCANNED':'WILD'}</span></div>
@@ -111,7 +139,20 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
        (cooldown>0?'Charging '+Math.ceil(cooldown/1000)+'s':'Activate '+esc(power.name))+'</button>':''}
       ${e.hybrid&&e.discovered&&e.trust<3?'<button type="button" data-feed="'+esc(e.id)+'" '+
         (game.inventory.resonance_bait>0&&Number(e.canFeedAt||0)<=Date.now()?'':'disabled')+
-        '>Feed Resonance Bait</button>':''}</div>`;
+        '>Feed Resonance Bait</button>':''}
+      ${e.hybrid&&e.discovered&&!pet?'<div class="cost">Tame: Trust 2/3 + resonance bait ×2 + rope ×1</div>'+
+        '<button type="button" data-tame="'+esc(e.id)+'" '+
+        (e.trust>=2&&game.inventory.resonance_bait>=2&&game.inventory.rope>=1?'':'disabled')+
+        '>Tame '+esc(e.name)+'</button>':''}
+      ${pet?'<div class="option"><strong>🐾 Tamed: '+esc(pet.name)+'</strong>'+
+        '<small>'+esc(activePet?pet.mode==='stay'?'Staying':'Following':'In stable')+'</small>'+
+        '<div class="pet-actions"><button type="button" data-pet-command="follow" data-pet-id="'+esc(e.id)+'">'+
+        (activePet?'Follow':'Summon / Follow')+'</button>'+
+        '<button type="button" data-pet-command="stay" data-pet-id="'+esc(e.id)+'" '+(!activePet?'disabled':'')+'>Stay</button>'+
+        '<button type="button" data-pet-command="dismiss" data-pet-id="'+esc(e.id)+'" '+(!activePet?'disabled':'')+'>Stable</button></div>'+
+        '<div class="pet-name-row"><input aria-label="Rename '+esc(e.name)+'" data-pet-name="'+esc(e.id)+
+        '" maxlength="24" value="'+esc(pet.name)+'" />'+
+        '<button type="button" data-pet-rename="'+esc(e.id)+'">Rename</button></div></div>':''}</div>`;
     }).join('')+'<button type="button" data-equip="core">Return to PRISM Core</button>';
     const equipped=game.echoes.find(e=>e.id===game.character.equipped);
     const ability=equipped?.power;
@@ -121,6 +162,11 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     if(ability){quick.textContent=cooldown>0?'⚡ Charging '+Math.ceil(cooldown/1000)+'s':'⚡ '+ability.name;quick.disabled=cooldown>0;}
     $('resonance-status').textContent=game.resonance?.active?
       'Active: '+game.resonance.active.name:'Bond a hybrid creature to unlock its PRISM power.';
+    const currentPet=game.tamedCreatures?.find(p=>p.id===game.creatureCompanion);
+    $('companion-status').textContent=currentPet?
+      '🐾 '+currentPet.name+' · '+(currentPet.mode==='stay'?'Staying':'Following')+
+      ' · '+game.tamedCreatures.length+' / 12 in stable':
+      'No active companion · '+(game.tamedCreatures?.length||0)+' / 12 tamed.';
     $('points').textContent=game.statPoints+' point'+(game.statPoints===1?'':'s');
     $('stat-items').innerHTML=Object.entries(game.stats).map(([key,val])=>`
       <div class="stat"><span>${esc(key)}</span><div class="bar"><div style="width:${Math.min(100,Number(val))}%"></div></div>
@@ -458,6 +504,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     game.echoes.filter(e=>Math.hypot(e.x-game.position.x,e.z-game.position.z)<140).forEach(drawEcho);
     game.structures.forEach(drawBuilding);
     makePlayer();makePrism();
+    syncCompanion();
     let preferred='balanced';
     try{preferred=localStorage.getItem('wisdo:genesis:graphics')||preferred;}catch{}
     applyGraphicsMode(preferred,{save:false});
@@ -505,6 +552,24 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     scene.clearColor=new BABYLON.Color4(0,0,0,0);
     scene.fogColor=new BABYLON.Color3(...sky.map(x=>x*(dark?.50:1)));
   }
+  function syncCompanion(){
+    const id=game?.creatureCompanion;
+    if(petInstance?.id===id)return;
+    if(petInstance){
+      petInstance.visual?.dispose();
+      petInstance.root.dispose(false,false);
+      petInstance=null;
+    }
+    if(!id||!scene||!player)return;
+    const echo=game.echoes.find(e=>e.id===id&&e.silhouette);
+    if(!echo)return;
+    const root=rootAt('tamed-companion:'+id,player.position.x+2,player.position.z-2);
+    const visual=buildGenesisHybrid(scene,root,echo,{
+      companion:true,mobile:matchMedia('(max-width:950px)').matches
+    });
+    if(visual)petInstance={id,root,visual};
+    else root.dispose(false,false);
+  }
   function syncScene(){
     const desired=new Set(game.resources.map(node=>node.id));
     for(const [id,mesh] of nodeMeshes)if(!desired.has(id)){
@@ -516,7 +581,12 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       if(!mesh){drawResource(node);mesh=nodeMeshes.get(node.id);}
       mesh.setEnabled(node.ready);
     }
+    const builtIds=new Set(game.structures.map(s=>s.id));
+    for(const [id,mesh] of structureMeshes)if(!builtIds.has(id)){
+      mesh.dispose(false,false);structureMeshes.delete(id);
+    }
     for(const s of game.structures)if(!structureMeshes.has(s.id))drawBuilding(s);
+    syncCompanion();
     if(prism)applyMorph();
     applyWeather();
   }
@@ -610,6 +680,27 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       }else{
         mesh.position.y=terrainHeight(mesh.position.x,mesh.position.z)+Math.sin(now/540+id.length)*.12;
         mesh.rotation.y=Math.sin(now/2200+id.length)*.20;
+      }
+    }
+    if(petInstance){
+      const pet=game.tamedCreatures?.find(p=>p.id===petInstance.id);
+      const echo=game.echoes.find(e=>e.id===petInstance.id);
+      if(pet&&echo){
+        const f=cameraForward();
+        const point=pet.mode==='stay'&&pet.stayAt?pet.stayAt:
+          {x:player.position.x-f.z*2.6+f.x*1.1,
+            z:player.position.z+f.x*2.6+f.z*1.1};
+        const blend=Math.min(1,dt*(pet.mode==='stay'?5:3));
+        petInstance.root.position.x+=(point.x-petInstance.root.position.x)*blend;
+        petInstance.root.position.z+=(point.z-petInstance.root.position.z)*blend;
+        const pose=genesisWildlifePose({...echo,trust:3},Date.now(),
+          player.position,game.world?.weather);
+        petInstance.root.position.y=terrainHeight(petInstance.root.position.x,
+          petInstance.root.position.z)+pose.y;
+        petInstance.root.rotation.y=Math.atan2(
+          player.position.x-petInstance.root.position.x,
+          player.position.z-petInstance.root.position.z);
+        petInstance.visual.animate?.(pose);
       }
     }
     if(buildSelection)updateBuildPreview();
