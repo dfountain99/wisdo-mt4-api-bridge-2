@@ -184,6 +184,13 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
  body.field-open #look-pad{bottom:calc(34vh + 112px)}
  body.field-open #camera-actions{bottom:calc(34vh + 79px)}
 }
+#settlement-list button{margin:3px 5px 3px 0}
+#settlement-list .option{padding:8px}
+#snap-tools select{width:100%}
+#echo-items .pet-name-row{display:flex;align-items:center;gap:6px;margin:8px 0}
+#echo-items .pet-name-row input{flex:1;min-width:0}
+#echo-items .pet-actions{display:flex;gap:5px;flex-wrap:wrap;margin:6px 0}
+#echo-items .pet-actions button{font-size:11px}
 </style>
 </head>
 <body>
@@ -277,9 +284,29 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
         </div>
       </div>
     </div>
+    <div class="option" id="snap-tools"><strong>Modular Snap Building</strong>
+      <p>Snap foundations, walls, stairs, doors, fences and roofs to an existing modular piece.
+        Use the side selector to pick which edge to build from.</p>
+      <div class="selectrow"><label for="snap-target">Snap anchor</label>
+        <select id="snap-target"><option value="">Free placement</option></select></div>
+      <div class="selectrow"><label for="snap-side">Attach side</label>
+        <select id="snap-side"><option value="north">North</option>
+          <option value="east">East</option><option value="south">South</option>
+          <option value="west">West</option></select></div>
+      <small>Snap-grid spacing is 3 meters. Only your own modular pieces can be anchors.</small>
+    </div>
     <div id="build-items"></div>
+    <div class="option"><strong>Settlement Management</strong>
+      <p>Dismantle a nearby structure to reclaim half its materials. Empty storage chests first.</p>
+      <div id="settlement-list"></div>
+    </div>
   </div>
-  <div class="panel" id="panel-echoes"><h3>Wild Echoforms & Hybrid DNA</h3><p>Discover 18 new biome hybrids and the original Echoforms. Scan them, complete their resource bond, and morph PRISM into their shapes. Activated powers affect movement, gathering, mining, protection or scanning.</p><div class="option"><strong>PRISM Resonance</strong><small id="resonance-status">Bond a hybrid to unlock its power.</small></div><div id="echo-items"></div></div>
+  <div class="panel" id="panel-echoes"><h3>EchoDex · Taming & Hybrid DNA</h3>
+    <p>Scan wild hybrids, feed resonance bait to build trust, then tame them into your stable. Taming is separate from PRISM DNA bonding. Your active pet can Follow, Stay, or return to the stable.</p>
+    <div class="option"><strong>Active Companion</strong><small id="companion-status">No creature selected.</small></div>
+    <div class="option"><strong>PRISM Resonance</strong><small id="resonance-status">Bond a hybrid to unlock its power.</small></div>
+    <div id="echo-items"></div>
+  </div>
   <div class="panel" id="panel-prism">
     <h3>Customize your PRISM</h3>
     <div class="selectrow"><label for="prism-name">Character name</label><input id="prism-name" maxlength="24" value="PRISM"></div>
@@ -299,6 +326,7 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
   <button type="button" class="primary" id="interact">Gather / Scan</button>
   <button type="button" id="power-quick" hidden>⚡ PRISM Power</button>
   <button type="button" id="build-rotate" hidden>↻ Rotate</button>
+  <button type="button" id="snap-next" hidden>Snap Side</button>
   <button type="button" id="build-cancel" hidden>Cancel</button>
   <button type="button" id="build-shortcut">Build Hut</button>
 </div>
@@ -331,6 +359,6 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
 <div id="loading"><div class="card"><h1>WISDO GENESIS</h1><p id="load-status">Connecting to your saved world and preparing Genesis Forest…</p><button type="button" id="retry" hidden>Try again</button></div></div>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
-<script type="module" src="/js/genesisWorld.js?v=8"></script>
+<script type="module" src="/js/genesisWorld.js?v=9"></script>
 </body>
 </html>
