@@ -67,7 +67,7 @@ test('server ignores spoofed snap coordinates and validates proximity, collision
  assert.throws(()=>action(p,{action:'build',kind:'roof_panel',snapTo:anchor.id,snapSide:'west'},100,0,NOW+150),/closer/);
  assert.throws(()=>action(p,{action:'build',kind:'roof_panel',snapTo:anchor.id,snapSide:'vertical'},8,0,NOW+160),/cardinal/);
  const noMoney=stocked();noMoney.inventory.planks=0;
- action(noMoney,{action:'build',kind:'floor',x:8,z:0},5,0);
+ assert.throws(()=>action(noMoney,{action:'build',kind:'floor',x:8,z:0},5,0),/Not enough/);
 });
 
 test('dismantle salvages safely and does not delete distant or nonempty chests',()=>{
