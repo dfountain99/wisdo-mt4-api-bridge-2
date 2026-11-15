@@ -142,5 +142,5 @@ test('builder and cosmetic modules have safe nonbrowser fallback and correct wir
  assert.match(world,/action\(\{action:'feed',echoId:/);
  assert.match(html,/id="chest-controls"/);
  assert.match(html,/id="build-rotate"/);
- assert.match(html,/genesisWorld\.js\?v=7/);
+ assert.ok(Number(/genesisWorld\.js\?v=(\d+)/.exec(html)?.[1]||0)>=7);
 });
