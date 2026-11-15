@@ -9,6 +9,7 @@ import {
  terrainHeight,biomeColor,biomeAt,worldChunk,chunkKey,valueNoise,
 } from './genesisWorldMap.js';
 import {genesisGraphicsPreset} from './genesisGraphicsQuality.js';
+import {genesisCreateMicroBump} from './genesisMicroSurface.js';
 
 function tone(hex){return BABYLON.Color3.FromHexString(hex);}
 function rng(cx,cz,i,seed=0){
@@ -50,7 +51,20 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
  if(!scene||!globalThis.BABYLON)throw Error('Babylon scene required for Genesis terrain.');
  const active=new Map(), special=new Map(),materialCache=new Map();
  let artLibrary=null,photoSurfaces=null;
- const photoMaterials=new Map();
+ const photoMaterials=new Map(),microBumps=new Map();
+ function microBump(biomeId){
+   if(!microBumps.has(biomeId)){
+     const result=genesisCreateMicroBump(scene,biomeId);
+     if(result)microBumps.set(biomeId,result);
+   }
+   return microBumps.get(biomeId)||null;
+ }
+ function refreshPhotoBumps(){
+   for(const [id,m] of photoMaterials){
+     m.bumpTexture=graphics.mode==='cinematic'?microBump(id):null;
+     m.markAsDirty(BABYLON.Material.TextureDirtyFlag);
+   }
+ }
  const radius=2;
  let graphics=genesisGraphicsPreset('balanced',mobile);
  const terrainMat=new BABYLON.StandardMaterial('genesis-terrain-vertex-colors',scene);
@@ -95,6 +109,7 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
    m.specularColor=new BABYLON.Color3(.035,.04,.05);
    m.specularPower=18;
    m.backFaceCulling=false;
+   m.bumpTexture=graphics.mode==='cinematic'?microBump(biomeId):null;
    photoMaterials.set(biomeId,m);
    return m;
  }
@@ -378,6 +393,7 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
    const next=genesisGraphicsPreset(mode,mobile);
    if(graphics.mode===next.mode)return graphics;
    graphics=next;
+   refreshPhotoBumps();
    for(const root of active.values())root.dispose(false,false);
    active.clear();previousCell=null;
    return graphics;
@@ -422,6 +438,8 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
    active.clear();special.clear();
    for(const m of photoMaterials.values())m.dispose(false,false);
    photoMaterials.clear();
+   for(const texture of microBumps.values())texture.dispose();
+   microBumps.clear();
    terrainMat.dispose();groundTex.dispose();
    for(const m of materialCache.values())m.dispose(false,false);
    artLibrary?.dispose();photoSurfaces?.dispose();
