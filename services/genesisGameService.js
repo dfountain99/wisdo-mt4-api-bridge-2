@@ -336,7 +336,7 @@ export function applyGenesisAction(profile,body,position,now=Date.now()){
   const pet=profile.tamedCreatures?.[String(body.echoId||'')];
   if(!pet)throw fail('You do not own this creature.');
   const name=compact(body.name);
-  if(!/^[\\p{L}\\p{N} _-]{1,24}$/u.test(name))
+  if(!/^[\p{L}\p{N} _-]{1,24}$/u.test(name))
     throw fail('Creature name must be 1–24 letters, numbers, spaces, _ or -.');
   pet.name=name;
   message='Your companion is now named '+name+'.';
