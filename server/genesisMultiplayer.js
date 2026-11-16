@@ -21,7 +21,7 @@ export class GenesisMultiplayerPresence {
       if(now-p.seenAt>this.ttlMs)this.players.delete(id);
   }
 
-  join(userId,{speed,now=this.clock()}={}){
+  join(userId,{speed,now=this.clock(),islandId}={}){
     this.prune(now);
     const id=String(userId);
     let p=this.players.get(id);
@@ -29,10 +29,13 @@ export class GenesisMultiplayerPresence {
       if(this.players.size>=this.capacity)
         throw Object.assign(new Error('Genesis world has reached its '+this.capacity+'-player limit.'),{status:503});
       const initial=Number.isFinite(speed)&&speed>0?speed:5.3;
-      p={x:0,z:0,at:now,seenAt:now,speed:initial,
+      p={x:0,z:0,islandId:islandId||'legacy',at:now,seenAt:now,speed:initial,
         publicId:randomBytes(6).toString('hex'),
         credit:Math.max(1.7,initial*.6),creditAt:now};
       this.players.set(id,p);
+    }
+    if(islandId&&p.islandId!==islandId){
+      p.islandId=islandId;p.x=0;p.z=0;p.at=now;p.credit=0;p.creditAt=now;
     }
     if(Number.isFinite(speed)&&speed>0)p.speed=speed;
     p.seenAt=now;
@@ -55,8 +58,9 @@ export class GenesisMultiplayerPresence {
     return {ok:true,position:{x,z}};
   }
 
-  teleport(userId,{x,z},now=this.clock()){
+  teleport(userId,{x,z,islandId},now=this.clock()){
     const p=this.join(userId,{now});
+    if(islandId)p.islandId=islandId;
     p.x=x;p.z=z;p.at=now;p.credit=0;p.creditAt=now;
     return p;
   }
@@ -65,12 +69,12 @@ export class GenesisMultiplayerPresence {
     const me=this.join(userId,{now});
     const nearby=[];
     for(const [id,p] of this.players){
-      if(id===String(userId))continue;
+      if(id===String(userId)||p.islandId!==me.islandId)continue;
       const d=(p.x-me.x)**2+(p.z-me.z)**2;
       if(d<=this.radius**2)nearby.push({id:p.publicId,x:p.x,z:p.z,d});
     }
     nearby.sort((a,b)=>a.d-b.d);
-    return {ok:true,online:this.players.size,capacity:this.capacity,
+    return {ok:true,islandId:me.islandId,online:this.players.size,capacity:this.capacity,
       players:nearby.slice(0,this.maxVisible).map(({id,x,z})=>({id,x,z}))};
   }
 }
