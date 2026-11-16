@@ -37,6 +37,14 @@ function csrf(req,res,next){
 function boundPosition(entry,userId,islandId){
   return presence.join(userId,{speed:entry?.speed??moveSpeed(createGenesisProfile(userId)),islandId});
 }
+function islandSnapshot(profile,position,state,now=Date.now()){
+  const islandId=profile.currentIslandId;
+  const owner=Object.values(state?.genesisProfilesByUserId||{})
+    .find(p=>p?.homeIslandId===islandId);
+  return profileSnapshot(profile,position,now,{
+    visibleStructures:owner?.structures||profile.structures||[],
+  });
+}
 function cleanError(res,error){
   return res.status(Number(error?.status)||500).json({
     ok:false,error:error?.status?String(error.message):'Genesis world could not save your action.',
@@ -60,7 +68,7 @@ export function registerGenesisRoutes(app,{config={}}={}){
       }
       const position=boundPosition(presence.get(key),key,profile.currentIslandId);
       position.speed=moveSpeed(profile);
-      res.json(profileSnapshot(profile,{x:position.x,z:position.z}));
+      res.json(islandSnapshot(profile,{x:position.x,z:position.z},state));
     }catch(error){cleanError(res,error);}
   });
   // Public island identifiers only. Never return owners' account identifiers.
@@ -147,7 +155,7 @@ export function registerGenesisRoutes(app,{config={}}={}){
         const p=presence.get(key);
         p.speed=moveSpeed(profile);
         return res.json({ok:true,message:'Travelled to Island '+Number(targetId.slice(7))+'.',
-          snapshot:profileSnapshot(profile,{x:p.x,z:p.z})});
+          snapshot:islandSnapshot(profile,{x:p.x,z:p.z},state)});
       }
       const destination=findWaystone(String(req.body?.destination||''));
       if(!destination)return res.status(400).json({
@@ -158,7 +166,7 @@ export function registerGenesisRoutes(app,{config={}}={}){
       current.speed=moveSpeed(profile);
       presence.teleport(key,{x:destination.x,z:destination.z});
       return res.json({ok:true,message:'Arrived at '+destination.name+'.',
-        snapshot:profileSnapshot(profile,{x:current.x,z:current.z})});
+        snapshot:islandSnapshot(profile,{x:current.x,z:current.z},state)});
     }catch(error){cleanError(res,error);}
   });
 
@@ -170,7 +178,7 @@ export function registerGenesisRoutes(app,{config={}}={}){
     actionAt.set(key,now);
     const player=boundPosition(presence.get(key),key);
     try{
-      let outcome=null,profile=null;
+      let outcome=null,profile=null,viewState=null;
       await repository.updateState(state=>{
         profile=ensureGenesisProfile(state,key,now);
         ensureGenesisIsland(state,profile);
@@ -180,10 +188,11 @@ export function registerGenesisRoutes(app,{config={}}={}){
         if(player.islandId!==profile.currentIslandId)
           throw fail('Your island changed. Reload the world.',409);
         outcome=applyGenesisAction(profile,req.body||{},{x:player.x,z:player.z},now);
+        viewState=state;
         return state;
       },{durable:true});
       player.speed=moveSpeed(profile);
-      res.json({...outcome,snapshot:profileSnapshot(profile,{x:player.x,z:player.z},now)});
+      res.json({...outcome,snapshot:islandSnapshot(profile,{x:player.x,z:player.z},viewState,now)});
     }catch(error){cleanError(res,error);}
   });
 }
