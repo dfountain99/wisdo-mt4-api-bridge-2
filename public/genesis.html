@@ -200,7 +200,7 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
   <div class="links"><span class="pill">PRIVATE ADVENTURE</span><button type="button" id="map-open" class="primary" aria-label="Open the world map">🗺️ WORLD MAP</button><a href="/app/world">World</a><a href="/app/holomode">PRISM</a><a href="/app/dashboard">Dashboard</a></div>
 </header>
 <div class="hud" aria-label="World status">
-  <div class="card"><strong id="region">GENESIS FOREST</strong><div id="weather" class="small">Loading environmental conditions…</div><div class="reslist" id="resources"></div></div>
+  <div class="card"><strong id="region">GENESIS FOREST</strong><div id="weather" class="small">Loading environmental conditions…</div><div id="online-count" class="small" aria-live="polite">Connecting explorers…</div><div class="reslist" id="resources"></div></div>
   <div class="card" id="message" role="status" aria-live="polite">Connecting to your saved world…</div>
 </div>
 <aside class="side card" id="field-kit" aria-label="Genesis survival controls">
@@ -359,6 +359,6 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
 <div id="loading"><div class="card"><h1>WISDO GENESIS</h1><p id="load-status">Connecting to your saved world and preparing Genesis Forest…</p><button type="button" id="retry" hidden>Try again</button></div></div>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
-<script type="module" src="/js/genesisWorld.js?v=9"></script>
+<script type="module" src="/js/genesisWorld.js?v=9&amp;players=1"></script>
 </body>
 </html>
