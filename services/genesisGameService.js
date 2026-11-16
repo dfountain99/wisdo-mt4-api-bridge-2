@@ -314,7 +314,7 @@ export function applyGenesisAction(profile,body,position,now=Date.now()){
   message=echo.name+' tamed! Your companion will follow you.';
  }else if(action==='commandCreature'){
   const id=String(body.echoId||''),command=String(body.command||'');
-  const pet=profile.tamedCreatures?.[id];
+  const pet=Object.hasOwn(profile.tamedCreatures||{},id)?profile.tamedCreatures[id]:null;
   if(!pet)throw fail('You do not own this creature.');
   if(!['follow','stay','dismiss'].includes(command))
     throw fail('Use Follow, Stay, or Dismiss.');
@@ -333,7 +333,8 @@ export function applyGenesisAction(profile,body,position,now=Date.now()){
     message=pet.name+' returned to your stable.';
   }
  }else if(action==='nameCreature'){
-  const pet=profile.tamedCreatures?.[String(body.echoId||'')];
+  const id=String(body.echoId||'');
+  const pet=Object.hasOwn(profile.tamedCreatures||{},id)?profile.tamedCreatures[id]:null;
   if(!pet)throw fail('You do not own this creature.');
   const name=compact(body.name);
   if(!/^[\p{L}\p{N} _-]{1,24}$/u.test(name))
