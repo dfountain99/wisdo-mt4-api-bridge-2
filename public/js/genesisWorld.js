@@ -957,13 +957,33 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       top:((WORLD_LIMIT-z)/(WORLD_LIMIT*2)*100).toFixed(2)+'%',
     };
   }
+  async function refreshIslandDirectory(){
+    const list=$('island-list'),status=$('island-status');
+    if(!list||!status||!player)return;
+    try{
+      const result=await api('/api/genesis/islands');
+      const atPortal=Boolean(nearestWaystone(player.position,13));
+      status.textContent=atPortal?
+        'Choose another island. Your own home always stays yours.':
+        'Stand beside a Waystone to travel to another island.';
+      list.innerHTML=(result.islands||[]).slice(0,200).map(island=>{
+        const current=island.id===result.currentIslandId;
+        const home=island.id===result.homeIslandId;
+        return '<button type="button" data-island="'+esc(island.id)+'" '+
+          (!current&&atPortal?'':'disabled')+'><strong>'+esc(island.name)+'</strong>'+
+          '<span>'+(home?'YOUR HOME · ':'')+(current?'CURRENT':atPortal?'VISIT':'WAYSTONE REQUIRED')+
+          '</span></button>';
+      }).join('')||'<small>No other islands have been created yet.</small>';
+    }catch(error){status.textContent='Island list unavailable: '+error.message;}
+  }
   function updateMap(){
     if(!game||!player)return;
+    if($('current-island'))$('current-island').textContent=game.island?.name||'GENESIS ISLAND';
     const stones=game.map?.waystones||WAYSTONES;
     const pos={x:player.position.x,z:player.position.z};
     const css=mapPercent(pos.x,pos.z);
     $('map-you').style.left=css.left;$('map-you').style.top=css.top;
-    $('coords').textContent='Your position: '+Math.round(pos.x)+', '+Math.round(pos.z)+
+    $('coords').textContent=(game.island?.name||'Genesis')+' · Your position: '+Math.round(pos.x)+', '+Math.round(pos.z)+
       ' · '+(biomeAt(pos.x,pos.z).name);
     const nearest=nearestWaystone(pos,13);
     $('waystone-status').textContent=nearest?
@@ -981,14 +1001,21 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     pending=true;
     try{
       await sendPosition();
-      const result=await api('/api/genesis/travel',{destination});
+      const body=typeof destination==='string'?{destination}:{islandId:destination.islandId};
+      const previousIsland=game.island?.id;
+      const result=await api('/api/genesis/travel',body);
       game=result.snapshot;
+      if(previousIsland!==game.island?.id){
+        for(const remote of remotePlayers.values())remote.root.dispose(false,false);
+        remotePlayers.clear();
+      }
       player.position.x=game.position.x;player.position.z=game.position.z;
       player.position.y=terrainHeight(player.position.x,player.position.z);
       prism.position.x=player.position.x-2;prism.position.z=player.position.z-2;
       terrainSystem.update(player.position.x,player.position.z,{force:true});
       rebuildPanels();syncScene();updateMap();
       $('world-map-dialog').close();
+      refreshIslandDirectory().catch(()=>{});
       announce(result.message);
     }catch(error){announce(error.message,true);}
     finally{pending=false;}
@@ -1053,12 +1080,16 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       toggle.textContent=collapsed?'Open Field Kit ▲':'Hide Field Kit ▼';
       toggle.setAttribute('aria-expanded',String(!collapsed));
     });
-    $('map-open').addEventListener('click',()=>{updateMap();$('world-map-dialog').showModal();});
+    $('map-open').addEventListener('click',()=>{updateMap();$('world-map-dialog').showModal();refreshIslandDirectory().catch(()=>{});});
     $('map-close').addEventListener('click',()=>$('world-map-dialog').close());
     $('map-done').addEventListener('click',()=>$('world-map-dialog').close());
     $('waystone-list').addEventListener('click',event=>{
       const button=event.target.closest('[data-travel]');
       if(button&&!button.disabled)travel(button.dataset.travel);
+    });
+    $('island-list').addEventListener('click',event=>{
+      const button=event.target.closest('[data-island]');
+      if(button&&!button.disabled)travel({islandId:button.dataset.island});
     });
     document.querySelectorAll('[data-tab]').forEach(button=>button.addEventListener('click',()=>{
       document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===button));
