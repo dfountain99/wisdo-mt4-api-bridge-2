@@ -143,7 +143,7 @@ export function worldWeather(now=Date.now()){
  const weather=['Clear','Light Rain','Clear','Crystal Storm'][Math.floor(quarter/2)%4];
  return {timeOfDay:stages[quarter%4],weather,event:weather==='Crystal Storm'?'Crystal Surge':'No regional event',season:'Genesis Cycle'};
 }
-export function profileSnapshot(profile,position={x:0,z:0},now=Date.now()){
+export function profileSnapshot(profile,position={x:0,z:0},now=Date.now(),{visibleStructures}={}){
  return {
   ok:true,version:GENESIS_VERSION,realm:profile.homeIslandId?'archipelago':'private',position,
   island:{id:profile.currentIslandId||null,homeId:profile.homeIslandId||null,
@@ -161,7 +161,10 @@ export function profileSnapshot(profile,position={x:0,z:0},now=Date.now()){
     cooldowns:Object.fromEntries(GENESIS_HYBRIDS.map(c=>[c.id,Math.max(0,(profile.resonanceCooldowns?.[c.id]||0)-now)])),
   },
   character:profile.character,inventory:{...DEFAULT_INVENTORY,...profile.inventory},statPoints:profile.statPoints,xp:profile.xp,
-  structures:profile.homeIslandId&&profile.homeIslandId!==profile.currentIslandId?[]:profile.structures,
+  structures:Array.isArray(visibleStructures)?
+    visibleStructures.map(s=>({id:s.id,kind:s.kind,x:s.x,z:s.z,
+      rotation:s.rotation||0,snappedTo:s.snappedTo,snapSide:s.snapSide})):
+    profile.homeIslandId&&profile.homeIslandId!==profile.currentIslandId?[]:profile.structures,
   storage:profile.homeIslandId&&profile.homeIslandId!==profile.currentIslandId?{}:profile.storage||{},
   tamedCreatures:Object.values(profile.tamedCreatures||{}).map(pet=>{
     const species=hybridById(pet.id);
