@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import {GenesisMultiplayerPresence} from './genesisMultiplayer.js';
 import { nearestWaystone,findWaystone } from '../public/js/genesisWorldMap.js';
 import { getSessionUser } from './security.js';
 import { createWisdoPhase1Repository } from '../services/repositories/wisdoPhase1Repository.js';
@@ -8,8 +9,7 @@ import {
 } from '../services/genesisGameService.js';
 
 const PAGE = fileURLToPath(new URL('../public/genesis.html',import.meta.url));
-const freshPosition = ()=>({x:0,z:0,at:Date.now()});
-const presence = new Map();
+const presence = new GenesisMultiplayerPresence({capacity:100,maxVisible:24});
 const actionAt = new Map();
 const auth = (req,res,next)=>{
   const user=getSessionUser(req);
@@ -34,12 +34,7 @@ function csrf(req,res,next){
   }catch{return res.status(403).json({ok:false,error:'Invalid request origin.'});}
 }
 function boundPosition(entry,userId){
-  if(!entry){
-    entry={...freshPosition(),speed:moveSpeed(createGenesisProfile(userId))};
-    if(presence.size>2000)presence.clear();
-    presence.set(userId,entry);
-  }
-  return entry;
+  return presence.join(userId,{speed:entry?.speed??moveSpeed(createGenesisProfile(userId))});
 }
 function cleanError(res,error){
   return res.status(Number(error?.status)||500).json({
@@ -59,22 +54,24 @@ export function registerGenesisRoutes(app,{config={}}={}){
       res.json(profileSnapshot(profile,{x:position.x,z:position.z}));
     }catch(error){cleanError(res,error);}
   });
+  // Authenticated nearby player snapshots contain only rotating public IDs.
+  app.get('/api/genesis/players',auth,(req,res)=>{
+    try{res.json(presence.nearby(String(req.genesisUser.id)));}
+    catch(error){cleanError(res,error);}
+  });
   app.post('/api/genesis/move',auth,csrf,(req,res)=>{
-    const key=String(req.genesisUser.id);
-    const x=req.body?.x,z=req.body?.z;
-    if(typeof x!=='number'||typeof z!=='number'||!Number.isFinite(x)||!Number.isFinite(z)||
-      Math.abs(x)>WORLD_LIMIT||Math.abs(z)>WORLD_LIMIT)
-      return res.status(400).json({ok:false,error:'Move within the current Genesis region.'});
-    const now=Date.now();
-    const current=boundPosition(presence.get(key),key);
-    const elapsed=Math.min(3000,Math.max(0,now-current.at))/1000;
-    const maxTravel=Math.max(1.7,Math.min(18,(current.speed||5.3)*elapsed+1.6));
-    const actual=Math.hypot(x-current.x,z-current.z);
-    if(actual>maxTravel) return res.status(409).json({
-      ok:false,error:'PRISM recalibrated your position.',position:{x:current.x,z:current.z},
-    });
-    current.x=x;current.z=z;current.at=now;
-    res.json({ok:true,position:{x,z}});
+    try{
+      const key=String(req.genesisUser.id),x=req.body?.x,z=req.body?.z;
+      if(typeof x!=='number'||typeof z!=='number'||!Number.isFinite(x)||!Number.isFinite(z)||
+        Math.abs(x)>WORLD_LIMIT||Math.abs(z)>WORLD_LIMIT)
+        return res.status(400).json({ok:false,error:'Move within the current Genesis region.'});
+      const current=boundPosition(presence.get(key),key);
+      const moved=presence.move(key,{x,z});
+      if(!moved.ok)return res.status(409).json({
+        ok:false,error:'PRISM recalibrated your position.',position:{x:current.x,z:current.z},
+      });
+      res.json(moved);
+    }catch(error){cleanError(res,error);}
   });
   // Fast travel is allowed only while standing at an established waystone.
   // Never accept arbitrary destination coordinates from the browser.
@@ -88,8 +85,8 @@ export function registerGenesisRoutes(app,{config={}}={}){
       if(!destination)return res.status(400).json({ok:false,error:'Unknown Waystone destination.'});
       const state=await repository.loadState();
       const profile=state.genesisProfilesByUserId?.[key]||createGenesisProfile(key);
-      current.x=destination.x;current.z=destination.z;current.at=Date.now();
       current.speed=moveSpeed(profile);
+      presence.teleport(key,{x:destination.x,z:destination.z});
       return res.json({
         ok:true,message:'Arrived at '+destination.name+'.',
         snapshot:profileSnapshot(profile,{x:current.x,z:current.z}),
