@@ -9,6 +9,7 @@ import {
 import {
  genesisResolvePlacement,genesisBuildOverlap,GENESIS_MODULAR_PARTS,
 } from '../public/js/genesisConstruction.js';
+import {genesisIslandName} from '../server/genesisIslands.js';
 // WISDO Genesis v2: server-authoritative open world with six explorable biomes.
 // The renderer never awards resources, owns inventory, or approves structures.
 export const GENESIS_VERSION = 'genesis-open-world-v2';
@@ -144,7 +145,10 @@ export function worldWeather(now=Date.now()){
 }
 export function profileSnapshot(profile,position={x:0,z:0},now=Date.now()){
  return {
-  ok:true,version:GENESIS_VERSION,realm:'private',position,
+  ok:true,version:GENESIS_VERSION,realm:profile.homeIslandId?'archipelago':'private',position,
+  island:{id:profile.currentIslandId||null,homeId:profile.homeIslandId||null,
+    name:genesisIslandName(profile.currentIslandId),
+    isHome:Boolean(profile.homeIslandId&&profile.homeIslandId===profile.currentIslandId)},
   map:{widthMeters:WORLD_LIMIT*2,lengthMeters:WORLD_LIMIT*2,chunkSize:CHUNK_SIZE,
     biome:biomeAt(position.x,position.z).id,biomeName:biomeAt(position.x,position.z).name,
     waystones:WAYSTONES,landmarks:LANDMARKS},
@@ -157,7 +161,8 @@ export function profileSnapshot(profile,position={x:0,z:0},now=Date.now()){
     cooldowns:Object.fromEntries(GENESIS_HYBRIDS.map(c=>[c.id,Math.max(0,(profile.resonanceCooldowns?.[c.id]||0)-now)])),
   },
   character:profile.character,inventory:{...DEFAULT_INVENTORY,...profile.inventory},statPoints:profile.statPoints,xp:profile.xp,
-  structures:profile.structures,storage:profile.storage||{},
+  structures:profile.homeIslandId&&profile.homeIslandId!==profile.currentIslandId?[]:profile.structures,
+  storage:profile.homeIslandId&&profile.homeIslandId!==profile.currentIslandId?{}:profile.storage||{},
   tamedCreatures:Object.values(profile.tamedCreatures||{}).map(pet=>{
     const species=hybridById(pet.id);
     return species?{...pet,name:pet.name||species.name,baseName:species.name,
