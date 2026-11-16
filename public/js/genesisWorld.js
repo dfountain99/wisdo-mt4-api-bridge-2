@@ -24,6 +24,9 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   const clean=(s)=>String(s||'').replace(/_/g,' ');
   let game=null,scene=null,engine=null,camera=null,player=null,prism=null,lighting=null,sunLight=null,terrainSystem=null,shadowGenerator=null;
   let loadedArt=null;
+  // Low-poly remote avatars use a separate render budget from wildlife.
+  const remotePlayers=new Map();
+  let nearbyPromise=null,lastNearbyAt=0;
   let buildSelection=null,buildRotation=0,buildGhost=null,buildGhostMaterial=null;
   let snapAnchorId='',snapSide='north',petInstance=null;
   let graphicsMode='balanced',lastFpsDisplay=0;
@@ -309,6 +312,32 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     block(player,'visor',[.62,.2,.12],mats.eye,0,2.47,.36);
     for(const x of [-.59,.59])block(player,'arm',[.24,1.05,.32],mats.armor,x,1.34,0);
     for(const x of [-.23,.23])block(player,'leg',[.32,.78,.4],mats.dark,x,.40,0);
+  }
+  function drawRemoteExplorer(other){
+    const root=rootAt('remote-explorer:'+other.id,other.x,other.z);
+    block(root,'remote-torso',[.85,1.3,.48],mats.armor,0,1.36,0);
+    ball(root,'remote-head',[.72,.76,.7],mats.skin,0,2.41,0);
+    block(root,'remote-visor',[.62,.2,.12],mats.eye,0,2.47,.36);
+    for(const x of [-.59,.59])block(root,'remote-arm',[.24,1.05,.32],mats.armor,x,1.34,0);
+    for(const x of [-.23,.23])block(root,'remote-leg',[.32,.78,.4],mats.dark,x,.40,0);
+    return {root,x:other.x,z:other.z};
+  }
+  function syncNearbyPlayers(snapshot){
+    if(!Array.isArray(snapshot?.players))return;
+    const visible=new Set();
+    for(const other of snapshot.players.slice(0,24)){
+      const id=String(other.id||'');
+      if(!/^[0-9a-f]{12}$/.test(id)||!Number.isFinite(other.x)||!Number.isFinite(other.z))continue;
+      visible.add(id);
+      let remote=remotePlayers.get(id);
+      if(!remote){remote=drawRemoteExplorer({...other,id});remotePlayers.set(id,remote);}
+      remote.x=other.x;remote.z=other.z;
+    }
+    for(const [id,remote] of remotePlayers){
+      if(!visible.has(id)){remote.root.dispose(false,false);remotePlayers.delete(id);}
+    }
+    if($('online-count'))$('online-count').textContent=
+      Number(snapshot.online||0)+' / '+Number(snapshot.capacity||100)+' explorers online';
   }
   function upgradePlayerAvatar(assets){
     if(!player||!assets.has('explorer')||playerAnimation)return false;
@@ -656,6 +685,13 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       if(now-lastMoveAt>880)sendPosition().catch(()=>{});
     }
     player.position.y=terrainHeight(player.position.x,player.position.z);
+    for(const remote of remotePlayers.values()){
+      const dx=remote.x-remote.root.position.x,dz=remote.z-remote.root.position.z;
+      const blend=Math.min(1,dt*4);
+      remote.root.position.x+=dx*blend;remote.root.position.z+=dz*blend;
+      remote.root.position.y=terrainHeight(remote.root.position.x,remote.root.position.z);
+      if(Math.hypot(dx,dz)>.02)remote.root.rotation.y=Math.atan2(dx,dz);
+    }
     camera.target.set(player.position.x,player.position.y+1.9,player.position.z);
     // Only regenerate when crossing an 80m terrain-chunk boundary.
     if(terrainSystem?.update(player.position.x,player.position.z)){
@@ -719,6 +755,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       showNearest();if($('world-map-dialog')?.open)updateMap();lastHintAt=now;
     }
     if(now-lastRefreshAt>17000){lastRefreshAt=now;refreshWorld().catch(()=>{});}
+    if(now-lastNearbyAt>2800){lastNearbyAt=now;refreshNearbyPlayers().catch(()=>{});}
     if(now-lastFpsDisplay>1200){
       $('graphics-fps').textContent=Math.max(0,Math.round(engine.getFps()))+' FPS';
       lastFpsDisplay=now;
@@ -891,6 +928,15 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       ...(point.snapped?{snapTo:snapAnchorId,snapSide}:{})});
     if(ok){clearBuildPreview();rebuildPanels();}
     return ok;
+  }
+  async function refreshNearbyPlayers(){
+    if(!ready||nearbyPromise)return nearbyPromise;
+    nearbyPromise=(async()=>{
+      try{syncNearbyPlayers(await api('/api/genesis/players'));}
+      catch{/* Multiplayer fetch failures must not interrupt solo exploration. */}
+      finally{nearbyPromise=null;}
+    })();
+    return nearbyPromise;
   }
   async function refreshWorld(){
     if(pending||!ready||refreshPromise)return refreshPromise;
