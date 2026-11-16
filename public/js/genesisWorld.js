@@ -81,8 +81,9 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
         <div class="cost">Materials: ${costText(r.requires)}</div>
         <small>Creates: ${costText(r.grants)}${r.needs?' · Station: '+esc(r.needs):''}</small></div>`;
     }).join('');
-    const nearbyBuilds=genesisNearbySnapTargets(game.structures,
-      player?.position||game.position,12);
+    const ownsIsland=game.island?.isHome!==false;
+    const nearbyBuilds=ownsIsland?genesisNearbySnapTargets(game.structures,
+      player?.position||game.position,12):[];
     const snapTarget=$('snap-target');
     snapTarget.innerHTML='<option value="">Free placement</option>'+
       nearbyBuilds.map(s=>'<option value="'+esc(s.id)+'">'+
@@ -94,7 +95,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     $('snap-tools').hidden=Boolean(buildSelection&&!genesisIsModular(buildSelection));
     $('snap-next').hidden=!Boolean(buildSelection&&snapAnchorId);
     $('build-items').innerHTML=Object.entries(game.buildings).map(([id,b])=>{
-      const ready=!b.needs||game.structures.some(s=>s.kind===b.needs);
+      const ready=ownsIsland&&(!b.needs||game.structures.some(s=>s.kind===b.needs));
       return `<div class="option"><div class="row"><strong>${esc(b.label)}</strong>
         <button type="button" data-build="${esc(id)}" ${hasCost(b.cost)&&ready?'':'disabled'}>
         ${buildSelection===id?'Selected':'Preview'}</button></div>
@@ -102,7 +103,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
         <small>Footprint: ${Number(b.width)}m · ${Number(b.height)}m tall
           ${b.needs?' · Needs '+esc(b.needs):''}</small></div>`;
     }).join('');
-    const chests=game.structures.filter(s=>s.kind==='storage_chest');
+    const chests=ownsIsland?game.structures.filter(s=>s.kind==='storage_chest'):[];
     const chestSelect=$('chest-select'),lastChest=chestSelect.value;
     chestSelect.innerHTML=chests.map(s=>
       '<option value="'+esc(s.id)+'">Supply Chest · '+Math.round(s.x)+', '+Math.round(s.z)+'</option>').join('');
@@ -116,7 +117,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       'Build a Supply Chest to store materials. Approach within 5 meters to use it.';
     $('craft-inventory').textContent=Object.entries(game.inventory)
       .filter(([,n])=>n>0).map(([k,n])=>clean(k)+' ×'+n).join(' · ')||'No materials yet.';
-    const closeStructures=game.structures.filter(s=>Math.hypot(
+    const closeStructures=game.structures.filter(s=>ownsIsland&&Math.hypot(
       s.x-(player?.position.x??game.position.x),
       s.z-(player?.position.z??game.position.z))<=6);
     $('settlement-list').innerHTML=closeStructures.length?
@@ -124,7 +125,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
         esc(game.buildings[piece.kind]?.label||piece.kind)+' · ('+
         Math.round(piece.x)+', '+Math.round(piece.z)+')</span> '+
         '<button type="button" data-dismantle="'+esc(piece.id)+'">Dismantle</button></div>').join(''):
-      '<small>Approach a structure to manage or dismantle it.</small>';
+      '<small>'+(ownsIsland?'Approach a structure to manage or dismantle it.':'You can explore this settlement, but only the island owner can edit it.')+'</small>';
     $('echo-items').innerHTML=game.echoes.map(e=>{
       const pet=game.tamedCreatures?.find(p=>p.id===e.id);
       const activePet=game.creatureCompanion===e.id;
