@@ -38,7 +38,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   let inputSettings=genesisInputSettings(),lastPad={interact:false,build:false,cancel:false,power:false};
   let lookPointer=null;
   let lookAt=null,stayAnchor=null;
-  const panelNames=['journey','craft','build','echoes','prism'];
+  const panelNames=['journey','craft','evolution','build','echoes','prism'];
   const iconFor=(k)=>({
     wood:'🌲',stone:'🪨',iron:'⛏',crystal:'💎',circuit:'🔋',obsidian:'🖤',
     aether_shard:'✨',moonleaf:'🌿',planks:'🪵',pickaxe:'⚒',energy_core:'⚡',
@@ -81,6 +81,30 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
         <div class="cost">Materials: ${costText(r.requires)}</div>
         <small>Creates: ${costText(r.grants)}${r.needs?' · Station: '+esc(r.needs):''}</small></div>`;
     }).join('');
+    const evolution=game.evolution;
+    if(evolution&&$('evolution-items')){
+      const credits=Number(evolution.researchPoints||0);
+      $('evolution-points').textContent=credits+' point'+(credits===1?'':'s');
+      $('evolution-items').innerHTML=(evolution.tracks||[]).map(track=>{
+        const level=Number(track.level||0);
+        const next=Number(track.nextCost||0);
+        const tenCost=Array.from({length:10},(_,i)=>Math.ceil((level+i+1)/10))
+          .reduce((sum,n)=>sum+n,0);
+        const capped=level>=100;
+        const canTen=level+10<=100&&credits>=tenCost;
+        return `<div class="option"><div class="row"><strong>${esc(track.label)}</strong>
+          <span class="pill">Tier ${level}/100</span></div>
+          <small>${esc(track.detail)}</small>
+          <div class="cost">Current modifier: ${Number(track.bonusPercent||0).toFixed(2)}%
+            ${track.id==='architecture'?' · Settlement capacity '+Number(evolution.settlementLimit||160):''}</div>
+          <div class="row" style="display:flex;flex-wrap:wrap;gap:6px">
+            <button type="button" data-evolve="${esc(track.id)}" data-steps="1"
+              ${capped||credits<next?'disabled':''}>Upgrade +1 · ${capped?'MAX':next+' pts'}</button>
+            <button type="button" data-evolve="${esc(track.id)}" data-steps="10"
+              ${canTen?'':'disabled'}>Upgrade +10 · ${level+10>100?'MAX':tenCost+' pts'}</button>
+          </div></div>`;
+      }).join('');
+    }
     const ownsIsland=game.island?.isHome!==false;
     const nearbyBuilds=ownsIsland?genesisNearbySnapTargets(game.structures,
       player?.position||game.position,12):[];
@@ -1096,6 +1120,10 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===button));
       for(const name of panelNames)$('panel-'+name).classList.toggle('active',name===button.dataset.tab);
     }));
+    $('evolution-items').addEventListener('click',event=>{
+      const button=event.target.closest('[data-evolve]');
+      if(button&&!button.disabled)action({action:'evolve',track:button.dataset.evolve,steps:Number(button.dataset.steps)});
+    });
     $('craft-items').addEventListener('click',event=>{
       const btn=event.target.closest('[data-craft]');if(btn)action({action:'craft',recipe:btn.dataset.craft});
     });
