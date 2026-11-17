@@ -40,7 +40,8 @@
     "audit:stubs": "node scripts/auditStubs.js",
     "test:command-bus": "node --test tests/commandBusContract.test.js",
     "test:adaptive": "node --test tests/adaptiveFabricContract.test.js",
-    "audit:secrets": "node scripts/auditSecrets.js"
+    "audit:secrets": "node scripts/auditSecrets.js",
+    "diagnose:loopback": "node scripts/diagnoseLoopback.js"
   },
   "engines": {
     "node": "22.x"
