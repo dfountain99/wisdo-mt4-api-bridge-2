@@ -29,7 +29,8 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   let nearbyPromise=null,lastNearbyAt=0;
   let buildSelection=null,buildRotation=0,buildGhost=null,buildGhostMaterial=null;
   let snapAnchorId='',snapSide='north',petInstance=null;
-  let graphicsMode='balanced',lastFpsDisplay=0;
+  let graphicsMode='balanced',lastFpsDisplay=0,qualitySamples=0,lowFpsSamples=0,lastAutoQualityAt=0;
+  let autoQualityEnabled=true;
   let mats={},prismPieces={},nodeMeshes=new Map(),structureMeshes=new Map(),echoMeshes=new Map(),playerAnimation=null;
   const hybridEchoVisuals=new Map();
   let prismHybridVisual=null,prismHybridId='';
@@ -495,6 +496,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     const mobile=matchMedia('(max-width:950px)').matches;
     const preset=genesisGraphicsPreset(mode,mobile);
     graphicsMode=preset.mode;
+    qualitySamples=0;lowFpsSamples=0;
     engine.setHardwareScalingLevel(preset.scale);
     terrainSystem?.setQuality(preset.mode);
     terrainSystem?.update(player?.position.x??game.position.x,
@@ -785,7 +787,21 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     if(now-lastRefreshAt>17000){lastRefreshAt=now;refreshWorld().catch(()=>{});}
     if(now-lastNearbyAt>2800){lastNearbyAt=now;refreshNearbyPlayers().catch(()=>{});}
     if(now-lastFpsDisplay>1200){
-      $('graphics-fps').textContent=Math.max(0,Math.round(engine.getFps()))+' FPS';
+      const fps=Math.max(0,Math.round(engine.getFps()));
+      $('graphics-fps').textContent=fps+' FPS';
+      // Hysteresis: degrade only after sustained low FPS, never oscillate every frame.
+      if(autoQualityEnabled&&now>20000&&now-lastAutoQualityAt>45000){
+        qualitySamples++;
+        lowFpsSamples+=fps<24?1:0;
+        if(qualitySamples>=8){
+          if(lowFpsSamples>=6&&graphicsMode!=='performance'){
+            applyGraphicsMode(graphicsMode==='cinematic'?'balanced':'performance',{save:false});
+            lastAutoQualityAt=now;
+            announce('Graphics automatically optimized for smoother gameplay.');
+          }
+          qualitySamples=0;lowFpsSamples=0;
+        }
+      }
       lastFpsDisplay=now;
     }
     scene.render();
@@ -1099,6 +1115,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     look.addEventListener('pointercancel',endLook);
     look.addEventListener('lostpointercapture',endLook);
     $('graphics-quality').addEventListener('change',event=>{
+      autoQualityEnabled=false;
       const preset=applyGraphicsMode(event.target.value);
       announce('Graphics mode: '+preset.mode+'. Terrain quality refreshed.');
     });
