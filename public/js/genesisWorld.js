@@ -1,9 +1,9 @@
-import { createGenesisTerrain } from './genesisTerrain.js?v=8';
+import { createGenesisTerrain } from './genesisTerrain.js?v=11';
 import { loadGenesisArtLibrary } from './genesisArtLibrary.js?v=6';
 import { loadGenesisPhotoSurfaces,genesisSceneDisposed }
   from './genesisPhotoSurfaces.js?v=6';
 import { buildGenesisHybrid } from './genesisCreatureVisuals.js?v=7';
-import {genesisGraphicsPreset} from './genesisGraphicsQuality.js?v=5';
+import {genesisGraphicsPreset} from './genesisGraphicsQuality.js?v=11';
 import {drawGenesisStructure} from './genesisStructureVisuals.js?v=9';
 import {
  GENESIS_SNAP_SIDES,genesisIsModular,genesisResolvePlacement,
@@ -34,6 +34,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   const hybridEchoVisuals=new Map();
   let prismHybridVisual=null,prismHybridId='';
   let ready=false,pending=false,movePromise=null,refreshPromise=null,lastMoveAt=0,lastRefreshAt=0,lastHintAt=0,lastFrame=0,toastTimeout=0;
+  let lastConfirmedPosition=null, movementWarnings=0;
   const held=new Set(),joystick={x:0,y:0,active:false};
   let inputSettings=genesisInputSettings(),lastPad={interact:false,build:false,cancel:false,power:false};
   let lookPointer=null;
@@ -540,7 +541,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     sunLight.diffuse=new BABYLON.Color3(1,.92,.79);
     // Subtle cinematic grading that does not require heavy post-processing on phones.
     scene.imageProcessingConfiguration.exposure=1.07;
-    scene.imageProcessingConfiguration.contrast=1.12;
+    scene.imageProcessingConfiguration.contrast=1.08;
     material('soil','#315d4b');material('moss','#256c54');material('gravel','#5b5654');
     material('moon','#48416d');material('crystalGround','#294c61');
     material('wood','#7c543a');material('leaves','#1c8e70');material('leavesLight','#27aa80');
@@ -707,7 +708,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       player.position.x=Math.max(-WORLD_LIMIT+5,Math.min(WORLD_LIMIT-5,player.position.x+dx));
       player.position.z=Math.max(-WORLD_LIMIT+5,Math.min(WORLD_LIMIT-5,player.position.z+dz));
       player.rotation.y=Math.atan2(dx,dz);
-      if(now-lastMoveAt>880)sendPosition().catch(()=>{});
+      if(now-lastMoveAt>260)sendPosition().catch(()=>{});
     }
     player.position.y=terrainHeight(player.position.x,player.position.z);
     for(const remote of remotePlayers.values()){
@@ -793,11 +794,15 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     movePromise=(async()=>{
       try{
         const response=await api('/api/genesis/move',{x:Number(player.position.x.toFixed(3)),z:Number(player.position.z.toFixed(3))});
+        if(response.position&&Number.isFinite(response.position.x)&&Number.isFinite(response.position.z))lastConfirmedPosition={...response.position};
+        else lastConfirmedPosition={x:player.position.x,z:player.position.z};
+        movementWarnings=0;
         return response;
       }catch(error){
         if(error.position&&Number.isFinite(error.position.x)&&Number.isFinite(error.position.z)){
           player.position.x=error.position.x;player.position.z=error.position.z;
-          announce('Movement recalibrated; try walking closer.',true);
+          lastConfirmedPosition={...error.position};
+          if(++movementWarnings===1)announce('Movement synchronized with server.',true);
         }
         throw error;
       }finally{movePromise=null;}
@@ -1238,6 +1243,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     try{
       const result=await api('/api/genesis/state');
       game=result;
+      lastConfirmedPosition={...game.position};
       rebuildPanels();syncInputs();
       setupScene();
       setupUI();
