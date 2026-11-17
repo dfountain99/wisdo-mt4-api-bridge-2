@@ -3,7 +3,7 @@ import { loadGenesisArtLibrary } from './genesisArtLibrary.js?v=6';
 import { loadGenesisPhotoSurfaces,genesisSceneDisposed }
   from './genesisPhotoSurfaces.js?v=6';
 import { buildGenesisHybrid } from './genesisCreatureVisuals.js?v=7';
-import {genesisGraphicsPreset} from './genesisGraphicsQuality.js?v=11';
+import {genesisGraphicsPreset} from './genesisGraphicsQuality.js?v=12';
 import {drawGenesisStructure} from './genesisStructureVisuals.js?v=9';
 import {
  GENESIS_SNAP_SIDES,genesisIsModular,genesisResolvePlacement,
@@ -501,8 +501,9 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       player?.position.z??game.position.z,{force:true});
     if(preset.shadows&&!shadowGenerator&&sunLight){
       shadowGenerator=new BABYLON.ShadowGenerator(mobile?512:1024,sunLight);
-      shadowGenerator.useExponentialShadowMap=true;
-      shadowGenerator.setDarkness(.33);
+      shadowGenerator.useBlurExponentialShadowMap=true;
+      shadowGenerator.blurKernel=16;
+      shadowGenerator.setDarkness(.28);
     }else if(!preset.shadows&&shadowGenerator){
       shadowGenerator.dispose();shadowGenerator=null;
     }
@@ -542,6 +543,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     // Subtle cinematic grading that does not require heavy post-processing on phones.
     scene.imageProcessingConfiguration.exposure=1.07;
     scene.imageProcessingConfiguration.contrast=1.08;
+    scene.environmentIntensity=.7;
     material('soil','#315d4b');material('moss','#256c54');material('gravel','#5b5654');
     material('moon','#48416d');material('crystalGround','#294c61');
     material('wood','#7c543a');material('leaves','#1c8e70');material('leavesLight','#27aa80');
