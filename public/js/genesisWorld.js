@@ -1,5 +1,5 @@
 import { createGenesisTerrain } from './genesisTerrain.js?v=11';
-import { loadGenesisArtLibrary } from './genesisArtLibrary.js?v=6';
+import { loadGenesisArtLibrary } from './genesisArtLibrary.js?v=13';
 import { loadGenesisPhotoSurfaces,genesisSceneDisposed }
   from './genesisPhotoSurfaces.js?v=6';
 import { buildGenesisHybrid } from './genesisCreatureVisuals.js?v=7';
@@ -483,7 +483,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
         catch(error){console.warn('Genesis explorer animation unavailable:',error);}
         if(shadowGenerator)for(const mesh of player.getChildMeshes(false))
           if(mesh.getTotalVertices?.()>0&&!mesh.isDisposed())shadowGenerator.addShadowCaster(mesh);
-        announce('Textured trees and the 3D explorer are ready.');
+        announce(library.realityReady?'Reality-grade 3D assets loaded.':'Using stylized fallback models until licensed reality assets are installed.');
         if(library.failures.length)console.warn('Some Genesis GLB assets failed:',library.failures);
       }else library.dispose();
     }).catch(error=>{
