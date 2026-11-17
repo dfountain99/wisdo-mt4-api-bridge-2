@@ -197,10 +197,10 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
 <canvas id="renderCanvas" aria-label="Interactive three-dimensional Genesis Forest world"></canvas>
 <header>
   <div><div class="brand">WISDO <span>GENESIS</span></div><div class="sub">LIVING WORLDS · OPEN WORLD EXPEDITION</div></div>
-  <div class="links"><span class="pill">PRIVATE ADVENTURE</span><button type="button" id="map-open" class="primary" aria-label="Open the world map">🗺️ WORLD MAP</button><a href="/app/world">World</a><a href="/app/holomode">PRISM</a><a href="/app/dashboard">Dashboard</a></div>
+  <div class="links"><span class="pill" id="current-island">HOME ISLAND</span><button type="button" id="map-open" class="primary" aria-label="Open the world map">🗺️ WORLD MAP</button><a href="/app/world">World</a><a href="/app/holomode">PRISM</a><a href="/app/dashboard">Dashboard</a></div>
 </header>
 <div class="hud" aria-label="World status">
-  <div class="card"><strong id="region">GENESIS FOREST</strong><div id="weather" class="small">Loading environmental conditions…</div><div class="reslist" id="resources"></div></div>
+  <div class="card"><strong id="region">GENESIS FOREST</strong><div id="weather" class="small">Loading environmental conditions…</div><div id="online-count" class="small" aria-live="polite">Connecting explorers…</div><div class="reslist" id="resources"></div></div>
   <div class="card" id="message" role="status" aria-live="polite">Connecting to your saved world…</div>
 </div>
 <aside class="side card" id="field-kit" aria-label="Genesis survival controls">
@@ -214,7 +214,7 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
   </div>
   <div class="panel active" id="panel-journey">
     <h3>3.2km Living World Expedition</h3>
-    <p>Explore six connected biomes—Genesis Forest, Neon Metropolis, Titan Wastes, Aether Skies, Crystal Grotto and Sunken Marsh. Follow distant landmarks, find new Echoforms, harvest rare minerals and build wherever the private world allows.</p>
+    <p>Explore six biomes on your permanent home island—Genesis Forest, Neon Metropolis, Titan Wastes, Aether Skies, Crystal Grotto and Sunken Marsh. Follow distant landmarks, find new Echoforms, harvest rare minerals and build on your home island, then visit other explorers through Waystones.</p>
     <p>Terrain and scenery stream as you travel, so the world extends far beyond the current view. Gather starter resources, build a hut, or follow a Waystone portal to another region. Your inventory, structures, and PRISM morphs remain saved.</p>
     <div class="option"><strong>Keys / mobile</strong><small>WASD or arrow keys to move · drag to rotate camera · E to gather or scan · joystick and action buttons on touch devices.</small></div>
     <div class="option" id="touch-settings"><strong>Camera & Controls</strong>
@@ -352,13 +352,13 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
       <div class="map-label" style="left:50%;top:51%">GENESIS FOREST</div>
       <span id="map-you" class="map-you" title="Your position">◆</span>
     </div>
-    <div class="map-list"><h3>Waystone Network</h3><p id="waystone-status" class="small">Approach any glowing stone arch to travel.</p><div id="waystone-list"></div></div>
+    <div class="map-list"><h3>Waystone Network</h3><p id="waystone-status" class="small">Approach any glowing stone arch to travel.</p><div id="waystone-list"></div><h3>Other Islands</h3><p id="island-status" class="small">Loading available islands…</p><div id="island-list"></div></div>
   </div>
   <div class="map-footer"><span id="coords" class="small">Coordinates: 0, 0</span><button type="button" id="map-done">Return to world</button></div>
 </dialog>
 <div id="loading"><div class="card"><h1>WISDO GENESIS</h1><p id="load-status">Connecting to your saved world and preparing Genesis Forest…</p><button type="button" id="retry" hidden>Try again</button></div></div>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
-<script type="module" src="/js/genesisWorld.js?v=9"></script>
+<script type="module" src="/js/genesisWorld.js?v=9&amp;players=1&amp;islands=1"></script>
 </body>
 </html>

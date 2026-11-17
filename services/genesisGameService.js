@@ -9,6 +9,8 @@ import {
 import {
  genesisResolvePlacement,genesisBuildOverlap,GENESIS_MODULAR_PARTS,
 } from '../public/js/genesisConstruction.js';
+import {genesisIslandName} from '../server/genesisIslands.js';
+import {genesisStarterWreck,genesisWreckWithinReach} from '../public/js/genesisWrecks.js';
 // WISDO Genesis v2: server-authoritative open world with six explorable biomes.
 // The renderer never awards resources, owns inventory, or approves structures.
 export const GENESIS_VERSION = 'genesis-open-world-v2';
@@ -51,6 +53,7 @@ export const RECIPES = Object.freeze({
   resonance_bait:{label:'Blend Creature Resonance Bait',requires:{moonleaf:2,crystal:1},grants:{resonance_bait:2},needs:'workbench'},
   stone_axe:{label:'Stone Felling Axe',requires:{wood:2,stone:3,rope:1},grants:{stone_axe:1},needs:'workbench'},
   reinforced_pickaxe:{label:'Reinforced Mining Pickaxe',requires:{iron_ingot:2,planks:2,nails:2},grants:{reinforced_pickaxe:1},needs:'workbench'},
+  engine_parts:{label:'Rebuild Engine Components',requires:{scrap_metal:2,iron:2},grants:{engine_parts:1},needs:'workbench'},
 });
 export const BUILDINGS = Object.freeze({
   hut:{label:'Starter Hut',cost:{wood:8,stone:4},width:4,height:3},
@@ -82,6 +85,7 @@ export const BUILDINGS = Object.freeze({
 const DEFAULT_INVENTORY = Object.freeze({
  wood:0,stone:0,iron:0,crystal:0,circuit:0,obsidian:0,aether_shard:0,moonleaf:0,
  planks:0,pickaxe:0,energy_core:0,rope:0,stone_bricks:0,nails:0,
+ scrap_metal:0,engine_parts:0,
  iron_ingot:0,crystal_glass:0,resonance_bait:0,stone_axe:0,reinforced_pickaxe:0,
 });
 export const CHEST_CAPACITY=60;
@@ -104,7 +108,7 @@ export function createGenesisProfile(userId,now=Date.now()){
   inventory:{...DEFAULT_INVENTORY},xp:0,statPoints:8,structures:[],
   depleted:{},discovered:[],echoforms:[],resonanceCooldowns:{},activeResonance:null,
   storage:{},creatureTrust:{},feedCooldowns:{},
-  tamedCreatures:{},creatureCompanion:null,
+  tamedCreatures:{},creatureCompanion:null,wreckRecovery:{salvaged:false,restored:false},
   lastMessage:'Welcome to Genesis Forest. Collect wood and stone to craft your first tools.',
  };
 }
@@ -126,6 +130,7 @@ export function ensureGenesisProfile(state,userId,now=Date.now()){
  profile.feedCooldowns ||= {};
  profile.tamedCreatures ||= {};
  profile.creatureCompanion ||= null;
+ profile.wreckRecovery ||= {salvaged:false,restored:false};
  return profile;
 }
 export function getStats(profile,now=Date.now()){
@@ -142,9 +147,14 @@ export function worldWeather(now=Date.now()){
  const weather=['Clear','Light Rain','Clear','Crystal Storm'][Math.floor(quarter/2)%4];
  return {timeOfDay:stages[quarter%4],weather,event:weather==='Crystal Storm'?'Crystal Surge':'No regional event',season:'Genesis Cycle'};
 }
-export function profileSnapshot(profile,position={x:0,z:0},now=Date.now()){
+export function profileSnapshot(profile,position={x:0,z:0},now=Date.now(),{visibleStructures,visibleWreckRecovery}={}){
+ const activeWreck=genesisStarterWreck(profile.currentIslandId);
+ const wreckStatus=visibleWreckRecovery??(profile.currentIslandId===profile.homeIslandId?profile.wreckRecovery:{});
  return {
-  ok:true,version:GENESIS_VERSION,realm:'private',position,
+  ok:true,version:GENESIS_VERSION,realm:profile.homeIslandId?'archipelago':'private',position,
+  island:{id:profile.currentIslandId||null,homeId:profile.homeIslandId||null,
+    name:genesisIslandName(profile.currentIslandId),
+    isHome:Boolean(profile.homeIslandId&&profile.homeIslandId===profile.currentIslandId)},
   map:{widthMeters:WORLD_LIMIT*2,lengthMeters:WORLD_LIMIT*2,chunkSize:CHUNK_SIZE,
     biome:biomeAt(position.x,position.z).id,biomeName:biomeAt(position.x,position.z).name,
     waystones:WAYSTONES,landmarks:LANDMARKS},
@@ -156,8 +166,13 @@ export function profileSnapshot(profile,position={x:0,z:0},now=Date.now()){
     }:null;})(),
     cooldowns:Object.fromEntries(GENESIS_HYBRIDS.map(c=>[c.id,Math.max(0,(profile.resonanceCooldowns?.[c.id]||0)-now)])),
   },
+  wreck:activeWreck?{...activeWreck,salvaged:Boolean(wreckStatus?.salvaged),restored:Boolean(wreckStatus?.restored)}:null,
   character:profile.character,inventory:{...DEFAULT_INVENTORY,...profile.inventory},statPoints:profile.statPoints,xp:profile.xp,
-  structures:profile.structures,storage:profile.storage||{},
+  structures:Array.isArray(visibleStructures)?
+    visibleStructures.map(s=>({id:s.id,kind:s.kind,x:s.x,z:s.z,
+      rotation:s.rotation||0,snappedTo:s.snappedTo,snapSide:s.snapSide})):
+    profile.homeIslandId&&profile.homeIslandId!==profile.currentIslandId?[]:profile.structures,
+  storage:profile.homeIslandId&&profile.homeIslandId!==profile.currentIslandId?{}:profile.storage||{},
   tamedCreatures:Object.values(profile.tamedCreatures||{}).map(pet=>{
     const species=hybridById(pet.id);
     return species?{...pet,name:pet.name||species.name,baseName:species.name,
@@ -189,7 +204,29 @@ function buildablePosition(position,x,z,{snapped=false}={}){
 export function applyGenesisAction(profile,body,position,now=Date.now()){
  const action=String(body?.action||'').slice(0,32);
  let message='';
- if(action==='gather'){
+ if(action==='salvageWreck'||action==='restoreWreck'){
+  const wreck=genesisStarterWreck(profile.homeIslandId);
+  if(!wreck||profile.currentIslandId!==profile.homeIslandId)
+    throw fail('Return to your home island to recover its vehicle.');
+  if(!genesisWreckWithinReach(position,wreck))
+    throw fail('Move within seven meters of your damaged vehicle.');
+  profile.wreckRecovery ||= {salvaged:false,restored:false};
+  if(action==='salvageWreck'){
+    if(profile.wreckRecovery.salvaged)throw fail('You already recovered the usable components.');
+    for(const [item,amount] of Object.entries(wreck.salvage))
+      profile.inventory[item]=(profile.inventory[item]||0)+amount;
+    profile.wreckRecovery.salvaged=true;
+    award(profile,8);
+    message='Recovered damaged components from the '+wreck.label+'.';
+  }else{
+    if(!profile.wreckRecovery.salvaged)throw fail('Salvage the vehicle before repairing it.');
+    if(profile.wreckRecovery.restored)throw fail('This vehicle is already restored.');
+    take(profile,wreck.repair);
+    profile.wreckRecovery.restored=true;
+    award(profile,18);
+    message=wreck.label+' restored! Visit a discovered island from the World Atlas. Travel is a route transition, not full vehicle piloting yet.';
+  }
+ }else if(action==='gather'){
   const node=RESOURCE_NODES.find(x=>x.id===body.nodeId)||generatedNodeFromId(body.nodeId);
   if(!node)throw fail('Unknown resource node.');
   near(position,node,5);
@@ -314,7 +351,7 @@ export function applyGenesisAction(profile,body,position,now=Date.now()){
   message=echo.name+' tamed! Your companion will follow you.';
  }else if(action==='commandCreature'){
   const id=String(body.echoId||''),command=String(body.command||'');
-  const pet=profile.tamedCreatures?.[id];
+  const pet=Object.hasOwn(profile.tamedCreatures||{},id)?profile.tamedCreatures[id]:null;
   if(!pet)throw fail('You do not own this creature.');
   if(!['follow','stay','dismiss'].includes(command))
     throw fail('Use Follow, Stay, or Dismiss.');
@@ -333,7 +370,8 @@ export function applyGenesisAction(profile,body,position,now=Date.now()){
     message=pet.name+' returned to your stable.';
   }
  }else if(action==='nameCreature'){
-  const pet=profile.tamedCreatures?.[String(body.echoId||'')];
+  const id=String(body.echoId||'');
+  const pet=Object.hasOwn(profile.tamedCreatures||{},id)?profile.tamedCreatures[id]:null;
   if(!pet)throw fail('You do not own this creature.');
   const name=compact(body.name);
   if(!/^[\p{L}\p{N} _-]{1,24}$/u.test(name))

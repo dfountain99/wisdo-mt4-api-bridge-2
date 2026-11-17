@@ -24,6 +24,9 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   const clean=(s)=>String(s||'').replace(/_/g,' ');
   let game=null,scene=null,engine=null,camera=null,player=null,prism=null,lighting=null,sunLight=null,terrainSystem=null,shadowGenerator=null;
   let loadedArt=null;
+  // Low-poly remote avatars use a separate render budget from wildlife.
+  const remotePlayers=new Map();
+  let nearbyPromise=null,lastNearbyAt=0;
   let buildSelection=null,buildRotation=0,buildGhost=null,buildGhostMaterial=null;
   let snapAnchorId='',snapSide='north',petInstance=null;
   let graphicsMode='balanced',lastFpsDisplay=0;
@@ -78,8 +81,9 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
         <div class="cost">Materials: ${costText(r.requires)}</div>
         <small>Creates: ${costText(r.grants)}${r.needs?' · Station: '+esc(r.needs):''}</small></div>`;
     }).join('');
-    const nearbyBuilds=genesisNearbySnapTargets(game.structures,
-      player?.position||game.position,12);
+    const ownsIsland=game.island?.isHome!==false;
+    const nearbyBuilds=ownsIsland?genesisNearbySnapTargets(game.structures,
+      player?.position||game.position,12):[];
     const snapTarget=$('snap-target');
     snapTarget.innerHTML='<option value="">Free placement</option>'+
       nearbyBuilds.map(s=>'<option value="'+esc(s.id)+'">'+
@@ -91,7 +95,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     $('snap-tools').hidden=Boolean(buildSelection&&!genesisIsModular(buildSelection));
     $('snap-next').hidden=!Boolean(buildSelection&&snapAnchorId);
     $('build-items').innerHTML=Object.entries(game.buildings).map(([id,b])=>{
-      const ready=!b.needs||game.structures.some(s=>s.kind===b.needs);
+      const ready=ownsIsland&&(!b.needs||game.structures.some(s=>s.kind===b.needs));
       return `<div class="option"><div class="row"><strong>${esc(b.label)}</strong>
         <button type="button" data-build="${esc(id)}" ${hasCost(b.cost)&&ready?'':'disabled'}>
         ${buildSelection===id?'Selected':'Preview'}</button></div>
@@ -99,7 +103,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
         <small>Footprint: ${Number(b.width)}m · ${Number(b.height)}m tall
           ${b.needs?' · Needs '+esc(b.needs):''}</small></div>`;
     }).join('');
-    const chests=game.structures.filter(s=>s.kind==='storage_chest');
+    const chests=ownsIsland?game.structures.filter(s=>s.kind==='storage_chest'):[];
     const chestSelect=$('chest-select'),lastChest=chestSelect.value;
     chestSelect.innerHTML=chests.map(s=>
       '<option value="'+esc(s.id)+'">Supply Chest · '+Math.round(s.x)+', '+Math.round(s.z)+'</option>').join('');
@@ -113,7 +117,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       'Build a Supply Chest to store materials. Approach within 5 meters to use it.';
     $('craft-inventory').textContent=Object.entries(game.inventory)
       .filter(([,n])=>n>0).map(([k,n])=>clean(k)+' ×'+n).join(' · ')||'No materials yet.';
-    const closeStructures=game.structures.filter(s=>Math.hypot(
+    const closeStructures=game.structures.filter(s=>ownsIsland&&Math.hypot(
       s.x-(player?.position.x??game.position.x),
       s.z-(player?.position.z??game.position.z))<=6);
     $('settlement-list').innerHTML=closeStructures.length?
@@ -121,7 +125,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
         esc(game.buildings[piece.kind]?.label||piece.kind)+' · ('+
         Math.round(piece.x)+', '+Math.round(piece.z)+')</span> '+
         '<button type="button" data-dismantle="'+esc(piece.id)+'">Dismantle</button></div>').join(''):
-      '<small>Approach a structure to manage or dismantle it.</small>';
+      '<small>'+(ownsIsland?'Approach a structure to manage or dismantle it.':'You can explore this settlement, but only the island owner can edit it.')+'</small>';
     $('echo-items').innerHTML=game.echoes.map(e=>{
       const pet=game.tamedCreatures?.find(p=>p.id===e.id);
       const activePet=game.creatureCompanion===e.id;
@@ -309,6 +313,32 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     block(player,'visor',[.62,.2,.12],mats.eye,0,2.47,.36);
     for(const x of [-.59,.59])block(player,'arm',[.24,1.05,.32],mats.armor,x,1.34,0);
     for(const x of [-.23,.23])block(player,'leg',[.32,.78,.4],mats.dark,x,.40,0);
+  }
+  function drawRemoteExplorer(other){
+    const root=rootAt('remote-explorer:'+other.id,other.x,other.z);
+    block(root,'remote-torso',[.85,1.3,.48],mats.armor,0,1.36,0);
+    ball(root,'remote-head',[.72,.76,.7],mats.skin,0,2.41,0);
+    block(root,'remote-visor',[.62,.2,.12],mats.eye,0,2.47,.36);
+    for(const x of [-.59,.59])block(root,'remote-arm',[.24,1.05,.32],mats.armor,x,1.34,0);
+    for(const x of [-.23,.23])block(root,'remote-leg',[.32,.78,.4],mats.dark,x,.40,0);
+    return {root,x:other.x,z:other.z};
+  }
+  function syncNearbyPlayers(snapshot){
+    if(!Array.isArray(snapshot?.players))return;
+    const visible=new Set();
+    for(const other of snapshot.players.slice(0,24)){
+      const id=String(other.id||'');
+      if(!/^[0-9a-f]{12}$/.test(id)||!Number.isFinite(other.x)||!Number.isFinite(other.z))continue;
+      visible.add(id);
+      let remote=remotePlayers.get(id);
+      if(!remote){remote=drawRemoteExplorer({...other,id});remotePlayers.set(id,remote);}
+      remote.x=other.x;remote.z=other.z;
+    }
+    for(const [id,remote] of remotePlayers){
+      if(!visible.has(id)){remote.root.dispose(false,false);remotePlayers.delete(id);}
+    }
+    if($('online-count'))$('online-count').textContent=
+      Number(snapshot.online||0)+' / '+Number(snapshot.capacity||100)+' explorers online';
   }
   function upgradePlayerAvatar(assets){
     if(!player||!assets.has('explorer')||playerAnimation)return false;
@@ -656,6 +686,13 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       if(now-lastMoveAt>880)sendPosition().catch(()=>{});
     }
     player.position.y=terrainHeight(player.position.x,player.position.z);
+    for(const remote of remotePlayers.values()){
+      const dx=remote.x-remote.root.position.x,dz=remote.z-remote.root.position.z;
+      const blend=Math.min(1,dt*4);
+      remote.root.position.x+=dx*blend;remote.root.position.z+=dz*blend;
+      remote.root.position.y=terrainHeight(remote.root.position.x,remote.root.position.z);
+      if(Math.hypot(dx,dz)>.02)remote.root.rotation.y=Math.atan2(dx,dz);
+    }
     camera.target.set(player.position.x,player.position.y+1.9,player.position.z);
     // Only regenerate when crossing an 80m terrain-chunk boundary.
     if(terrainSystem?.update(player.position.x,player.position.z)){
@@ -719,6 +756,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       showNearest();if($('world-map-dialog')?.open)updateMap();lastHintAt=now;
     }
     if(now-lastRefreshAt>17000){lastRefreshAt=now;refreshWorld().catch(()=>{});}
+    if(now-lastNearbyAt>2800){lastNearbyAt=now;refreshNearbyPlayers().catch(()=>{});}
     if(now-lastFpsDisplay>1200){
       $('graphics-fps').textContent=Math.max(0,Math.round(engine.getFps()))+' FPS';
       lastFpsDisplay=now;
@@ -892,6 +930,15 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     if(ok){clearBuildPreview();rebuildPanels();}
     return ok;
   }
+  async function refreshNearbyPlayers(){
+    if(!ready||nearbyPromise)return nearbyPromise;
+    nearbyPromise=(async()=>{
+      try{syncNearbyPlayers(await api('/api/genesis/players'));}
+      catch{/* Multiplayer fetch failures must not interrupt solo exploration. */}
+      finally{nearbyPromise=null;}
+    })();
+    return nearbyPromise;
+  }
   async function refreshWorld(){
     if(pending||!ready||refreshPromise)return refreshPromise;
     refreshPromise=(async()=>{
@@ -911,13 +958,33 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       top:((WORLD_LIMIT-z)/(WORLD_LIMIT*2)*100).toFixed(2)+'%',
     };
   }
+  async function refreshIslandDirectory(){
+    const list=$('island-list'),status=$('island-status');
+    if(!list||!status||!player)return;
+    try{
+      const result=await api('/api/genesis/islands');
+      const atPortal=Boolean(nearestWaystone(player.position,13));
+      status.textContent=atPortal?
+        'Choose another island. Your own home always stays yours.':
+        'Stand beside a Waystone to travel to another island.';
+      list.innerHTML=(result.islands||[]).slice(0,200).map(island=>{
+        const current=island.id===result.currentIslandId;
+        const home=island.id===result.homeIslandId;
+        return '<button type="button" data-island="'+esc(island.id)+'" '+
+          (!current&&atPortal?'':'disabled')+'><strong>'+esc(island.name)+'</strong>'+
+          '<span>'+(home?'YOUR HOME · ':'')+(current?'CURRENT':atPortal?'VISIT':'WAYSTONE REQUIRED')+
+          '</span></button>';
+      }).join('')||'<small>No other islands have been created yet.</small>';
+    }catch(error){status.textContent='Island list unavailable: '+error.message;}
+  }
   function updateMap(){
     if(!game||!player)return;
+    if($('current-island'))$('current-island').textContent=game.island?.name||'GENESIS ISLAND';
     const stones=game.map?.waystones||WAYSTONES;
     const pos={x:player.position.x,z:player.position.z};
     const css=mapPercent(pos.x,pos.z);
     $('map-you').style.left=css.left;$('map-you').style.top=css.top;
-    $('coords').textContent='Your position: '+Math.round(pos.x)+', '+Math.round(pos.z)+
+    $('coords').textContent=(game.island?.name||'Genesis')+' · Your position: '+Math.round(pos.x)+', '+Math.round(pos.z)+
       ' · '+(biomeAt(pos.x,pos.z).name);
     const nearest=nearestWaystone(pos,13);
     $('waystone-status').textContent=nearest?
@@ -935,14 +1002,21 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     pending=true;
     try{
       await sendPosition();
-      const result=await api('/api/genesis/travel',{destination});
+      const body=typeof destination==='string'?{destination}:{islandId:destination.islandId};
+      const previousIsland=game.island?.id;
+      const result=await api('/api/genesis/travel',body);
       game=result.snapshot;
+      if(previousIsland!==game.island?.id){
+        for(const remote of remotePlayers.values())remote.root.dispose(false,false);
+        remotePlayers.clear();
+      }
       player.position.x=game.position.x;player.position.z=game.position.z;
       player.position.y=terrainHeight(player.position.x,player.position.z);
       prism.position.x=player.position.x-2;prism.position.z=player.position.z-2;
       terrainSystem.update(player.position.x,player.position.z,{force:true});
       rebuildPanels();syncScene();updateMap();
       $('world-map-dialog').close();
+      refreshIslandDirectory().catch(()=>{});
       announce(result.message);
     }catch(error){announce(error.message,true);}
     finally{pending=false;}
@@ -1007,12 +1081,16 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       toggle.textContent=collapsed?'Open Field Kit ▲':'Hide Field Kit ▼';
       toggle.setAttribute('aria-expanded',String(!collapsed));
     });
-    $('map-open').addEventListener('click',()=>{updateMap();$('world-map-dialog').showModal();});
+    $('map-open').addEventListener('click',()=>{updateMap();$('world-map-dialog').showModal();refreshIslandDirectory().catch(()=>{});});
     $('map-close').addEventListener('click',()=>$('world-map-dialog').close());
     $('map-done').addEventListener('click',()=>$('world-map-dialog').close());
     $('waystone-list').addEventListener('click',event=>{
       const button=event.target.closest('[data-travel]');
       if(button&&!button.disabled)travel(button.dataset.travel);
+    });
+    $('island-list').addEventListener('click',event=>{
+      const button=event.target.closest('[data-island]');
+      if(button&&!button.disabled)travel({islandId:button.dataset.island});
     });
     document.querySelectorAll('[data-tab]').forEach(button=>button.addEventListener('click',()=>{
       document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===button));
