@@ -11,6 +11,10 @@ import {
 } from '../public/js/genesisConstruction.js';
 import {genesisIslandName} from '../server/genesisIslands.js';
 import {genesisStarterWreck,genesisWreckWithinReach} from '../public/js/genesisWrecks.js';
+import {
+ ensureGenesisEvolution,genesisEvolutionSnapshot,buyGenesisEvolution,
+ applyGenesisGatherEvolution,applyGenesisMaterialRebate,applyGenesisXpEvolution,
+} from './genesisEvolutionService.js';
 // WISDO Genesis v2: server-authoritative open world with six explorable biomes.
 // The renderer never awards resources, owns inventory, or approves structures.
 export const GENESIS_VERSION = 'genesis-open-world-v2';
@@ -100,7 +104,7 @@ function take(profile,need){
  for(const [key,count] of Object.entries(need))if((profile.inventory[key]||0)<count)throw fail('Not enough '+key+'.');
  for(const [key,count] of Object.entries(need))profile.inventory[key]-=count;
 }
-function award(profile,xp){const prev=Math.floor(profile.xp/15);profile.xp+=xp;const newly=Math.floor(profile.xp/15)-prev;if(newly)profile.statPoints=Math.min(60,profile.statPoints+newly);}
+function award(profile,xp){const adjusted=applyGenesisXpEvolution(profile,xp);const prev=Math.floor(profile.xp/15);profile.xp+=adjusted;const newly=Math.floor(profile.xp/15)-prev;if(newly)profile.statPoints=Math.min(60,profile.statPoints+newly);}
 export function createGenesisProfile(userId,now=Date.now()){
  return {
   schemaVersion:1,userId:String(userId),createdAt:nowString(now),updatedAt:nowString(now),
@@ -131,6 +135,7 @@ export function ensureGenesisProfile(state,userId,now=Date.now()){
  profile.tamedCreatures ||= {};
  profile.creatureCompanion ||= null;
  profile.wreckRecovery ||= {salvaged:false,restored:false};
+ ensureGenesisEvolution(profile);
  return profile;
 }
 export function getStats(profile,now=Date.now()){
@@ -180,6 +185,7 @@ export function profileSnapshot(profile,position={x:0,z:0},now=Date.now(),{visib
   }).filter(Boolean),
   creatureCompanion:profile.creatureCompanion||null,
   construction:{modularParts:GENESIS_MODULAR_PARTS,snapSpacing:3},
+  evolution:genesisEvolutionSnapshot(profile),
   resources:[
     ...RESOURCE_NODES.filter(node=>Math.hypot(node.x-position.x,node.z-position.z)<CHUNK_SIZE*1.75),
     ...nearbyGeneratedNodes(position.x,position.z,1),
@@ -204,7 +210,12 @@ function buildablePosition(position,x,z,{snapped=false}={}){
 export function applyGenesisAction(profile,body,position,now=Date.now()){
  const action=String(body?.action||'').slice(0,32);
  let message='';
- if(action==='salvageWreck'||action==='restoreWreck'){
+ if(action==='evolve'){
+  let purchase;
+  try{purchase=buyGenesisEvolution(profile,body.track,body.steps??1);}
+  catch(error){throw fail(error.message);}
+  message='Upgraded '+purchase.label+' to tier '+purchase.level+'/100 (research cost '+purchase.spent+').';
+ }else if(action==='salvageWreck'||action==='restoreWreck'){
   const wreck=genesisStarterWreck(profile.homeIslandId);
   if(!wreck||profile.currentIslandId!==profile.homeIslandId)
     throw fail('Return to your home island to recover its vehicle.');
@@ -240,7 +251,10 @@ export function applyGenesisAction(profile,body,position,now=Date.now()){
   const resonanceYield=resonanceHarvestBonus(profile,node.type,now);
   const toolYield=((node.type==='wood'||node.type==='moonleaf')&&profile.inventory.stone_axe?1:0)+
     (!['wood','moonleaf'].includes(node.type)&&profile.inventory.reinforced_pickaxe?1:0);
-  const yieldCount=(RESOURCE_REWARDS[node.type]||REWARDS[node.type]||1)+bonus+resonanceYield+toolYield;
+  const baseYield=(RESOURCE_REWARDS[node.type]||REWARDS[node.type]||1)+bonus+resonanceYield+toolYield;
+  const yieldCount=applyGenesisGatherEvolution(profile,{
+   type:node.type,baseYield,weather,biomeResources:biomeAt(node.x,node.z).resources,
+  });
   profile.inventory[node.type]+=yieldCount;
   profile.depleted[node.id]=now+Math.floor(node.respawnMs*(weather==='Light Rain'&&(node.type==='wood'||node.type==='moonleaf') ? .70 : 1));
   if(Object.keys(profile.depleted).length>600)for(const [key,expires] of Object.entries(profile.depleted))if(expires<=now)delete profile.depleted[key];
@@ -256,13 +270,15 @@ export function applyGenesisAction(profile,body,position,now=Date.now()){
   if(['pickaxe','stone_axe','reinforced_pickaxe'].includes(key)&&profile.inventory[key])
    throw fail('You already own that tool.');
   take(profile,recipe.requires);
+  applyGenesisMaterialRebate(profile,recipe.requires,'fabrication');
   for(const [item,count] of Object.entries(recipe.grants))profile.inventory[item]+=count;
   award(profile,4);message='Crafted '+recipe.label+'.';
  }else if(action==='build'){
   const kind=String(body.kind||'');
   const blueprint=lookup(BUILDINGS,kind);
   if(!blueprint)throw fail('Unknown building blueprint.');
-  if(profile.structures.length>=160)throw fail('Your private settlement reached the 160-piece limit.');
+  const settlementLimit=genesisEvolutionSnapshot(profile).settlementLimit;
+  if(profile.structures.length>=settlementLimit)throw fail('Your private settlement reached the '+settlementLimit+'-piece limit.');
   if(blueprint.needs&&!profile.structures.some(s=>s.kind===blueprint.needs))throw fail('Build a '+blueprint.needs+' first.');
   let requested;
   try{requested=genesisResolvePlacement(body,profile.structures);}
@@ -271,6 +287,7 @@ export function applyGenesisAction(profile,body,position,now=Date.now()){
   if(genesisBuildOverlap(profile.structures,pos))
    throw fail('Too close to another building. Select another snap side.');
   take(profile,blueprint.cost);
+  applyGenesisMaterialRebate(profile,blueprint.cost,'architecture');
   const id='structure-'+String(profile.structures.length+1)+'-'+Math.trunc(now);
   profile.structures.push({id,kind,...pos,
     rotation:[0,90,180,270].includes(body.rotation)?body.rotation:0,
