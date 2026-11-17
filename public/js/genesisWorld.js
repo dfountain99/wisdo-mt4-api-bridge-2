@@ -1,9 +1,9 @@
-import { createGenesisTerrain } from './genesisTerrain.js?v=8';
+import { createGenesisTerrain } from './genesisTerrain.js?v=11';
 import { loadGenesisArtLibrary } from './genesisArtLibrary.js?v=6';
 import { loadGenesisPhotoSurfaces,genesisSceneDisposed }
   from './genesisPhotoSurfaces.js?v=6';
 import { buildGenesisHybrid } from './genesisCreatureVisuals.js?v=7';
-import {genesisGraphicsPreset} from './genesisGraphicsQuality.js?v=5';
+import {genesisGraphicsPreset} from './genesisGraphicsQuality.js?v=12';
 import {drawGenesisStructure} from './genesisStructureVisuals.js?v=9';
 import {
  GENESIS_SNAP_SIDES,genesisIsModular,genesisResolvePlacement,
@@ -34,11 +34,12 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   const hybridEchoVisuals=new Map();
   let prismHybridVisual=null,prismHybridId='';
   let ready=false,pending=false,movePromise=null,refreshPromise=null,lastMoveAt=0,lastRefreshAt=0,lastHintAt=0,lastFrame=0,toastTimeout=0;
+  let lastConfirmedPosition=null, movementWarnings=0;
   const held=new Set(),joystick={x:0,y:0,active:false};
   let inputSettings=genesisInputSettings(),lastPad={interact:false,build:false,cancel:false,power:false};
   let lookPointer=null;
   let lookAt=null,stayAnchor=null;
-  const panelNames=['journey','craft','build','echoes','prism'];
+  const panelNames=['journey','craft','evolution','build','echoes','prism'];
   const iconFor=(k)=>({
     wood:'🌲',stone:'🪨',iron:'⛏',crystal:'💎',circuit:'🔋',obsidian:'🖤',
     aether_shard:'✨',moonleaf:'🌿',planks:'🪵',pickaxe:'⚒',energy_core:'⚡',
@@ -81,6 +82,30 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
         <div class="cost">Materials: ${costText(r.requires)}</div>
         <small>Creates: ${costText(r.grants)}${r.needs?' · Station: '+esc(r.needs):''}</small></div>`;
     }).join('');
+    const evolution=game.evolution;
+    if(evolution&&$('evolution-items')){
+      const credits=Number(evolution.researchPoints||0);
+      $('evolution-points').textContent=credits+' point'+(credits===1?'':'s');
+      $('evolution-items').innerHTML=(evolution.tracks||[]).map(track=>{
+        const level=Number(track.level||0);
+        const next=Number(track.nextCost||0);
+        const tenCost=Array.from({length:10},(_,i)=>Math.ceil((level+i+1)/10))
+          .reduce((sum,n)=>sum+n,0);
+        const capped=level>=100;
+        const canTen=level+10<=100&&credits>=tenCost;
+        return `<div class="option"><div class="row"><strong>${esc(track.label)}</strong>
+          <span class="pill">Tier ${level}/100</span></div>
+          <small>${esc(track.detail)}</small>
+          <div class="cost">Current modifier: ${Number(track.bonusPercent||0).toFixed(2)}%
+            ${track.id==='architecture'?' · Settlement capacity '+Number(evolution.settlementLimit||160):''}</div>
+          <div class="row" style="display:flex;flex-wrap:wrap;gap:6px">
+            <button type="button" data-evolve="${esc(track.id)}" data-steps="1"
+              ${capped||credits<next?'disabled':''}>Upgrade +1 · ${capped?'MAX':next+' pts'}</button>
+            <button type="button" data-evolve="${esc(track.id)}" data-steps="10"
+              ${canTen?'':'disabled'}>Upgrade +10 · ${level+10>100?'MAX':tenCost+' pts'}</button>
+          </div></div>`;
+      }).join('');
+    }
     const ownsIsland=game.island?.isHome!==false;
     const nearbyBuilds=ownsIsland?genesisNearbySnapTargets(game.structures,
       player?.position||game.position,12):[];
@@ -476,8 +501,9 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       player?.position.z??game.position.z,{force:true});
     if(preset.shadows&&!shadowGenerator&&sunLight){
       shadowGenerator=new BABYLON.ShadowGenerator(mobile?512:1024,sunLight);
-      shadowGenerator.useExponentialShadowMap=true;
-      shadowGenerator.setDarkness(.33);
+      shadowGenerator.useBlurExponentialShadowMap=true;
+      shadowGenerator.blurKernel=16;
+      shadowGenerator.setDarkness(.28);
     }else if(!preset.shadows&&shadowGenerator){
       shadowGenerator.dispose();shadowGenerator=null;
     }
@@ -516,7 +542,8 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     sunLight.diffuse=new BABYLON.Color3(1,.92,.79);
     // Subtle cinematic grading that does not require heavy post-processing on phones.
     scene.imageProcessingConfiguration.exposure=1.07;
-    scene.imageProcessingConfiguration.contrast=1.12;
+    scene.imageProcessingConfiguration.contrast=1.08;
+    scene.environmentIntensity=.7;
     material('soil','#315d4b');material('moss','#256c54');material('gravel','#5b5654');
     material('moon','#48416d');material('crystalGround','#294c61');
     material('wood','#7c543a');material('leaves','#1c8e70');material('leavesLight','#27aa80');
@@ -683,7 +710,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       player.position.x=Math.max(-WORLD_LIMIT+5,Math.min(WORLD_LIMIT-5,player.position.x+dx));
       player.position.z=Math.max(-WORLD_LIMIT+5,Math.min(WORLD_LIMIT-5,player.position.z+dz));
       player.rotation.y=Math.atan2(dx,dz);
-      if(now-lastMoveAt>880)sendPosition().catch(()=>{});
+      if(now-lastMoveAt>260)sendPosition().catch(()=>{});
     }
     player.position.y=terrainHeight(player.position.x,player.position.z);
     for(const remote of remotePlayers.values()){
@@ -769,11 +796,15 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     movePromise=(async()=>{
       try{
         const response=await api('/api/genesis/move',{x:Number(player.position.x.toFixed(3)),z:Number(player.position.z.toFixed(3))});
+        if(response.position&&Number.isFinite(response.position.x)&&Number.isFinite(response.position.z))lastConfirmedPosition={...response.position};
+        else lastConfirmedPosition={x:player.position.x,z:player.position.z};
+        movementWarnings=0;
         return response;
       }catch(error){
         if(error.position&&Number.isFinite(error.position.x)&&Number.isFinite(error.position.z)){
           player.position.x=error.position.x;player.position.z=error.position.z;
-          announce('Movement recalibrated; try walking closer.',true);
+          lastConfirmedPosition={...error.position};
+          if(++movementWarnings===1)announce('Movement synchronized with server.',true);
         }
         throw error;
       }finally{movePromise=null;}
@@ -1096,6 +1127,10 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===button));
       for(const name of panelNames)$('panel-'+name).classList.toggle('active',name===button.dataset.tab);
     }));
+    $('evolution-items').addEventListener('click',event=>{
+      const button=event.target.closest('[data-evolve]');
+      if(button&&!button.disabled)action({action:'evolve',track:button.dataset.evolve,steps:Number(button.dataset.steps)});
+    });
     $('craft-items').addEventListener('click',event=>{
       const btn=event.target.closest('[data-craft]');if(btn)action({action:'craft',recipe:btn.dataset.craft});
     });
@@ -1210,6 +1245,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     try{
       const result=await api('/api/genesis/state');
       game=result;
+      lastConfirmedPosition={...game.position};
       rebuildPanels();syncInputs();
       setupScene();
       setupUI();

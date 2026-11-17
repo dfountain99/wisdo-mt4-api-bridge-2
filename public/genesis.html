@@ -208,6 +208,7 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
   <div class="tabs" id="field-tabs" role="tablist" aria-label="Field kit sections">
     <button type="button" data-tab="journey" class="active">Journey</button>
     <button type="button" data-tab="craft">Craft</button>
+    <button type="button" data-tab="evolution">Evolution</button>
     <button type="button" data-tab="build">Build</button>
     <button type="button" data-tab="echoes">EchoDex</button>
     <button type="button" data-tab="prism">PRISM DNA</button>
@@ -254,6 +255,11 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
     <p>Refine gathered materials into rope, bricks, tools, glass, creature bait and more. Build a Workbench or Kiln to unlock advanced recipes.</p>
     <div class="option"><strong>Available materials</strong><small id="craft-inventory">Loading inventory…</small></div>
     <div id="craft-items"></div>
+  </div>
+  <div class="panel" id="panel-evolution"><h3>Genesis Evolution · 1,000 tiers</h3>
+    <p>Advance 10 gameplay systems through 100 tiers each. Research points come from real gameplay XP. Upgrades affect server-verified harvesting, storm and biome yields, material rebates, settlement limits, and XP.</p>
+    <div class="option"><strong>Available research</strong><span class="pill" id="evolution-points">0 points</span><small>Earn 1 research point for every 3 lifetime XP. Upgrades persist with your island profile.</small></div>
+    <div id="evolution-items" aria-live="polite"></div>
   </div>
   <div class="panel" id="panel-build"><h3>Settlement Builder</h3>
     <p>Choose a blueprint for a green placement preview, rotate it, and confirm. The server validates costs, distance, collision, and saves your structure.</p>
@@ -359,6 +365,6 @@ radial-gradient(ellipse at 51% 52%,#3b906a 0%,#235a4c 29%,transparent 47%),
 <div id="loading"><div class="card"><h1>WISDO GENESIS</h1><p id="load-status">Connecting to your saved world and preparing Genesis Forest…</p><button type="button" id="retry" hidden>Try again</button></div></div>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
-<script type="module" src="/js/genesisWorld.js?v=9&amp;players=1&amp;islands=1"></script>
+<script type="module" src="/js/genesisWorld.js?v=12&amp;players=1&amp;islands=1&amp;evolution=1"></script>
 </body>
 </html>
