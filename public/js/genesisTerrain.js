@@ -8,7 +8,7 @@ import {
  CHUNK_SIZE,WORLD_LIMIT,BIOMES,WAYSTONES,LANDMARKS,
  terrainHeight,biomeColor,biomeAt,worldChunk,chunkKey,valueNoise,
 } from './genesisWorldMap.js';
-import {genesisGraphicsPreset} from './genesisGraphicsQuality.js';
+import {genesisGraphicsPreset} from './genesisGraphicsQuality.js?v=11';
 import {genesisCreateMicroBump} from './genesisMicroSurface.js';
 
 function tone(hex){return BABYLON.Color3.FromHexString(hex);}
@@ -185,7 +185,7 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
    mesh.freezeWorldMatrix();
    // GPU thin-instances: small meshes + a single matrix buffer for every tree.
    const trunks=[],canopies=[],leafTips=[],groundRocks=[],sparkles=[],grasses=[],blossoms=[];
-   const count=artLibrary?graphics.trees:Math.ceil(graphics.trees*1.4);
+   const count=graphics.trees;
    for(let i=0;i<count;i++){
      const x=cx*CHUNK_SIZE+5+rng(cx,cz,i,33)*(CHUNK_SIZE-10);
      const z=cz*CHUNK_SIZE+5+rng(cx,cz,i,91)*(CHUNK_SIZE-10);
@@ -250,14 +250,14 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
      if(WAYSTONES.some(w=>Math.hypot(w.x-x,w.z-z)<16))continue;
      if(LANDMARKS.some(w=>Math.hypot(w.x-x,w.z-z)<14))continue;
      const y=terrainHeight(x,z),style=biomeAt(x,z).id;
-     const height=.5+rng(cx,cz,i,214)*.75;
+     const height=.18+rng(cx,cz,i,214)*.65;
      if(['forest','marsh','aether'].includes(style)){
        for(let blade=0;blade<2;blade++){
          grasses.push(matrix(x+(blade?-.18:.18),y+height*.48,z+(blade?.1:-.1),
-           .22,height,.22,rng(cx,cz,i,231+blade)*Math.PI*2));
+           .13,height,.13,rng(cx,cz,i,231+blade)*Math.PI*2));
        }
-       if(i%9===0)blossoms.push(matrix(x,y+height+.1,z,.30,.30,.30));
-       if(i%11===0)groundRocks.push(matrix(x,y+.18,z,.55,.36,.7,rng(cx,cz,i,240)*6.28));
+       if(i%17===0)blossoms.push(matrix(x,y+height+.1,z,.30,.30,.30));
+       if(i%7===0)groundRocks.push(matrix(x,y+.18,z,.55,.36,.7,rng(cx,cz,i,240)*6.28));
      }else if(style==='crystal'||style==='neon'){
        if(i%3===0)sparkles.push(matrix(x,y+.5,z,.24,1,.24));
      }else if(style==='titan'&&i%4===0){
