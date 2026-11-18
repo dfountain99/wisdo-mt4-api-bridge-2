@@ -45,6 +45,8 @@ test('Genesis loads valid reality art but falls back for missing or rejected opt
     return {ok:true,arrayBuffer:async()=>new Uint8Array([1,2,3]).buffer};
    return {ok:false,status:404};
   }
+  if(url.includes('/models/grass_medium_01')||url.includes('/models/mountainside'))
+    return {ok:false,status:404};
   return {ok:true,text:async()=>fallbackBase64};
  };
  globalThis.BABYLON={SceneLoader:{LoadAssetContainerAsync:async (_root,url)=>{
