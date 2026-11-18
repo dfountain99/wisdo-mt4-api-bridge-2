@@ -39,20 +39,30 @@ export async function loadGenesisArtLibrary(scene){
  const base='/assets/genesis/models/';
  const results=await Promise.allSettled(GENESIS_MODEL_KEYS.map(async key=>{
   const realityUrl=GENESIS_REALITY_MODEL_BASE+key+'.glb';
-  const realityResponse=await fetch(realityUrl,{credentials:'same-origin'}).catch(()=>null);
-  if(realityResponse?.ok){
-    const buffer=await realityResponse.arrayBuffer();
-    if(buffer.byteLength>20){
+  // Optional replacements must never block the working CC0 fallback.
+  // A valid HTTP 200 is not proof the .glb is parseable.
+  try{
+    const realityResponse=await fetch(realityUrl,{credentials:'same-origin'});
+    if(realityResponse.ok){
+      const buffer=await realityResponse.arrayBuffer();
       const bytes=new Uint8Array(buffer);
-      if(bytes[0]===103&&bytes[1]===108&&bytes[2]===84&&bytes[3]===70){
-        const blobUrl=URL.createObjectURL(new Blob([buffer],{type:'model/gltf-binary'}));
-        try{
-          const container=await BABYLON.SceneLoader.LoadAssetContainerAsync('',blobUrl,scene,undefined,'.glb');
-          if(container.meshes.some(mesh=>mesh.getTotalVertices?.()>0))return {key,container,source:'reality'};
+      if(bytes.length<20||bytes[0]!==103||bytes[1]!==108||
+         bytes[2]!==84||bytes[3]!==70)
+        throw Error('Replacement is not a binary glTF file.');
+      const blobUrl=URL.createObjectURL(new Blob([buffer],{type:'model/gltf-binary'}));
+      try{
+        const container=await BABYLON.SceneLoader.LoadAssetContainerAsync(
+          '',blobUrl,scene,undefined,'.glb'
+        );
+        if(!container.meshes.some(mesh=>mesh.getTotalVertices?.()>0)){
           container.dispose();
-        }finally{URL.revokeObjectURL(blobUrl);}
-      }
+          throw Error('Replacement contains no renderable meshes.');
+        }
+        return {key,container,source:'reality'};
+      }finally{URL.revokeObjectURL(blobUrl);}
     }
+  }catch(error){
+    console.warn('Genesis optional reality asset invalid; using fallback:',key,error);
   }
   const response=await fetch(base+key+'.glb.b64',{credentials:'same-origin'});
   if(!response.ok)throw Error(key+' art request failed: '+response.status);
