@@ -37,7 +37,7 @@ test('Genesis loads valid reality art but falls back for missing or rejected opt
   calls.push(url);
   if(url.includes('/reality/')){
    if(url.endsWith('tree1.glb')||url.endsWith('tree2.glb')){
-    const model=bytes.slice();
+    const model=Buffer.from(bytes);
     model[4]=url.endsWith('tree1.glb')?1:2;
     return {ok:true,arrayBuffer:async()=>Uint8Array.from(model).buffer};
    }
