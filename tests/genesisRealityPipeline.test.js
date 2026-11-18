@@ -46,7 +46,7 @@ test('Genesis loads valid reality art but falls back for missing or rejected opt
     return {ok:true,arrayBuffer:async()=>new Uint8Array([1,2,3]).buffer};
    return {ok:false,status:404};
   }
-  if(url.includes('/models/grass_medium_01')||url.includes('/models/mountainside'))
+  if(url.includes('/models/grass_medium_01')||url.includes('/models/mountainside')||url.includes('/models/mossy_rock_patch'))
     return {ok:false,status:404};
   return {ok:true,text:async()=>fallbackBase64};
  };
@@ -71,11 +71,12 @@ test('Genesis loads valid reality art but falls back for missing or rejected opt
  assert.deepEqual(library.available,[...GENESIS_MODEL_KEYS,'grass_medium_01']);
  assert.equal(library.sources.grass_medium_01,'reality');
  assert.equal(library.sources.mountainside,'not-installed');
+ assert.equal(library.sources.mossy_rock_patch,'not-installed');
  assert.deepEqual(library.realitySummary.installed,['tree2','grass_medium_01']);
  assert.equal(library.realitySummary.forestGrassReady,true);
  assert.equal(library.realitySummary.coreReady,false);
  assert.equal(library.realitySummary.installedCount,2);
- assert.equal(library.realitySummary.expectedCount,7);
+ assert.equal(library.realitySummary.expectedCount,8);
  assert.equal(library.failures.length,0);
  assert.ok(calls.some(url=>url.endsWith('/models/tree1.glb.b64')));
  assert.ok(!calls.some(url=>url.endsWith('/models/tree2.glb.b64')));
@@ -94,7 +95,7 @@ test('Genesis reality readiness distinguishes missing art from successfully load
  });
  assert.equal(ready.coreReady,true);
  assert.equal(ready.installedCount,6);
- assert.deepEqual(ready.missing,['mountainside']);
+ assert.deepEqual(ready.missing,['mountainside','mossy_rock_patch']);
 });
 
 test('real bundled grass asset is a renderable cutout GLB with embedded texture',()=>{
@@ -112,4 +113,11 @@ test('real bundled grass asset is a renderable cutout GLB with embedded texture'
  assert.ok(doc.images?.length>=1,'Grass must embed an image rather than load a third-party URL');
  assert.ok((doc.images||[]).every(img=>!/^https?:/i.test(img.uri||'')));
  assert.ok(bytes.length<512*1024,'Grass model must fit the initial mobile size budget');
+});
+
+test('optional mossy ground-detail integration stays cosmetic and has strict per-chunk limits',()=>{
+ const terrain=readFileSync(new URL('../public/js/genesisTerrain.js',import.meta.url),'utf8');
+ assert.match(terrain,/artLibrary\?\.has\('mossy_rock_patch'\)/);
+ assert.match(terrain,/i%67===7&&i<\(mobile\?2:3\)\*67/);
+ assert.match(terrain,/artLibrary\.place\('mossy_rock_patch'/);
 });
