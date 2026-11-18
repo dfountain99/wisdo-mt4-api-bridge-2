@@ -43,5 +43,4 @@ Both source models came from user-provided 4K Poly Haven BLEND ZIPs (CC0):
 - https://polyhaven.com/a/grass_medium_01
 - https://polyhaven.com/a/mountainside
 
-The optional files are *not included in GitHub code commits*. Upload optimized binary GLBs through Git/Git LFS or an approved asset-hosting pipeline; code-only releases keep safe procedural fallbacks.
-The iPhone starter kit includes an ultra-light grass card prototype. It is not the original Blender mesh. Original meshes require Blender export and review, including material alpha masks, texture compression, character-scale matching, terrain contact, polygon budget and iPhone Safari FPS.
+`grass_medium_01.glb` **is present on the draft PR #204 branch** as an optimized 16,984-byte alpha-masked grass-card prototype. It is not the original Blender grass mesh and its visuals still require on-device Safari QA. `mountainside.glb` **is not installed**; the original user-provided Blender ZIP is available for future export and optimization. All future originals must pass material alpha, texture compression, size/collision, triangle budgets, and on-device frame-time checks. See `docs/GENESIS_REALISM_PRODUCTION_PLAN.md`.
