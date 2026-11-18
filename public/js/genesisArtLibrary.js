@@ -11,6 +11,8 @@ export const GENESIS_MODEL_KEYS=Object.freeze(['tree1','tree2','tree3','bush','e
 // Prefer optimized, licensed high-fidelity GLBs when present; retain CC0 fallback.
 // Asset licensing/provenance must be documented before shipping replacements.
 export const GENESIS_REALITY_MODEL_BASE='/assets/genesis/reality/';
+// Optional environmental scans may be uploaded independently of core characters/trees.
+export const GENESIS_DECOR_MODEL_KEYS=Object.freeze(['grass_medium_01','mountainside']);
 export function genesisArtPlacement(cx,cz,i,chunkSize=80){
  const frac=(n)=>n-Math.floor(n);
  const seed=(s)=>frac(Math.sin(cx*127.1+cz*311.7+i*79.7+s*17.3)*43758.5453123);
@@ -37,7 +39,8 @@ export async function loadGenesisArtLibrary(scene){
  if(!globalThis.BABYLON?.SceneLoader?.LoadAssetContainerAsync)
    throw Error('Babylon glTF loader is unavailable.');
  const base='/assets/genesis/models/';
- const results=await Promise.allSettled(GENESIS_MODEL_KEYS.map(async key=>{
+ const requested=[...GENESIS_MODEL_KEYS,...GENESIS_DECOR_MODEL_KEYS];
+ const results=await Promise.allSettled(requested.map(async key=>{
   const realityUrl=GENESIS_REALITY_MODEL_BASE+key+'.glb';
   // Optional replacements must never block the working CC0 fallback.
   // A valid HTTP 200 is not proof the .glb is parseable.
@@ -54,9 +57,11 @@ export async function loadGenesisArtLibrary(scene){
         const container=await BABYLON.SceneLoader.LoadAssetContainerAsync(
           '',blobUrl,scene,undefined,'.glb'
         );
-        if(!container.meshes.some(mesh=>mesh.getTotalVertices?.()>0)){
+        const vertices=container.meshes.reduce((sum,mesh)=>sum+(mesh.getTotalVertices?.()||0),0);
+        const budget=key==='grass_medium_01'?24000:key==='mountainside'?120000:Infinity;
+        if(!vertices||vertices>budget){
           container.dispose();
-          throw Error('Replacement contains no renderable meshes.');
+          throw Error('Reality asset exceeds renderable vertex budget or is empty: '+vertices);
         }
         return {key,container,source:'reality'};
       }finally{URL.revokeObjectURL(blobUrl);}
@@ -65,6 +70,7 @@ export async function loadGenesisArtLibrary(scene){
     console.warn('Genesis optional reality asset invalid; using fallback:',key,error);
   }
   const response=await fetch(base+key+'.glb.b64',{credentials:'same-origin'});
+  if(!response.ok&&GENESIS_DECOR_MODEL_KEYS.includes(key))return {key,container:null,source:'not-installed'};
   if(!response.ok)throw Error(key+' art request failed: '+response.status);
   const bytes=decodeGenesisGlb64(await response.text());
   const blobUrl=URL.createObjectURL(new Blob([bytes],{type:'model/gltf-binary'}));
@@ -79,10 +85,10 @@ export async function loadGenesisArtLibrary(scene){
  const containers=new Map(),failures=[],sources={};
  results.forEach((item,i)=>{
   if(item.status==='fulfilled'){
-    containers.set(item.value.key,item.value.container);
+    if(item.value.container)containers.set(item.value.key,item.value.container);
     sources[item.value.key]=item.value.source;
   }
-  else failures.push(GENESIS_MODEL_KEYS[i]+': '+String(item.reason?.message||item.reason));
+  else failures.push(requested[i]+': '+String(item.reason?.message||item.reason));
  });
  if(!['tree1','tree2','tree3'].some(key=>containers.has(key))){
   for(const container of containers.values())container.dispose();
