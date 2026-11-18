@@ -250,6 +250,18 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
      if(WAYSTONES.some(w=>Math.hypot(w.x-x,w.z-z)<16))continue;
      if(LANDMARKS.some(w=>Math.hypot(w.x-x,w.z-z)<14))continue;
      const y=terrainHeight(x,z),style=biomeAt(x,z).id;
+     // Sparse genuine alpha-cutout grass cards, with a strict per-chunk mobile cap.
+     // The scene still works if the optional artist-authored asset is absent.
+     const grassBudget=mobile?(graphics.mode==='cinematic'?12:8):
+       (graphics.mode==='cinematic'?28:18);
+     if(artLibrary?.has('grass_medium_01')&&
+         ['forest','marsh','aether'].includes(style)&&
+         i%4===0&&i<grassBudget*4){
+       const scale=.55+rng(cx,cz,i,211)*.48;
+       if(artLibrary.place('grass_medium_01',root,x,y,z,{
+         scale,rotation:rng(cx,cz,i,212)*Math.PI*2
+       }))continue;
+     }
      const height=.18+rng(cx,cz,i,214)*.65;
      if(['forest','marsh','aether'].includes(style)){
        for(let blade=0;blade<2;blade++){
