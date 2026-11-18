@@ -44,3 +44,16 @@ Both source models came from user-provided 4K Poly Haven BLEND ZIPs (CC0):
 - https://polyhaven.com/a/mountainside
 
 `grass_medium_01.glb` **is present on the draft PR #204 branch** as an optimized 16,984-byte alpha-masked grass-card prototype. It is not the original Blender grass mesh and its visuals still require on-device Safari QA. `mountainside.glb` **is not installed**; the original user-provided Blender ZIP is available for future export and optimization. All future originals must pass material alpha, texture compression, size/collision, triangle budgets, and on-device frame-time checks. See `docs/GENESIS_REALISM_PRODUCTION_PLAN.md`.
+
+## New user-supplied 3D mesh — mossy rocky ground patch (Nov 2026)
+
+An independently uploaded `model.glb` (original file 14,187,556 bytes) was analyzed:
+- Blender glTF 2.0 exporter; one static mesh; 55,552 vertices; 89,442 triangles
+- Three embedded 2K textures: diffuse, normal and metallic/roughness; no skeleton or animation
+- ~1.78m × 0.40m × 1.89m bounding extents; multiple irregular mossy stone/ground clusters
+- Optimized **locally**, using VTK quadric mesh simplification and 1K texture resizing: 22,282 vertices, 23,254 triangles, 4,172,676 bytes, ground base aligned to Y=0
+- Prepared output filename: `mossy_rock_patch.glb`; *binary not yet committed to GitHub*
+- Loader key `mossy_rock_patch` accepts up to 30,000 source vertices; in forest/marsh, scenery only, ≤2 instances/chunk mobile and ≤3 desktop
+- **Provenance / redistribution license unverified**: the GLB contains no licensed-source metadata. Confirm the original source URL and rights before adding the binary to the public repository or merging this asset into production.
+
+The code and tests may ship with an optional missing-asset fallback, but that does *not* make the unlicensed geometry available at runtime.
