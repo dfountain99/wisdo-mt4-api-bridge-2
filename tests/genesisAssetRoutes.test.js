@@ -106,7 +106,7 @@ test('Genesis reality GLBs are served with correct binary type and missing asset
  const root='http://127.0.0.1:'+server.address().port;
  const found=await fetch(root+'/assets/genesis/reality/tree1.glb');
  assert.equal(found.status,200);
- assert.match(found.headers.get('content-type')||'',/^model\\/gltf-binary/);
+ assert.ok((found.headers.get('content-type')||'').startsWith('model/gltf-binary'));
  assert.equal(found.headers.get('x-content-type-options'),'nosniff');
  assert.deepEqual(Buffer.from(await found.arrayBuffer()),binary);
  const missing=await fetch(root+'/assets/genesis/reality/uninstalled.glb');
