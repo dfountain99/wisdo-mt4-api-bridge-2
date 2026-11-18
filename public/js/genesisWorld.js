@@ -539,6 +539,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
       if(genesisSceneDisposed(scene)){asset?.dispose();return;}
       if(!asset){
         console.info('Genesis aircraft file has not been deployed yet: /assets/genesis/vehicles/abandoned_aircraft.glb');
+        announce('Airplane preview unavailable: aircraft GLB has not been installed on the server.',true);
         return;
       }
       const aircraft=asset.spawn({
