@@ -250,6 +250,16 @@ export function createGenesisTerrain(scene,{mobile=false}={}){
      if(WAYSTONES.some(w=>Math.hypot(w.x-x,w.z-z)<16))continue;
      if(LANDMARKS.some(w=>Math.hypot(w.x-x,w.z-z)<14))continue;
      const y=terrainHeight(x,z),style=biomeAt(x,z).id;
+     // Real scanned ground detail. No physics/collision or resource reward: scenery only.
+     // Only two instances per mobile chunk and three on desktop when installed.
+     if(artLibrary?.has('mossy_rock_patch')&&
+         (style==='forest'||style==='marsh')&&
+         i%67===7&&i<(mobile?2:3)*67){
+       const scale=.72+rng(cx,cz,i,246)*.45;
+       if(artLibrary.place('mossy_rock_patch',root,x,y,z,{
+         scale,rotation:rng(cx,cz,i,247)*Math.PI*2
+       }))continue;
+     }
      // Sparse genuine alpha-cutout grass cards, with a strict per-chunk mobile cap.
      // The scene still works if the optional artist-authored asset is absent.
      const grassBudget=mobile?(graphics.mode==='cinematic'?12:8):
