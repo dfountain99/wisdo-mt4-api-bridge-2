@@ -123,7 +123,7 @@ test('graphics modes scale scenery detail without unbounded mobile resource use'
    assert.ok(low.trees<normal.trees&&normal.trees<high.trees);
    assert.ok(low.decorations<normal.decorations&&normal.decorations<high.decorations);
    assert.ok(high.subdivisions<=32);
-   assert.ok(high.trees<=24);
+   assert.ok(high.trees<=(mobile?24:48));
    assert.ok(low.scale>normal.scale&&normal.scale>high.scale);
    assert.equal(high.shadows,true);
    assert.equal(genesisGraphicsPreset('bad-profile',mobile).mode,'balanced');

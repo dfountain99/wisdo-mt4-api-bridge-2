@@ -1,5 +1,6 @@
 /**
- * Serve only the public, CC0 Genesis model library.
+ * Serve self-hosted Genesis art: CC0 fallbacks, photo textures, and optional
+ * licensed reality-grade GLB replacements.
  *
  * The client deliberately loads these through /assets/genesis/models/*.glb.b64.
  * Without this mount, all art requests returned 404 and the game silently fell
@@ -16,9 +17,23 @@ export const genesisTextureDirectory=fileURLToPath(
   new URL('../public/assets/genesis/textures/',import.meta.url)
 );
 
+export const genesisRealityDirectory=fileURLToPath(
+  new URL('../public/assets/genesis/reality/',import.meta.url)
+);
+
 export function registerGenesisAssetRoutes(app,{
- directory=genesisModelDirectory,textureDirectory=genesisTextureDirectory
+ directory=genesisModelDirectory,
+ textureDirectory=genesisTextureDirectory,
+ realityDirectory=genesisRealityDirectory
 }={}){
+ // Explicit mount is required: production does not expose /public generically.
+ app.use('/assets/genesis/reality',express.static(realityDirectory,{
+  index:false,dotfiles:'deny',fallthrough:false,redirect:false,maxAge:'1h',
+  setHeaders(res,file){
+   if(file.endsWith('.glb'))res.setHeader('Content-Type','model/gltf-binary');
+   res.setHeader('X-Content-Type-Options','nosniff');
+  },
+ }));
  app.use('/assets/genesis/models',express.static(directory,{
   index:false,
   dotfiles:'deny',

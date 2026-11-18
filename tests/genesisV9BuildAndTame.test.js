@@ -152,7 +152,8 @@ test('mobile interface keeps actual server actions for snap, tame and salvage',(
  for(const name of ['snap-target','snap-side','snap-next','settlement-list','companion-status']){
   assert.match(html,new RegExp('id="'+name+'"'));
  }
- assert.match(html,/genesisWorld\.js\?v=9/);
+ const version=Number(/genesisWorld\.js\?v=(\d+)/.exec(html)?.[1]||0);
+ assert.ok(version>=9,'Genesis client entrypoint must not regress to V8 or earlier');
  assert.match(ui,/genesisResolvePlacement/);
  assert.match(ui,/action\(\{action:'tame',echoId:/);
  assert.match(ui,/action\(\{action:'dismantle',structureId:/);

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync,mkdtempSync,writeFileSync,rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import express from 'express';
 import { registerGenesisAssetRoutes } from '../server/genesisAssetRoutes.js';
 import {
@@ -85,4 +87,28 @@ test('the iPhone entrypoint reloads the corrected 3D loader and terrain module',
  assert.ok(Number(/genesisTerrain\.js\?v=(\d+)/.exec(renderer)?.[1]||0)>=6);
  assert.match(renderer,/genesisSceneDisposed\(scene\)/);
  assert.doesNotMatch(renderer,/scene\.isDisposed\(\)/);
+});
+
+
+test('Genesis reality GLBs are served with correct binary type and missing assets return 404',async t=>{
+ const directory=mkdtempSync(join(tmpdir(),'genesis-reality-'));
+ t.after(()=>rmSync(directory,{recursive:true,force:true}));
+ const binary=Buffer.alloc(24);
+ binary.write('glTF',0,'ascii');
+ writeFileSync(join(directory,'tree1.glb'),binary);
+ const app=express();
+ registerGenesisAssetRoutes(app,{realityDirectory:directory});
+ const server=await new Promise((resolve,reject)=>{
+  const listener=app.listen(0,'127.0.0.1',()=>resolve(listener));
+  listener.on('error',reject);
+ });
+ t.after(()=>new Promise(resolve=>server.close(resolve)));
+ const root='http://127.0.0.1:'+server.address().port;
+ const found=await fetch(root+'/assets/genesis/reality/tree1.glb');
+ assert.equal(found.status,200);
+ assert.ok((found.headers.get('content-type')||'').startsWith('model/gltf-binary'));
+ assert.equal(found.headers.get('x-content-type-options'),'nosniff');
+ assert.deepEqual(Buffer.from(await found.arrayBuffer()),binary);
+ const missing=await fetch(root+'/assets/genesis/reality/uninstalled.glb');
+ assert.equal(missing.status,404);
 });
