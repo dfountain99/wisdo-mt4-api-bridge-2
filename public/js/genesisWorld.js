@@ -1,5 +1,6 @@
 import { createGenesisTerrain } from './genesisTerrain.js?v=11';
 import { loadGenesisArtLibrary } from './genesisArtLibrary.js?v=13';
+import { loadGenesisAircraft } from './genesisAircraft.js?v=1';
 import { loadGenesisPhotoSurfaces,genesisSceneDisposed }
   from './genesisPhotoSurfaces.js?v=6';
 import { buildGenesisHybrid } from './genesisCreatureVisuals.js?v=7';
@@ -24,6 +25,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
   const clean=(s)=>String(s||'').replace(/_/g,' ');
   let game=null,scene=null,engine=null,camera=null,player=null,prism=null,lighting=null,sunLight=null,terrainSystem=null,shadowGenerator=null;
   let loadedArt=null;
+  let aircraftPreview=null;
   // Low-poly remote avatars use a separate render budget from wildlife.
   const remotePlayers=new Map();
   let nearbyPromise=null,lastNearbyAt=0;
@@ -527,6 +529,43 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     if(save)try{localStorage.setItem('wisdo:genesis:graphics',preset.mode);}catch{}
     return preset;
   }
+  async function previewGenesisAircraft(){
+    // Initial visual QA only. This preview is local to the visitor's client
+    // and does not grant server-side aircraft ownership, repairs or flight.
+    const previewX=game.position.x+18,previewZ=game.position.z+5;
+    let asset=null;
+    try{
+      asset=await loadGenesisAircraft(scene);
+      if(genesisSceneDisposed(scene)){asset?.dispose();return;}
+      if(!asset){
+        console.info('Genesis aircraft file has not been deployed yet: /assets/genesis/vehicles/abandoned_aircraft.glb');
+        announce('Airplane preview unavailable: aircraft GLB has not been installed on the server.',true);
+        return;
+      }
+      const aircraft=asset.spawn({
+        x:previewX,
+        y:terrainHeight(previewX,previewZ)+3,
+        z:previewZ,
+        scale:10,
+        rotationY:Math.PI/3
+      });
+      aircraftPreview=asset;
+      // Set the camera on the aircraft only when the explicit QA preview URL
+      // is used, so ordinary gameplay camera behavior stays unchanged.
+      if(new URLSearchParams(location.search).get('aircraft')==='1'&&camera){
+        camera.setTarget(new BABYLON.Vector3(previewX,terrainHeight(previewX,previewZ)+3,previewZ));
+        camera.radius=26;
+      }
+      console.info('Genesis airplane preview spawned near your start: x='+Math.round(previewX)+', z='+Math.round(previewZ));
+      announce('Abandoned aircraft preview loaded nearby (east of spawn).');
+      if(shadowGenerator)for(const mesh of aircraft.getChildMeshes(false))
+        if(mesh.getTotalVertices?.()>0&&!mesh.isDisposed())shadowGenerator.addShadowCaster(mesh);
+    }catch(error){
+      asset?.dispose();
+      console.warn('Genesis aircraft preview failed:',error);
+      announce('Aircraft preview could not load: '+String(error?.message||error).slice(0,85),true);
+    }
+  }
   function setupScene(){
     if(!window.BABYLON){throw new Error('3D engine failed to load. Check internet or content restrictions.');}
     const canvas=$('renderCanvas');
@@ -572,6 +611,7 @@ import { terrainHeight,biomeAt,WORLD_LIMIT,WAYSTONES,CHUNK_SIZE,worldChunk,neare
     camera.lowerRadiusLimit=8;camera.upperRadiusLimit=28;camera.lowerBetaLimit=.38;camera.upperBetaLimit=1.48;
     camera.wheelDeltaPercentage=.018;camera.panningSensibility=0;
     camera.attachControl(canvas,true);
+    void previewGenesisAircraft();
     if(matchMedia('(max-width:950px)').matches){
       // Right thumb owns the look area: do not also rotate from the left stick.
       camera.inputs.removeByType('ArcRotateCameraPointersInput');
