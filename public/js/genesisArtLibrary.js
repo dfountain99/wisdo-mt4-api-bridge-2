@@ -12,7 +12,7 @@ export const GENESIS_MODEL_KEYS=Object.freeze(['tree1','tree2','tree3','bush','e
 // Asset licensing/provenance must be documented before shipping replacements.
 export const GENESIS_REALITY_MODEL_BASE='/assets/genesis/reality/';
 // Optional environmental scans may be uploaded independently of core characters/trees.
-export const GENESIS_DECOR_MODEL_KEYS=Object.freeze(['grass_medium_01','mountainside']);
+export const GENESIS_DECOR_MODEL_KEYS=Object.freeze(['grass_medium_01','mountainside','mossy_rock_patch']);
 /** Reality progress is based on successfully parsed GLBs, never on quality presets. */
 export function genesisRealityReadiness(sources={}){
  const expected=[...GENESIS_MODEL_KEYS,...GENESIS_DECOR_MODEL_KEYS];
@@ -72,7 +72,8 @@ export async function loadGenesisArtLibrary(scene){
           '',blobUrl,scene,undefined,'.glb'
         );
         const vertices=container.meshes.reduce((sum,mesh)=>sum+(mesh.getTotalVertices?.()||0),0);
-        const budget=key==='grass_medium_01'?24000:key==='mountainside'?120000:Infinity;
+        const budget=key==='grass_medium_01'?24000:key==='mountainside'?120000:
+          key==='mossy_rock_patch'?30000:Infinity;
         if(!vertices||vertices>budget){
           container.dispose();
           throw Error('Reality asset exceeds renderable vertex budget or is empty: '+vertices);
