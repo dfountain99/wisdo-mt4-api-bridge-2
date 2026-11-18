@@ -13,6 +13,20 @@ export const GENESIS_MODEL_KEYS=Object.freeze(['tree1','tree2','tree3','bush','e
 export const GENESIS_REALITY_MODEL_BASE='/assets/genesis/reality/';
 // Optional environmental scans may be uploaded independently of core characters/trees.
 export const GENESIS_DECOR_MODEL_KEYS=Object.freeze(['grass_medium_01','mountainside']);
+/** Reality progress is based on successfully parsed GLBs, never on quality presets. */
+export function genesisRealityReadiness(sources={}){
+ const expected=[...GENESIS_MODEL_KEYS,...GENESIS_DECOR_MODEL_KEYS];
+ const installed=expected.filter(key=>sources[key]==='reality');
+ return Object.freeze({
+  installed,
+  missing:expected.filter(key=>sources[key]!=='reality'),
+  installedCount:installed.length,
+  expectedCount:expected.length,
+  forestGrassReady:installed.includes('grass_medium_01'),
+  coreReady:GENESIS_MODEL_KEYS.every(key=>sources[key]==='reality'),
+ });
+}
+
 export function genesisArtPlacement(cx,cz,i,chunkSize=80){
  const frac=(n)=>n-Math.floor(n);
  const seed=(s)=>frac(Math.sin(cx*127.1+cz*311.7+i*79.7+s*17.3)*43758.5453123);
@@ -127,6 +141,7 @@ export async function loadGenesisArtLibrary(scene){
   spawn,place,
   available:[...containers.keys()],
   sources,
+  realitySummary:genesisRealityReadiness(sources),
   realityReady:GENESIS_MODEL_KEYS.every(key=>sources[key]==='reality'),
   failures,
   dispose:()=>{for(const container of containers.values())container.dispose();containers.clear();}
