@@ -29,3 +29,19 @@ self-hosted by WISDO and don't need a third-party CDN at runtime.
 - This upgrades authored character and vegetation models. It does **not** promise
   photorealistic full-production terrain or complete PRISM character animation;
   those need further asset art and performance validation.
+
+## Optional forest scan integration (Nov 2026)
+
+The Reality asset directory `public/assets/genesis/reality/` (served by `registerGenesisAssetRoutes`) also accepts:
+
+| Optional GLB | Use | Runtime budget |
+| --- | --- | --- |
+| `grass_medium_01.glb` | Dense forest/marsh/aether ground cover, instanced in deterministic streamed chunks | ≤24,000 source mesh vertices; ≤8–12 instances/chunk on mobile |
+| `mountainside.glb` | Rugged cliff model, **available to the library only**; not auto-placed until dimensions and collision are validated | ≤120,000 source mesh vertices |
+
+Both source models came from user-provided 4K Poly Haven BLEND ZIPs (CC0):
+- https://polyhaven.com/a/grass_medium_01
+- https://polyhaven.com/a/mountainside
+
+The optional files are *not included in GitHub code commits*. Upload optimized binary GLBs through Git/Git LFS or an approved asset-hosting pipeline; code-only releases keep safe procedural fallbacks.
+The iPhone starter kit includes an ultra-light grass card prototype. It is not the original Blender mesh. Original meshes require Blender export and review, including material alpha masks, texture compression, character-scale matching, terrain contact, polygon budget and iPhone Safari FPS.
