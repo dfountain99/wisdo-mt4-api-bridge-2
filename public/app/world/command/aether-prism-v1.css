@@ -23,6 +23,7 @@
 .ap-orbit{position:absolute;bottom:23px;left:50%;width:min(420px,95%);aspect-ratio:1;transform:translateX(-50%) rotateX(67deg);border:1px solid var(--ap-mode);border-radius:50%;box-shadow:0 0 50px var(--ap-glow),inset 0 0 50px var(--ap-glow);opacity:.45;animation:ap-orbit 16s linear infinite}
 .ap-modes{position:absolute;z-index:5;top:6px;left:50%;transform:translateX(-50%);display:flex;gap:5px;white-space:nowrap}
 .ap-modes span{padding:7px 9px;border:1px solid #62749466;border-radius:999px;background:#08101ebe;color:#8b9abb;font-size:9px;font-weight:850;letter-spacing:.13em}
+.ap-modes a{display:inline-flex;align-items:center;padding:7px 9px;border:1px solid #4db8ca;border-radius:999px;background:#08283dd9;color:#a9f1f9;text-decoration:none;font-size:9px;font-weight:850;letter-spacing:.13em;pointer-events:auto;box-shadow:0 0 18px #27adcf26}.ap-modes a:focus-visible{outline:2px solid #fff;outline-offset:2px}
 .ap-modes span[aria-current="true"]{border-color:var(--ap-mode);color:#fff;box-shadow:0 0 15px var(--ap-glow)}
 .ap-footer{position:relative;z-index:6;display:flex;flex-direction:column;align-items:center;gap:8px;margin:0 auto;padding:0 18px 20px;max-width:610px}
 .ap-drawdown{position:relative;width:min(430px,100%);min-height:58px;border:1px solid #9b8ddd;border-radius:17px;color:#fff;font-size:clamp(16px,2vw,22px);font-weight:950;letter-spacing:.16em;background:linear-gradient(145deg,#1b2143,#090e23);box-shadow:inset 0 1px #e5d7ff80,0 0 0 1px #6d6dc844,0 0 30px #7e61d544;cursor:pointer}

@@ -37,7 +37,17 @@
     "owned-home-binding",
     "adapter-source-binding",
     "explicit-device-approval",
-    "legacy-device-adapter-planning"
+    "legacy-device-adapter-planning",
+    "observed-edge-operations-telemetry",
+    "explicit-ha-camera-sensor-event-forwarding",
+    "camera-event-deduplication-and-approved-source-scope",
+    "wisdo-os-telemetry",
+    "sentinel-camera-event-relay",
+    "supervised-ops-recovery",
+    "os-edge-heartbeat",
+    "explicit-camera-event-mapping",
+    "camera-event-receipt-idempotency",
+    "source-owned-sentinel-event-ingestion"
   ],
   "serverEnvironmentVariables": [
     "WISDO_VOICE_EXECUTION_MODE",
@@ -85,17 +95,20 @@
     "WISDO_HA_CONTROL_POLL_SECONDS",
     "WISDO_HA_HTTP_TIMEOUT_SECONDS",
     "WISDO_HA_ALARM_CODE",
-    "WISDO_HOME_ID"
+    "WISDO_HOME_ID",
+    "WISDO_SENTINEL_ENTITY_MAP",
+    "WISDO_SENTINEL_POLL_SECONDS",
+    "WISDO_SENTINEL_STATE_FILE"
   ],
   "sha256": {
-    ".env.example": "cc56f4e368df04b62e28bfbfb9499bd2f83890da03be7b07cd34b0559a1556fc",
+    ".env.example": "c12daf48c4b8e92d0583404e72d89f979b6ac09d25a914acf1312e87b56e5268",
     "VERSION": "512f0b4d94656c0d42568e401ef23b3a96f92058edb4f9ab4dbeeef371b0b28c",
-    "enroll.py": "d258f4c667d4d9757bb62449c5fcaba63137d7f50f6da0c06f9287f8798190a7",
+    "enroll.py": "bbda45b3fdb023fa720f0feae72629a73b0be12379c18fcfa13b033a72ed0b9e",
     "install.sh": "30712294d611b8476b6ed6385e161867e88a0f3f4cd15e4b0f2ed9a6a06c4889",
     "requirements.txt": "f4ffdb2526895e49448b4ef157d029ffcb5a2d07d2e96a77edd586cc6bb2da88",
     "uninstall.sh": "ccbb4b0a0dd57a14b4bf07b897e5b84177d6fab7570ed5fbb100a7240001285f",
-    "wisdo_edge.py": "32cbcea81953f221e3154c582aff3b89ed2cc6da78adb77e7314e49b410cc1c0",
-    "home_assistant_bridge.py": "fb299dbfa2a90fb86b1f247106cff9c243f59f09c5ba39ec692beda5bcad6332",
+    "wisdo_edge.py": "2991b865d571a4c367d03ae613d1f456e0107fee82c880cfaac8ade3900d457c",
+    "home_assistant_bridge.py": "af31dfbb3ea2e60c7492132146452a6d4ab99b54ae952f4e4f40587a96077238",
     "windows-env.example": "1ef11f1c5296cb99d1602a5b6d171e7e0e5b0aae1d06b820bb9a32881377276d"
   }
 }

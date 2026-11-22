@@ -132,7 +132,7 @@ test('V17 ambient room arrival is real capability-gated device execution',async(
   assert.match(edge,/def wake_trading_workstation/);
   assert.match(edge,/sock\.sendto\(packet/);
   assert.match(edge,/def poll_presence/);
-  assert.match(edgeEnroll,/presence.*bool\(presence_command\)/);
+  assert.match(edgeEnroll,/WISDO_PRESENCE_COMMAND/);assert.match(edgeEnroll,/["']presence["']:\s*bool\(/);
   assert.match(control,/leaseExecutions/);
   assert.match(control,/completeExecution/);
   assert.match(controlRoutes,/executions\/lease/);
