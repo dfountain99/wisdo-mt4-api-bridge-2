@@ -68,6 +68,20 @@
         <tr><td><strong>${h(component.name)}</strong></td><td>${h(deviceClass(component))}</td><td>${h(roomOf(component) || '—')}</td><td>${h(component.adapter_id || 'unknown')}</td><td><span class="tag">${h(component.status)}</span></td><td><button class="btn" data-revoke="${index}" type="button">Revoke</button></td></tr>`).join('')
       : '<tr><td colspan="6">No approved devices yet.</td></tr>';
 
+    const okam = [...(model.pending || []), ...(model.approved || []), ...(model.unavailable || [])]
+      .filter((item) => item.component_type === 'camera' && item.metadata?.camera_vendor === 'o-kam-pro');
+    const byId = new Map(okam.map((item) => [item.component_id, item]));
+    const cameras = [...byId.values()];
+    const motion = [...(model.pending || []), ...(model.approved || [])]
+      .filter((item) => item.metadata?.camera_event_source === 'home-assistant-entity' && item.metadata?.camera_vendor === 'o-kam-pro');
+    const cameraStatus = document.getElementById('okamCameraStatus');
+    if (cameraStatus) {
+      cameraStatus.innerHTML = cameras.length
+        ? cameras.map((camera) => `<div class="card" style="margin-top:8px;padding:12px"><strong>${h(camera.name)}</strong> · ${h(camera.status)} <span class="tag">${h(camera.approval_status || 'pending')}</span><div class="muted">${h(camera.component_id)} · ${camera.approval_status === 'approved' ? 'Approved for safe state sync' : 'Awaiting your Home and source approval'}</div></div>`).join('')
+          + `<p>Motion entity: ${motion.length ? motion.map((sensor) => `${h(sensor.name)} (${h(sensor.state?.state || sensor.status || 'unknown')})`).join(', ') : 'Not reported by Home Assistant; motion automation is not available yet.'}</p>`
+        : 'No O-KAM camera has reported from a trusted Home Assistant edge yet. No cloud video connection has been made.';
+    }
+
     document.getElementById('duplicatesBox').innerHTML = model.possibleDuplicates.length
       ? model.possibleDuplicates.map((duplicate) => `
         <div class="card warn" style="margin-top:8px"><strong>${h(duplicate.key)}</strong><p>${h(duplicate.reason)}</p><div>${duplicate.names.map(h).map((name) => `<span class="tag">${name}</span>`).join('')}</div></div>`).join('')
