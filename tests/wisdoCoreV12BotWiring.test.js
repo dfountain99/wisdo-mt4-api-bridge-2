@@ -169,7 +169,7 @@ test('V12 account state exposes stable MT4 identity and verified victory events'
   assert.equal(state.victoryEvents[0].profit, 28);
 });
 
-test('V12 HIGHTOWER hard-gates new entries with broker windows and WISDO pause flag', async () => {
+test('V12 HIGHTOWER hard-gates new entries with local and weekly windows and terminal and lane pauses', async () => {
   const [ea, receiver, reporter] = await Promise.all([
     fs.readFile(new URL('../mql4/HIGHTOWER_UNITY_CAMPAIGN_v6_21.mq4', import.meta.url), 'utf8'),
     fs.readFile(new URL('../mql4/include/WISDO_H620Receiver.mqh', import.meta.url), 'utf8'),
@@ -177,7 +177,12 @@ test('V12 HIGHTOWER hard-gates new entries with broker windows and WISDO pause f
   ]);
   assert.match(ea, /HT6DirectTradingWindowAllows/);
   assert.match(ea, /WISDO_TRADING_PAUSED/);
-  assert.match(ea, /AllowNewEntries=\(DirectAllowNewEntries && directTimeWindowAllowed && !wisdoTradingPaused\)/);
+  assert.match(ea, /AllowNewEntries=\(DirectAllowNewEntries && HT6ClockAndPauseAllows\(TimeCurrent\(\)\)\)/);
+  assert.match(ea, /bool HT6ClockAndPauseAllows\(datetime now\)\s*\{[^}]*GlobalVariableCheck\("WISDO_TRADING_PAUSED"\)[^}]*return HT6DirectTradingWindowAllows\(now\) && !terminalPaused && !HT6LanePaused\(\);/);
+  assert.match(ea, /return configuredWindow && HT6WeeklyEntryAllowed\(now\);/);
+  assert.match(ea, /bool HT6LanePaused\(\)\s*\{[^}]*WcoPrefix\(Symbol\(\),MagicNumber\)\+"lanePause"[^}]*return GlobalVariableCheck\(key\) && GlobalVariableGet\(key\)!=0\.0;/);
+  assert.match(ea, /bool HT6DoctrineCommanderSendAllows\([^)]*\)\s*\{\s*if\(!DirectAllowNewEntries \|\| !HT6ClockAndPauseAllows\(TimeCurrent\(\)\)\)/);
+  assert.match(ea, /bool H620EntryAllows\([^)]*\)\s*\{\s*why="OK";\s*if\(!DirectAllowNewEntries \|\| !HT6ClockAndPauseAllows\(TimeCurrent\(\)\)\)/);
   assert.match(receiver, /windowAllowed/);
   assert.match(receiver, /entryAllowed/);
   assert.match(receiver, /intentScore/);
