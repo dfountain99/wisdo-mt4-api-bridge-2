@@ -2044,8 +2044,59 @@ bool JsonNextObject(string body, int &pos, string &objectText)
    return false;
 }
 
+// CHRONOS schedule packets must never commit a partially written week.
+bool ExecuteChronosWeeklySchedule(string commandJson, string &message)
+{
+   if(!EnableCampaignControl || CampaignControlMagic<=0 || StringLen(CampaignControlSymbol)==0)
+   {
+      message="CHRONOS requires the exact enabled campaign receiver.";
+      return false;
+   }
+   string prefix="CEM.WISDO."+IntegerToString(AccountNumber())+"."+CampaignControlSymbol+"."+IntegerToString(CampaignControlMagic)+".";
+   string enabled=prefix+"ScheduleEnabled";
+   string body=JsonFindArrayBody(commandJson,"globals");
+   int pos=0, count=0;
+   string obj="";
+   double masks[7];
+   while(JsonNextObject(body,pos,obj))
+   {
+      string key=CemReplaceAccountToken(JsonGetString(obj,"name",""));
+      double value=JsonGetDouble(obj,"value",-1);
+      if(count==0 && (key!=enabled || value!=2)) {message="Invalid CHRONOS begin marker.";return false;}
+      if(count>=1 && count<=7)
+      {
+         if(key!=prefix+"ScheduleDay"+IntegerToString(count-1) || value<0 || value>16777215 || value!=MathFloor(value))
+         {message="Invalid CHRONOS day mask or target.";return false;}
+         masks[count-1]=value;
+      }
+      if(count==8 && (key!=enabled || value!=1)) {message="Invalid CHRONOS commit marker.";return false;}
+      if(count>8) {message="Unexpected CHRONOS schedule item.";return false;}
+      count++;
+   }
+   if(count!=9) {message="Incomplete CHRONOS week; no update applied.";return false;}
+   string detail="";
+   if(!CemApplyOneGlobal(enabled,2,detail)) {message=detail;return false;}
+   GlobalVariablesFlush();
+   for(int day=0;day<7;day++)
+   {
+      string dayKey=prefix+"ScheduleDay"+IntegerToString(day);
+      if(!CemApplyOneGlobal(dayKey,masks[day],detail) || !GlobalVariableCheck(dayKey) || GlobalVariableGet(dayKey)!=masks[day])
+      {message="CHRONOS remains blocked; failed day "+IntegerToString(day)+": "+detail;return false;}
+   }
+   GlobalVariablesFlush();
+   if(!CemApplyOneGlobal(enabled,1,detail)) {message="CHRONOS commit failed: "+detail;return false;}
+   GlobalVariablesFlush();
+   message="CHRONOS week stored for exact receiver; EA telemetry must confirm enforcement.";
+   return true;
+}
+
 bool ExecuteCemSetGlobalsCommand(string commandJson, string &message, int &ticket)
 {
+   if(JsonGetString(commandJson,"scheduleFor","")=="BROKER_CLOCK")
+   {
+      ticket=-1;
+      return ExecuteChronosWeeklySchedule(commandJson,message);
+   }
    ticket = -1;
    int applied = 0;
    int failed = 0;
