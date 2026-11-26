@@ -27,8 +27,16 @@ test('V12 HIGHTOWER owns the real entry-window enforcement and publishes Chronos
     fs.readFile(new URL('../mql4/include/WISDO_ReporterCampaign.mqh',import.meta.url),'utf8'),
   ]);
   assert.match(ea,/HT6_TradingWindowMode/);
-  assert.match(ea,/HT6DirectTradingWindowAllows\(TimeCurrent\(\)\)/);
-  assert.match(ea,/AllowNewEntries=\(DirectAllowNewEntries && directTimeWindowAllowed && !wisdoTradingPaused\)/);
+  assert.match(ea, /datetime clock=mode==3\.0\?HT6EasternClock\(TimeGMT\(\)\):now;/);
+  assert.match(ea, /if\(mode!=1\.0 && mode!=3\.0\)return false;/);
+  assert.match(ea, /DirectCustomWindowsUseEasternTime \? HT6EasternCustomWindowAllows\(TimeGMT\(\)\)/);
+  assert.match(ea, /utc-\(\(utc>=spring && utc<fall\)\?4:5\)\*3600/);
+  assert.match(ea, /AllowNewEntries=\(DirectAllowNewEntries && HT6ClockAndPauseAllows\(TimeCurrent\(\)\)\)/);
+  assert.match(ea, /bool HT6ClockAndPauseAllows\(datetime now\)\s*\{[^}]*GlobalVariableCheck\("WISDO_TRADING_PAUSED"\)[^}]*return HT6DirectTradingWindowAllows\(now\) && !terminalPaused && !HT6LanePaused\(\);/);
+  assert.match(ea, /return configuredWindow && HT6WeeklyEntryAllowed\(now\);/);
+  assert.match(ea, /bool HT6LanePaused\(\)\s*\{[^}]*WcoPrefix\(Symbol\(\),MagicNumber\)\+"lanePause"[^}]*return GlobalVariableCheck\(key\) && GlobalVariableGet\(key\)!=0\.0;/);
+  assert.match(ea, /bool HT6DoctrineCommanderSendAllows\([^)]*\)\s*\{\s*if\(!DirectAllowNewEntries \|\| !HT6ClockAndPauseAllows\(TimeCurrent\(\)\)\)/);
+  assert.match(ea, /bool H620EntryAllows\([^)]*\)\s*\{\s*why="OK";\s*if\(!DirectAllowNewEntries \|\| !HT6ClockAndPauseAllows\(TimeCurrent\(\)\)\)/);
   assert.match(receiver,/sessionQuality/);
   assert.match(receiver,/scheduleEnforced/);
   assert.match(receiver,/entryAllowed/);
