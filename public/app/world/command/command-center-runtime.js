@@ -91,8 +91,8 @@ function markup(){
               <button class="lm-example" type="button" data-example="return stops to normal EA management">RETURN TO EA</button>
             </div>
             <div class="lm-quick">
-              <button class="lm-btn" type="button" data-live-action="PAUSE_BOT">PAUSE BOT<span>Stop trading activity</span></button>
-              <button class="lm-btn good" type="button" data-live-action="RESUME_BOT">RESUME BOT<span>Return to EA logic</span></button>
+              <button class="lm-btn" type="button" data-live-action="PAUSE_BOT">PAUSE TERMINAL<span>Block new EA entries</span></button>
+              <button class="lm-btn good" type="button" data-live-action="RESUME_BOT">RESUME TERMINAL<span>Other entry gates still apply</span></button>
               <button class="lm-btn" type="button" data-live-action="STOP_NEW_ENTRIES">STOP ENTRIES<span>Manage current trades only</span></button>
               <button class="lm-btn good" type="button" data-live-action="RESUME_NEW_ENTRIES">ALLOW ENTRIES<span>Reopen entry gate</span></button>
               <button class="lm-btn" type="button" data-manager-action="SET_TRAIL_ATR" data-delta="-0.25">TIGHTEN TRAIL<span>−0.25 ATR</span></button>
@@ -241,16 +241,17 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
     const status=String(receipt?.status||'').toLowerCase();
     if(!['completed','failed'].includes(status)||!receipt?.commandId||announced.has(receipt.commandId))return;
     announced.add(receipt.commandId);
+    const deliveredOnly=status==='completed'&&receipt.deliveryOnly;
     const detail=String(receipt?.result?.message||receipt?.error||receipt?.command||'Trading command').trim();
     try{
       if('speechSynthesis'in window&&localStorage.getItem('wisdo.commandVoiceAlerts')!=='off'){
-        const utterance=new SpeechSynthesisUtterance(status==='completed'?`WISDO. Command executed. ${detail}`:`WISDO. Command failed. ${detail}`);
+        const utterance=new SpeechSynthesisUtterance(status==='completed'?`WISDO. ${deliveredOnly?'Reporter delivery confirmed; EA enforcement not yet verified.':'Command executed.'} ${detail}`:`WISDO. Command failed. ${detail}`);
         utterance.rate=.92;utterance.pitch=.92;window.speechSynthesis.speak(utterance);
       }
     }catch{}
     try{
       if('Notification'in window&&Notification.permission==='granted'&&navigator.serviceWorker?.ready){
-        navigator.serviceWorker.ready.then((registration)=>registration.showNotification(status==='completed'?'WISDO · COMMAND EXECUTED':'WISDO · COMMAND FAILED',{body:detail.slice(0,220),tag:`wisdo-command-${receipt.commandId}`,renotify:true,data:{commandId:receipt.commandId,status}})).catch(()=>{});
+        navigator.serviceWorker.ready.then((registration)=>registration.showNotification(status==='completed'?(deliveredOnly?'WISDO · REPORTER DELIVERY':'WISDO · COMMAND EXECUTED'):'WISDO · COMMAND FAILED',{body:detail.slice(0,220),tag:`wisdo-command-${receipt.commandId}`,renotify:true,data:{commandId:receipt.commandId,status}})).catch(()=>{});
       }
     }catch{}
   }

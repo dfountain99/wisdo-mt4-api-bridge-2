@@ -34,7 +34,7 @@ test('V18 controls are not advertised on old Rewire V6.11 receiver',()=>{
   assert.equal(cap.SET_EA_SCHEDULE.available,false);
   assert.equal(cap.PAUSE_BOT.available,true);
 });
-test('V18 UI uses code-verified Guardian and a confirmed broker-clock schedule editor',async()=>{
+test('V18 UI uses code-verified Guardian and a confirmed versioned schedule editor',async()=>{
   const [runtime,schedule,receiver,bridge]=await Promise.all([
     fs.readFile(new URL('../public/app/world/command/command-center-runtime.js',import.meta.url),'utf8'),
     fs.readFile(new URL('../public/app/world/command/wisdo-weekly-schedule-editor.js',import.meta.url),'utf8'),
@@ -49,7 +49,10 @@ test('V18 UI uses code-verified Guardian and a confirmed broker-clock schedule e
   assert.match(runtime,/REPORTER ONLY/);
   assert.match(schedule,/DRAFT ONLY/);
   assert.match(schedule,/pointerdown/);
-  assert.match(schedule,/slotMasks/);
+  assert.match(schedule,/onApply\?\.\(\[\.\.\.masks\],clock\)/);
+  assert.match(schedule,/EASTERN/);
+  assert.match(schedule,/scheduleClockMode/);
+  assert.match(runtime,/slotMasks,scheduleClock/);
   assert.match(receiver,/managerOpsVersion/);
   assert.match(bridge,/scheduleVersion/);
 });
@@ -59,9 +62,14 @@ test('V18 weekly schedule gate is enforced in the actual HIGHTOWER entry path, n
  const receiver=await fs.readFile(new URL('../mql4/include/WISDO_H620Receiver.mqh',import.meta.url),'utf8');
  assert.match(ea,/bool HT6WeeklyEntryAllowed\(datetime now\)/);
  assert.match(ea,/return configuredWindow && HT6WeeklyEntryAllowed\(now\)/);
- assert.match(ea,/mode!=1\.0\)return false/);
+ assert.match(ea,/mode!=1\.0 && mode!=3\.0\)return false/);
+ assert.match(ea,/mode==3\.0\?HT6EasternClock\(TimeGMT\(\)\):now/);
+ assert.match(ea,/if\(!GlobalVariableCheck\(dayKey\)\)return false/);
+ assert.match(ea,/HT6CancelBlockedPendingEntries\(\);/);
+ assert.match(ea,/HT6ClockAndPauseAllows\(TimeCurrent\(\)\)/);
  assert.match(ea,/ScheduleDay/);
- assert.match(receiver,/scheduleVersion\",1/);
+ assert.match(receiver,/scheduleVersion\",2/);
+ assert.match(receiver,/scheduleClockMode/);
  assert.match(receiver,/scheduleDay/);
 });
 

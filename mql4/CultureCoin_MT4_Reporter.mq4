@@ -2232,6 +2232,30 @@ string ResolveWakeCommand(string command, string commandJson)
    return "CEM_SET_GLOBALS";
 }
 
+bool ExecuteLanePauseCommand(string command,string commandJson,string &message,int &ticket)
+{
+   ticket=-1;
+   string targetSymbol=JsonGetString(commandJson,"symbol","");
+   double targetMagic=JsonGetDouble(commandJson,"magicNumber",-1);
+   if(!EnableCampaignControl || CampaignControlMagic<=0 || StringLen(CampaignControlSymbol)==0 ||
+      JsonGetString(commandJson,"scope","")!="LANE" ||
+      targetSymbol!=CampaignControlSymbol || targetMagic!=CampaignControlMagic)
+   {message="Exact configured symbol and MagicNumber required for lane pause; no account-wide fallback.";return false;}
+   string p=WcoPrefix(CampaignControlSymbol,CampaignControlMagic);
+   double age=(double)TimeLocal()-WcoRead(p,"heartbeat");
+   if(WcoRead(p,"version")!=1 || WcoRead(p,"lanePauseVersion")!=1 || WcoRead(p,"enabled")!=1 ||
+      age<0 || age>30 || (int)WcoRead(p,"revision")%2!=0)
+   {message="Lane pause requires a fresh compatible Hightower EA.";return false;}
+   string key=p+"lanePause";
+   double value=command=="PAUSE_BOT"?1.0:0.0;
+   ResetLastError();
+   if(GlobalVariableSet(key,value)<=0 || !GlobalVariableCheck(key) || GlobalVariableGet(key)!=value)
+   {message="Could not store scoped lane pause flag.";return false;}
+   GlobalVariablesFlush();
+   message=value==1.0?"Lane pause stored; await EA telemetry. Existing positions remain managed.":"Lane pause cleared; weekly schedule, terminal pause and risk gates still apply.";
+   return true;
+}
+
 bool ExecuteWisdoControlCommand(string command, string commandJson, string &message, int &ticket)
 {
    ticket = -1;
@@ -2393,6 +2417,8 @@ void PollAndExecuteCommands()
       success = ExecuteProfitManagerCommand(command, response, message, ticket);
    else if(command == "PAUSE_TRADING" || command == "RESUME_TRADING" || command == "PAUSE_COPIER" || command == "RESUME_COPIER" || command == "EMERGENCY_STOP" || command == "STOP_ENTRIES" || command == "START_ENTRIES" || command == "SET_BOT_MODE" || command == "SET_RISK_MODE")
       success = ExecuteWisdoControlCommand(command, response, message, ticket);
+   else if(command == "PAUSE_BOT" || command == "RESUME_BOT")
+      success = ExecuteLanePauseCommand(command,response,message,ticket);
    else if(command == "WISDO_CAMPAIGN")
       success = ExecuteCampaignCommand(response, message, ticket);
    else if(command == "CEM_SET_GLOBALS")

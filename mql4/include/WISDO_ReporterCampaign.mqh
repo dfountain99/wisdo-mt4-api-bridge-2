@@ -42,6 +42,8 @@ string BuildCampaignControlJson()
    j+=",\"behaviorFilled\":"+DoubleToString(WcoRead(p,"behaviorFilled"),0);
    j+=",\"behaviorWaveFilled\":"+DoubleToString(WcoRead(p,"behaviorWaveFilled"),0);
    j+=",\"behaviorLastPrice\":"+DoubleToString(WcoRead(p,"behaviorLastPrice"),8);
+   j+=",\"lanePauseVersion\":"+DoubleToString(WcoRead(p,"lanePauseVersion"),0);
+   j+=",\"lanePaused\":"+BoolToJson(WcoRead(p,"lanePaused")==1);
    j+=",\"scheduleVersion\":"+DoubleToString(WcoRead(p,"scheduleVersion"),0);
    if(WcoRead(p,"scheduleVersion")==2)j+=",\"scheduleClockMode\":"+DoubleToString(WcoRead(p,"scheduleClockMode"),8);
    j+=",\"scheduleActive\":"+BoolToJson(WcoRead(p,"scheduleActive")>=0.5);

@@ -201,7 +201,7 @@ double WcoLatestWin()
 }
 void WcoPublish()
 {
-   string p=WcoEA();double revision=WcoRead(p,"revision");if((int)revision%2!=0)revision++;WcoWrite(p,"revision",revision+1);WcoWrite(p,"version",1);WcoWrite(p,"managerOpsVersion",1);WcoWrite(p,"scheduleVersion",2);WcoWrite(p,"enabled",H620Enabled() && H620EnableFutureGoals && !h620Quarantine?1:0);
+   string p=WcoEA();double revision=WcoRead(p,"revision");if((int)revision%2!=0)revision++;WcoWrite(p,"revision",revision+1);WcoWrite(p,"version",1);WcoWrite(p,"managerOpsVersion",1);WcoWrite(p,"scheduleVersion",2);WcoWrite(p,"lanePauseVersion",1);WcoWrite(p,"enabled",H620Enabled() && H620EnableFutureGoals && !h620Quarantine?1:0);
    WcoWrite(p,"campaign",h620Id);WcoWrite(p,"phase",h620Phase);WcoWrite(p,"direction",h620Dir);
    WcoWrite(p,"rail",h620Rail);WcoWrite(p,"banked",h620BankedLevel);
    double campaignTargetEquity=(h620Base>0?h620Base*MathPow(1.0+H620GrowthMilestonePercent/100.0,h620BankedLevel+1):0);
@@ -210,8 +210,8 @@ void WcoPublish()
    // CHRONOS truth: broker-clock session + the actual hard new-entry window.
    datetime chronosNow=TimeCurrent();
    bool chronosWindowAllowed=HT6DirectTradingWindowAllows(chronosNow);
-   bool wisdoTradingPaused=(GlobalVariableCheck("WISDO_TRADING_PAUSED") && GlobalVariableGet("WISDO_TRADING_PAUSED")>=0.5);
-   bool chronosEntryAllowed=(DirectAllowNewEntries && chronosWindowAllowed && !wisdoTradingPaused && !h620FuturePaused && !h620Quarantine);
+   bool chronosEntryAllowed=(DirectAllowNewEntries && (DirectAllowBuyPrimaries || DirectAllowSellPrimaries) && HT6ClockAndPauseAllows(chronosNow) && !h620FuturePaused && !h620Quarantine);
+   WcoWrite(p,"lanePaused",HT6LanePaused()?1:0);
    WcoWrite(p,"session",gHT5Session);WcoWrite(p,"sessionQuality",gHT5SessionQuality);
    WcoWrite(p,"brokerHour",TimeHour(chronosNow));WcoWrite(p,"brokerMinute",TimeMinute(chronosNow));
    WcoWrite(p,"windowMode",(int)DirectTradingWindowMode);
