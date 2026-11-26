@@ -1,7 +1,7 @@
 import { CAMPAIGN_ACTIONS, campaignPacket } from './campaignControlContract.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { WorldCampaignStateService } from './worldCampaignStateService.js';
-import { normalizeWeeklyMasks,buildWeeklyScheduleGlobals } from './wisdoWeeklySchedule.js';
+import { normalizeWeeklyMasks,buildWeeklyScheduleGlobals,normalizeScheduleClock,supportsScheduleClock } from './wisdoWeeklySchedule.js';
 import { buildAetherObservation } from './aetherObservationService.js';
 
 const clean = (value, max = 160) => String(value ?? '').replace(/\u0000/g, '').trim().slice(0, max);
@@ -16,12 +16,12 @@ const COMMAND_DEFINITIONS = Object.freeze({
   CLOSE_ALL: { command: 'CLOSE_ALL_TRADES', level: 3, scope: 'ACCOUNT', label: 'Close All', requires: [] },
   CLOSE_PROFIT: { command: 'CLOSE_ALL_PROFITS', level: 3, scope: 'ACCOUNT', label: 'Close Profit', requires: [] },
   LOCK_PROFIT: { command: 'LOCK_PROFIT', level: 3, scope: 'ACCOUNT', label: 'Lock Profit', requires: [] },
-  PAUSE_BOT: { command: 'PAUSE_TRADING', level: 2, scope: 'ACCOUNT', label: 'Pause Bot', requires: [] },
-  RESUME_BOT: { command: 'RESUME_TRADING', level: 2, scope: 'ACCOUNT', label: 'Resume Bot', requires: [] },
+  PAUSE_BOT: { command: 'PAUSE_TRADING', level: 2, scope: 'ACCOUNT', label: 'Pause terminal entries', requires: [] },
+  RESUME_BOT: { command: 'RESUME_TRADING', level: 2, scope: 'ACCOUNT', label: 'Resume terminal entries', requires: [] },
   STOP_NEW_ENTRIES: { command: 'STOP_ENTRIES', level: 2, scope: 'ACCOUNT', label: 'Stop New Entries', requires: [] },
   RESUME_NEW_ENTRIES: { command: 'START_ENTRIES', level: 2, scope: 'ACCOUNT', label: 'Resume New Entries', requires: [] },
   EMERGENCY_STOP: { command: 'EMERGENCY_STOP', level: 3, scope: 'ACCOUNT', label: 'Emergency Stop', requires: [] },
-  SET_EA_SCHEDULE: {command:'CEM_SET_GLOBALS',level:3,scope:'CAMPAIGN',label:'Apply broker-clock weekly entry schedule',requires:['scheduleReceiver']},
+  SET_EA_SCHEDULE: {command:'CEM_SET_GLOBALS',level:3,scope:'CAMPAIGN',label:'Apply weekly entry schedule',requires:['scheduleReceiver']},
 });
 
 const NOT_CONNECTED = Object.freeze({
@@ -44,7 +44,7 @@ function safeReceipt(record = {}) {
   return {
     commandId: record.id || null,
     eaRequestId: record.payload?.requestId || null,
-    deliveryOnly: record.command === 'WISDO_CAMPAIGN',
+    deliveryOnly: record.command === 'WISDO_CAMPAIGN' || (record.command==='CEM_SET_GLOBALS'&&record.payload?.scheduleFor==='BROKER_CLOCK'),
     clientCommandId: record.payload?.clientCommandId || record.payload?.commandId || null,
     accountId: record.accountId || null,
     command: record.command || null,
@@ -111,7 +111,7 @@ export class WorldCommandCenterService {
       if(key==='CHAIN_PAUSE' && snapshot.campaignControl?.behaviorPaused){available=false;reason='Chain is already paused.';}
       if(key==='CHAIN_RESUME' && !snapshot.campaignControl?.behaviorPaused){available=false;reason='Chain is not paused.';}
       if (['COUNTER_IF_VALID','DIRECTIONAL_ENTRY_IF_VALID'].includes(key) && Number(snapshot.campaignControl?.behaviorVersion||0)===13){available=false;reason='V13 assigns these operation IDs to staged-chain controls.';}
-      if (key==='SET_EA_SCHEDULE' && (!snapshot.campaignControl?.live||snapshot.campaignControl?.scheduleVersion!==1)) {available=false;reason='Weekly schedule requires a compatible HIGHTOWER v6.21 or Rewire v6.12 EA with the matching updated Reporter; the website alone cannot enforce hours.';}
+      if (key==='SET_EA_SCHEDULE' && (!supportsScheduleClock(snapshot.campaignControl))) {available=false;reason='Weekly schedule requires a compatible HIGHTOWER v6.21 or Rewire v6.12 EA with the matching updated Reporter; the website alone cannot enforce hours.';}
       connected[key] = { key, label: definition.label, command: definition.command, safetyLevel: definition.level, scope: definition.scope, available, reason, connected: true };
     }
     for (const [key, reason] of Object.entries(NOT_CONNECTED)) connected[key] = { key, label: key.replaceAll('_', ' '), available: false, connected: false, reason, safetyLevel: key.includes('CLOSE') || key === 'LOCK_PROFIT' ? 3 : 2 };
@@ -180,6 +180,10 @@ export class WorldCommandCenterService {
     }, snapshot) : null;
     const affected = this.affectedFor(snapshot, action, body);
     const weeklyMasks=action==='SET_EA_SCHEDULE'?normalizeWeeklyMasks(body.slotMasks):null;
+    const scheduleClock=action==='SET_EA_SCHEDULE'?normalizeScheduleClock(body.scheduleClock):null;
+    if(action==='SET_EA_SCHEDULE'&&!supportsScheduleClock(snapshot.campaignControl,scheduleClock)){
+      throw Object.assign(new Error('Selected clock requires the compatible live EA and Reporter.'),{statusCode:409});
+    }
     if(action==='SET_EA_SCHEDULE' && (!snapshot.campaignControl?.live || (affected.campaign && (String(affected.campaign.symbol)!==String(snapshot.campaignControl.symbol)||Number(affected.campaign.magicNumber)!==Number(snapshot.campaignControl.magic))))) {const error=new Error('Selected EA lane does not match the Reporter symbol and MagicNumber.');error.statusCode=409;throw error;}
     if (action === 'CLOSE_POSITION' && !affected.position) { const error = new Error('The selected position is no longer open.'); error.statusCode = 409; throw error; }
     if (action === 'CLOSE_CAMPAIGN' && (!affected.campaign || !affected.campaign.canTargetByMagic || affected.campaign.magicNumber == null)) { const error = new Error('This campaign cannot be safely targeted by the current Reporter command contract.'); error.statusCode = 409; throw error; }
@@ -193,6 +197,7 @@ export class WorldCommandCenterService {
       proposalId,
       packet,
       weeklyMasks,
+      scheduleClock,
       requestId: Date.now() * 1000 + Math.floor(Math.random() * 1000),
       tokenHash: hash(token),
       userId: String(userId),
@@ -227,7 +232,8 @@ export class WorldCommandCenterService {
       confirmationToken: token,
       clientCommandId,
       action,
-      label: definition.label,
+      label: action==='SET_EA_SCHEDULE'?'Apply '+(scheduleClock==='EASTERN'?'Eastern-time':'broker-time')+' weekly entry schedule':definition.label,
+      schedule: action==='SET_EA_SCHEDULE'?{clock:scheduleClock,masks:weeklyMasks,symbol:proposal.symbol,magicNumber:proposal.magicNumber}:null,
       safetyLevel: definition.level,
       scope: definition.scope,
       account: snapshot.account,
@@ -268,7 +274,7 @@ export class WorldCommandCenterService {
       campaignId: proposal.campaignId || undefined,
     };
     if (proposal.packet) Object.assign(base, proposal.packet, { requestId: proposal.requestId, expiresEpoch: Math.floor(Date.now() / 1000) + 90 });
-    if (proposal.action==='SET_EA_SCHEDULE') {base.globals=buildWeeklyScheduleGlobals({symbol:proposal.symbol,magicNumber:proposal.magicNumber,masks:proposal.weeklyMasks});base.scheduleFor='BROKER_CLOCK';}
+    if (proposal.action==='SET_EA_SCHEDULE') {base.globals=buildWeeklyScheduleGlobals({symbol:proposal.symbol,magicNumber:proposal.magicNumber,masks:proposal.weeklyMasks,clock:proposal.scheduleClock});base.scheduleFor='BROKER_CLOCK';base.scheduleClock=proposal.scheduleClock;}
     if (proposal.action === 'CLOSE_POSITION') base.ticket = proposal.positionId;
     if (proposal.action === 'CLOSE_CAMPAIGN') base.magicNumber = proposal.magicNumber;
     if (['PAUSE_BOT', 'RESUME_BOT', 'STOP_NEW_ENTRIES', 'RESUME_NEW_ENTRIES'].includes(proposal.action)) {
@@ -309,7 +315,7 @@ export class WorldCommandCenterService {
     if (proposal.action === 'CLOSE_CAMPAIGN' && (!currentAffected.campaign || currentAffected.campaign.magicNumber == null || String(currentAffected.campaign.magicNumber) !== String(proposal.magicNumber))) { const error = new Error('Campaign targeting changed before confirmation. Review the live campaign again.'); error.statusCode = 409; throw error; }
 
     if (proposal.packet) campaignPacket(proposal.action, { ...proposal.packet, tickets: proposal.packet.tickets.split(',').filter(Boolean) }, current);
-    if (proposal.action==='SET_EA_SCHEDULE' && (String(current.campaignControl?.symbol)!==String(proposal.symbol)||Number(current.campaignControl?.magic)!==Number(proposal.magicNumber)||current.campaignControl?.scheduleVersion!==1)) {const error=new Error('Bound schedule receiver changed before confirmation.');error.statusCode=409;throw error;}
+    if (proposal.action==='SET_EA_SCHEDULE' && (String(current.campaignControl?.symbol)!==String(proposal.symbol)||Number(current.campaignControl?.magic)!==Number(proposal.magicNumber)||!supportsScheduleClock(current.campaignControl,proposal.scheduleClock))) {const error=new Error('Bound schedule receiver changed before confirmation.');error.statusCode=409;throw error;}
     if (proposal.inFlight) { const error = new Error('Command is already being queued.'); error.statusCode = 409; throw error; }
     proposal.inFlight = true;
     const payload = this.payloadFor(proposal, current);

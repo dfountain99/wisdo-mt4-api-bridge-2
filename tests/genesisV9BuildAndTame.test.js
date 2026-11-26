@@ -152,7 +152,9 @@ test('mobile interface keeps actual server actions for snap, tame and salvage',(
  for(const name of ['snap-target','snap-side','snap-next','settlement-list','companion-status']){
   assert.match(html,new RegExp('id="'+name+'"'));
  }
- assert.match(html,/genesisWorld\.js\?v=9/);
+ const worldScripts=[...html.matchAll(/<script\b[^>]*\bsrc=["']\/js\/genesisWorld\.js\?v=(\d+)(?:&amp;[^"']*)?["'][^>]*>/g)];
+ assert.equal(worldScripts.length,1,'Load exactly one versioned Genesis world script');
+ assert.ok(Number(worldScripts[0][1])>=9,'Keep at least the V9 build-and-tame client');
  assert.match(ui,/genesisResolvePlacement/);
  assert.match(ui,/action\(\{action:'tame',echoId:/);
  assert.match(ui,/action\(\{action:'dismantle',structureId:/);

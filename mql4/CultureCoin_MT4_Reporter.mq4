@@ -2044,8 +2044,75 @@ bool JsonNextObject(string body, int &pos, string &objectText)
    return false;
 }
 
+// CHRONOS schedule packets must never commit a partially written week.
+bool ExecuteChronosWeeklySchedule(string commandJson, string &message)
+{
+   if(!EnableCampaignControl || CampaignControlMagic<=0 || StringLen(CampaignControlSymbol)==0)
+   {
+      message="CHRONOS requires the exact enabled campaign receiver.";
+      return false;
+   }
+   string prefix="CEM.WISDO."+IntegerToString(AccountNumber())+"."+CampaignControlSymbol+"."+IntegerToString(CampaignControlMagic)+".";
+   string enabled=prefix+"ScheduleEnabled";
+   string body=JsonFindArrayBody(commandJson,"globals");
+   int pos=0, count=0;
+   string obj="";
+   double masks[7];
+   double commitMode=0;
+   while(JsonNextObject(body,pos,obj))
+   {
+      string key=CemReplaceAccountToken(JsonGetString(obj,"name",""));
+      double value=JsonGetDouble(obj,"value",-1);
+      if(count==0 && (key!=enabled || value!=2)) {message="Invalid CHRONOS begin marker.";return false;}
+      if(count>=1 && count<=7)
+      {
+         if(key!=prefix+"ScheduleDay"+IntegerToString(count-1) || value<0 || value>16777215 || value!=MathFloor(value))
+         {message="Invalid CHRONOS day mask or target.";return false;}
+         masks[count-1]=value;
+      }
+      if(count==8)
+      {
+         if(key!=enabled || (value!=1 && value!=3)) {message="Invalid CHRONOS commit marker.";return false;}
+         commitMode=value;
+      }
+      if(count>8) {message="Unexpected CHRONOS schedule item.";return false;}
+      count++;
+   }
+   if(count!=9) {message="Incomplete CHRONOS week; no update applied.";return false;}
+   // Mode 3 is Eastern time; do not send it to a v1 EA that interprets broker time only.
+   if(commitMode==3)
+   {
+      string receiver=WcoPrefix(CampaignControlSymbol,CampaignControlMagic);
+      double age=(double)TimeLocal()-WcoRead(receiver,"heartbeat");
+      if(WcoRead(receiver,"version")!=1 || WcoRead(receiver,"scheduleVersion")!=2 ||
+         WcoRead(receiver,"enabled")!=1 || age<0 || age>30 ||
+         (int)WcoRead(receiver,"revision")%2!=0)
+      {message="Eastern schedule requires a fresh version 2 Hightower receiver.";return false;}
+   }
+   string detail="";
+   if(!CemApplyOneGlobal(enabled,2,detail)) {message=detail;return false;}
+   GlobalVariablesFlush();
+   for(int day=0;day<7;day++)
+   {
+      string dayKey=prefix+"ScheduleDay"+IntegerToString(day);
+      if(!CemApplyOneGlobal(dayKey,masks[day],detail) || !GlobalVariableCheck(dayKey) || GlobalVariableGet(dayKey)!=masks[day])
+      {message="CHRONOS remains blocked; failed day "+IntegerToString(day)+": "+detail;return false;}
+   }
+   GlobalVariablesFlush();
+   if(!CemApplyOneGlobal(enabled,commitMode,detail) || !GlobalVariableCheck(enabled) || GlobalVariableGet(enabled)!=commitMode)
+   {message="CHRONOS commit failed: "+detail;return false;}
+   GlobalVariablesFlush();
+   message="CHRONOS week stored for exact receiver; EA telemetry must confirm enforcement.";
+   return true;
+}
+
 bool ExecuteCemSetGlobalsCommand(string commandJson, string &message, int &ticket)
 {
+   if(JsonGetString(commandJson,"scheduleFor","")=="BROKER_CLOCK")
+   {
+      ticket=-1;
+      return ExecuteChronosWeeklySchedule(commandJson,message);
+   }
    ticket = -1;
    int applied = 0;
    int failed = 0;
@@ -2163,6 +2230,30 @@ string ResolveWakeCommand(string command, string commandJson)
       return "MARKET_ORDER";
 
    return "CEM_SET_GLOBALS";
+}
+
+bool ExecuteLanePauseCommand(string command,string commandJson,string &message,int &ticket)
+{
+   ticket=-1;
+   string targetSymbol=JsonGetString(commandJson,"symbol","");
+   double targetMagic=JsonGetDouble(commandJson,"magicNumber",-1);
+   if(!EnableCampaignControl || CampaignControlMagic<=0 || StringLen(CampaignControlSymbol)==0 ||
+      JsonGetString(commandJson,"scope","")!="LANE" ||
+      targetSymbol!=CampaignControlSymbol || targetMagic!=CampaignControlMagic)
+   {message="Exact configured symbol and MagicNumber required for lane pause; no account-wide fallback.";return false;}
+   string p=WcoPrefix(CampaignControlSymbol,CampaignControlMagic);
+   double age=(double)TimeLocal()-WcoRead(p,"heartbeat");
+   if(WcoRead(p,"version")!=1 || WcoRead(p,"lanePauseVersion")!=1 || WcoRead(p,"enabled")!=1 ||
+      age<0 || age>30 || (int)WcoRead(p,"revision")%2!=0)
+   {message="Lane pause requires a fresh compatible Hightower EA.";return false;}
+   string key=p+"lanePause";
+   double value=command=="PAUSE_BOT"?1.0:0.0;
+   ResetLastError();
+   if(GlobalVariableSet(key,value)<=0 || !GlobalVariableCheck(key) || GlobalVariableGet(key)!=value)
+   {message="Could not store scoped lane pause flag.";return false;}
+   GlobalVariablesFlush();
+   message=value==1.0?"Lane pause stored; await EA telemetry. Existing positions remain managed.":"Lane pause cleared; weekly schedule, terminal pause and risk gates still apply.";
+   return true;
 }
 
 bool ExecuteWisdoControlCommand(string command, string commandJson, string &message, int &ticket)
@@ -2326,6 +2417,8 @@ void PollAndExecuteCommands()
       success = ExecuteProfitManagerCommand(command, response, message, ticket);
    else if(command == "PAUSE_TRADING" || command == "RESUME_TRADING" || command == "PAUSE_COPIER" || command == "RESUME_COPIER" || command == "EMERGENCY_STOP" || command == "STOP_ENTRIES" || command == "START_ENTRIES" || command == "SET_BOT_MODE" || command == "SET_RISK_MODE")
       success = ExecuteWisdoControlCommand(command, response, message, ticket);
+   else if(command == "PAUSE_BOT" || command == "RESUME_BOT")
+      success = ExecuteLanePauseCommand(command,response,message,ticket);
    else if(command == "WISDO_CAMPAIGN")
       success = ExecuteCampaignCommand(response, message, ticket);
    else if(command == "CEM_SET_GLOBALS")

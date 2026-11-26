@@ -1179,6 +1179,9 @@ input int    DirectWindow1StartHour=7;
 input int    DirectWindow1EndHour=16;
 input int    DirectWindow2StartHour=16;
 input int    DirectWindow2EndHour=21;
+// Optional native CHRONOS clock. Existing broker-clock settings are unchanged by default.
+input bool   DirectCustomWindowsUseEasternTime=false;
+input bool   DirectEasternWeekdaysOnly=false;
 input bool   DirectAllowBuyPrimaries=true;
 input bool   DirectAllowSellPrimaries=true;
 input ENUM_TIMEFRAMES DirectSignalTimeframe=PERIOD_M5;
@@ -2785,16 +2788,60 @@ bool HT6WeeklyEntryAllowed(datetime now)
    if(!GlobalVariableCheck(enabledKey))return true; // no website override
    double mode=GlobalVariableGet(enabledKey);
    if(mode==0.0)return true; // explicit disabled schedule
-   if(mode!=1.0)return false; // mode 2=atomic update in progress, fail CLOSED
-   int brokerDay=TimeDayOfWeek(now); // Sunday 0, Monday 1, ... Saturday 6
-   string dayKey=prefix+"ScheduleDay"+IntegerToString(brokerDay);
-   if(!GlobalVariableCheck(dayKey))return false;
-   double mask=GlobalVariableGet(dayKey);
-   if(mask<0.0 || mask>16777215.0 || mask!=MathFloor(mask))return false;
-   int brokerHour=TimeHour(now);
-   return MathMod(MathFloor(mask/MathPow(2.0,brokerHour)),2.0)>=1.0;
+   if(mode!=1.0 && mode!=3.0)return false; // mode 2=atomic update in progress, fail CLOSED
+   datetime clock=mode==3.0?HT6EasternClock(TimeGMT()):now;
+   if(clock<=0)return false;
+   int selectedDay=TimeDayOfWeek(clock);
+   double mask=0.0;
+   // A corrupt or incomplete week must not silently authorize any entries.
+   for(int day=0;day<7;day++)
+   {
+      string dayKey=prefix+"ScheduleDay"+IntegerToString(day);
+      if(!GlobalVariableCheck(dayKey))return false;
+      double dayMask=GlobalVariableGet(dayKey);
+      if(!MathIsValidNumber(dayMask) || dayMask<0.0 || dayMask>16777215.0 || dayMask!=MathFloor(dayMask))return false;
+      if(day==selectedDay)mask=dayMask;
+   }
+   return MathMod(MathFloor(mask/MathPow(2.0,TimeHour(clock))),2.0)>=1.0;
 }
 
+// US Eastern DST rules (2007 onward). TimeGMT uses the terminal host clock.
+// Native Eastern mode is live-terminal only: MT4 tester TimeGMT is simulated broker time.
+datetime HT6EasternTransitionUtc(int year,int month,int occurrence,int utcHour)
+{
+   MqlDateTime parts;
+   ZeroMemory(parts);
+   parts.year=year;parts.mon=month;parts.day=1;parts.hour=utcHour;
+   datetime first=StructToTime(parts);
+   int day=1+(7-TimeDayOfWeek(first))%7+(occurrence-1)*7;
+   parts.day=day;
+   return StructToTime(parts);
+}
+datetime HT6EasternClock(datetime utc)
+{
+   if(IsTesting() || IsOptimization() || utc<=0 || TimeYear(utc)<2007) return 0;
+   int year=TimeYear(utc);
+   datetime spring=HT6EasternTransitionUtc(year,3,2,7);
+   datetime fall=HT6EasternTransitionUtc(year,11,1,6);
+   if(spring<=0 || fall<=spring) return 0;
+   return utc-((utc>=spring && utc<fall)?4:5)*3600;
+}
+bool HT6EasternCustomWindowAllows(datetime utc)
+{
+   datetime eastern=HT6EasternClock(utc);
+   if(eastern<=0)return false;
+   int day=TimeDayOfWeek(eastern),hour=TimeHour(eastern);
+   if(DirectEasternWeekdaysOnly && (day==0 || day==6)) return false;
+   if(DirectWindow1StartHour<0 || DirectWindow1StartHour>23 ||
+      DirectWindow1EndHour<0 || DirectWindow1EndHour>23 ||
+      DirectWindow2StartHour<0 || DirectWindow2StartHour>23 ||
+      DirectWindow2EndHour<0 || DirectWindow2EndHour>23) return false;
+   // In Eastern mode, equal endpoints disable the individual window (not all-day permission).
+   return (DirectWindow1StartHour!=DirectWindow1EndHour &&
+           HT6HourInWindow(hour,DirectWindow1StartHour,DirectWindow1EndHour)) ||
+          (DirectWindow2StartHour!=DirectWindow2EndHour &&
+           HT6HourInWindow(hour,DirectWindow2StartHour,DirectWindow2EndHour));
+}
 bool HT6DirectTradingWindowAllows(datetime now)
 {
    int hour=TimeHour(now);
@@ -2802,13 +2849,43 @@ bool HT6DirectTradingWindowAllows(datetime now)
    if(DirectTradingWindowMode==TIME_WINDOW_LONDON_AND_NEWYORK)
       configuredWindow=(hour>=7 && hour<21);
    else if(DirectTradingWindowMode==TIME_WINDOW_CUSTOM_TWO_WINDOWS)
-      configuredWindow=HT6HourInWindow(hour,DirectWindow1StartHour,DirectWindow1EndHour)
-          || HT6HourInWindow(hour,DirectWindow2StartHour,DirectWindow2EndHour);
+      configuredWindow=DirectCustomWindowsUseEasternTime ? HT6EasternCustomWindowAllows(TimeGMT()) :
+          (HT6HourInWindow(hour,DirectWindow1StartHour,DirectWindow1EndHour)
+          || HT6HourInWindow(hour,DirectWindow2StartHour,DirectWindow2EndHour));
    else if(DirectTradingWindowMode!=TIME_WINDOW_ALL_HOURS)
       configuredWindow=false;
    return configuredWindow && HT6WeeklyEntryAllowed(now);
 }
 
+// The pause key includes account, broker server, symbol and magic via WcoPrefix.
+// Clearing it cannot override the terminal-wide pause, weekly clock or strategy gates.
+bool HT6LanePaused()
+{
+   string key=WcoPrefix(Symbol(),MagicNumber)+"lanePause";
+   return GlobalVariableCheck(key) && GlobalVariableGet(key)!=0.0;
+}
+bool HT6ClockAndPauseAllows(datetime now)
+{
+   bool terminalPaused=GlobalVariableCheck("WISDO_TRADING_PAUSED") && GlobalVariableGet("WISDO_TRADING_PAUSED")>=0.5;
+   return HT6DirectTradingWindowAllows(now) && !terminalPaused && !HT6LanePaused();
+}
+void HT6CancelBlockedPendingEntries()
+{
+   if(HT6ClockAndPauseAllows(TimeCurrent()) || !IsTradeAllowed())return;
+   static datetime lastWarn=0;
+   for(int i=OrdersTotal()-1;i>=0;i--)
+   {
+      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES) || OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber || !OurOrder())continue;
+      int t=OrderType();
+      if(t!=OP_BUYLIMIT && t!=OP_BUYSTOP && t!=OP_SELLLIMIT && t!=OP_SELLSTOP)continue;
+      int ticket=OrderTicket();
+      if(!HT5CommanderOrderDelete(ticket,clrNONE) && TimeLocal()-lastWarn>=15)
+      {
+         lastWarn=TimeLocal();
+         Print("CHRONOS: pending entry #",ticket," cancellation not confirmed; will retry while blocked.");
+      }
+   }
+}
 void HT6ApplyDirectExecutionInputs()
 {
    // v6.10 ONE-WAY WIRING: no legacy preset or persisted phenotype may overwrite
@@ -2820,9 +2897,7 @@ void HT6ApplyDirectExecutionInputs()
    SignalTimeframe=DirectSignalTimeframe;
    SlippagePoints=MathMax(0,DirectSlippagePoints);
 
-   bool directTimeWindowAllowed=HT6DirectTradingWindowAllows(TimeCurrent());
-   bool wisdoTradingPaused=(GlobalVariableCheck("WISDO_TRADING_PAUSED") && GlobalVariableGet("WISDO_TRADING_PAUSED")>=0.5);
-   AllowNewEntries=(DirectAllowNewEntries && directTimeWindowAllowed && !wisdoTradingPaused);
+   AllowNewEntries=(DirectAllowNewEntries && HT6ClockAndPauseAllows(TimeCurrent()));
    AllowBuy=(AllowNewEntries && DirectAllowBuyPrimaries);
    AllowSell=(AllowNewEntries && DirectAllowSellPrimaries);
    if(!AllowNewEntries) MasterControl=MASTER_MANAGE_OPEN_TRADES_ONLY;
@@ -8523,6 +8598,8 @@ bool HT6DoctrineAllowsRequest(int dir,int kind,string &reason)
 
 bool HT6DoctrineCommanderSendAllows(int cmd,int dir,string &reason)
 {
+   if(!DirectAllowNewEntries || !HT6ClockAndPauseAllows(TimeCurrent()))
+   {reason="CHRONOS / PAUSE: NEW ENTRIES BLOCKED";return false;}
    if(HT6EinsteinEnabled())
    {
       reason="EINSTEIN FLOW";
@@ -12555,7 +12632,10 @@ double H620Obstacle(int dir,double price)
 }
 bool H620EntryAllows(int dir,double price,double stop,string &why)
 {
-   why="OK"; if(!H620Enabled()) return true;
+   why="OK";
+   if(!DirectAllowNewEntries || !HT6ClockAndPauseAllows(TimeCurrent()))
+   {why="CHRONOS / PAUSE: NEW ENTRIES BLOCKED";return false;}
+   if(!H620Enabled()) return true;
    if(h620FuturePaused || h620Quarantine){why="WISDO INTENTION / QUARANTINE PAUSE";return false;}
    if(h620Phase==2 || (h620Phase==3 && !h620FlipContext)){why="CLOSING / FLIP WAIT";return false;}
    if(H620Tick()<=0 || H620Value()<=0){why="INVALID BROKER TICK VALUE";return false;}
@@ -12979,6 +13059,7 @@ void OnDeinit(const int reason)
 
 void OnTimer()
 {
+   HT6CancelBlockedPendingEntries();
    HT5CreatureTimerPulse();
    if(EnableMarketDNAHistoricalChannels && (!gMDChannelReady || gMDChannelLastMapBar!=iTime(Symbol(),SignalTF,0)))
    {
@@ -13010,6 +13091,7 @@ void OnTick()
    // v6.10 refresh visible live inputs as final execution authority.
    HT6ApplyDirectExecutionInputs();
    WisdoPollAndApply();
+   HT6CancelBlockedPendingEntries();
    gMDEntryTickSerial++;
    HTUpdateLiveATR();
    if(H620Manage()) { gPreviousOpenTradeCount=TradeCount(); return; }

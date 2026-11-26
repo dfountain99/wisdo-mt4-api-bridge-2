@@ -94,7 +94,10 @@ export class AccountSelectionService {
     const raw = text(reference);
     if (!raw) {
       if (!allowActive) throw new AccountSelectionError('account_reference_required', 'Specify an exact account.');
-      return this.active(userId);
+      const selected=await this.active(userId);
+      if(permission==='control'&&selected.shared&&!['control_allowed','admin'].includes(text(selected.sharePermission).toLowerCase()))
+        throw new AccountSelectionError('account_forbidden','This shared account does not grant trading-control permission.');
+      return selected;
     }
     const query = normalized(raw.replace(/^my\s+/i, '').replace(/\s+account$/i, ''));
     const ordinal = query.match(/^account\s+(\d+)$/i);

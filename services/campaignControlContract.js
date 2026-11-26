@@ -37,6 +37,16 @@ export function normalizeCampaignControl(value) {
   const levels = (Array.isArray(value.levels) ? value.levels : []).slice(0, 16)
     .filter(x => Number.isFinite(x.price) && x.price > 0 && Number.isInteger(x.id) && x.id > 0)
     .map(x => ({ id: x.id, price: x.price, kind: 'confirmed-pivot' }));
+  // Stored snapshots already contain a normalized session. Re-normalization must
+  // not erase its reported clock and entry gate or invent a gate for old receivers.
+  if(value.session?.reported===true && !Number.isFinite(value.sessionId)){
+    const session=value.session;
+    value={...value,sessionId:session.id,sessionQuality:session.quality,windowMode:session.windowMode,
+      brokerHour:session.brokerHour,brokerMinute:session.brokerMinute,
+      scheduleEnforced:session.scheduleEnforced,windowAllowed:session.windowAllowed,entryAllowed:session.entryAllowed,
+      window1Start:session.windows?.[0]?.startHour,window1End:session.windows?.[0]?.endHour,
+      window2Start:session.windows?.[1]?.startHour,window2End:session.windows?.[1]?.endHour};
+  }
   const sessionReported = Number.isFinite(value.sessionId) && Number.isFinite(value.windowMode);
   const sessionId = Math.max(0, Math.min(5, Math.trunc(num(value.sessionId, 5))));
   const windowMode = Math.max(0, Math.min(2, Math.trunc(num(value.windowMode, 0))));
@@ -57,8 +67,10 @@ export function normalizeCampaignControl(value) {
     behaviorEnabled:bool(value.behaviorEnabled),behaviorActive:bool(value.behaviorActive),behaviorPaused:bool(value.behaviorPaused),
     behaviorWave:Math.max(0,Math.trunc(num(value.behaviorWave,0))),behaviorWaveCount:Math.max(0,Math.trunc(num(value.behaviorWaveCount,0))),
     behaviorFilled:Math.max(0,Math.trunc(num(value.behaviorFilled,0))),behaviorWaveFilled:Math.max(0,Math.trunc(num(value.behaviorWaveFilled,0))),behaviorLastPrice:num(value.behaviorLastPrice,0),
+    lanePauseVersion:value.lanePauseVersion===1?1:0,lanePaused:value.lanePauseVersion===1?bool(value.lanePaused):null,
+    scheduleClockMode:[0,1,2,3].includes(value.scheduleClockMode)?value.scheduleClockMode:null,
     scheduleActive:bool(value.scheduleActive),scheduleAllowed:bool(value.scheduleAllowed),
-    scheduleDays:(Array.isArray(value.scheduleDays)?value.scheduleDays:[]).slice(0,7).map(n=>Math.max(0,Math.min(0xFFFFFF,Math.trunc(num(n,0))))),
+    scheduleDays:Array.isArray(value.scheduleDays)&&value.scheduleDays.length===7&&value.scheduleDays.every(n=>Number.isSafeInteger(n)&&n>=0&&n<=0xFFFFFF)?value.scheduleDays.slice():[],
     rail: num(value.rail), goal: num(value.goal), paused: value.paused === true,
     remainingSeconds: Math.max(0, num(value.remainingSeconds)), banked: num(value.banked),
     progress: {
