@@ -1179,6 +1179,9 @@ input int    DirectWindow1StartHour=7;
 input int    DirectWindow1EndHour=16;
 input int    DirectWindow2StartHour=16;
 input int    DirectWindow2EndHour=21;
+// Optional native CHRONOS clock. Existing broker-clock settings are unchanged by default.
+input bool   DirectCustomWindowsUseEasternTime=false;
+input bool   DirectEasternWeekdaysOnly=false;
 input bool   DirectAllowBuyPrimaries=true;
 input bool   DirectAllowSellPrimaries=true;
 input ENUM_TIMEFRAMES DirectSignalTimeframe=PERIOD_M5;
@@ -2795,6 +2798,38 @@ bool HT6WeeklyEntryAllowed(datetime now)
    return MathMod(MathFloor(mask/MathPow(2.0,brokerHour)),2.0)>=1.0;
 }
 
+// US Eastern DST rules (2007 onward). TimeGMT uses the terminal host clock.
+// Native Eastern mode is live-terminal only: MT4 tester TimeGMT is simulated broker time.
+datetime HT6EasternTransitionUtc(int year,int month,int occurrence,int utcHour)
+{
+   MqlDateTime parts;
+   ZeroMemory(parts);
+   parts.year=year;parts.mon=month;parts.day=1;parts.hour=utcHour;
+   datetime first=StructToTime(parts);
+   int day=1+(7-TimeDayOfWeek(first))%7+(occurrence-1)*7;
+   parts.day=day;
+   return StructToTime(parts);
+}
+bool HT6EasternCustomWindowAllows(datetime utc)
+{
+   if(IsTesting() || utc<=0 || TimeYear(utc)<2007) return false;
+   int year=TimeYear(utc);
+   datetime spring=HT6EasternTransitionUtc(year,3,2,7);
+   datetime fall=HT6EasternTransitionUtc(year,11,1,6);
+   if(spring<=0 || fall<=spring) return false;
+   datetime eastern=utc-((utc>=spring && utc<fall)?4:5)*3600;
+   int day=TimeDayOfWeek(eastern),hour=TimeHour(eastern);
+   if(DirectEasternWeekdaysOnly && (day==0 || day==6)) return false;
+   if(DirectWindow1StartHour<0 || DirectWindow1StartHour>23 ||
+      DirectWindow1EndHour<0 || DirectWindow1EndHour>23 ||
+      DirectWindow2StartHour<0 || DirectWindow2StartHour>23 ||
+      DirectWindow2EndHour<0 || DirectWindow2EndHour>23) return false;
+   // In Eastern mode, equal endpoints disable the individual window (not all-day permission).
+   return (DirectWindow1StartHour!=DirectWindow1EndHour &&
+           HT6HourInWindow(hour,DirectWindow1StartHour,DirectWindow1EndHour)) ||
+          (DirectWindow2StartHour!=DirectWindow2EndHour &&
+           HT6HourInWindow(hour,DirectWindow2StartHour,DirectWindow2EndHour));
+}
 bool HT6DirectTradingWindowAllows(datetime now)
 {
    int hour=TimeHour(now);
@@ -2802,8 +2837,9 @@ bool HT6DirectTradingWindowAllows(datetime now)
    if(DirectTradingWindowMode==TIME_WINDOW_LONDON_AND_NEWYORK)
       configuredWindow=(hour>=7 && hour<21);
    else if(DirectTradingWindowMode==TIME_WINDOW_CUSTOM_TWO_WINDOWS)
-      configuredWindow=HT6HourInWindow(hour,DirectWindow1StartHour,DirectWindow1EndHour)
-          || HT6HourInWindow(hour,DirectWindow2StartHour,DirectWindow2EndHour);
+      configuredWindow=DirectCustomWindowsUseEasternTime ? HT6EasternCustomWindowAllows(TimeGMT()) :
+          (HT6HourInWindow(hour,DirectWindow1StartHour,DirectWindow1EndHour)
+          || HT6HourInWindow(hour,DirectWindow2StartHour,DirectWindow2EndHour));
    else if(DirectTradingWindowMode!=TIME_WINDOW_ALL_HOURS)
       configuredWindow=false;
    return configuredWindow && HT6WeeklyEntryAllowed(now);
