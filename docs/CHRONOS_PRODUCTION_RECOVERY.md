@@ -13,3 +13,16 @@ This change is a Reporter-side source hotfix, not an activated schedule. It vali
 - Record compiled versions, account/lane identity, receipts and observed boundary results before enabling member rollout.
 
 Remaining work: Eastern-time/DST-aware schedule persistence and compilation, lane-scoped Discord PAUSE_BOT/RESUME_BOT compatibility, full entry-path and pending-order audit, automated and terminal validation. No live account is modified by this branch alone.
+
+## Native MT4 laptop mode (new optional Hightower source)
+After compiling the updated Hightower source, the following EA Inputs configure the requested recurring local entry windows without a VPS or a per-boundary cloud command:
+- DirectTradingWindowMode = TIME_WINDOW_CUSTOM_TWO_WINDOWS
+- DirectCustomWindowsUseEasternTime = true
+- DirectWindow1StartHour = 3; DirectWindow1EndHour = 10
+- DirectWindow2StartHour = 12; DirectWindow2EndHour = 16
+- DirectEasternWeekdaysOnly = true only if Monday–Friday is desired.
+- DirectAllowNewEntries remains subject to the user's existing controls. Leave protective management running.
+
+Eastern mode uses TimeGMT from the live terminal host and US DST rules. Keep Windows time synchronized, MT4 awake, and its connection and existing permissions active. This native input is not remotely editable by CHRONOS yet. It intersects with any previously applied broker-time weekly schedule and global pause/risk gates; a resume never overrides those. In Eastern mode equal endpoints disable a window. The strategy tester deliberately blocks entries in this mode because MT4 simulates TimeGMT as broker time. Existing broker-clock mode and default settings remain unchanged. The existing dashboard configured-window readout may still use broker-time labels; native Eastern input status is not yet separately reported.
+
+For an immediate workaround using the already installed compatible Hightower build, select its existing custom-two-windows mode and enter equivalent broker hours after checking the actual broker clock. This does not require the new source or a VPS. If the EA inputs are absent, the installed version is different and must be verified before proceeding. This workaround is not proof that every entry route or pending order is gated.
