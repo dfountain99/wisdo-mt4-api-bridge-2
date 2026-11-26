@@ -40,7 +40,10 @@ test('V12 HIGHTOWER owns the real entry-window enforcement and publishes Chronos
   assert.match(receiver,/sessionQuality/);
   assert.match(receiver,/scheduleEnforced/);
   assert.match(receiver,/entryAllowed/);
-  assert.match(receiver,/wisdoTradingPaused/);
+  assert.match(receiver,/bool chronosWindowAllowed=HT6DirectTradingWindowAllows\(chronosNow\);/);
+  assert.match(receiver,/bool chronosEntryAllowed=\(DirectAllowNewEntries && \(DirectAllowBuyPrimaries \|\| DirectAllowSellPrimaries\) && HT6ClockAndPauseAllows\(chronosNow\) && !h620FuturePaused && !h620Quarantine\);/);
+  assert.match(receiver,/WcoWrite\(p,"lanePaused",HT6LanePaused\(\)\?1:0\);/);
+  assert.match(receiver,/WcoWrite\(p,"windowAllowed",chronosWindowAllowed\?1:0\);WcoWrite\(p,"entryAllowed",chronosEntryAllowed\?1:0\);/);
   assert.match(receiver,/campaignBase/);
   assert.match(receiver,/targetEquity/);
   assert.match(reporter,/sessionId/);
