@@ -1,4 +1,13 @@
-// Seven 24-bit masks use broker server time. Day 0=Sunday.
+// Seven 24-bit masks use the selected clock. Day 0=Sunday.
+export function normalizeScheduleClock(raw='BROKER_CLOCK') {
+  if(raw!=='BROKER_CLOCK'&&raw!=='EASTERN')throw Object.assign(new Error('Select broker time or Eastern time.'),{statusCode:400});
+  return raw;
+}
+export function supportsScheduleClock(receiver,clock='BROKER_CLOCK') {
+  if(!receiver?.live||![1,2].includes(receiver.scheduleVersion))return false;
+  if(clock==='BROKER_CLOCK')return true;
+  return clock==='EASTERN'&&receiver.scheduleVersion===2&&[0,1,2,3].includes(receiver.scheduleClockMode);
+}
 export function normalizeWeeklyMasks(raw) {
   if(!Array.isArray(raw)||raw.length!==7)throw Object.assign(new Error('Provide seven broker-time day masks.'),{statusCode:400});
   return Array.from(raw,(value,index)=>{
@@ -8,7 +17,8 @@ export function normalizeWeeklyMasks(raw) {
     return mask;
   });
 }
-export function buildWeeklyScheduleGlobals({symbol,magicNumber,masks}={}) {
+export function buildWeeklyScheduleGlobals({symbol,magicNumber,masks,clock='BROKER_CLOCK'}={}) {
+  const commitMode=normalizeScheduleClock(clock)==='EASTERN'?3:1;
   const clean=String(symbol||'').trim(),magic=typeof magicNumber==='number'||(typeof magicNumber==='string'&&/^\d+$/.test(magicNumber))?Number(magicNumber):NaN;
   if(!/^[A-Za-z0-9._-]{3,30}$/.test(clean)||!Number.isSafeInteger(magic)||magic<=0)throw Object.assign(new Error('Exact EA symbol and magic required for scheduling.'),{statusCode:409});
   const hours=normalizeWeeklyMasks(masks),prefix='CEM.WISDO.__ACCOUNT__.'+clean+'.'+magic+'.';
@@ -16,5 +26,5 @@ export function buildWeeklyScheduleGlobals({symbol,magicNumber,masks}={}) {
   // Reporter writes each Global Variable in array order. If interrupted, mode 2 remains blocked.
   return [{name:prefix+'ScheduleEnabled',value:2},
     ...hours.map((value,day)=>({name:prefix+'ScheduleDay'+day,value})),
-    {name:prefix+'ScheduleEnabled',value:1}];
+    {name:prefix+'ScheduleEnabled',value:commitMode}];
 }

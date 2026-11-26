@@ -2788,14 +2788,21 @@ bool HT6WeeklyEntryAllowed(datetime now)
    if(!GlobalVariableCheck(enabledKey))return true; // no website override
    double mode=GlobalVariableGet(enabledKey);
    if(mode==0.0)return true; // explicit disabled schedule
-   if(mode!=1.0)return false; // mode 2=atomic update in progress, fail CLOSED
-   int brokerDay=TimeDayOfWeek(now); // Sunday 0, Monday 1, ... Saturday 6
-   string dayKey=prefix+"ScheduleDay"+IntegerToString(brokerDay);
-   if(!GlobalVariableCheck(dayKey))return false;
-   double mask=GlobalVariableGet(dayKey);
-   if(mask<0.0 || mask>16777215.0 || mask!=MathFloor(mask))return false;
-   int brokerHour=TimeHour(now);
-   return MathMod(MathFloor(mask/MathPow(2.0,brokerHour)),2.0)>=1.0;
+   if(mode!=1.0 && mode!=3.0)return false; // mode 2=atomic update in progress, fail CLOSED
+   datetime clock=mode==3.0?HT6EasternClock(TimeGMT()):now;
+   if(clock<=0)return false;
+   int selectedDay=TimeDayOfWeek(clock);
+   double mask=0.0;
+   // A corrupt or incomplete week must not silently authorize any entries.
+   for(int day=0;day<7;day++)
+   {
+      string dayKey=prefix+"ScheduleDay"+IntegerToString(day);
+      if(!GlobalVariableCheck(dayKey))return false;
+      double dayMask=GlobalVariableGet(dayKey);
+      if(!MathIsValidNumber(dayMask) || dayMask<0.0 || dayMask>16777215.0 || dayMask!=MathFloor(dayMask))return false;
+      if(day==selectedDay)mask=dayMask;
+   }
+   return MathMod(MathFloor(mask/MathPow(2.0,TimeHour(clock))),2.0)>=1.0;
 }
 
 // US Eastern DST rules (2007 onward). TimeGMT uses the terminal host clock.
@@ -2810,14 +2817,19 @@ datetime HT6EasternTransitionUtc(int year,int month,int occurrence,int utcHour)
    parts.day=day;
    return StructToTime(parts);
 }
-bool HT6EasternCustomWindowAllows(datetime utc)
+datetime HT6EasternClock(datetime utc)
 {
-   if(IsTesting() || utc<=0 || TimeYear(utc)<2007) return false;
+   if(IsTesting() || IsOptimization() || utc<=0 || TimeYear(utc)<2007) return 0;
    int year=TimeYear(utc);
    datetime spring=HT6EasternTransitionUtc(year,3,2,7);
    datetime fall=HT6EasternTransitionUtc(year,11,1,6);
-   if(spring<=0 || fall<=spring) return false;
-   datetime eastern=utc-((utc>=spring && utc<fall)?4:5)*3600;
+   if(spring<=0 || fall<=spring) return 0;
+   return utc-((utc>=spring && utc<fall)?4:5)*3600;
+}
+bool HT6EasternCustomWindowAllows(datetime utc)
+{
+   datetime eastern=HT6EasternClock(utc);
+   if(eastern<=0)return false;
    int day=TimeDayOfWeek(eastern),hour=TimeHour(eastern);
    if(DirectEasternWeekdaysOnly && (day==0 || day==6)) return false;
    if(DirectWindow1StartHour<0 || DirectWindow1StartHour>23 ||

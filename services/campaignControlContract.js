@@ -57,8 +57,9 @@ export function normalizeCampaignControl(value) {
     behaviorEnabled:bool(value.behaviorEnabled),behaviorActive:bool(value.behaviorActive),behaviorPaused:bool(value.behaviorPaused),
     behaviorWave:Math.max(0,Math.trunc(num(value.behaviorWave,0))),behaviorWaveCount:Math.max(0,Math.trunc(num(value.behaviorWaveCount,0))),
     behaviorFilled:Math.max(0,Math.trunc(num(value.behaviorFilled,0))),behaviorWaveFilled:Math.max(0,Math.trunc(num(value.behaviorWaveFilled,0))),behaviorLastPrice:num(value.behaviorLastPrice,0),
+    scheduleClockMode:[0,1,2,3].includes(value.scheduleClockMode)?value.scheduleClockMode:null,
     scheduleActive:bool(value.scheduleActive),scheduleAllowed:bool(value.scheduleAllowed),
-    scheduleDays:(Array.isArray(value.scheduleDays)?value.scheduleDays:[]).slice(0,7).map(n=>Math.max(0,Math.min(0xFFFFFF,Math.trunc(num(n,0))))),
+    scheduleDays:Array.isArray(value.scheduleDays)&&value.scheduleDays.length===7&&value.scheduleDays.every(n=>Number.isSafeInteger(n)&&n>=0&&n<=0xFFFFFF)?value.scheduleDays.slice():[],
     rail: num(value.rail), goal: num(value.goal), paused: value.paused === true,
     remainingSeconds: Math.max(0, num(value.remainingSeconds)), banked: num(value.banked),
     progress: {

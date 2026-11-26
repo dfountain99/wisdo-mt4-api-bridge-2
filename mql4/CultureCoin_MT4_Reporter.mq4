@@ -2058,6 +2058,7 @@ bool ExecuteChronosWeeklySchedule(string commandJson, string &message)
    int pos=0, count=0;
    string obj="";
    double masks[7];
+   double commitMode=0;
    while(JsonNextObject(body,pos,obj))
    {
       string key=CemReplaceAccountToken(JsonGetString(obj,"name",""));
@@ -2069,11 +2070,25 @@ bool ExecuteChronosWeeklySchedule(string commandJson, string &message)
          {message="Invalid CHRONOS day mask or target.";return false;}
          masks[count-1]=value;
       }
-      if(count==8 && (key!=enabled || value!=1)) {message="Invalid CHRONOS commit marker.";return false;}
+      if(count==8)
+      {
+         if(key!=enabled || (value!=1 && value!=3)) {message="Invalid CHRONOS commit marker.";return false;}
+         commitMode=value;
+      }
       if(count>8) {message="Unexpected CHRONOS schedule item.";return false;}
       count++;
    }
    if(count!=9) {message="Incomplete CHRONOS week; no update applied.";return false;}
+   // Mode 3 is Eastern time; do not send it to a v1 EA that interprets broker time only.
+   if(commitMode==3)
+   {
+      string receiver=WcoPrefix(CampaignControlSymbol,CampaignControlMagic);
+      double age=(double)TimeLocal()-WcoRead(receiver,"heartbeat");
+      if(WcoRead(receiver,"version")!=1 || WcoRead(receiver,"scheduleVersion")!=2 ||
+         WcoRead(receiver,"enabled")!=1 || age<0 || age>30 ||
+         (int)WcoRead(receiver,"revision")%2!=0)
+      {message="Eastern schedule requires a fresh version 2 Hightower receiver.";return false;}
+   }
    string detail="";
    if(!CemApplyOneGlobal(enabled,2,detail)) {message=detail;return false;}
    GlobalVariablesFlush();
@@ -2084,7 +2099,8 @@ bool ExecuteChronosWeeklySchedule(string commandJson, string &message)
       {message="CHRONOS remains blocked; failed day "+IntegerToString(day)+": "+detail;return false;}
    }
    GlobalVariablesFlush();
-   if(!CemApplyOneGlobal(enabled,1,detail)) {message="CHRONOS commit failed: "+detail;return false;}
+   if(!CemApplyOneGlobal(enabled,commitMode,detail) || !GlobalVariableCheck(enabled) || GlobalVariableGet(enabled)!=commitMode)
+   {message="CHRONOS commit failed: "+detail;return false;}
    GlobalVariablesFlush();
    message="CHRONOS week stored for exact receiver; EA telemetry must confirm enforcement.";
    return true;

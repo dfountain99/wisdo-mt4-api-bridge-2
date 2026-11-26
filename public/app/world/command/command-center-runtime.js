@@ -406,7 +406,7 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
       chk(!!control?.live,'EA campaign heartbeat',control?.live?'Fresh EA heartbeat.':control?'Heartbeat stale or EA receiver disabled (age: '+(Number.isFinite(age)?age+' s':'unknown')+').':'No campaign receiver detected. Compile and attach matching Rewire EA in the Reporter terminal.');
       const version=Number(control?.managerOpsVersion||0);
       chk(!!control?.live&&version>=1,'Stop / trail / trim receiver',version?'Reported managerOpsVersion = '+version+'.':'No compatible manager version reported. Rewire v6.12 requires the exact account pin and RewireAllowLiveManager=true.');
-      chk(!!control?.live&&Number(control?.scheduleVersion)===1,'Weekly trading schedule','Reported scheduleVersion = '+Number(control?.scheduleVersion||0)+'. RewireEnableWeeklySchedule must be true for Rewire.');
+      chk(!!control?.live&&[1,2].includes(Number(control?.scheduleVersion)),'Weekly trading schedule','Reported scheduleVersion = '+Number(control?.scheduleVersion||0)+'. RewireEnableWeeklySchedule must be true for Rewire.');
       chk(!!control?.symbol&&Number(control?.magic)>0,'Reporter symbol + MagicNumber',control?.symbol?(control.symbol+' · magic '+(Number(control.magic)||'missing')):'Reporter CampaignControlSymbol/Magic must match one attached EA.');
       const positions=(campaign?.positions||[]).length;
       chk(positions>0,'Positions to manage',positions>0?positions+' selected campaign position(s).':'No selected open positions: stop, trail and trim have nothing to modify. Schedules can still be configured.');
@@ -447,7 +447,7 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
   });
 
   const timeEngine=createWisdoTimeEngine(q('#lmTimeHost'),{resetWindowSeconds:120});
-  const weeklyEditor=createWisdoWeeklyScheduleEditor(q('#lmWeeklyEditor'),{onApply:(slotMasks)=>arm('SET_EA_SCHEDULE',{slotMasks,campaignId:selectedCampaignId})});
+  const weeklyEditor=createWisdoWeeklyScheduleEditor(q('#lmWeeklyEditor'),{onApply:(slotMasks,scheduleClock)=>arm('SET_EA_SCHEDULE',{slotMasks,scheduleClock,campaignId:selectedCampaignId})});
   const targetTracker=createLiveTargetTracker(q('#lmTargetTracker'));
   const powerDock=mountEaPowerDock(q('#lmPowerDock'),{onCommand:async(action)=>{const receipt=await arm(action,{burstCount:1,durationSeconds:30,campaignId:selectedCampaignId});if(!receipt)throw new Error('EA or server rejected the command. Review the Live Manager status.');return receipt;}});
 
@@ -470,7 +470,19 @@ export function startCampaignCommandCenter({initialAccountId=''}={}){
       proposal=next;
       q('#lmProposalTitle').textContent=next.label||action.replaceAll('_',' ');
       q('#lmProposalScope').textContent=`${next.scope||'ACCOUNT'} · ${next.affectedCount??0} affected · hold ${(Number(next.holdRequiredMs)/1000).toFixed(1)}s`;
-      q('#lmProposalEffect').textContent=action==='WIDEN_EXISTING_STOPS'
+      const schedule=next.schedule;
+      const scheduleSummary=schedule?.masks?.map((mask,day)=>{
+        const windows=[];let start=-1;
+        for(let h=0;h<=24;h++){
+          const allowed=h<24&&Boolean(mask&(1<<h));
+          if(allowed&&start<0)start=h;
+          if(!allowed&&start>=0){windows.push(String(start).padStart(2,'0')+':00–'+String(h).padStart(2,'0')+':00');start=-1;}
+        }
+        return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][day]+': '+(windows.join(', ')||'blocked');
+      }).join(' · ');
+      q('#lmProposalEffect').textContent=action==='SET_EA_SCHEDULE'&&schedule
+        ? (schedule.clock==='EASTERN'?'Eastern time (DST automatic)':'Broker time')+' · '+schedule.symbol+' · magic '+schedule.magicNumber+' · '+scheduleSummary+'. Replaces weekly entry hours only; other gates remain active. Nothing sent yet.'
+        : action==='WIDEN_EXISTING_STOPS'
         ? `Intentional stop widening can increase maximum loss on open positions. Requested stop: ${Number(options.stopAtr).toFixed(2)} ATR.`
         : 'Nothing has been sent yet. Release early to cancel.';
       q('#lmProposal').hidden=false;
