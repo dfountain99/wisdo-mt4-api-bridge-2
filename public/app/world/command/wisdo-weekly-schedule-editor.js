@@ -26,17 +26,23 @@ export function createWisdoWeeklyScheduleEditor(host,{onApply}={}){
    apply.disabled=!armed;
    apply.title=armed?'Hold-confirm to send broker-clock schedule':cap?.reason||'EA weekly schedule receiver unavailable';
    const c=state?.campaignControl;
-   if(c?.scheduleActive&&c?.scheduleVersion===1){
+   const exactReceiver=Boolean(account&&symbol&&Number(magic)>0&&c?.live&&String(c.symbol)===String(symbol)&&Number(c.magic)===Number(magic));
+   if(exactReceiver&&c?.scheduleActive&&c?.scheduleVersion===1){
      const reported=Array.isArray(c.scheduleDays)?c.scheduleDays:[];
-     const identity=[account,symbol,magic,...reported].join('|');
-     if(reported.length===7&&lastApplied!==identity){
-       lastApplied=identity;
+     const valid=reported.length===7&&reported.every(n=>Number.isSafeInteger(n)&&n>=0&&n<=0xFFFFFF);
+     if(valid){
+       const identity=[account,symbol,magic,...reported].join('|');
        if(dirty && reported.every((mask,index)=>Number(mask)===Number(masks[index])))dirty=false;
-       if(!dirty){masks=reported.slice();paint();}
+       if(!dirty&&lastApplied!==identity){masks=reported.slice();paint();}
+       lastApplied=identity;
        badge.textContent=dirty?'UNSAVED BROKER SCHEDULE':'EA SCHEDULE REPORTED';
-       message.textContent=dirty?'Local draft differs from EA; review and apply to enforce changes.':'EA confirmed '+(c.scheduleAllowed?'current broker hour allowed.':'current broker hour blocked.');
-     }
-   }else if(cap?.available){badge.textContent='READY TO APPLY';message.textContent='Schedule receiver online. Drag allowed hours, then review and hold confirmation.';}
-   else{badge.textContent='DRAFT ONLY';message.textContent=cap?.reason||'Connect an updated EA receiver; this schedule is not enforced yet.';}
+       const gate=c.session?.entryAllowed;
+       message.textContent=dirty?'Local draft differs from EA; review and apply to enforce changes.':'EA weekly gate: '+(c.scheduleAllowed?'allowed.':'blocked.')+' Overall new entries: '+(gate===true?'allowed by current gates.':gate===false?'blocked by current gates.':'not reported.');
+     }else{lastApplied='';badge.textContent='UNVERIFIED';message.textContent='Receiver did not report a complete valid schedule.';}
+   }else{
+     lastApplied='';
+     badge.textContent=armed&&exactReceiver?'READY TO APPLY':'DRAFT ONLY';
+     message.textContent=armed&&exactReceiver?'Schedule receiver online. Drag allowed hours, then review and hold confirmation.':cap?.reason||'Exact live EA receiver not verified; schedule enforcement is unconfirmed.';
+   }
  },destroy(){}};
 }
